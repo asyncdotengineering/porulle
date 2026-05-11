@@ -1,0 +1,108 @@
+---
+title: Analytics
+description: Query metrics, add custom analytics models, and scope data by role.
+---
+
+## Default setup
+
+Analytics works out of the box with zero configuration. The kernel instantiates a `DrizzleAnalyticsAdapter` that compiles analytics queries into SQL and runs them directly against your PostgreSQL database.
+
+On startup, the kernel registers four built-in models:
+
+| Model | What it covers |
+|-------|----------------|
+| `Orders` | Order count, revenue, status breakdown |
+| `OrderLineItems` | Per-item revenue, quantity, product breakdown |
+| `Customers` | Customer count, new vs returning |
+| `Inventory` | Stock levels, reservation status |
+
+If the marketplace plugin is installed, three additional models are registered automatically: `VendorOrders`, `VendorBalance`, `VendorReviews`.
+
+For the complete list of measures, dimensions, segments, and filter operators, see the [Analytics Reference](/reference/analytics/).
+
+## Query analytics
+
+Use the `analytics.query` service method from a hook, custom route, or script:
+
+```typescript
+import { buildAnalyticsScope } from "@porulle/core";
+
+const scope = buildAnalyticsScope(actor);
+const result = await kernel.analytics.query(
+  {
+    model: "Orders",
+    measures: ["count", "revenue"],
+    dimensions: ["status"],
+    filters: [{ dimension: "createdAt", operator: "gte", value: "2026-01-01" }],
+    limit: 100,
+  },
+  scope,
+);
+```
+
+All queries run within an `AnalyticsScope` that restricts data visibility based on the caller's role. Always pass a scope — never query without one. Scopes are created exclusively through `buildAnalyticsScope`.
+
+## Add custom analytics models
+
+Plugins contribute analytics models via the `analyticsModels` manifest slot in `defineCommercePlugin`:
+
+```typescript
+import type { AnalyticsModel } from "@porulle/core";
+import { defineCommercePlugin } from "@porulle/core";
+
+const subscriptionsModel: AnalyticsModel = {
+  name: "Subscriptions",
+  title: "Subscriptions",
+  sql: "SELECT * FROM subscriptions",
+  measures: {
+    count: { type: "count", title: "Subscription Count" },
+    mrr: { type: "sum", sql: "monthly_amount", title: "Monthly Recurring Revenue" },
+  },
+  dimensions: {
+    status: { type: "string", sql: "status", title: "Status" },
+    startedAt: { type: "time", sql: "started_at", title: "Started At" },
+    customerId: { type: "string", sql: "customer_id", title: "Customer ID" },
+  },
+};
+
+export const subscriptionsPlugin = defineCommercePlugin({
+  id: "subscriptions",
+  version: "1.0.0",
+  analyticsModels: () => [subscriptionsModel],
+});
+```
+
+Models contributed this way are registered at kernel startup. They appear in `GET /api/analytics/meta` and can be queried through `GET /api/analytics/query` like any built-in model.
+
+## Scope rules
+
+Analytics queries enforce role-based scoping automatically. A customer actor can only see their own data. A vendor actor sees only their vendor's orders. An admin actor sees all data for the organization.
+
+The `buildAnalyticsScope` function reads the actor's role and organization ID and builds the appropriate filter set. Passing the wrong scope (or no scope) is a security defect — the query will return either wrong data or fail validation.
+
+## REST endpoints
+
+Query analytics via the REST API with the `analytics:read` permission:
+
+```bash
+# List available models, measures, and dimensions
+curl "http://localhost:4000/api/analytics/meta" \
+  -H "x-api-key: dev-staff-key"
+
+# Query orders by status
+curl -X POST "http://localhost:4000/api/analytics/query" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{
+    "model": "Orders",
+    "measures": ["count", "revenue"],
+    "dimensions": ["status"],
+    "limit": 50
+  }'
+```
+
+## Related
+
+- [Analytics Reference](/reference/analytics/) — all models, measures, dimensions, filter operators, and scope rules
+- [Build a Loyalty Plugin](/tutorials/build-a-plugin/) — example of contributing a plugin with hooks and routes
+- [Plugin Architecture](/concepts/plugin-architecture/) — `analyticsModels` manifest slot

@@ -1,0 +1,42 @@
+{
+  "name": "tea-avenue",
+  "version": "0.0.1",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "seed": "tsx src/scripts/seed.ts",
+    "full-day": "tsx src/scripts/full-day.ts",
+    "db:push": "DATABASE_URL=${DATABASE_URL:-postgres://localhost:5432/tea_avenue} bunx drizzle-kit push",
+    "test": "vitest run --passWithNoTests",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.3",
+    "@porulle/adapter-local-storage": "workspace:*",
+    "@porulle/adapter-postgres": "workspace:*",
+    "@porulle/core": "workspace:*",
+    "@porulle/plugin-pos": "workspace:*",
+    "@porulle/plugin-pos-restaurant": "workspace:*",
+    "@porulle/plugin-uom": "workspace:*",
+    "@porulle/plugin-procurement": "workspace:*",
+    "@porulle/plugin-warehouse": "workspace:*",
+    "@porulle/plugin-production": "workspace:*",
+    "@porulle/plugin-loyalty": "workspace:*",
+    "@porulle/plugin-notifications": "workspace:*",
+    "@porulle/plugin-scheduled-orders": "workspace:*",
+    "@porulle/plugin-reviews": "workspace:*",
+    "@porulle/plugin-wishlist": "workspace:*",
+    "hono": "^4.12.5"
+  },
+  "devDependencies": {
+    "@porulle/typescript-config": "*",
+    "@types/node": "^24.5.2",
+    "drizzle-kit": "^0.31.4",
+    "tsx": "^4.21.0",
+    "typescript": "5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

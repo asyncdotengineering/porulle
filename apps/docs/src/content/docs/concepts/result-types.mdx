@@ -1,0 +1,107 @@
+---
+title: Result Types
+description: Why Porulle uses Result<T> instead of thrown exceptions, and where the trade-offs land.
+---
+
+Every service method and adapter in Porulle returns `Result<T>` instead of throwing exceptions. This is a deliberate choice with real trade-offs.
+
+## The type
+
+```ts
+type Result<T, E = CommerceError> =
+  | { ok: true; value: T; meta?: Record<string, unknown> }
+  | { ok: false; error: E };
+```
+
+Two constructors make it ergonomic:
+
+```ts
+Ok(product)                                             // { ok: true, value: product }
+Err({ code: "NOT_FOUND", message: "Product not found" }) // { ok: false, error: ... }
+```
+
+The `ok` field is a discriminant. TypeScript narrows the type after a check: if `result.ok` is `true`, `result.value` is available; if `false`, `result.error` is available. No casting required.
+
+## Why not throw
+
+**Exceptions are invisible in the type system.** A function signature `getProduct(id: string): Promise<Product>` says nothing about what happens when the product does not exist. Does it throw? Return `null`? Return `undefined`? You have to read the implementation to find out.
+
+`getProduct(id: string): Promise<Result<Product>>` is explicit. The caller knows the operation might fail, what the failure looks like, and is forced to handle both cases.
+
+**Exceptions are easy to forget.** A `try/catch` is opt-in. Forgotten, the exception propagates up the call stack until something catches it or the process crashes. In a multi-layer architecture (route → service → repository → adapter), an uncaught adapter exception surfaces as a generic 500 with no useful context.
+
+`Result<T>` forces inspection of `result.ok` before accessing the value. You can still ignore the error — write `result.value!` with a non-null assertion — but that is a conscious choice, not an oversight.
+
+**Exceptions do not compose well.** Consider a checkout that calls five services: pricing, inventory, promotions, tax, and payments. With exceptions, each call needs its own `try/catch` to handle failures differently. With results:
+
+```ts
+const price = await pricing.resolve(params);
+if (!price.ok) return Err(price.error);
+
+const stock = await inventory.getAvailable(entityId);
+if (!stock.ok) return Err(stock.error);
+```
+
+More verbose, but the control flow is visible. No hidden jumps. You can read top-to-bottom and understand every path.
+
+## CommerceError
+
+The error type is structured, not a bare string:
+
+```ts
+interface CommerceError {
+  code: string;
+  message: string;
+  details?: unknown;
+}
+```
+
+Concrete error classes map to HTTP status codes at the REST boundary:
+
+| Class | Code | HTTP Status |
+|-------|------|-------------|
+| `CommerceNotFoundError` | `NOT_FOUND` | 404 |
+| `CommerceValidationError` | `VALIDATION_FAILED` | 422 |
+| `CommerceForbiddenError` | `FORBIDDEN` | 403 |
+| `CommerceConflictError` | `CONFLICT` | 409 |
+| `CommerceInvalidTransitionError` | `INVALID_TRANSITION` | 422 |
+
+Services do not know about HTTP. `mapErrorToStatus` in `packages/core/src/interfaces/rest/error.ts` handles the translation. A different interface (CLI, RPC, MCP layer) can map the same error differently.
+
+## Adapters return Results too
+
+Payment adapter `createPaymentIntent` returns `Promise<Result<PaymentIntent>>`, not `Promise<PaymentIntent>`. A Stripe network timeout is `{ ok: false, error: { code: "PAYMENT_FAILED", message: "..." } }`, not an uncaught rejection.
+
+Payment declines, tax service outages, and storage timeouts are normal operational events, not exceptional conditions. Treating them as return values makes calling code explicit about degraded states.
+
+## The honest cost: verbosity
+
+```ts
+// With exceptions — concise but opaque
+const product = await catalog.getById(id);
+const price = await pricing.resolve({ entityId: product.id });
+
+// With Result<T> — verbose but explicit
+const productResult = await catalog.getById(id);
+if (!productResult.ok) return Err(productResult.error);
+const product = productResult.value;
+
+const priceResult = await pricing.resolve({ entityId: product.id });
+if (!priceResult.ok) return Err(priceResult.error);
+const price = priceResult.value;
+```
+
+The Result version is twice as many lines. This is the cost of making error handling explicit. In practice it is manageable because most service methods have a small number of fallible calls, the pattern is consistent, and the error handling is local — you see it right where the call happens.
+
+## Where exceptions are still used
+
+`Result<T>` is the convention for services and adapters, but exceptions are not gone entirely.
+
+**Before hooks** throw `CommerceValidationError` to abort the pipeline. This is a control-flow mechanism: throwing inside a transactional pipeline triggers a rollback. The checkout route wraps the before-hook pipeline in a `try/catch` and converts the exception to an error response.
+
+**Unexpected errors** (null pointer dereferences, type errors) are not wrapped in `Result<T>`. They propagate as exceptions and are caught by a top-level error handler that returns a 500. `Result<T>` is for expected, domain-level failures. An exception means something unexpected happened. This boundary matters: `Result<T>` means "this operation can fail in known ways." Keeping it clear prevents the pattern from degenerating into wrapping every possible failure.
+
+## Related
+
+- [Adapter Interfaces](/reference/adapters/) — type definitions for `Result<T>` and all adapter interfaces
+- [Build a Payment Adapter](/extending/payment-adapter/) — uses `Result<T>` throughout the adapter interface

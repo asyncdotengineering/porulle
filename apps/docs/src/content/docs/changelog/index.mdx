@@ -1,0 +1,81 @@
+---
+title: Changelog
+description: Release history for Porulle.
+---
+
+## v0.1.0 — Alpha (2025-05-11)
+
+Initial public release.
+
+### Core
+
+- **Kernel**: `createKernel` / `createServer` factory with modular service container
+- **Catalog**: `sellable_entities` unified entity model — products, digital downloads, services, courses, gift cards, and custom types driven by configuration
+- **Inventory**: Per-warehouse stock tracking with optimistic locking (`version` column), movement ledger, and automatic reservation at checkout
+- **Cart**: Session-based carts with price snapshot on add, promotion application, and merge on sign-in
+- **Checkout**: Compensation-based pipeline — validate → reserve → price → tax → payment intent → order. Full rollback on failure.
+- **Orders**: State machine (`pending → confirmed → processing → fulfilled/partially_fulfilled → refunded`), fulfillment records (physical, digital download, service), and status history
+- **Pricing**: Time-bounded, quantity-tiered, customer-group prices; multiple currencies; modifier support
+- **Promotions**: Six promotion types — `percentage_off_order`, `fixed_off_order`, `percentage_off_item`, `fixed_off_item`, `free_shipping`, `buy_x_get_y`; usage limits; stackability rules
+- **Search**: `SearchAdapter` interface; built-in Meilisearch and PostgreSQL full-text implementations
+- **Analytics**: Semantic query compiler with built-in models for orders, line items, inventory, and customers; role-scoped query execution
+- **Job queue**: Durable `commerce_jobs` table with three runner strategies (cron endpoint, in-process polling, custom worker); exponential backoff; concurrency keys
+- **Webhooks**: HMAC-SHA256-signed delivery for 14 event types; retry with exponential backoff; delivery audit in `webhook_deliveries`
+- **Audit log**: Append-only `commerce_audit_log` for all commerce events with actor tracking
+
+### Plugin system
+
+- **`defineCommercePlugin`**: Config transform pattern — schema, hooks, routes, permissions, analytics models
+- **`@porulle/db`**: `defineTable`, `column` namespace with auto-injected `id`, `organizationId`, `createdAt`, `updatedAt`
+- **`router()` builder**: Fluent route registration with `.auth()`, `.permission()`, `.input()`, OpenAPI auto-documentation
+- **`createPluginTestApp`**: In-memory PGlite environment for plugin route testing
+
+### Official plugins
+
+| Plugin | Status |
+|--------|--------|
+| `@porulle/plugin-marketplace` | Alpha |
+| `@porulle/plugin-pos` | Alpha |
+| `@porulle/plugin-pos-restaurant` | Alpha |
+| `@porulle/plugin-uom` | Alpha |
+| `@porulle/plugin-procurement` | Alpha |
+| `@porulle/plugin-warehouse` | Alpha |
+| `@porulle/plugin-production` | Alpha |
+| `@porulle/plugin-notifications` | Alpha |
+| `@porulle/plugin-scheduled-orders` | Alpha |
+| `@porulle/plugin-reviews` | Alpha |
+| `@porulle/plugin-appointments` | Alpha |
+| `@porulle/plugin-gift-cards` | Alpha |
+
+### Adapters
+
+| Adapter | Package |
+|---------|---------|
+| PostgreSQL (Drizzle) | `@porulle/adapter-postgres` |
+| AWS S3 | `@porulle/adapter-s3` |
+| Cloudflare R2 | `@porulle/adapter-r2` |
+| Local filesystem | `@porulle/adapter-local-storage` |
+| Stripe | `@porulle/adapter-stripe` |
+| Resend | `@porulle/adapter-resend` |
+| AWS SES v2 | `@porulle/adapter-ses` |
+| Meilisearch | `@porulle/adapter-meilisearch` |
+| PostgreSQL full-text search | `@porulle/adapter-pg-search` |
+| TaxJar | `@porulle/adapter-taxjar` |
+| Manual / flat-rate tax | `@porulle/adapter-tax-manual` |
+
+### Authentication
+
+- Better Auth integration with email/password, social login, and organization plugin
+- Three-layer identity: auth identity (Better Auth), org membership, commerce profile (customer / vendor / staff)
+- Scoped API keys: `catalog:read`, `orders:*`, `*:*`, and custom scopes per plugin
+- Session-based customer portal (`/api/me`) with per-customer data isolation
+
+### Breaking changes
+
+None — this is the initial release.
+
+### Known limitations
+
+- Alpha: schema migrations are additive-only; no automated migration diffing for breaking column changes yet
+- `@porulle/plugin-pos-restaurant` and `@porulle/plugin-production` APIs are subject to change before stable
+- Analytics custom model joins are not yet supported (single-table models only)

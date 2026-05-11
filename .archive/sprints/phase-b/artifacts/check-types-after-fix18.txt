@@ -1,0 +1,96 @@
+$ turbo run check-types
+• turbo 2.9.12
+
+   • Packages in scope: @repo/eslint-config, @repo/typescript-config, @repo/ui, @unifiedcommerce/adapter-local-storage, @unifiedcommerce/adapter-meilisearch, @unifiedcommerce/adapter-pg-search, @unifiedcommerce/adapter-postgres, @unifiedcommerce/adapter-r2, @unifiedcommerce/adapter-resend, @unifiedcommerce/adapter-s3, @unifiedcommerce/adapter-ses, @unifiedcommerce/adapter-stripe, @unifiedcommerce/adapter-tax-manual, @unifiedcommerce/adapter-taxjar, @unifiedcommerce/cli, @unifiedcommerce/core, @unifiedcommerce/db, @unifiedcommerce/fashion-starter, @unifiedcommerce/import-flat, @unifiedcommerce/import-shopify, @unifiedcommerce/import-woocommerce, @unifiedcommerce/plugin-appointments, @unifiedcommerce/plugin-giftcards, @unifiedcommerce/plugin-loyalty, @unifiedcommerce/plugin-marketplace, @unifiedcommerce/plugin-notifications, @unifiedcommerce/plugin-pos, @unifiedcommerce/plugin-pos-restaurant, @unifiedcommerce/plugin-procurement, @unifiedcommerce/plugin-production, @unifiedcommerce/plugin-reviews, @unifiedcommerce/plugin-scheduled-orders, @unifiedcommerce/plugin-uom, @unifiedcommerce/plugin-warehouse, @unifiedcommerce/plugin-wishlist, @unifiedcommerce/sdk, docs, restaurant-example, saas-example, store-example, tea-avenue, web
+   • Running check-types in 42 packages
+   • Remote caching disabled
+
+@unifiedcommerce/sdk:check-types: cache miss, executing cc26df09ed6cdf1f
+@repo/ui:check-types: cache miss, executing 929d88670a050ed2
+@unifiedcommerce/adapter-resend:check-types: cache miss, executing 6e67d539214ce51a
+@unifiedcommerce/adapter-ses:check-types: cache miss, executing 44acadd3e9bcdffa
+@unifiedcommerce/core:check-types: cache miss, executing 6703dd1569c97707
+@unifiedcommerce/adapter-ses:check-types: $ tsc --noEmit
+@repo/ui:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-resend:check-types: $ tsc --noEmit
+@unifiedcommerce/sdk:check-types: $ tsc --noEmit
+@unifiedcommerce/core:check-types: $ bun run generate:plugins && bun run check:store-guard && tsc --noEmit
+@unifiedcommerce/core:check-types: $ node ./scripts/generate-plugin-types.mjs
+@unifiedcommerce/core:check-types: $ node ./scripts/check-store-guard.mjs
+docs:check-types: cache miss, executing 491dbc74a347d212
+web:check-types: cache miss, executing 3fba84f7a79c868b
+web:check-types: $ next typegen && tsc --noEmit
+docs:check-types: $ next typegen && tsc --noEmit
+web:check-types: Generating route types...
+docs:check-types: Generating route types...
+web:check-types: ✓ Types generated successfully
+docs:check-types: ✓ Types generated successfully
+@unifiedcommerce/plugin-production:check-types: cache miss, executing c5629aef30c5cb87
+@unifiedcommerce/adapter-taxjar:check-types: cache miss, executing 6d8de47f3a1b8730
+@unifiedcommerce/import-flat:check-types: cache miss, executing 3a96fa9017961ea8
+@unifiedcommerce/adapter-s3:check-types: cache miss, executing 6f3e6d2e6ce93dd5
+@unifiedcommerce/plugin-procurement:check-types: cache miss, executing 62692d3645bd978a
+@unifiedcommerce/plugin-scheduled-orders:check-types: cache miss, executing 5e2ba3ecbe8088a6
+@unifiedcommerce/adapter-postgres:check-types: cache miss, executing 41b9b1960b4464a6
+@unifiedcommerce/plugin-warehouse:check-types: cache miss, executing 5dc89a7ba67aa1bb
+@unifiedcommerce/plugin-notifications:check-types: cache miss, executing 4a93993b6cbcde52
+@unifiedcommerce/plugin-uom:check-types: cache miss, executing 49e767a8801a2dbf
+@unifiedcommerce/adapter-s3:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-production:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-taxjar:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-postgres:check-types: $ tsc --noEmit
+@unifiedcommerce/import-flat:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-scheduled-orders:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-procurement:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-warehouse:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-notifications:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-uom:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-reviews:check-types: cache miss, executing 0825d9cb3a386161
+@unifiedcommerce/plugin-reviews:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-stripe:check-types: cache miss, executing f2501909b78c1fa6
+@unifiedcommerce/adapter-stripe:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-wishlist:check-types: cache miss, executing 086f6ec955bdb152
+@unifiedcommerce/plugin-wishlist:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-local-storage:check-types: cache miss, executing 544dda1835a659c1
+@unifiedcommerce/adapter-local-storage:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-tax-manual:check-types: cache miss, executing 2eab1529f68f53a0
+@unifiedcommerce/adapter-tax-manual:check-types: $ tsc --noEmit
+@unifiedcommerce/import-woocommerce:check-types: cache miss, executing 4ca26b0be43df6e2
+@unifiedcommerce/import-woocommerce:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-marketplace:check-types: cache miss, executing 0befd7c98cc2d884
+@unifiedcommerce/plugin-marketplace:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-pg-search:check-types: cache miss, executing 341c50dcf8d8d22e
+@unifiedcommerce/adapter-pg-search:check-types: $ tsc --noEmit
+@unifiedcommerce/db:check-types: cache miss, executing a2d40911516795ee
+@unifiedcommerce/db:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-giftcards:check-types: cache miss, executing cccb201f16b0310a
+@unifiedcommerce/plugin-giftcards:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-r2:check-types: cache miss, executing 30f5ee5eabd12157
+@unifiedcommerce/adapter-r2:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-appointments:check-types: cache miss, executing e909d3fd26f6049b
+@unifiedcommerce/plugin-appointments:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-loyalty:check-types: cache miss, executing 4e377e3d1b920d57
+@unifiedcommerce/plugin-loyalty:check-types: $ tsc --noEmit
+@unifiedcommerce/import-shopify:check-types: cache miss, executing a55ae5a5a18ba606
+@unifiedcommerce/import-shopify:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-meilisearch:check-types: cache miss, executing f632c8e35e053427
+@unifiedcommerce/adapter-meilisearch:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-pos:check-types: cache miss, executing 0f8f584e5e576ec7
+@unifiedcommerce/plugin-pos:check-types: $ tsc --noEmit
+@unifiedcommerce/cli:check-types: cache miss, executing 4a891cb380362159
+@unifiedcommerce/cli:check-types: $ tsc --noEmit
+store-example:check-types: cache miss, executing 26110926512403fb
+store-example:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-pos-restaurant:check-types: cache miss, executing 121d8c6f460c8ff0
+@unifiedcommerce/plugin-pos-restaurant:check-types: $ tsc --noEmit
+store-example:check-types: test/e2e-full-flow.test.ts(68,23): error TS2307: Cannot find module 'drizzle-orm/postgres-js' or its corresponding type declarations.
+store-example:check-types: test/e2e-full-flow.test.ts(538,42): error TS7006: Parameter 'h' implicitly has an 'any' type.
+store-example:check-types: test/e2e-full-flow.test.ts(750,34): error TS7006: Parameter 't' implicitly has an 'any' type.
+ ERROR  store-example#check-types: command (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/apps/store-example) /Users/mithushancj/.bun/bin/bun run check-types exited (2)
+
+ Tasks:    34 successful, 36 total
+Cached:    0 cached, 36 total
+  Time:    33.003s 
+Failed:    store-example#check-types
+
+ ERROR  run failed: command  exited (2)

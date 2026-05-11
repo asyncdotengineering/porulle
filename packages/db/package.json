@@ -1,0 +1,50 @@
+{
+  "name": "@porulle/db",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "types": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "backfill-order-seq": "bun run ./scripts/backfill-order-seq.ts",
+    "backfill-inventory-org-id": "bun run ./scripts/backfill-inventory-org-id.ts",
+    "build": "rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@porulle/core": "workspace:*",
+    "drizzle-orm": "^0.45.1",
+    "postgres": "^3.4.7"
+  },
+  "devDependencies": {
+    "@porulle/typescript-config": "*",
+    "@types/node": "^24.5.2",
+    "typescript": "5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md"
+  ],
+  "description": "The database surface plugins use instead of importing Drizzle directly.",
+  "homepage": "https://porulle-docs.vercel.app",
+  "bugs": {
+    "url": "https://github.com/asyncdotengineering/porulle/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/asyncdotengineering/porulle.git",
+    "directory": "packages/db"
+  },
+  "author": "Porulle contributors"
+}

@@ -1,0 +1,118 @@
+---
+title: The Thesis
+description: Why Porulle exists — the question we set out to answer, the principles that fell out of the answer, and what we refused to build.
+---
+
+import { Aside, LinkCard } from "@astrojs/starlight/components";
+
+> *Porul* (பொருள்) is the Tamil word for thing, substance, merchandise, and meaning. The framework is named for the fourth reading.
+
+Porulle started with a single question.
+
+> **What if everything you sell — physical goods, digital goods, services, appointments, subscriptions, internal assets — shared the same transactional kernel?**
+
+Not the same storefront. Not the same checkout button. The same *kernel* — one catalog model, one cart, one order lifecycle, one inventory primitive, one permission system, one audit log. Different surfaces on top, one kernel underneath.
+
+The commerce tooling that existed in early 2026 could not answer that question. Shopify is excellent at DTC storefronts and fights you the moment you try to use it as an internal inventory tool. Several open-source alternatives are composable but carry strong opinions about long-running servers and event-driven architectures that scatter behavior across subscriber files you can never find. Saleor gives you GraphQL but locks you into a Python/Django world. CommerceJS and BigCommerce are SaaS-first — vendor lock-in is the default posture, not the exception.
+
+None of these were *designed* to answer the unified-kernel question. They were designed for storefronts, and everything else came after.
+
+We wanted the answer.
+
+---
+
+## The problem with the answer
+
+Once you commit to "one kernel, every sellable thing," a series of design problems unfold in sequence.
+
+**A product is not a service is not a subscription.** A physical t-shirt has size and color and weight and a fulfillment workflow. A consulting hour has a duration and a provider and a calendar. A SaaS subscription has a billing interval and a renewal hook and a proration calculation. The kernel must hold all of these without forcing any of them into the shape of the others.
+
+The answer is a single `sellable_entities` table with typed fields per entity type, defined in `commerce.config.ts`. The kernel does not know what a "product" is. It knows what a `sellable_entity` is, and the application developer declares the fields each type carries.
+
+**Behavior must be extensible without inheritance.** Class-based plugin systems where every plugin extends a service class create implicit hierarchies — when the base class changes, plugins break. Two class-based plugins that override the same method conflict silently. We did not want that.
+
+The answer is config transforms. A plugin is a function that takes a `CommerceConfig` and returns a modified one. Two plugins that both register a `checkout.afterCreate` hook? Both hooks run, in registration order, observably. Two plugins that both add a schema table? Both tables exist. The composition story is the same as your reducer story — no surprises.
+
+**Event buses look composable until you debug one.** "What happens after I create an order?" should be answerable by reading code, not by greping for `order.created` subscribers across 40 files registered at unknowable points during boot. Event-driven architectures in monolithic kernels are indirection without a redeeming property — silent failures, invisible execution order, two extension models living side by side.
+
+The answer is co-located lifecycle hooks. One extension primitive. Hooks declared in the config file run for application behavior. Plugin hooks merge into the same registry. There is no event bus to disappear into.
+
+**Authentication is too important to build twice.** Password hashing, session management, CSRF, OAuth, 2FA, email verification, password reset — these are well-understood problems with battle-tested solutions. Building them from scratch in a commerce engine is a security risk and a waste of engineering time.
+
+The answer is delegation: Better Auth handles identity. The kernel handles authorization (role-to-permission mapping, multi-tenant scoping, API key scopes). The two layers share a Drizzle database instance but have non-overlapping responsibilities.
+
+---
+
+## What fell out
+
+Solving these in sequence produced a set of principles. They are not aspirational. They are the constraints that made the rest of the framework possible.
+
+### Developer experience above all
+
+The framework is a tool for developers. Every API surface, every config shape, every error message, and every CLI command assumes the developer's time is the most expensive resource in the system. TypeScript types are end-to-end — from `commerce.config.ts` through the kernel into the SDK. Errors are actionable, not cryptic. Open the config file and you understand the entire system without reading any other file.
+
+### Adapter discipline
+
+Every infrastructure dependency — database, payment, storage, search, email, tax — is accessed through an interface. Vendor SDKs never leak into core. Swapping from Postgres to Neon to Supabase, or from Stripe to a new payment rail, is a config change, not a refactor. The kernel does not know what S3 is. It knows what a `StorageAdapter` is, and `@porulle/adapter-s3` is one such implementation.
+
+### Multi-tenant by default
+
+Every row is scoped to an `organizationId`. Cross-tenant queries are not a feature you opt into — they are a closed surface enforced at the repository layer. The audit log records every mutation with the acting principal, the organization, and the affected entity. If you point a fresh deployment at the wrong tenant, you cannot see the other tenant's data even if you try.
+
+### Result types, not exceptions
+
+Services return `Result<T>` — `Ok(value)` or `Err(CommerceError)`. They never throw across module boundaries. Why: error paths are part of the API contract, not a side effect. The caller decides what to do with a `DUPLICATE_SLUG` error; the kernel does not unwind a stack and hope the right handler catches it. This makes the framework safe in serverless runtimes where uncaught exceptions cost you a cold start.
+
+### One extension primitive
+
+Lifecycle hooks. Plugin manifests reduce boilerplate, but they compile to the same hook registrations. There is no separate "pipeline" abstraction. There is no event bus. There is no plugin-only API that the application config cannot also reach. One pattern, used everywhere, understood immediately.
+
+### Composition over configuration
+
+The framework ships with sensible defaults for common commerce patterns, but it never forces a pattern. Swap the pricing engine, replace the fulfillment logic, add a custom order state, extend the catalog schema. Every behavior is composable. If you can express it as a hook, a plugin, or a custom route, the kernel does not stand in your way.
+
+### Do not build what is already solved
+
+Authentication is Better Auth. Payments are Stripe (or whatever you adapt). Tax is TaxJar (or a flat-rate adapter). Search is Meilisearch or PostgreSQL FTS. Email is Resend or SES. The kernel orchestrates; it does not reinvent.
+
+---
+
+## What we refused to build
+
+Equally important to the principles is what we left out. Each of these was considered and rejected, not forgotten.
+
+**No GraphQL.** REST + an OpenAPI spec gets you a generated typed client (`@porulle/sdk`) and the entire HTTP ecosystem for free. GraphQL adds a query layer, a resolver layer, a schema-stitching story, and a "now plugins must register their resolvers in the right shape" problem. We didn't want any of it for the v0.1.0 surface.
+
+**No event bus.** Already discussed.
+
+**No service-class inheritance.** Already discussed.
+
+**No "AI as a feature."** AI is an interface, not a bolt-on. v0.1.0 ships with the agent-readable REST surface; deeper agent-native primitives (principal model rework, multi-protocol gateway, conversation layer) are explicit Phase 2 — not implicit Phase 1 promises that quietly never arrive.
+
+**No long-running background process assumptions.** Every module is capable of running inside a serverless function with a sub-50ms cold start on the critical path. Long-running deployment still works perfectly, but it is not the contract. The contract is: serverless is the primary target, anything that works there works everywhere else by definition.
+
+---
+
+## What this gets you
+
+The kernel is roughly 32 packages: a core, four adapters per concern (database, payment, storage, search, email, tax), a typed SDK, a CLI, and a set of optional plugins (POS, loyalty, gift cards, reviews, wishlists, marketplace, supply chain, restaurant POS layer, scheduled orders, appointments). They all version together via Changesets — `@porulle/core` 0.2 means every package goes to 0.2.
+
+You install what you need:
+
+```bash
+bun add @porulle/core @porulle/adapter-postgres @porulle/adapter-stripe
+```
+
+You write a `commerce.config.ts` that declares your entity types, picks your adapters, and lists your plugins. You boot it. You have a hardened REST API with multi-tenancy, audit, search, checkout, fulfillment, refunds, payouts, and an OpenAPI spec.
+
+The full original founding RFC — written before the framework had its name, before the first line of code, with sections that since changed (MCP and Cube.js were ripped out, the phased delivery is now history) — is preserved at [The Full Thesis](/concepts/full-thesis/) for readers who want the artifact in its original shape.
+
+---
+
+## Where to next
+
+<LinkCard title="The Full Thesis" href="/concepts/full-thesis/" description="The original founding RFC, dated 2026-03-08. Some sections describe plans that have since changed — preserved as historical lore." />
+
+<LinkCard title="Architecture" href="/concepts/architecture/" description="What actually shipped — kernel layers, hook pipeline, adapter discipline." />
+
+<LinkCard title="Get Started" href="/get-started/quickstart/" description="From zero to a working commerce API in five minutes." />

@@ -1,0 +1,146 @@
+---
+title: Packages
+description: Every Porulle package on npm, grouped by role — core, adapters, plugins, importers.
+---
+
+import { LinkCard, CardGrid, Badge } from "@astrojs/starlight/components";
+
+Every package below ships from this monorepo, lives under the `@porulle/*` scope on npm, and is versioned in lockstep through Changesets.
+
+```bash
+bun add @porulle/core @porulle/adapter-postgres @porulle/adapter-stripe
+```
+
+<Badge text="32 packages" variant="tip" /> &nbsp; <Badge text="v0.1.0 alpha" variant="caution" />
+
+---
+
+## Core
+
+The four packages every Porulle install touches — kernel, CLI, database, SDK.
+
+<CardGrid>
+  <LinkCard title="@porulle/core" href="https://www.npmjs.com/package/@porulle/core" description="The kernel — services, adapters, hooks, state machines, auth, runtime. Everything else composes on top of it." />
+  <LinkCard title="@porulle/cli" href="https://www.npmjs.com/package/@porulle/cli" description="Command-line tool. Scaffolds new stores, runs migrations, mints API keys, doctors broken setups." />
+  <LinkCard title="@porulle/db" href="https://www.npmjs.com/package/@porulle/db" description="The database surface plugins use instead of importing Drizzle directly." />
+  <LinkCard title="@porulle/sdk" href="https://www.npmjs.com/package/@porulle/sdk" description="Typed TypeScript client for any Porulle server. Generated from the OpenAPI spec — every endpoint type-checked at compile time." />
+</CardGrid>
+
+---
+
+## Adapters
+
+Pluggable infrastructure — pick a database, payment processor, storage backend, search engine, mailer, or tax calculator. Vendor SDKs never leak into core.
+
+### Database
+
+<CardGrid>
+  <LinkCard title="@porulle/adapter-postgres" href="https://www.npmjs.com/package/@porulle/adapter-postgres" description="The PostgreSQL DatabaseAdapter for @porulle/core. Drizzle on postgres-js. The only database backend Porulle ships today." />
+</CardGrid>
+
+### Payment
+
+<CardGrid>
+  <LinkCard title="@porulle/adapter-stripe" href="https://www.npmjs.com/package/@porulle/adapter-stripe" description="PaymentAdapter for Stripe. The reference implementation of the payment-adapter contract." />
+</CardGrid>
+
+### Storage
+
+<CardGrid>
+  <LinkCard title="@porulle/adapter-s3" href="https://www.npmjs.com/package/@porulle/adapter-s3" description="StorageAdapter for AWS S3 (or any S3-compatible bucket — DigitalOcean Spaces, MinIO, Backblaze B2)." />
+  <LinkCard title="@porulle/adapter-r2" href="https://www.npmjs.com/package/@porulle/adapter-r2" description="StorageAdapter for Cloudflare R2 on Cloudflare Workers. Receives the R2 binding directly — no AWS SDK, no credentials in env." />
+  <LinkCard title="@porulle/adapter-local-storage" href="https://www.npmjs.com/package/@porulle/adapter-local-storage" description="Filesystem StorageAdapter for development and single-node deployments. Not for production." />
+</CardGrid>
+
+### Search
+
+<CardGrid>
+  <LinkCard title="@porulle/adapter-pg-search" href="https://www.npmjs.com/package/@porulle/adapter-pg-search" description="SearchAdapter powered by PostgreSQL full-text search (tsvector + tsquery). Zero extra infrastructure." />
+  <LinkCard title="@porulle/adapter-meilisearch" href="https://www.npmjs.com/package/@porulle/adapter-meilisearch" description="SearchAdapter for Meilisearch. Indexes catalog entities and answers /api/search and /api/search/suggest queries." />
+</CardGrid>
+
+### Email
+
+<CardGrid>
+  <LinkCard title="@porulle/adapter-resend" href="https://www.npmjs.com/package/@porulle/adapter-resend" description="Transactional email via Resend. Implements the email.send callback in CommerceConfig." />
+  <LinkCard title="@porulle/adapter-ses" href="https://www.npmjs.com/package/@porulle/adapter-ses" description="Transactional email via AWS SES v2." />
+</CardGrid>
+
+### Tax
+
+<CardGrid>
+  <LinkCard title="@porulle/adapter-tax-manual" href="https://www.npmjs.com/package/@porulle/adapter-tax-manual" description="TaxAdapter that applies a single flat rate. For stores that need basic tax math without a third-party service." />
+  <LinkCard title="@porulle/adapter-taxjar" href="https://www.npmjs.com/package/@porulle/adapter-taxjar" description="TaxAdapter for TaxJar. Calculates sales tax, files transactions, and voids them on refund." />
+</CardGrid>
+
+---
+
+## Plugins
+
+Optional commerce capabilities — each one extends the kernel through hooks, routes, schema, and permission scopes. Install only what you need.
+
+### Retail and POS
+
+<CardGrid>
+  <LinkCard title="@porulle/plugin-pos" href="https://www.npmjs.com/package/@porulle/plugin-pos" description="In-store POS: terminals, shifts with cash events, transactions (sale/return/exchange), payments, barcode lookup, returns, receipts." />
+  <LinkCard title="@porulle/plugin-pos-restaurant" href="https://www.npmjs.com/package/@porulle/plugin-pos-restaurant" description="Restaurant layer on plugin-pos: tables, floor zones, modifiers, KDS, checklists, alerts, recipes (food BOM), analytics." />
+</CardGrid>
+
+### Customer engagement
+
+<CardGrid>
+  <LinkCard title="@porulle/plugin-loyalty" href="https://www.npmjs.com/package/@porulle/plugin-loyalty" description="Points, tiers, leaderboard, and redemption offers tied to customers per organization." />
+  <LinkCard title="@porulle/plugin-giftcards" href="https://www.npmjs.com/package/@porulle/plugin-giftcards" description="Stored-value gift cards with balance checks, checkout redemption, issuance from qualifying purchases, admin lifecycle." />
+  <LinkCard title="@porulle/plugin-reviews" href="https://www.npmjs.com/package/@porulle/plugin-reviews" description="Customer reviews on catalog entities with moderation, replies, and aggregate summaries." />
+  <LinkCard title="@porulle/plugin-wishlist" href="https://www.npmjs.com/package/@porulle/plugin-wishlist" description="Per-customer saved items for later purchase, with admin listing across users." />
+  <LinkCard title="@porulle/plugin-notifications" href="https://www.npmjs.com/package/@porulle/plugin-notifications" description="Templates, multi-channel send, customer preferences, notification log, print jobs. Pluggable SMS / push / print adapters." />
+  <LinkCard title="@porulle/plugin-appointments" href="https://www.npmjs.com/package/@porulle/plugin-appointments" description="Headless booking — service types, providers, availability, customer appointments with slot-based scheduling." />
+  <LinkCard title="@porulle/plugin-scheduled-orders" href="https://www.npmjs.com/package/@porulle/plugin-scheduled-orders" description="Defer order execution: schedule future placement and process due schedules in batch." />
+</CardGrid>
+
+### Multi-vendor and marketplace
+
+<CardGrid>
+  <LinkCard title="@porulle/plugin-marketplace" href="https://www.npmjs.com/package/@porulle/plugin-marketplace" description="Production-grade headless multi-vendor marketplace. Vendors, vendor catalogs, payouts, commission rules, vendor portals." />
+</CardGrid>
+
+### Supply chain and operations
+
+<CardGrid>
+  <LinkCard title="@porulle/plugin-procurement" href="https://www.npmjs.com/package/@porulle/plugin-procurement" description="Suppliers with catalog links, purchase orders through approval, goods-received notes for inbound receiving." />
+  <LinkCard title="@porulle/plugin-warehouse" href="https://www.npmjs.com/package/@porulle/plugin-warehouse" description="Inter-warehouse stock transfers with approval and dispatch/receive, wastage notes, stock reconciliations." />
+  <LinkCard title="@porulle/plugin-production" href="https://www.npmjs.com/package/@porulle/plugin-production" description="Bill of materials (BOM), cost rollup, explosion, production orders with material consumption tracking." />
+  <LinkCard title="@porulle/plugin-uom" href="https://www.npmjs.com/package/@porulle/plugin-uom" description="Units of measure, conversions between units, per-entity UOM assignments for catalog and operations." />
+</CardGrid>
+
+---
+
+## Importers
+
+One-shot tools for pulling existing catalogs into Porulle.
+
+<CardGrid>
+  <LinkCard title="@porulle/import-shopify" href="https://www.npmjs.com/package/@porulle/import-shopify" description="Import a Shopify store's catalog. Maps product / variant / option / image onto sellable_entities, variants, option_types, option_values, entity_media." />
+  <LinkCard title="@porulle/import-woocommerce" href="https://www.npmjs.com/package/@porulle/import-woocommerce" description="Import a WooCommerce store's catalog. Maps product / variation / attribute / image onto Porulle's catalog model." />
+  <LinkCard title="@porulle/import-flat" href="https://www.npmjs.com/package/@porulle/import-flat" description="Import catalog entities from a flat JSON file. The lowest-friction format — define an array of products, run porulle import, done." />
+</CardGrid>
+
+---
+
+## Versioning
+
+Every package above is published in lockstep — a Patch / Minor / Major bump on one bumps all of them. This is enforced by the [Changesets](https://github.com/changesets/changesets) `fixed` group in `.changeset/config.json`.
+
+To propose a version bump from a contributor PR:
+
+```bash
+bun run changeset
+```
+
+Pick the affected packages, the bump kind, and write a one-line summary. The `release` script handles the rest at merge time:
+
+```bash
+bun run release
+```
+
+Source is in [`packages/`](https://github.com/asyncdotengineering/porulle/tree/main/packages) on GitHub.

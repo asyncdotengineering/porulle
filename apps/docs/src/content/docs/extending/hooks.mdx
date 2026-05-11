@@ -1,0 +1,133 @@
+---
+title: Use Hooks
+description: Add custom logic before or after any commerce operation.
+---
+
+Hooks intercept operations at two points: **before** (runs inside the database transaction, can modify incoming data or abort the operation) and **after** (runs outside the transaction, receives the result, cannot modify it).
+
+For hook type signatures (`BeforeHook`, `AfterHook`), `HookContext` fields, and the complete list of available hook keys, see the [Hook System Reference](/reference/hooks/). For how checkout hooks execute in sequence and the compensation pattern, see [Hook Pipeline](/concepts/hook-pipeline/).
+
+## Register hooks
+
+### Via the global hooks map
+
+```ts title="commerce.config.ts"
+import { defineConfig } from "@porulle/core";
+import { sendOrderConfirmation } from "./src/hooks/order-confirmation.js";
+import { validateMinimumAmount } from "./src/hooks/validate-minimum.js";
+
+export default defineConfig({
+  hooks: {
+    "orders.afterCreate": [sendOrderConfirmation],
+    "checkout.beforeCreate": [validateMinimumAmount],
+  },
+  // ...
+});
+```
+
+### Via module-specific config
+
+```ts title="commerce.config.ts"
+export default defineConfig({
+  orders: {
+    hooks: {
+      afterCreate: [sendOrderConfirmation],
+      beforeStatusChange: [blockFraudulentTransitions],
+    },
+  },
+  cart: {
+    hooks: {
+      beforeAddItem: [enforceMaxQuantity],
+    },
+  },
+  checkout: {
+    hooks: {
+      beforeCreate: [validateMinimumAmount],
+    },
+  },
+});
+```
+
+### Via a plugin
+
+```ts title="src/plugins/my-plugin.ts"
+import { defineCommercePlugin } from "@porulle/core";
+
+export const myPlugin = defineCommercePlugin({
+  id: "my-plugin",
+  version: "1.0.0",
+  hooks: () => [
+    { key: "orders.afterCreate", handler: sendOrderConfirmation },
+    { key: "checkout.beforeCreate", handler: validateMinimumAmount },
+  ],
+});
+```
+
+Plugin hooks run after core hooks, in registration order.
+
+## Example: reject checkout below a minimum
+
+Before hooks run inside the database transaction. Throwing aborts the operation and rolls back the transaction.
+
+```ts title="src/hooks/validate-minimum.ts"
+import type { BeforeHook } from "@porulle/core";
+
+const MINIMUM_CENTS = 1000; // $10.00
+
+export const validateMinimumAmount: BeforeHook<unknown> = ({ data, context }) => {
+  const cart = data as { lineItems?: Array<{ quantity: number; unitPriceSnapshot: number }> };
+  const total = cart.lineItems?.reduce(
+    (sum, item) => sum + item.quantity * item.unitPriceSnapshot,
+    0,
+  ) ?? 0;
+
+  if (total < MINIMUM_CENTS) {
+    context.logger.warn("Checkout rejected: below minimum", { total, minimum: MINIMUM_CENTS });
+    throw new Error(`Order total ${total} cents is below the $10.00 minimum`);
+  }
+
+  return data;
+};
+```
+
+## Example: call an external webhook after an order is created
+
+After hooks run outside the transaction. Failures are collected in `hookErrors` on the response but do not roll back the order.
+
+```ts title="src/hooks/order-webhook.ts"
+import type { AfterHook } from "@porulle/core";
+
+const WEBHOOK_URL = process.env.ORDER_WEBHOOK_URL!;
+
+export const sendOrderWebhook: AfterHook<unknown> = async ({ result, context }) => {
+  const order = result as { id: string };
+  context.logger.info("Sending order webhook", { orderId: order.id });
+
+  await fetch(WEBHOOK_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      event: "order.created",
+      orderId: order.id,
+      requestId: context.requestId,
+      timestamp: new Date().toISOString(),
+    }),
+  });
+};
+```
+
+## What hooks can access
+
+Every hook receives a `HookContext` object:
+
+| Field | Description |
+|-------|-------------|
+| `actor` | Authenticated user or API key that initiated the operation |
+| `tx` | Database transaction (before hooks only; `null` in after hooks) |
+| `logger` | Pino logger scoped to this request |
+| `services` | Full service container (catalog, orders, inventory, etc.) |
+| `context` | Mutable `Record<string, unknown>` for passing data between hooks |
+| `requestId` | Unique ID for the current request, useful for tracing |
+| `origin` | `"rest"` or `"local"` — which interface triggered the operation |
+
+The `context` bag is how before hooks pass data to after hooks. For example, `authorizePayment` stores the payment intent ID in `context.paymentIntentId`, and `completeCheckout` reads it.

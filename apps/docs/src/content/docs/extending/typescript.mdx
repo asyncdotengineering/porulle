@@ -1,0 +1,175 @@
+---
+title: TypeScript Patterns
+description: Type-safe DB access, PluginDb, and avoiding double-casts in plugin and hook code.
+---
+
+## Use `PluginDb` for database access in plugins
+
+Plugin routes and services receive a typed Drizzle database instance. Import `PluginDb` from core — never define your own `PgDatabase` type.
+
+```ts title="src/plugins/loyalty-plugin.ts"
+import type { PluginDb } from "@porulle/core";
+
+class LoyaltyService {
+  constructor(
+    private db: PluginDb,
+    private tierThresholds: { silver: number; gold: number; platinum: number },
+  ) {}
+
+  async getPoints(orgId: string, customerId: string) {
+    return this.db
+      .select()
+      .from(loyaltyPoints)
+      .where(and(eq(loyaltyPoints.orgId, orgId), eq(loyaltyPoints.customerId, customerId)));
+  }
+}
+```
+
+In a plugin's `routes` callback, `ctx.database.db` is already typed as `PluginDb`. Use it directly:
+
+```ts
+routes: (ctx) => {
+  const db = ctx.database.db;  // typed as PluginDb — no cast needed
+  const service = new LoyaltyService(db, options.tierThresholds);
+  return buildRoutes(service, ctx);
+},
+```
+
+If you see `ctx.database.db as unknown as Db` anywhere, remove it.
+
+## Use `PluginTxFn` for transactions
+
+If your service needs transactions, accept `PluginTxFn`:
+
+```ts
+import type { PluginDb, PluginTxFn } from "@porulle/core";
+
+class GiftCardService {
+  constructor(
+    private db: PluginDb,
+    private txFn: PluginTxFn,
+  ) {}
+
+  async debitWithLock(orgId: string, code: string, amount: number) {
+    return this.txFn(async (tx) => {
+      // tx is typed as PluginDb — use it directly
+      await tx
+        .update(giftCards)
+        .set({ balance: sql`balance - ${amount}` })
+        .where(and(eq(giftCards.orgId, orgId), eq(giftCards.code, code)));
+    });
+  }
+}
+```
+
+## Two DB types — know which to use
+
+| Type | Schema | Use in |
+|------|--------|--------|
+| `DrizzleDatabase` | `PgDatabase<HKT, Schema>` — full core schema | Core repositories, kernel services |
+| `PluginDb` | `PgDatabase<HKT, Record<string, unknown>>` — opaque | Plugins, hooks, jobs |
+
+Core repositories need the concrete schema type for relational queries (`db.query.sellableEntities`). Plugins don't — they import their own table definitions and use `db.select().from(myTable)`.
+
+The single cast from `PluginDb` to `DrizzleDatabase` happens once in the kernel at boot time — not in service or plugin code.
+
+## Avoid `as unknown as`
+
+The codebase follows a rule borrowed from tRPC and oRPC: **double-casts are only permitted at third-party SDK boundaries**, never in internal type pipelines.
+
+**Permitted** (third-party boundary):
+
+```ts
+// Better Auth's return type is a generic plugin union we can't express.
+return auth as unknown as AuthInstance;
+```
+
+**Not permitted** (internal code):
+
+```ts
+// BAD — ctx.database.db is already PluginDb
+const db = ctx.database.db as unknown as Db;
+
+// GOOD — use directly
+const db = ctx.database.db;
+```
+
+If TypeScript forces a double-cast on code you own, the type design is wrong. Fix the interface, don't add a cast. When you must double-cast at a third-party boundary, add a comment identifying which upstream gap requires it.
+
+## Proxy for lazy initialization
+
+If a service isn't available at registration time (hooks register before routes), use a Proxy with `Reflect.get`:
+
+```ts
+const lazyService = new Proxy({} as GiftCardService, {
+  get(_target, prop, receiver) {
+    if (!serviceRef.current) {
+      throw new Error("Service not initialized — hooks ran before routes()");
+    }
+    return Reflect.get(serviceRef.current, prop, receiver);
+  },
+});
+```
+
+This avoids `as unknown as Record<string, unknown>` when accessing dynamic properties.
+
+## Handle Drizzle `null` vs `undefined`
+
+Drizzle returns `null` for nullable columns, never `undefined`. Use loose equality (`!= null`) to catch both:
+
+```ts
+// GOOD — catches both null and undefined
+if (variantId != null) {
+  query = query.where(eq(inventoryLevels.variantId, variantId));
+} else {
+  query = query.where(isNull(inventoryLevels.variantId));
+}
+```
+
+```ts
+// BAD — null passes this check; eq(col, null) generates `col = NULL` (always 0 rows)
+if (variantId !== undefined) {
+  query = query.where(eq(inventoryLevels.variantId, variantId));
+}
+```
+
+Never pass `null` to Drizzle's `eq()`. Use `isNull(column)` for IS NULL checks.
+
+## Type hook context
+
+When building a `HookContext`, pass structured fields instead of casting the kernel:
+
+```ts
+// GOOD — pass only the fields the function needs
+const context = createHookContext({
+  actor,
+  logger: kernel.logger,
+  services: kernel.services as ServiceContainer,
+  context: { moduleName: "checkout" },
+  origin: "rest",
+  kernel: { database: { db: kernel.database.db } },
+});
+```
+
+```ts
+// BAD — casts entire kernel through unknown
+kernel: kernel as unknown as { database: { db: PluginDb } },
+```
+
+## Run type checks
+
+```bash
+# Full project
+bun run check-types
+
+# Single package
+cd packages/core && npx tsc --noEmit
+```
+
+The type-check catches casts that are no longer necessary. If TypeScript reports "Conversion of type X to type Y may be a mistake", the types are already compatible — remove the `as unknown as` and use a direct `as` or no cast at all.
+
+## Related
+
+- [Plugin Architecture](/concepts/plugin-architecture/) — plugin type model and `defineCommercePlugin`
+- [Build a Loyalty Plugin](/tutorials/build-a-plugin/) — end-to-end plugin with typed DB access
+- [Hook System Reference](/reference/hooks/) — `HookContext`, `BeforeHook`, `AfterHook` types

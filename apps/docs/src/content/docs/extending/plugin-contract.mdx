@@ -1,0 +1,185 @@
+---
+title: Plugin Contract
+description: The rules every plugin author must follow to inherit Porulle's security guarantees.
+---
+
+
+Rules every plugin author must follow to inherit the framework's security guarantees. Violating these means your plugin is an attack surface, not an extension point.
+
+## Why this contract exists
+
+In commit `7cb06e3` the plugin-reviews service accepted `customerId` directly from the request body. Any authenticated customer could submit a review under a different customer's identity by changing one field. This is the same IDOR class that affected carts before it: if every plugin trusts body-supplied `customerId`, every plugin is a cross-customer hijack vector. The contract below codifies the fix pattern so adopters don't rebuild the same bug.
+
+## Required signature shape
+
+Every plugin service method that mutates data accepts `actor: Actor | null` as a required parameter -- not optional, not defaulted to `null`.
+
+```ts
+// Correct
+async submit(orgId: string, input: SubmitInput, actor: Actor | null): Promise<PluginResult<Review>>
+
+// Wrong -- no actor, no accountability
+async submit(orgId: string, input: SubmitInput): Promise<PluginResult<Review>>
+```
+
+Reject anonymous callers on mutations:
+
+```ts
+if (!actor?.userId) {
+  return Err("Authentication required");
+}
+```
+
+For end-user (customer) roles, resolve the customer profile UUID server-side via `customers.getByUserId(actor.userId, actor)` and use that as the `customerId`. Never trust `input.customerId` for customer-role actors.
+
+## Staff/admin override
+
+These roles are trusted to supply `customerId` via input (POS terminal, agent assist, admin panel):
+
+- `staff`
+- `admin`
+- `owner`
+- `ai_agent`
+- `service`
+
+```ts
+const staffRoles = new Set(["staff", "admin", "owner", "ai_agent", "service"]);
+const isStaff = typeof actor.role === "string" && staffRoles.has(actor.role);
+
+let resolvedCustomerId: string | null = null;
+if (isStaff) {
+  resolvedCustomerId = input.customerId ?? null;
+} else {
+  // Resolve from session -- never from input
+  const profile = await customers.getByUserId(actor.userId, actor);
+  if (!profile.ok) return Err("Customer profile not found");
+  resolvedCustomerId = profile.value.id;
+}
+```
+
+Reference: `packages/plugins/plugin-reviews/src/services/review-service.ts:41--57`.
+
+## Result contract
+
+Services never throw across module boundaries. Return `Result<T>` via `Ok` / `Err` from `@unifiedcommerce/core`.
+
+For plugin services, use `PluginResult<T>` -- the simplified `{ ok: true; value: T } | { ok: false; error: string }` form. See `packages/core/src/kernel/result.ts`.
+
+Core services use the richer `Result<T, CommerceError>` with typed error classes from `packages/core/src/kernel/errors.ts`:
+
+- `CommerceForbiddenError` -- authorization failure
+- `CommerceNotFoundError` -- resource does not exist
+- `CommerceValidationError` -- input constraint violation
+- `CommerceConflictError` -- concurrent state conflict
+- `CommerceInvalidTransitionError` -- state machine guard
+- `OrgResolutionError` -- tenant resolution failure
+
+## Org scoping
+
+Every Drizzle query on a tenant-scoped table must include `eq(table.organizationId, orgId)` in the WHERE clause. The framework resolves `orgId` via `resolveOrgId(actor)` (`packages/core/src/auth/org.ts`).
+
+Tenant-scoped tables:
+
+- `carts`, `cart_line_items`
+- `orders`, `order_line_items`, `order_status_history`
+- `customers`, `customer_addresses`, `customer_groups`, `customer_group_members`
+- `inventory_levels`, `inventory_movements`, `warehouses`
+- `prices`, `price_modifiers`
+- `promotions`, `promotion_usages`
+- `webhook_endpoints`, `processed_webhook_events`
+- `media_assets`
+- `sellable_entities`, `sellable_attributes`, `sellable_custom_fields`, `variants`, `option_types`, `option_values`
+- `categories`, `brands`
+- `commerce_audit_log`
+
+Omitting the org filter on any of these tables leaks cross-tenant data. The webhook cross-tenant bug (`webhooks/service.ts`) and the media cross-tenant bug (`media/service.ts`) were both caused by missing org filters.
+
+## Hook ordering
+
+Hooks are resolved positionally: `[...prepended, ...configured, ...appended]`. Two plugins both prepending to `orders.afterCreate` will execute in registration order. There is no `runs.before` / `runs.after` declarative ordering. Test your plugin composition, especially when multiple plugins touch the same hook.
+
+Reference: `packages/core/src/kernel/hooks/registry.ts`.
+
+## Test contract
+
+Every plugin ships at least one regression test per security-relevant code path. The minimum:
+
+- Customer-role actor cannot spoof `customerId`.
+- Anonymous callers are rejected on mutations.
+- Org isolation: a different org sees zero records.
+
+Reference: `packages/plugins/plugin-reviews/test/reviews.test.ts`, specifically the `"ignores spoofed customerId for customer-role actor"` and `"org isolation"` test cases.
+
+## Anti-patterns to avoid
+
+**Trust `input.customerId` from end-users.** Allows cross-customer identity hijack. Always resolve server-side for customer roles.
+
+**Throw across module boundaries.** Breaks the `Result<T>` contract. Callers cannot distinguish business errors from runtime crashes.
+
+**Skip the org filter on a "convenience" query.** Cross-tenant data leak. Every query on a tenant-scoped table needs the filter.
+
+**Catch and swallow errors.** Silent failures hide bugs and mask attacks. Propagate via `Err()`.
+
+**Use `as any` to bypass type errors.** The type system is a security boundary here. If the types don't line up, fix the types.
+
+## Example diff -- the plugin-reviews IDOR fix
+
+Before (vulnerable):
+
+```ts
+// review-service.ts -- BEFORE
+async submit(orgId: string, input: {
+  customerId: string;   // <-- trusted directly from request body
+  entityId: string;
+  rating: number;
+  title?: string;
+  body?: string;
+}): Promise<PluginResult<Review>> {
+  const rows = await this.db.insert(customerReviews).values({
+    organizationId: orgId,
+    customerId: input.customerId,  // <-- spoofed value persisted
+    entityId: input.entityId,
+    rating: input.rating,
+    // ...
+  }).returning();
+  return Ok(rows[0]!);
+}
+```
+
+After (fixed):
+
+```ts
+// review-service.ts -- AFTER
+async submit(orgId: string, input: {
+  customerId?: string;  // <-- optional, ignored for customer roles
+  entityId: string;
+  rating: number;
+  title?: string;
+  body?: string;
+}, actor: Actor | null): Promise<PluginResult<Review>> {  // <-- actor required
+  if (!actor?.userId) return Err("Authentication required");
+
+  const staffRoles = new Set(["staff", "admin", "owner", "ai_agent", "service"]);
+  const isStaff = typeof actor.role === "string" && staffRoles.has(actor.role);
+
+  let resolvedCustomerId: string | null = null;
+  if (isStaff) {
+    resolvedCustomerId = input.customerId ?? null;
+  } else {
+    const profile = await customers.getByUserId(actor.userId, actor);
+    if (!profile.ok) return Err("Customer profile not found");
+    resolvedCustomerId = profile.value.id;  // <-- server-side resolution
+  }
+
+  const rows = await this.db.insert(customerReviews).values({
+    organizationId: orgId,
+    customerId: resolvedCustomerId,  // <-- never from input for customers
+    entityId: input.entityId,
+    rating: input.rating,
+    // ...
+  }).returning();
+  return Ok(rows[0]!);
+}
+```
+
+This is the canonical pattern. Apply it to every plugin service method that accepts an identity field.

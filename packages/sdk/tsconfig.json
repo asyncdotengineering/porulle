@@ -1,0 +1,10 @@
+{
+  "extends": "@porulle/typescript-config/base.json",
+  "compilerOptions": {
+    "incremental": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"],
+  "exclude": []
+}

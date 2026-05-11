@@ -1,0 +1,228 @@
+---
+title: Typed SDK Client
+description: Generate types from your OpenAPI spec and make type-safe API calls from TypeScript.
+---
+
+The SDK does not ship pre-generated types. You generate types from your own server's OpenAPI spec, so the types match your exact configuration — including plugin routes.
+
+```
+Your server → GET /api/doc → openapi-typescript → src/generated/api-types.ts
+```
+
+## Install
+
+```bash
+bun add @porulle/sdk
+bun add @tanstack/react-query openapi-react-query   # for React hooks
+bun add -d openapi-typescript                        # for codegen
+```
+
+## Generate types
+
+Start your server, then run the codegen CLI:
+
+```bash
+# Default: fetches from http://localhost:4000/api/doc
+bunx @porulle/sdk generate
+
+# Custom URL
+bunx @porulle/sdk generate --url http://localhost:4000/api/doc
+
+# Custom output path
+bunx @porulle/sdk generate --output src/generated/api-types.ts
+```
+
+This produces a `paths` type covering every route — core and installed plugins. Commit the generated file and regenerate when you add plugins or change routes.
+
+## Create a typed client
+
+```typescript title="src/lib/commerce.ts"
+import { createClient } from "@porulle/sdk";
+import type { paths } from "./generated/api-types";
+
+// API key auth (server-to-server, CI, scripts)
+const client = createClient<paths>({
+  baseUrl: "http://localhost:4000",
+  auth: { type: "api_key", key: "dev-staff-key" },
+});
+
+// Bearer token auth (mobile apps, SPAs)
+const client = createClient<paths>({
+  baseUrl: "http://localhost:4000",
+  auth: { type: "bearer", token: sessionToken },
+});
+```
+
+## Make typed requests
+
+Every path, method, body, query parameter, and response is compile-time validated:
+
+```typescript
+// Catalog
+const { data } = await client.GET("/api/catalog/entities", {
+  params: { query: { type: "product", limit: "20" } },
+});
+
+// Cart
+const { data: cart } = await client.POST("/api/carts", {
+  body: { currency: "USD" },
+});
+await client.POST("/api/carts/{id}/items", {
+  params: { path: { id: cart.data.id } },
+  body: { entityId: "entity-uuid", quantity: 2 },
+});
+
+// Checkout
+const { data: order } = await client.POST("/api/checkout", {
+  body: {
+    cartId: cart.data.id,
+    paymentMethodId: "stripe",
+    currency: "USD",
+    shippingAddress: {
+      line1: "123 Main St",
+      city: "New York",
+      country: "US",
+      firstName: "Jane",
+      lastName: "Doe",
+    },
+  },
+});
+
+// Plugin routes are fully typed too
+const { data: points } = await client.GET("/api/loyalty/points/{customerId}", {
+  params: { path: { customerId: "..." } },
+});
+```
+
+If you pass a wrong field name, TypeScript reports it at compile time:
+
+```typescript
+await client.POST("/api/catalog/entities", { body: { typo: "product" } });
+//                                                    ^^^^ TS error
+```
+
+## Handle errors
+
+Every method returns `{ data, error, response }`. Only one of `data` or `error` is populated:
+
+```typescript
+const { data, error } = await client.GET("/api/catalog/entities/{idOrSlug}", {
+  params: { path: { idOrSlug: "nonexistent" } },
+});
+
+if (error) {
+  console.log(error.error.code);    // "NOT_FOUND"
+  console.log(error.error.message); // "Entity not found"
+  return;
+}
+
+// data is guaranteed non-null here
+console.log(data.data.id);
+```
+
+## React hooks
+
+```typescript title="src/lib/commerce.ts"
+import { createClient } from "@porulle/sdk";
+import { createCommerceHooks } from "@porulle/sdk/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { paths } from "./generated/api-types";
+
+const client = createClient<paths>({ baseUrl: "", auth: { type: "cookie" } });
+const commerce = createCommerceHooks(client);
+const queryClient = new QueryClient();
+
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ProductList />
+    </QueryClientProvider>
+  );
+}
+```
+
+Use `commerce.useQuery` for reads and `commerce.useMutation` for writes:
+
+```typescript
+function ProductList() {
+  const { data, isLoading } = commerce.useQuery("get", "/api/catalog/entities", {
+    params: { query: { type: "product", limit: "20" } },
+  });
+
+  if (isLoading) return <p>Loading...</p>;
+
+  return (
+    <ul>
+      {data?.data.map((product) => (
+        <li key={product.id}>{product.slug}</li>
+      ))}
+    </ul>
+  );
+}
+
+function AddToCartButton({ cartId, entityId }: { cartId: string; entityId: string }) {
+  const addItem = commerce.useMutation("post", "/api/carts/{id}/items");
+
+  return (
+    <button
+      disabled={addItem.isPending}
+      onClick={() => addItem.mutate({
+        params: { path: { id: cartId } },
+        body: { entityId, quantity: 1 },
+      })}
+    >
+      Add to Cart
+    </button>
+  );
+}
+```
+
+## Next.js in-process mount
+
+When the Hono app is mounted inside a Next.js catch-all route, use an empty `baseUrl` so SDK calls route through the same process:
+
+```typescript
+const client = createClient<paths>({ baseUrl: "", auth: { type: "cookie" } });
+```
+
+API calls from client components go to `/api/...` which Next.js routes to your Hono handler. No CORS, no proxy, no separate port.
+
+## Untyped convenience wrapper
+
+For one-off scripts where you don't need compile-time validation, `createSDK()` provides domain namespaces without codegen:
+
+```typescript
+import { createSDK } from "@porulle/sdk";
+
+const sdk = createSDK({ baseUrl: "http://localhost:4000", auth: { type: "api_key", key: "..." } });
+await sdk.catalog.list({ type: "product" });
+await sdk.cart.create({ currency: "USD" });
+```
+
+Bodies and responses are untyped. For production code, always use `createClient<paths>()` with generated types.
+
+## Regenerate types
+
+After adding, removing, or modifying routes:
+
+```bash
+bun run dev                              # start server
+bunx @porulle/sdk generate               # regenerate types
+git add src/generated/api-types.ts       # commit
+```
+
+Add a `sdk:generate` script to `package.json` to make this repeatable:
+
+```json
+{
+  "scripts": {
+    "sdk:generate": "bunx @porulle/sdk generate --url http://localhost:4000/api/doc --output src/generated/api-types.ts"
+  }
+}
+```
+
+## Related
+
+- [Next.js guide](/frontend/nextjs/) — in-process mounting and SDK setup
+- [TanStack Start guide](/frontend/tanstack-start/) — same pattern for TanStack Start
+- [REST API Reference](/reference/rest-api/) — all endpoints and response shapes

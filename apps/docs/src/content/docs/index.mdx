@@ -1,0 +1,103 @@
+---
+title: Porulle
+description: >
+  Tamil பொருள் — thing, substance, merchandise, meaning.
+  TypeScript headless commerce framework, v0.1.0 alpha.
+template: splash
+hero:
+  title: Porulle
+  tagline: >
+    Headless commerce for TypeScript. Self-host. Own the stack.
+  actions:
+    - text: Get started
+      link: /get-started/intro/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/asyncdotengineering/porulle
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+Porulle (pronounced *poh-ROO-leh*) is a TypeScript-first headless commerce framework. Install it into any TypeScript project, point it at PostgreSQL, and you have a hardened REST API in minutes.
+
+```bash
+bunx @porulle/cli init my-store
+cd my-store && bun install && bun run db:push && bun run dev
+```
+
+The API is live at `http://localhost:4000`. The OpenAPI explorer is at `/api/reference`.
+
+---
+
+<CardGrid>
+  <Card title="Get Started" icon="rocket">
+    [Introduction](/get-started/intro/) — what Porulle is and who it is for.
+
+    [Install](/get-started/install/) — prerequisites, packages, database setup.
+
+    [Quickstart](/get-started/quickstart/) — a working commerce API in five minutes.
+  </Card>
+
+  <Card title="Building a Store" icon="seti:default">
+    [Authentication](/building/authentication/) — roles, API keys, social login.
+
+    [Email Notifications](/building/email/) — order confirmations, password resets, transactional sends.
+
+    [Analytics](/building/analytics/) — SQL-backed metrics with scoped access.
+  </Card>
+
+  <Card title="Extending Porulle" icon="puzzle">
+    [Hooks](/extending/hooks/) — intercept any operation with before/after handlers.
+
+    [Custom Tables](/extending/custom-tables/) — add app-level Drizzle tables to the org-scoped schema.
+
+    [Payment Adapter](/extending/payment-adapter/) — implement the contract for any payment rail.
+  </Card>
+
+  <Card title="Frontend Integration" icon="laptop">
+    [Next.js](/frontend/nextjs/) — Hono mounted in a route handler.
+
+    [TanStack Start](/frontend/tanstack-start/) — server functions calling LocalAPI in-process.
+
+    [Typed SDK Client](/frontend/sdk/) — `@porulle/sdk` + React Query bindings.
+  </Card>
+
+  <Card title="Running in Production" icon="setting">
+    [Deploy](/production/deployment/) — Bun, Node.js, Cloudflare Workers, Fly.io.
+
+    [Multi-Tenancy](/production/multi-tenancy/) — B2C single-storefront vs B2B multi-tenant.
+
+    [Webhooks and Audit](/production/webhooks-and-audit/) — signed delivery + idempotency.
+  </Card>
+
+  <Card title="Reference" icon="list-format">
+    [Configuration](/reference/configuration/) — every `defineConfig` option.
+
+    [REST API](/reference/rest-api/) — 116 paths, 146 operations.
+
+    [Adapters](/reference/adapters/) — database, payment, storage, search.
+  </Card>
+
+  <Card title="Concepts" icon="open-book">
+    [Architecture](/concepts/architecture/) — the kernel, modules, adapters, interfaces.
+
+    [Plugin Architecture](/concepts/plugin-architecture/) — why plugins are config transforms.
+
+    [Result Types](/concepts/result-types/) — why services return Result&lt;T&gt;.
+  </Card>
+
+  <Card title="Tutorials" icon="rocket">
+    [Your First Store](/tutorials/first-store/) — products, inventory, cart, checkout end-to-end.
+
+    [Build a Loyalty Plugin](/tutorials/build-a-plugin/) — hooks, schema, routes in one plugin.
+
+    [Tea Shop POS](/tutorials/tea-shop-pos/) — terminals, shifts, split payment, Z-reports.
+  </Card>
+</CardGrid>
+
+---
+
+**Status:** v0.1.0 alpha. The REST API, multi-tenant kernel, plugin contract, and adapter contracts are stable. Agent-native primitives (principal model, multi-protocol gateway) are Phase 2. See the [Security Model](/production/security-model/) for the full threat model and Phase 2 roadmap.

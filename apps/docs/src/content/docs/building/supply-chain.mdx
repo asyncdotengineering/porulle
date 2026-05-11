@@ -1,0 +1,101 @@
+---
+title: Supply Chain
+description: Purchase orders, receiving, and warehouse management.
+---
+
+The supply chain plugin adds purchase orders (POs), goods receiving, multi-warehouse management, and supplier relationships. It extends the inventory module with inbound logistics — tracking stock from supplier to warehouse.
+
+## Install
+
+```bash
+bun add @porulle/plugin-supply-chain
+```
+
+## Register
+
+```ts title="commerce.config.ts"
+import { supplyChainPlugin } from "@porulle/plugin-supply-chain";
+
+export default defineConfig({
+  plugins: [supplyChainPlugin()],
+});
+```
+
+Update `drizzle.config.ts`:
+
+```ts title="drizzle.config.ts"
+schema: [
+  "./node_modules/@porulle/core/src/kernel/database/schema.ts",
+  "./node_modules/@porulle/core/src/auth/auth-schema.ts",
+  "./node_modules/@porulle/plugin-supply-chain/src/schema.ts",
+],
+```
+
+Push the new tables and restart:
+
+```bash
+bunx drizzle-kit push --config drizzle.config.ts
+bun run src/server.ts
+```
+
+## Core objects
+
+**Supplier** — a vendor you purchase inventory from. Has a name, contact, and lead time.
+
+**Purchase order (PO)** — an order placed with a supplier for specific quantities of entities. Moves through states: `draft → submitted → acknowledged → partially_received → received → cancelled`.
+
+**PO line item** — one line on a PO: entity, variant, quantity ordered, unit cost.
+
+**Receiving** — recording the actual quantities received against a PO. Creates inventory level adjustments when goods arrive.
+
+**Warehouse** — a location where inventory is stored. Already part of the core inventory module; the supply chain plugin ties POs to specific warehouses.
+
+## Quick reference
+
+| Operation | Endpoint |
+|-----------|----------|
+| Create supplier | `POST /api/supply-chain/suppliers` |
+| Create PO | `POST /api/supply-chain/purchase-orders` |
+| Submit PO | `POST /api/supply-chain/purchase-orders/:id/submit` |
+| Receive goods | `POST /api/supply-chain/purchase-orders/:id/receive` |
+| List POs | `GET /api/supply-chain/purchase-orders` |
+
+## Create a purchase order
+
+```bash
+curl -X POST http://localhost:4000/api/supply-chain/purchase-orders \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{
+    "supplierId": "supplier-uuid",
+    "warehouseId": "warehouse-uuid",
+    "expectedArrival": "2026-06-01",
+    "lineItems": [
+      { "entityId": "product-uuid", "variantId": null, "quantity": 100, "unitCost": 1500 }
+    ]
+  }'
+```
+
+## Receive goods
+
+When stock arrives, record the received quantities:
+
+```bash
+curl -X POST http://localhost:4000/api/supply-chain/purchase-orders/$PO_ID/receive \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{
+    "receivedItems": [
+      { "lineItemId": "line-item-uuid", "quantityReceived": 80 }
+    ],
+    "notes": "Partial shipment — remaining 20 units en route"
+  }'
+```
+
+Receiving adjusts inventory levels at the specified warehouse. If the received quantity is less than ordered, the PO status becomes `partially_received`. When all items are received, it moves to `received`.
+
+## Related
+
+- [Plugin API Reference](/reference/plugins/) — all supply chain endpoints and data types
+- [Build a Loyalty Plugin](/tutorials/build-a-plugin/) — learn how plugins extend the engine
+- [Custom Tables guide](/extending/custom-tables/) — add custom tables alongside plugin tables

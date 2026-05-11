@@ -1,0 +1,87 @@
+$ turbo run lint
+• turbo 2.9.12
+
+   • Packages in scope: @repo/eslint-config, @repo/typescript-config, @repo/ui, @unifiedcommerce/adapter-local-storage, @unifiedcommerce/adapter-meilisearch, @unifiedcommerce/adapter-pg-search, @unifiedcommerce/adapter-postgres, @unifiedcommerce/adapter-r2, @unifiedcommerce/adapter-resend, @unifiedcommerce/adapter-s3, @unifiedcommerce/adapter-ses, @unifiedcommerce/adapter-stripe, @unifiedcommerce/adapter-tax-manual, @unifiedcommerce/adapter-taxjar, @unifiedcommerce/cli, @unifiedcommerce/core, @unifiedcommerce/db, @unifiedcommerce/fashion-starter, @unifiedcommerce/import-flat, @unifiedcommerce/import-shopify, @unifiedcommerce/import-woocommerce, @unifiedcommerce/plugin-appointments, @unifiedcommerce/plugin-giftcards, @unifiedcommerce/plugin-loyalty, @unifiedcommerce/plugin-marketplace, @unifiedcommerce/plugin-notifications, @unifiedcommerce/plugin-pos, @unifiedcommerce/plugin-pos-restaurant, @unifiedcommerce/plugin-procurement, @unifiedcommerce/plugin-production, @unifiedcommerce/plugin-reviews, @unifiedcommerce/plugin-scheduled-orders, @unifiedcommerce/plugin-uom, @unifiedcommerce/plugin-warehouse, @unifiedcommerce/plugin-wishlist, @unifiedcommerce/sdk, docs, restaurant-example, saas-example, store-example, tea-avenue, web
+   • Running lint in 42 packages
+   • Remote caching disabled
+
+@unifiedcommerce/adapter-resend:lint: cache miss, executing a2eba7a0818099d8
+@repo/ui:lint: cache miss, executing b1b520f6ceaddcd2
+@unifiedcommerce/adapter-ses:lint: cache miss, executing 830c43d55132ab78
+@unifiedcommerce/core:lint: cache miss, executing 1a10d70c6f09ce52
+@unifiedcommerce/sdk:lint: cache miss, executing a9c0e1aac32b0d22
+@unifiedcommerce/core:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/adapter-resend:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/adapter-ses:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/sdk:lint: $ eslint . --max-warnings 1000
+@repo/ui:lint: $ eslint . --max-warnings 0
+@unifiedcommerce/sdk:lint: 
+@unifiedcommerce/sdk:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/sdk/src/cli.ts
+@unifiedcommerce/sdk:lint:    46:5   warning  API_URL is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/sdk:lint:    61:12  warning  'err' is defined but never used                      @typescript-eslint/no-unused-vars
+@unifiedcommerce/sdk:lint:   102:39  warning  Empty block statement                                no-empty
+@unifiedcommerce/sdk:lint: 
+@unifiedcommerce/sdk:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/sdk/src/client.ts
+@unifiedcommerce/sdk:lint:    2:15  warning  'PathsWithMethod' is defined but never used                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-unused-vars
+@unifiedcommerce/sdk:lint:    2:32  warning  'MediaType' is defined but never used                                                                                                                                                                                                                                                                                                                                                      @typescript-eslint/no-unused-vars
+@unifiedcommerce/sdk:lint:   33:45  warning  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+@unifiedcommerce/sdk:lint: - If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+@unifiedcommerce/sdk:lint: - If you want a type meaning "any object", you probably want `object` instead.
+@unifiedcommerce/sdk:lint: - If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+@unifiedcommerce/sdk:lint: 
+@unifiedcommerce/sdk:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/sdk/src/react.ts
+@unifiedcommerce/sdk:lint:   33:52  warning  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+@unifiedcommerce/sdk:lint: - If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+@unifiedcommerce/sdk:lint: - If you want a type meaning "any object", you probably want `object` instead.
+@unifiedcommerce/sdk:lint: - If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+@unifiedcommerce/sdk:lint:   40:42  warning  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+@unifiedcommerce/sdk:lint: - If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+@unifiedcommerce/sdk:lint: - If you want a type meaning "any object", you probably want `object` instead.
+@unifiedcommerce/sdk:lint: - If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+@unifiedcommerce/sdk:lint:   40:47  warning  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+@unifiedcommerce/sdk:lint: - If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+@unifiedcommerce/sdk:lint: - If you want a type meaning "any object", you probably want `object` instead.
+@unifiedcommerce/sdk:lint: - If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+@unifiedcommerce/sdk:lint: 
+@unifiedcommerce/sdk:lint: ✖ 9 problems (0 errors, 9 warnings)
+@unifiedcommerce/sdk:lint: 
+docs:lint: cache miss, executing 05c2934455443a73
+web:lint: cache miss, executing 5fc66d050328650f
+docs:lint: $ eslint --max-warnings 0
+web:lint: $ eslint --max-warnings 0
+docs:lint: 
+docs:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/apps/docs/.source/browser.ts
+docs:lint:   1:1   warning  Do not use "@ts-nocheck" because it alters compilation errors                                                                                                                                                                                                                                                                                                                              @typescript-eslint/ban-ts-comment
+docs:lint:   6:12  warning  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+docs:lint: - If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+docs:lint: - If you want a type meaning "any object", you probably want `object` instead.
+docs:lint: - If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+docs:lint: 
+docs:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/apps/docs/.source/dynamic.ts
+docs:lint:   1:1   warning  Do not use "@ts-nocheck" because it alters compilation errors                                                                                                                                                                                                                                                                                                                              @typescript-eslint/ban-ts-comment
+docs:lint:   5:7   warning  'create' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-unused-vars
+docs:lint:   6:12  warning  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+docs:lint: - If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+docs:lint: - If you want a type meaning "any object", you probably want `object` instead.
+docs:lint: - If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+docs:lint: 
+docs:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/apps/docs/.source/server.ts
+docs:lint:    1:1   warning  Do not use "@ts-nocheck" because it alters compilation errors                                                                                                                                                                                                                                                                                                                              @typescript-eslint/ban-ts-comment
+docs:lint:   63:12  warning  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+docs:lint: - If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+docs:lint: - If you want a type meaning "any object", you probably want `object` instead.
+docs:lint: - If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+docs:lint: 
+docs:lint: ✖ 7 problems (0 errors, 7 warnings)
+docs:lint: 
+docs:lint: ESLint found too many warnings (maximum: 0).
+docs:lint: error: script "lint" exited with code 1
+ ERROR  docs#lint: command (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/apps/docs) /Users/mithushancj/.bun/bin/bun run lint exited (1)
+
+ Tasks:    5 successful, 7 total
+Cached:    0 cached, 7 total
+  Time:    3.18s 
+Failed:    docs#lint
+
+ ERROR  run failed: command  exited (1)
+error: script "lint" exited with code 1

@@ -1,0 +1,121 @@
+---
+title: Plugin Architecture
+description: Why plugins are config transforms, what that enables, and where it falls short.
+---
+
+The plugin system in Porulle is intentionally simple: a plugin is a function that receives a `CommerceConfig` and returns a modified `CommerceConfig`. There are no base classes, no registration hooks, no lifecycle methods, and no dependency injection.
+
+## Plugins as config transforms
+
+When you call `defineConfig`, the engine merges your input with defaults and then applies each plugin sequentially:
+
+```ts
+for (const plugin of config.plugins ?? []) {
+  config = await plugin(config);
+}
+return Object.freeze(config);
+```
+
+Each plugin receives the full config and returns a new one. A plugin can add schema tables, register hooks, contribute REST routes, or modify any existing config property. The engine does not limit what a plugin can touch.
+
+This model is directly inspired by PayloadCMS, where the entire CMS config is a single object that plugins transform. Plugins are composable and transparent — you can read a plugin's code and see exactly what it does to the config, without tracing through registration APIs or event emitters.
+
+## Why not class-based plugins
+
+Many commerce platforms use class-based plugin systems where plugins instantiate or extend service classes, and Shopify's app extensions implement interfaces with lifecycle hooks. Porulle deliberately avoids this pattern.
+
+**No inheritance hierarchy.** Class-based plugins create an implicit hierarchy: the base class defines what can be overridden, and plugins must conform to that contract. When the base class changes, plugins break. Config transforms have no base class — a plugin is just a function.
+
+**Composability.** Two class-based plugins that override the same method conflict. Config transforms compose naturally: the second plugin sees the config that the first plugin produced. If two plugins both add hooks to `checkout.beforeCreate`, both hooks run. If two plugins both add schema tables, both tables exist.
+
+**Transparency.** A config transform is a pure function (or close to it). You can log the config before and after a plugin runs and see exactly what changed. Class-based plugins hide their effects behind method overrides and state mutations.
+
+The trade-off: plugins cannot intercept each other's behavior at a fine-grained level. Service-class plugin systems can override each other's methods at runtime; a Porulle plugin cannot. This is intentional — fine-grained overrides create brittle coupling between plugins. Hooks provide a structured way to modify behavior at well-defined points.
+
+## `defineCommercePlugin`: syntactic sugar
+
+Writing raw config transforms is flexible but verbose. `defineCommercePlugin` wraps a declarative manifest into a config transform:
+
+```ts
+import { defineCommercePlugin } from "@porulle/core";
+
+const myPlugin = defineCommercePlugin({
+  id: "my-plugin",
+  version: "1.0.0",
+  schema: () => ({ loyaltyPoints, loyaltyTransactions }),
+  hooks: () => [
+    { key: "checkout.afterCreate", handler: awardLoyaltyPoints },
+  ],
+  routes: (ctx) => [
+    { method: "GET", path: "/api/loyalty/:customerId", handler: getLoyaltyBalance },
+  ],
+});
+```
+
+Under the hood, `defineCommercePlugin` converts this manifest into a config transform that pushes schema objects into `config.customSchemas[]`, merges hook registrations into `config.hooks`, and chains route registrations onto `config.routes`.
+
+You can always write a raw config transform for more control. `defineCommercePlugin` does not add any capability that a raw transform cannot express — it reduces boilerplate for the common case. See [Plugin API Reference](/reference/plugins/) for the full manifest specification.
+
+## Schema collection
+
+Plugins contribute Drizzle table definitions via the `schema` field. These are collected into `config.customSchemas[]` during the plugin pipeline. At boot, the kernel makes them available to repositories and migrations.
+
+Plugin tables must be discoverable by `drizzle-kit`. The recommended approach is a glob pattern in `drizzle.config.ts`:
+
+```ts title="drizzle.config.ts"
+export default defineConfig({
+  dialect: "postgresql",
+  schema: [
+    "./node_modules/@porulle/core/src/kernel/database/schema.ts",
+    "./node_modules/@porulle/plugin-*/src/schema.ts",
+    "./src/plugins/*/schema.ts",  // app-level plugins
+  ],
+});
+```
+
+Table names contributed by plugins must not collide with core table names. Plugin authors should prefix their tables (e.g., `loyalty_points`, `pos_sessions`) to avoid conflicts. There is no namespacing mechanism beyond convention.
+
+## Deferred route execution
+
+Routes need access to the kernel — they call services and query the database. But during the plugin pipeline, the kernel does not exist yet. The config is still being assembled.
+
+Porulle solves this with deferred execution. Plugin routes are registered as factory functions: `(ctx: PluginContext) => PluginRouteRegistration[]`. The factory is called later, during `createServer`, when the kernel is available.
+
+This means plugin routes cannot run during the config pipeline. They receive a `PluginContext` with the final config, services, database, and logger, and they register their handlers against that context.
+
+## Hook merging
+
+Plugin hooks are merged into a flat map: `config.hooks` is a `Record<string, HookHandler[]>`. At kernel boot, `registerConfiguredHooks` reads this map and appends each handler to the `HookRegistry`. The registry supports multiple handlers per hook key, and they run in registration order.
+
+- Multiple plugins can register handlers for the same hook. They all run.
+- Plugin hooks run after core hooks. The core checkout pipeline is hard-coded in the checkout route; plugin hooks from `config.hooks["checkout.beforeCreate"]` are appended after.
+- Hooks registered via `defineConfig({ hooks: { ... } })` and hooks registered via plugins are indistinguishable at runtime.
+
+See [Hook Pipeline](/concepts/hook-pipeline/) for how hooks execute.
+
+## The escape hatch
+
+Not everything needs to be a plugin. `defineConfig` accepts top-level fields that let you extend the engine without wrapping things in a plugin:
+
+- `config.schema` — additional Drizzle tables
+- `config.routes` — a function that receives the Hono app and the kernel, for arbitrary routes
+- `config.hooks` — a flat map of hook handlers
+- `config.middleware` — Hono middleware applied to all routes
+
+If you are building a reusable extension, use `defineCommercePlugin`. If you are adding project-specific customization, the escape hatches are simpler and more direct.
+
+## Trade-offs and limitations
+
+**No inter-plugin dependencies.** Plugins are config transforms applied sequentially. Plugin B sees the config that Plugin A produced, but there is no formal dependency declaration. If Plugin B depends on tables that Plugin A creates, Plugin A must be listed first in the `plugins` array.
+
+**No plugin lifecycle hooks.** There is no `onBoot`, `onShutdown`, or `onReady` callback. If a plugin needs to run setup logic at boot, it must use an `afterCreate` hook on a relevant entity or add initialization logic to its route factory. This is a deliberate omission — lifecycle hooks add complexity and create ordering problems.
+
+**All-or-nothing config access.** Plugins receive the full `CommerceConfig`. A malicious or buggy plugin can delete fields, overwrite adapters, or clear the hook map. There is no sandboxing. Trust is established at the code level, not at runtime — plugins are installed by the application developer.
+
+The plugin contract documents the rules every plugin must follow to inherit the framework's security guarantees. Read it before shipping a plugin: [Plugin Contract](/extending/plugin-contract/).
+
+## Related
+
+- [Build a Loyalty Plugin tutorial](/tutorials/build-a-plugin/) — hands-on introduction to `defineCommercePlugin`
+- [Hook Pipeline](/concepts/hook-pipeline/) — how plugin hooks execute relative to core hooks
+- [Plugin API Reference](/reference/plugins/) — full manifest specification including the `router()` builder

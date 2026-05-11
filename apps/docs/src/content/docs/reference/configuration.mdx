@@ -1,0 +1,276 @@
+---
+title: Configuration
+description: Complete reference for every field in CommerceConfig.
+---
+
+The root configuration object passed to `defineConfig()`.
+
+```ts
+import { defineConfig } from "@porulle/core";
+
+export default defineConfig({ /* CommerceConfig */ });
+```
+
+## Top-level fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `storeName` | `string` | — | Display name of the store |
+| `version` | `string` | `"0.0.1"` | Semantic version of the store configuration |
+| `database` | [`DatabaseConfig`](#databaseconfig) | **required** | Primary database connection |
+| `databaseAdapter` | `DatabaseAdapter` | — | Pre-built database adapter. When provided, bypasses `database` config. |
+| `auth` | [`AuthConfig`](#authconfig) | See defaults | Authentication and authorization settings |
+| `entities` | `Record<string, EntityConfig>` | — | Custom entity type definitions keyed by entity slug |
+| `cart` | [`CartConfig`](#cartconfig) | See defaults | Cart behavior and hooks |
+| `checkout` | [`CheckoutConfig`](#checkoutconfig) | See defaults | Checkout hooks |
+| `orders` | [`OrdersConfig`](#ordersconfig) | See defaults | Order lifecycle hooks |
+| `inventory` | [`InventoryConfig`](#inventoryconfig) | See defaults | Inventory hooks |
+| `shipping` | [`ShippingConfig`](#shippingconfig) | — | Shipping calculation strategy |
+| `payments` | `PaymentAdapter[]` | — | Payment gateway adapters |
+| `storage` | `StorageAdapter` | — | File/media storage adapter |
+| `email` | `EmailAdapter` | — | Transactional email sender |
+| `tax` | [`TaxConfig`](#taxconfig) | — | Tax calculation adapter and origin address |
+| `analytics` | [`AnalyticsConfig`](#analyticsconfig) | — | Analytics and reporting settings |
+| `search` | [`SearchConfig`](#searchconfig) | — | Search adapter and facet defaults |
+| `jobs` | [`JobsConfig`](#jobsconfig) | — | Background job processing |
+| `schema` | `Array<Record<string, unknown>>` | — | App-level Drizzle table definitions merged at boot. Must also add file paths to `drizzle.config.ts`. |
+| `hooks` | `Record<string, Array<Function>>` | — | Global hook functions keyed by hook name (e.g., `"orders.afterCreate"`) |
+| `plugins` | `CommercePlugin[]` | — | Plugin config-transform functions, applied in array order |
+| `logLevel` | `"fatal" \| "error" \| "warn" \| "info" \| "debug" \| "trace"` | `"info"` | Pino log level |
+| `rateLimits` | [`RateLimitsConfig`](#ratelimitsconfig) | See defaults | Per-tier rate limiting thresholds (requests per minute) |
+| `middleware` | `MiddlewareHandler[]` | — | Hono middleware applied to all routes |
+| `routes` | `(app: Hono, kernel: unknown) => void` | — | Callback to register custom Hono routes. Cast `kernel` to `Kernel` to access services and database. |
+
+---
+
+## DatabaseConfig
+
+```ts
+database: {
+  provider: "postgresql";
+  options?: Record<string, unknown>;
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `provider` | `"postgresql"` | **required** | Database provider. PostgreSQL is the only supported database. |
+| `options` | `Record<string, unknown>` | — | Provider-specific connection options |
+
+---
+
+## RateLimitsConfig
+
+```ts
+rateLimits: {
+  api?: number;
+  auth?: number;
+  checkout?: number;
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `api` | `number` | `100` | Max requests per minute for general API routes |
+| `auth` | `number` | `10` | Max requests per minute for authentication endpoints |
+| `checkout` | `number` | `5` | Max requests per minute for checkout creation |
+
+When a client exceeds the limit, the server responds with `429 Too Many Requests`.
+
+---
+
+## AuthConfig
+
+```ts
+interface AuthConfig {
+  defaultOrganizationId?: string;
+  strictOrgResolution?: boolean;
+  storeResolver?: (request: Request) => string | null | Promise<string | null>;
+  requireEmailVerification?: boolean;
+  sessionDuration?: number;
+  socialProviders?: Record<string, { clientId: string; clientSecret: string }>;
+  twoFactor?: { enabled: boolean; requiredForRoles?: string[] };
+  apiKeys?: { enabled: boolean; defaultPermissions?: string[] };
+  roles?: Record<string, RoleDefinition>;
+  trustedOrigins?: string[];
+  enableDevKey?: boolean;
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `defaultOrganizationId` | `string` | — | Organization ID for single-store deployments. See [Identity and Store Resolution](/concepts/identity-model/). |
+| `strictOrgResolution` | `boolean` | `false` | When `true`, requests where `storeResolver` returns `null` are rejected with HTTP 503. |
+| `storeResolver` | `(request: Request) => string \| null \| Promise<string \| null>` | — | Resolves which organization a request belongs to in multi-store SaaS deployments. |
+| `requireEmailVerification` | `boolean` | `true` | Require email verification before account activation |
+| `sessionDuration` | `number` | `604800` (7 days, in seconds) | Session lifetime in seconds |
+| `socialProviders` | `Record<string, { clientId: string; clientSecret: string }>` | — | OAuth provider credentials keyed by provider name |
+| `twoFactor` | `{ enabled: boolean; requiredForRoles?: string[] }` | `{ enabled: false }` | Two-factor authentication settings |
+| `apiKeys` | `{ enabled: boolean; defaultPermissions?: string[] }` | `{ enabled: false }` | Enable API key authentication |
+| `roles` | `Record<string, RoleDefinition>` | See below | Role definitions mapping role names to permission sets |
+| `trustedOrigins` | `string[]` | — | Origins allowed for CSRF protection |
+| `enableDevKey` | `boolean` | `true` in dev, `false` in prod | Enable the `dev-staff-key` API key. Set to `false` in production. |
+
+### Default roles
+
+| Role | Permissions |
+|------|-------------|
+| `owner` | `*:*` |
+| `admin` | `*:*` |
+| `manager` | catalog CRUD, inventory, orders, cart |
+| `customer` | catalog:read, cart, orders:read:own, customers:read:self, customers:update:self |
+
+### RoleDefinition
+
+```ts
+interface RoleDefinition {
+  permissions: string[];
+}
+```
+
+Permissions use `"module:action"` or `"module:action:scope"` format. `"*:*"` grants all.
+
+---
+
+## EntityConfig
+
+```ts
+interface EntityConfig {
+  fields: EntityFieldDefinition[];
+  variants: EntityVariantConfig;
+  fulfillment: string;
+  hooks?: EntityHooks;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `fields` | `EntityFieldDefinition[]` | Custom field definitions. The catalog service validates entity `metadata` against these on create/update. |
+| `variants` | `EntityVariantConfig` | Variant support configuration |
+| `fulfillment` | `string` | Fulfillment strategy: `"physical"`, `"digital"`, `"digital-download"`, `"digital-access"` |
+| `hooks` | `EntityHooks` | Lifecycle hooks scoped to this entity type |
+
+### EntityFieldDefinition
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `string` | Field identifier |
+| `type` | `"text" \| "number" \| "boolean" \| "date" \| "json" \| "relation" \| "select"` | Data type |
+| `unit` | `string` | Unit of measurement (for `"number"` fields, e.g., `"g"`, `"ml"`) |
+| `schema` | `unknown` | Validation schema for the field value |
+| `target` | `string` | Target entity slug (for `"relation"` fields) |
+| `options` | `string[]` | Allowed values (for `"select"` fields) |
+
+### EntityVariantConfig
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `enabled` | `boolean` | Whether this entity supports variants |
+| `optionTypes` | `string[]` | Variant option type names (e.g., `["size", "color"]`) |
+
+---
+
+## CartConfig
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `ttlMinutes` | `number` | `10080` (7 days) | Cart time-to-live in minutes |
+| `hooks.beforeAddItem` | `BeforeHook[]` | `[]` | Before adding an item |
+| `hooks.afterAddItem` | `AfterHook[]` | `[]` | After adding an item |
+| `hooks.beforeRemoveItem` | `BeforeHook[]` | `[]` | Before removing an item |
+| `hooks.afterRemoveItem` | `AfterHook[]` | `[]` | After removing an item |
+| `hooks.beforeUpdateQuantity` | `BeforeHook[]` | `[]` | Before updating item quantity |
+| `hooks.afterUpdateQuantity` | `AfterHook[]` | `[]` | After updating item quantity |
+
+---
+
+## CheckoutConfig
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `hooks.beforeCreate` | `BeforeHook[]` | `[]` | Before checkout is created. May mutate checkout data. |
+| `hooks.afterCreate` | `AfterHook[]` | `[]` | After checkout completes and order is created |
+
+---
+
+## OrdersConfig
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `hooks.beforeCreate` | `BeforeHook[]` | `[]` | Before order creation |
+| `hooks.afterCreate` | `AfterHook[]` | `[]` | After order creation |
+| `hooks.beforeStatusChange` | `BeforeHook[]` | `[]` | Before order status transition |
+| `hooks.afterStatusChange` | `AfterHook[]` | `[]` | After order status transition |
+| `hooks.beforeDelete` | `BeforeHook[]` | `[]` | Before order deletion |
+
+---
+
+## InventoryConfig
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `hooks.afterAdjust` | `AfterHook[]` | `[]` | After an inventory level adjustment |
+
+---
+
+## ShippingConfig
+
+```ts
+interface ShippingConfig {
+  type: "flat" | "weight_based";
+  flatRate: number;
+  freeShippingThreshold?: number;
+  brackets: Array<{ upToGrams: number; cost: number }>;
+  fallbackCost: number;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | `"flat" \| "weight_based"` | Shipping calculation strategy |
+| `flatRate` | `number` | Fixed shipping cost. Used when `type` is `"flat"`. |
+| `freeShippingThreshold` | `number` | Order subtotal above which shipping is free |
+| `brackets` | `Array<{ upToGrams: number; cost: number }>` | Weight-based cost brackets. Used when `type` is `"weight_based"`. |
+| `fallbackCost` | `number` | Shipping cost when no bracket matches |
+
+---
+
+## TaxConfig
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `adapter` | `TaxAdapter` | Tax calculation adapter instance |
+| `defaultFromAddress.country` | `string` | ISO country code |
+| `defaultFromAddress.postalCode` | `string` | Postal/ZIP code |
+| `defaultFromAddress.state` | `string` | State or province code |
+| `defaultFromAddress.city` | `string` | City name |
+| `defaultFromAddress.line1` | `string` | Street address |
+
+---
+
+## AnalyticsConfig
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `models` | `AnalyticsModel[]` | Plugin-contributed analytics model definitions |
+| `customSchemaPath` | `string` | Path to a directory containing custom `.js` analytics model files |
+
+---
+
+## SearchConfig
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `adapter` | `SearchAdapter` | Search engine adapter instance |
+| `defaultFacets` | `string[]` | Facet field names returned by default in search results |
+
+---
+
+## JobsConfig
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `adapter` | `JobsAdapter` | — | Background job queue adapter. When omitted, uses in-memory queue (dev only). |
+| `tasks` | `TaskDefinition[]` | — | Task definitions registered at startup. Each specifies a `slug` and `handler`. |
+| `autorun.enabled` | `boolean` | — | Enable automatic job polling |
+| `autorun.intervalMs` | `number` | `5000` | Polling interval in milliseconds |

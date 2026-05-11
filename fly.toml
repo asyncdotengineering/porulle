@@ -1,0 +1,46 @@
+# fly.toml — store-example deployment for live VAPT.
+# App name: unified-commerce-vapt (set on `fly apps create`).
+# Postgres: provisioned separately via `fly postgres create` and attached.
+
+app = "unified-commerce-vapt"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  # Applies pending migrations before rolling out the new release. Runs in a
+  # short-lived machine with the same image + secrets; if it fails, the
+  # rollout aborts and the existing machine keeps serving.
+  # Uses migrate (deterministic SQL files) with push fallback for
+  # push-managed DBs that lack a migration journal.
+  release_command = "bash /app/scripts/db-release.sh"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "8080"
+  PUBLIC_URL = "https://unified-commerce-vapt.fly.dev"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/health"
+
+  # Schema-validity probe runs once after deploy via scripts/post-deploy-smoke.sh,
+  # not as a continuous LB check (Fly's checks accept only 2xx as healthy and
+  # /api/orders/:id correctly returns 401 for unauth requests).
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 1024

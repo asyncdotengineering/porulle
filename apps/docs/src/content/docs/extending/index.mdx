@@ -1,0 +1,31 @@
+---
+title: Extending Porulle
+description: Hooks, custom tables, payment adapters, plugins — the framework surface for adopters who need to add behavior the kernel doesn't ship.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+When Porulle's bundled features don't match your case, you extend the framework rather than fork it. Every extension point is a config-time contribution: hooks intercept operations, custom tables share the schema, plugins compose multiple extensions into one config-transform. No subclassing, no monkey-patching.
+
+<CardGrid>
+  <LinkCard title="Hooks" href="/extending/hooks/" description="Intercept any operation with before/after handlers. Before runs in the transaction; after runs outside it." />
+  <LinkCard title="Custom Tables" href="/extending/custom-tables/" description="Add app-level Drizzle tables that share the org-scoped schema. No plugin wrapper needed." />
+  <LinkCard title="Payment Adapter" href="/extending/payment-adapter/" description="Implement the PaymentAdapter contract for any rail — Stripe is the reference implementation." />
+  <LinkCard title="Testing" href="/extending/testing/" description="Plugin test apps, PGlite-backed integration tests, the actor injection pattern." />
+  <LinkCard title="TypeScript Patterns" href="/extending/typescript/" description="Result<T> discipline, narrowing CommerceError, plugin context types." />
+</CardGrid>
+
+## Adopter contracts
+
+These three contracts are normative — every extension must follow them:
+
+- [**Plugin Contract**](/extending/plugin-contract/) — what plugin authors MUST do (actor as required parameter, `Result<T>`, org scoping, no body-supplied identity)
+- [**Payment Adapter Contract**](/extending/payment-adapter-contract/) — accurate `amountCaptured`, idempotency, timing-safe webhook verification
+- [**Security Model**](/production/security-model/) — the framework's threat model and adopter-side responsibilities
+
+## Where to next
+
+- [**Reference → Plugins**](/reference/plugins/) — `defineCommercePlugin` manifest reference
+- [**Reference → Hooks**](/reference/hooks/) — every available hook key with type signatures
+- [**Concepts → Plugin Architecture**](/concepts/plugin-architecture/) — why plugins are config transforms
+- [**Tutorials → Build a Loyalty Plugin**](/tutorials/build-a-plugin/) — a full plugin walkthrough

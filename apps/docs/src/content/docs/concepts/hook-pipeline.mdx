@@ -1,0 +1,121 @@
+---
+title: Hook Pipeline
+description: How the checkout pipeline executes, why it is split into two phases, and how the compensation pattern keeps the system consistent.
+---
+
+Checkout is the most complex operation in any commerce engine. It touches inventory, pricing, promotions, tax, shipping, payments, orders, fulfillment, and email — all in a single user action. This page explains how Porulle orchestrates this process, why the pipeline is split into transactional and non-transactional phases, and how the compensation pattern keeps the system consistent when things fail.
+
+## Checkout as orchestration, not a single transaction
+
+A naive approach wraps everything in one database transaction: check inventory, create the order, capture payment, decrement stock, initiate fulfillment. If anything fails, roll back the transaction and the world is consistent.
+
+This does not work in practice. Payment capture is an external API call. You cannot roll back a Stripe charge by aborting a PostgreSQL transaction. Email delivery, fulfillment initiation, and webhook delivery are external side effects that cannot participate in a database transaction.
+
+Porulle splits checkout into two phases: **before hooks** that run inside a transaction, and **after hooks** that run outside it.
+
+## Before hooks: validation and enrichment
+
+Before hooks run inside a database transaction. They prepare and validate the checkout data before the order is created. The core before hooks execute in this order:
+
+1. **validateCartNotEmpty** — loads the cart, confirms it has line items, enriches each item with catalog data
+2. **resolveCurrentPrices** — resolves the current price for each line item via the pricing service, calculating subtotals
+3. **checkInventoryAvailability** — confirms sufficient stock exists for every line item
+4. **applyPromotionCodes** — applies promotion codes, calculates discounts, detects free shipping
+5. **calculateTax** — calculates tax via the configured tax adapter
+6. **calculateShipping** — calculates shipping costs based on weight, address, and cart value
+7. **validatePaymentMethod** — confirms a payment method was provided
+8. **authorizePayment** — authorizes (but does not capture) the payment
+
+Each before hook receives the `CheckoutData` object and returns a modified version of it. The output of one hook becomes the input of the next. This is the key property: before hooks form a pipeline where each step enriches data for downstream steps. `resolveCurrentPrices` must run before `applyPromotionCodes` because promotions need base prices. `calculateShipping` must run after `applyPromotionCodes` because free-shipping promotions affect the shipping calculation.
+
+If any before hook throws, the transaction aborts. The order is not created. Payment authorization is the last step precisely because it is the hardest to undo — if tax calculation fails, no payment was authorized, so there is nothing to reverse.
+
+After the before hooks complete and the transaction commits, the order is created in the database. At this point, the order exists but is in a `pending` state. No money has been captured, no inventory has been decremented, and no fulfillment has been initiated.
+
+## After hooks: side effects with compensation
+
+After hooks run outside the transaction. The core after hooks are:
+
+1. **completeCheckout** — the compensation chain (see below)
+2. **recordAnalyticsEvent** — records the order creation event for analytics
+
+After hooks receive the `result` (the created order) but cannot modify it. They are fire-and-forget side effects. If an after hook fails, the order still exists. The engine collects after-hook errors into a `hookErrors` array and includes them in the response metadata, but the 201 response is still sent.
+
+This is deliberate. Failing the entire checkout if an analytics event fails to record is worse than succeeding with a warning. After hooks should be resilient to failure.
+
+## The compensation pattern
+
+`completeCheckout` is the most important after hook. It runs a compensation chain — a sequence of steps where each step can be reversed if a later step fails. This is sometimes called the saga pattern.
+
+The steps in the chain:
+
+1. **reserveInventory** — decrements available stock for each line item
+2. **capturePayment** — captures the previously authorized payment
+3. **initiateFulfillment** — creates a fulfillment record (best-effort)
+4. **sendConfirmation** — sends a confirmation email (best-effort)
+
+If step 2 (capture payment) fails, the chain reverses step 1: inventory reservations are released. If step 1 (reserve inventory) fails, no payment is captured. The system returns to a consistent state either way.
+
+Steps 3 and 4 are best-effort. They do not define compensate functions. If email delivery fails, the order is not cancelled — it just does not get a confirmation email. Not all side effects are equally critical.
+
+### How compensation works internally
+
+The `runCompensationChain` executor iterates through the steps in order. For each step:
+
+- If `step.run()` returns `{ ok: true, value }`, the step is recorded as completed with its output value.
+- If `step.run()` returns `{ ok: false, error }`, the executor stops and compensates all previously completed steps in reverse order.
+
+Each step's `compensate` function receives the output from its own `run` function. The reserve-inventory step's compensate function receives the reservation IDs it created, so it knows exactly which reservations to release.
+
+Compensation failures are logged but do not override the original error. If inventory reservation fails and then the compensation for a prior step also fails, the original "inventory reservation failed" error is still returned. The compensation failure becomes an operational concern that requires manual review — logged at error level, but it does not mask the root cause.
+
+### Why compensation instead of distributed transactions
+
+Distributed transactions (two-phase commit) are the textbook solution. They are also impractical for commerce workloads:
+
+- Payment providers do not support 2PC. Stripe's API is request-response.
+- Fulfillment systems are often external (third-party logistics). You cannot enlist them in a distributed transaction.
+- 2PC requires all participants to be available simultaneously. A temporary email outage would block checkout.
+
+The compensation pattern accepts that failures will happen and provides a structured way to reverse completed work.
+
+## Before vs. after: a mental model
+
+Think of before hooks as **guards** and after hooks as **reactions**.
+
+Before hooks answer: "Should this operation proceed, and with what data?" They validate, enrich, and transform. They can reject the operation by throwing. They return modified data that flows to the next hook.
+
+After hooks answer: "Now that this operation has happened, what else should happen?" They reserve inventory, capture payment, send emails, fire webhooks, record analytics. They cannot change the result. They should be resilient to failure.
+
+This split maps naturally to the transactional boundary. Guards run inside the transaction where they can read consistent data and rely on rollback for safety. Reactions run outside the transaction where they can call external services without holding a database connection open.
+
+## Hook context
+
+Every hook — before and after — receives a `HookContext` with:
+
+- **actor**: The authenticated user or API key that initiated the operation
+- **tx**: The database transaction (available in before hooks; may be `null` in after hooks)
+- **logger**: A structured Pino logger scoped to the current request
+- **services**: The full service container
+- **context**: A mutable `Record<string, unknown>` for passing data between hooks
+- **requestId**: A unique identifier for the current request
+- **origin**: Which interface triggered the operation (`"rest"` or `"local"`)
+- **kernel**: The kernel instance (typed as `unknown` to avoid circular imports)
+
+The `context` bag is the only way for a before hook to pass data to an after hook. The `authorizePayment` before hook stashes the payment intent ID in `context.paymentIntentId`, and the `completeCheckout` after hook reads it from there.
+
+## Extending the pipeline
+
+Plugin authors can add hooks at `checkout.beforeCreate` and `checkout.afterCreate`. These run after the core hooks. A plugin might:
+
+- Add a before hook to validate a custom field (e.g., a minimum order amount)
+- Add a before hook to apply a loyalty discount
+- Add an after hook to award loyalty points after order creation
+- Add an after hook to sync the order to an external ERP
+
+See [Plugin Architecture](/concepts/plugin-architecture/) for how plugin hooks are registered and merged into the hook pipeline.
+
+## Related
+
+- [Use Hooks guide](/extending/hooks/) — register hooks in config, modules, or plugins
+- [Hook System Reference](/reference/hooks/) — type signatures, context fields, and available hook keys

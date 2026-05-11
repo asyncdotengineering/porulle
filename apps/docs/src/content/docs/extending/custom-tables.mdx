@@ -1,0 +1,166 @@
+---
+title: Custom Tables
+description: Create app-level database tables with foreign key references to core tables.
+---
+
+Custom tables let you add application-specific data to the same database as your commerce data, with foreign key constraints to core tables like `sellable_entities` and `customers`.
+
+## Define the table
+
+Create a schema file in your app. Import core tables from `@porulle/core/schema` to reference them in foreign key constraints.
+
+```ts title="src/schema/reviews.ts"
+import { integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { sellableEntities, customers } from "@porulle/core/schema";
+
+export const reviews = pgTable("reviews", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  entityId: uuid("entity_id")
+    .notNull()
+    .references(() => sellableEntities.id, { onDelete: "cascade" }),
+  customerId: uuid("customer_id")
+    .references(() => customers.id, { onDelete: "set null" }),
+  rating: integer("rating").notNull(),
+  title: text("title"),
+  body: text("body"),
+  status: text("status", { enum: ["pending", "approved", "rejected"] })
+    .notNull()
+    .default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+```
+
+Use `onDelete: "cascade"` when the row should be deleted with its parent. Use `onDelete: "set null"` when the row should survive parent deletion — the FK column must be nullable in that case.
+
+## Register the table
+
+Add the table to the `schema` array in `commerce.config.ts`:
+
+```ts title="commerce.config.ts"
+import { defineConfig } from "@porulle/core";
+import { reviews } from "./src/schema/reviews.js";
+
+export default defineConfig({
+  schema: [{ reviews }],
+  // ...
+});
+```
+
+## Add to drizzle.config.ts
+
+Add the schema file path so `drizzle-kit push` and `drizzle-kit generate` include it:
+
+```ts title="drizzle.config.ts"
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  dialect: "postgresql",
+  schema: [
+    "./node_modules/@porulle/core/src/kernel/database/schema.ts",
+    "./node_modules/@porulle/plugin-*/src/schema.ts",
+    "./src/schema/reviews.ts",
+  ],
+  out: "./drizzle",
+  dbCredentials: {
+    url: process.env.DATABASE_URL ?? "postgres://localhost:5432/my_store",
+  },
+});
+```
+
+Push the schema to apply the new table:
+
+```bash
+bunx drizzle-kit push --config drizzle.config.ts
+```
+
+For production, generate migration files instead:
+
+```bash
+bunx drizzle-kit generate --config drizzle.config.ts
+bunx drizzle-kit migrate --config drizzle.config.ts
+```
+
+## Add routes
+
+Register route handlers via the `routes` field in `commerce.config.ts`. The callback receives the Hono app instance and the kernel:
+
+```ts title="src/routes/reviews.ts"
+import type { Hono } from "hono";
+import { eq, desc } from "drizzle-orm";
+import { reviews } from "../schema/reviews.js";
+import { sellableEntities } from "@porulle/core/schema";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+
+function db(raw: unknown): PostgresJsDatabase<Record<string, unknown>> {
+  return raw as PostgresJsDatabase<Record<string, unknown>>;
+}
+
+export function reviewRoutes(app: Hono, kernel: unknown) {
+  const k = kernel as { database: { db: unknown } };
+
+  app.post("/api/reviews", async (c) => {
+    const body = await c.req.json();
+    const drizzle = db(k.database.db);
+
+    const [review] = await drizzle
+      .insert(reviews)
+      .values({
+        entityId: body.entityId,
+        customerId: body.customerId ?? null,
+        rating: body.rating,
+        title: body.title ?? null,
+        body: body.body ?? null,
+      })
+      .returning();
+
+    return c.json({ data: review }, 201);
+  });
+
+  app.get("/api/reviews/:entityId", async (c) => {
+    const entityId = c.req.param("entityId");
+    const drizzle = db(k.database.db);
+
+    const rows = await drizzle
+      .select({
+        review: reviews,
+        productSlug: sellableEntities.slug,
+      })
+      .from(reviews)
+      .innerJoin(sellableEntities, eq(reviews.entityId, sellableEntities.id))
+      .where(eq(reviews.entityId, entityId))
+      .orderBy(desc(reviews.createdAt));
+
+    return c.json({ data: rows });
+  });
+}
+```
+
+Wire the routes in your config:
+
+```ts title="commerce.config.ts"
+import { defineConfig } from "@porulle/core";
+import { reviews } from "./src/schema/reviews.js";
+import { reviewRoutes } from "./src/routes/reviews.js";
+
+export default defineConfig({
+  schema: [{ reviews }],
+  routes: (app, kernel) => {
+    reviewRoutes(app, kernel);
+  },
+  // ...
+});
+```
+
+If you need routes from multiple files, call each registration function inside the same `routes` callback.
+
+## Use the plugin system for reusable tables
+
+If the same table will be used across multiple projects, package it as a plugin. Plugins define schema, hooks, and routes together, and are published as standalone packages. See [Build a Loyalty Plugin](/tutorials/build-a-plugin/) for a complete example.
+
+## Related
+
+- [Configuration Reference](/reference/configuration/) — all `defineConfig` options
+- [Plugin Architecture](/concepts/plugin-architecture/) — why plugins are config transforms
+- [TypeScript Patterns](/extending/typescript/) — type-safe DB access with `PluginDb`

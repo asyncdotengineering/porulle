@@ -1,0 +1,220 @@
+---
+title: Testing
+description: Plugin route tests, PGlite, integration test patterns, and load testing.
+---
+
+## Test layers
+
+| Layer | Tool | What it tests |
+|-------|------|---------------|
+| Plugin unit tests | Vitest + PGlite | Plugin routes, hooks, permissions — in-memory, no external DB |
+| Integration tests | Vitest + live PostgreSQL | Full API flows against a running server |
+| Load tests | k6 | Throughput and latency at 100 concurrent users |
+
+## Plugin route tests with `createPluginTestApp`
+
+`createPluginTestApp` from `@porulle/core` boots an in-memory PGlite database, pushes the full schema (core tables and your plugin tables), and wires the actor middleware onto a Hono instance that matches the production server. No running server, no Docker, no hand-written DDL.
+
+```typescript title="test/reviews.test.ts"
+import { describe, expect, it, beforeAll } from "vitest";
+import {
+  createPluginTestApp,
+  jsonHeaders,
+  testAdminActor,
+  testCustomerActor,
+  testNoPermActor,
+} from "@porulle/core";
+import { myPlugin } from "../src";
+
+describe("my plugin routes", () => {
+  let app: Awaited<ReturnType<typeof createPluginTestApp>>["app"];
+
+  beforeAll(async () => {
+    const result = await createPluginTestApp(myPlugin());
+    app = result.app;
+  });
+
+  it("creates a resource", async () => {
+    const res = await app.request("http://localhost/api/my-plugin/resources", {
+      method: "POST",
+      headers: jsonHeaders(testAdminActor),
+      body: JSON.stringify({ name: "Test Resource" }),
+    });
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    expect(data.data.name).toBe("Test Resource");
+  });
+
+  it("returns 401 without authentication", async () => {
+    const res = await app.request("http://localhost/api/my-plugin/resources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "No Auth" }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 without required permission", async () => {
+    const res = await app.request("http://localhost/api/my-plugin/resources", {
+      method: "POST",
+      headers: jsonHeaders(testNoPermActor),
+      body: JSON.stringify({ name: "No Perm" }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 400 or 422 for invalid input", async () => {
+    const res = await app.request("http://localhost/api/my-plugin/resources", {
+      method: "POST",
+      headers: jsonHeaders(testAdminActor),
+      body: JSON.stringify({}),
+    });
+    expect([400, 422]).toContain(res.status);
+  });
+});
+```
+
+### What `createPluginTestApp` does
+
+1. Builds a `CommerceConfig` with your plugin applied (PGlite auto-provisioned).
+2. Boots the kernel (core services, hook registry).
+3. Merges core and plugin schemas via `buildSchema(config)`.
+4. Pushes the merged schema to PGlite using `drizzle-kit/api`'s programmatic `pushSchema` — no migration files, no hand-written DDL.
+5. Creates a Hono instance with the `x-test-actor` middleware.
+6. Registers all plugin routes via `config.routes(app, kernel)`.
+
+### Shared test actors
+
+| Actor | Role | Permissions | Use case |
+|-------|------|-------------|----------|
+| `testAdminActor` | admin | `*:*` | Setup operations, admin-only routes |
+| `testStaffActor` | staff | catalog, inventory, orders | Operational routes |
+| `testCustomerActor` | customer | catalog:read, cart, orders:read:own | Customer-facing routes |
+| `testNoPermActor` | customer | (none) | Negative permission tests (expect 403) |
+
+### Using a real PostgreSQL instance
+
+PGlite is single-connection, so `SELECT ... FOR UPDATE` does not exercise real lock contention. Use a real PostgreSQL instance when testing concurrent transactions:
+
+```typescript
+import { postgresAdapter } from "@porulle/adapter-postgres";
+
+const { app } = await createPluginTestApp(myPlugin(), {
+  databaseAdapter: postgresAdapter({
+    connectionString: process.env.TEST_DATABASE_URL ?? "postgres://localhost:5432/uc_test",
+  }),
+});
+```
+
+## Integration tests (live server)
+
+For tests that exercise the full middleware stack — auth middleware, rate limiting, CORS, and all core routes — use the `api()` helper pattern:
+
+```typescript
+const BASE = "http://localhost:4000";
+const DEV_KEY = "dev-staff-key";
+
+async function api(method: string, path: string, body?: unknown, opts?: { noAuth?: boolean }) {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "origin": BASE,
+  };
+  if (!opts?.noAuth) headers["x-api-key"] = DEV_KEY;
+
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json();
+  return { status: res.status, data };
+}
+```
+
+This requires a running server and seeded database. Start the server separately and run tests in another terminal.
+
+## CI integration
+
+```yaml title=".github/workflows/test.yml"
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+      - run: bun install
+      - run: cd packages/core && bun test
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: my_store
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+      - run: bun install
+      - run: DATABASE_URL=postgres://postgres:postgres@localhost/my_store bunx drizzle-kit push
+      - run: bun run src/server.ts &
+      - run: sleep 5
+      - run: bun test
+```
+
+## Load tests with k6
+
+Install k6:
+
+```bash
+brew install k6    # macOS
+```
+
+A k6 script that exercises realistic ecommerce traffic:
+
+```js title="test/load/k6-load-test.js"
+import http from "k6/http";
+import { check, sleep } from "k6";
+
+export const options = {
+  stages: [
+    { duration: "15s", target: 20 },
+    { duration: "60s", target: 50 },
+    { duration: "30s", target: 100 },
+    { duration: "30s", target: 0 },
+  ],
+  thresholds: {
+    http_req_duration: ["p(95)<500", "p(99)<1000"],
+    http_req_failed: ["rate<0.10"],
+  },
+};
+
+const BASE = "http://localhost:4000";
+const HEADERS = { "x-api-key": "dev-staff-key", "Content-Type": "application/json" };
+
+export default function () {
+  const res = http.get(`${BASE}/api/catalog/entities`, { headers: HEADERS });
+  check(res, { "status 200": (r) => r.status === 200 });
+  sleep(1);
+}
+```
+
+**Expected baseline on developer hardware (M-series Mac, local PostgreSQL):**
+
+| Metric | Value |
+|--------|-------|
+| Median latency | ~9ms |
+| p95 latency | ~164ms |
+| p99 latency | ~470ms |
+| Server errors | 0% |
+
+**Rate limiting note:** Load tests run all requests from `localhost`. Set `config.rateLimits` values high (e.g., 100000) in your test config to avoid 429 responses masking throughput results.
+
+## Related
+
+- [Build a Loyalty Plugin](/tutorials/build-a-plugin/) — end-to-end example including `createPluginTestApp` usage
+- [TypeScript Patterns](/extending/typescript/) — type-safe test setup
+- [Plugin API Reference](/reference/plugins/) — `createPluginTestApp` options

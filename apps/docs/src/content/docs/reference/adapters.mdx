@@ -1,0 +1,246 @@
+---
+title: Adapter Interfaces
+description: Database, payment, storage, search, tax, and email adapter specifications.
+---
+
+All adapter methods that perform fallible operations return `Result<T>`:
+
+```ts
+type Result<T, E = CommerceError> =
+  | { ok: true; value: T; meta?: Record<string, unknown> }
+  | { ok: false; error: E };
+```
+
+Use `Ok(value)` for success and `Err({ code, message })` for failure. Never throw from adapter methods. See [Result Types](/concepts/result-types/) for the rationale.
+
+---
+
+## DatabaseAdapter
+
+```ts
+interface DatabaseAdapter<TDatabase = unknown, TTransaction = unknown> {
+  provider: string;
+  db: TDatabase;
+  transaction<T>(fn: (tx: TTransaction) => Promise<T>): Promise<T>;
+}
+```
+
+| Member | Type | Description |
+|--------|------|-------------|
+| `provider` | `string` | Database backend identifier (e.g., `"postgresql"`) |
+| `db` | `TDatabase` | The underlying Drizzle database instance |
+| `transaction` | `<T>(fn: (tx: TTransaction) => Promise<T>) => Promise<T>` | Executes `fn` within a database transaction |
+
+---
+
+## PaymentAdapter
+
+```ts
+interface PaymentAdapter {
+  readonly providerId: string;
+  createPaymentIntent(params: CreatePaymentIntentParams): Promise<Result<PaymentIntent>>;
+  capturePayment(paymentIntentId: string, amount?: number): Promise<Result<PaymentCapture>>;
+  refundPayment(paymentId: string, amount: number, reason?: string): Promise<Result<PaymentRefund>>;
+  cancelPaymentIntent(paymentIntentId: string): Promise<Result<void>>;
+  verifyWebhook(request: Request): Promise<Result<PaymentWebhookEvent>>;
+}
+```
+
+### CreatePaymentIntentParams
+
+| Field | Type | Required |
+|-------|------|----------|
+| `amount` | `number` | Yes |
+| `currency` | `string` | Yes |
+| `orderId` | `string` | Yes |
+| `customerId` | `string` | No |
+| `metadata` | `Record<string, string>` | No |
+| `terminalId` | `string` | No |
+
+### PaymentIntent
+
+| Field | Type |
+|-------|------|
+| `id` | `string` |
+| `status` | `string` |
+| `amount` | `number` |
+| `currency` | `string` |
+| `clientSecret` | `string \| null` |
+
+### PaymentCapture
+
+| Field | Type |
+|-------|------|
+| `id` | `string` |
+| `status` | `string` |
+| `amountCaptured` | `number` |
+
+### PaymentRefund
+
+| Field | Type |
+|-------|------|
+| `id` | `string` |
+| `status` | `string` |
+| `amountRefunded` | `number` |
+
+### PaymentWebhookEvent
+
+| Field | Type |
+|-------|------|
+| `id` | `string` |
+| `type` | `string` |
+| `data` | `unknown` |
+
+For implementation guidance, see the [Payment Adapter Contract](/extending/payment-adapter-contract/) and the [Payment Adapter guide](/extending/payment-adapter/).
+
+---
+
+## StorageAdapter
+
+```ts
+interface StorageAdapter {
+  readonly providerId: string;
+  upload(key: string, data: ArrayBuffer | ReadableStream, contentType: string): Promise<Result<StoredFile>>;
+  getUrl(key: string): Promise<Result<string>>;
+  getSignedUrl(key: string, expiresIn: number): Promise<Result<string>>;
+  delete(key: string): Promise<Result<void>>;
+  list(prefix: string): Promise<Result<StoredFile[]>>;
+}
+```
+
+### StoredFile
+
+| Field | Type | Required |
+|-------|------|----------|
+| `key` | `string` | Yes |
+| `url` | `string` | Yes |
+| `contentType` | `string` | Yes |
+| `size` | `number` | No |
+
+---
+
+## SearchAdapter
+
+```ts
+interface SearchAdapter {
+  readonly providerId: string;
+  index(documents: SearchDocument[]): Promise<Result<void>>;
+  remove(ids: string[]): Promise<Result<void>>;
+  search(params: SearchQueryParams): Promise<Result<SearchQueryResult>>;
+  suggest(params: SearchSuggestParams): Promise<Result<string[]>>;
+}
+```
+
+### SearchDocument
+
+| Field | Type | Required |
+|-------|------|----------|
+| `id` | `string` | Yes |
+| `type` | `string` | Yes |
+| `slug` | `string` | Yes |
+| `title` | `string` | Yes |
+| `description` | `string` | No |
+| `status` | `string` | No |
+| `categories` | `string[]` | Yes |
+| `brands` | `string[]` | Yes |
+| `text` | `string` | Yes |
+| `payload` | `Record<string, unknown>` | No |
+
+### SearchQueryParams
+
+| Field | Type | Required |
+|-------|------|----------|
+| `query` | `string` | Yes |
+| `page` | `number` | No |
+| `limit` | `number` | No |
+| `filters` | `{ type?, category?, brand?, status? }` | No |
+| `facets` | `string[]` | No |
+
+### SearchQueryResult
+
+| Field | Type |
+|-------|------|
+| `hits` | `SearchHit[]` |
+| `total` | `number` |
+| `page` | `number` |
+| `limit` | `number` |
+| `facets` | `Record<string, Record<string, number>>` |
+
+---
+
+## TaxAdapter
+
+```ts
+interface TaxAdapter {
+  readonly providerId: string;
+  calculateTax(params: TaxCalculationParams): Promise<Result<TaxCalculationResult>>;
+  reportTransaction(params: TaxReportParams): Promise<Result<{ transactionId: string }>>;
+  voidTransaction(params: TaxVoidParams): Promise<Result<{ transactionId: string }>>;
+}
+```
+
+### TaxCalculationParams
+
+| Field | Type | Required |
+|-------|------|----------|
+| `currency` | `string` | Yes |
+| `customerId` | `string` | No |
+| `orderId` | `string` | No |
+| `fromAddress` | `TaxAddress` | No |
+| `toAddress` | `TaxAddress` | No |
+| `shippingAmount` | `number` | Yes |
+| `lineItems` | `TaxLineItem[]` | Yes |
+
+### TaxCalculationResult
+
+| Field | Type |
+|-------|------|
+| `amountToCollect` | `number` |
+| `taxableAmount` | `number` |
+| `rate` | `number` |
+| `breakdown` | `Record<string, unknown>` |
+
+### TaxAddress
+
+| Field | Type | Required |
+|-------|------|----------|
+| `country` | `string` | Yes |
+| `postalCode` | `string` | Yes |
+| `state` | `string` | No |
+| `city` | `string` | No |
+| `line1` | `string` | No |
+
+---
+
+## EmailAdapter
+
+```ts
+interface EmailAdapter {
+  send(input: {
+    template: string;
+    to: string;
+    data?: Record<string, unknown>;
+  }): Promise<void>;
+}
+```
+
+Any object with a `send` method matching this signature works. See the [Email Notifications guide](/building/email/) for setup instructions.
+
+---
+
+## Available implementations
+
+| Package | Adapter | Interface |
+|---------|---------|-----------|
+| `@porulle/adapter-postgres` | PostgreSQL (Drizzle) | `DatabaseAdapter` |
+| `@porulle/adapter-local-storage` | Local filesystem | `StorageAdapter` |
+| `@porulle/adapter-s3` | AWS S3 | `StorageAdapter` |
+| `@porulle/adapter-r2` | Cloudflare R2 | `StorageAdapter` |
+| `@porulle/adapter-stripe` | Stripe | `PaymentAdapter` |
+| `@porulle/adapter-resend` | Resend | `EmailAdapter` |
+| `@porulle/adapter-ses` | AWS SES v2 | `EmailAdapter` |
+| `consoleEmailAdapter()` | Console (dev) | `EmailAdapter` |
+| `@porulle/adapter-meilisearch` | Meilisearch | `SearchAdapter` |
+| `@porulle/adapter-pg-search` | PostgreSQL full-text search | `SearchAdapter` |
+| `@porulle/adapter-taxjar` | TaxJar | `TaxAdapter` |
+| `@porulle/adapter-tax-manual` | Manual / flat-rate tax | `TaxAdapter` |

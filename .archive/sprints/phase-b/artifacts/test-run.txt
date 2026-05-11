@@ -1,0 +1,223 @@
+$ turbo run test
+• turbo 2.9.12
+
+   • Packages in scope: @repo/eslint-config, @repo/typescript-config, @repo/ui, @unifiedcommerce/adapter-local-storage, @unifiedcommerce/adapter-meilisearch, @unifiedcommerce/adapter-pg-search, @unifiedcommerce/adapter-postgres, @unifiedcommerce/adapter-r2, @unifiedcommerce/adapter-resend, @unifiedcommerce/adapter-s3, @unifiedcommerce/adapter-ses, @unifiedcommerce/adapter-stripe, @unifiedcommerce/adapter-tax-manual, @unifiedcommerce/adapter-taxjar, @unifiedcommerce/cli, @unifiedcommerce/core, @unifiedcommerce/db, @unifiedcommerce/fashion-starter, @unifiedcommerce/import-flat, @unifiedcommerce/import-shopify, @unifiedcommerce/import-woocommerce, @unifiedcommerce/plugin-appointments, @unifiedcommerce/plugin-giftcards, @unifiedcommerce/plugin-loyalty, @unifiedcommerce/plugin-marketplace, @unifiedcommerce/plugin-notifications, @unifiedcommerce/plugin-pos, @unifiedcommerce/plugin-pos-restaurant, @unifiedcommerce/plugin-procurement, @unifiedcommerce/plugin-production, @unifiedcommerce/plugin-reviews, @unifiedcommerce/plugin-scheduled-orders, @unifiedcommerce/plugin-uom, @unifiedcommerce/plugin-warehouse, @unifiedcommerce/plugin-wishlist, @unifiedcommerce/sdk, docs, restaurant-example, saas-example, store-example, tea-avenue, web
+   • Running test in 42 packages
+   • Remote caching disabled
+
+@unifiedcommerce/core:build: cache miss, executing 9285a6184d7b537d
+@unifiedcommerce/sdk:build: cache miss, executing 6c309676bb920910
+@unifiedcommerce/adapter-resend:build: cache miss, executing 47aeeb0d5595f8b0
+@unifiedcommerce/adapter-resend:test: cache miss, executing 2143996635c25152
+@unifiedcommerce/sdk:test: cache miss, executing 7f61b159831e75b0
+@unifiedcommerce/core:test: cache miss, executing 4b341fc0647bdd66
+@unifiedcommerce/adapter-ses:test: cache miss, executing 015e4c7e24ddda06
+@unifiedcommerce/core:build: $ rm -rf dist tsconfig.build.tsbuildinfo && bun run generate:plugins && bun run check:store-guard && tsc -p tsconfig.build.json
+@unifiedcommerce/adapter-resend:build: $ rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json
+@unifiedcommerce/core:test: $ vitest run
+@unifiedcommerce/sdk:test: $ vitest run
+@unifiedcommerce/sdk:build: $ rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json
+@unifiedcommerce/adapter-resend:test: $ vitest run
+@unifiedcommerce/adapter-ses:test: $ vitest run
+@unifiedcommerce/core:build: $ node ./scripts/generate-plugin-types.mjs
+@unifiedcommerce/core:build: $ node ./scripts/check-store-guard.mjs
+@unifiedcommerce/core:test: ▲ [WARNING] The condition "types" here will never be used as it comes after both "import" and "require" [package.json]
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:11:6:
+@unifiedcommerce/core:test:       11 │       "types": "./src/index.ts"
+@unifiedcommerce/core:test:          ╵       ~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "import" condition comes earlier and will be used for all "import" statements:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:9:6:
+@unifiedcommerce/core:test:       9 │       "import": "./dist/index.js",
+@unifiedcommerce/core:test:         ╵       ~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "require" condition comes earlier and will be used for all "require" calls:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:10:6:
+@unifiedcommerce/core:test:       10 │       "require": "./dist/index.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: ▲ [WARNING] The condition "types" here will never be used as it comes after both "import" and "require" [package.json]
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:17:6:
+@unifiedcommerce/core:test:       17 │       "types": "./src/kernel/database/schema.ts"
+@unifiedcommerce/core:test:          ╵       ~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "import" condition comes earlier and will be used for all "import" statements:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:15:6:
+@unifiedcommerce/core:test:       15 │       "import": "./dist/kernel/database/schema.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "require" condition comes earlier and will be used for all "require" calls:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:16:6:
+@unifiedcommerce/core:test:       16 │       "require": "./dist/kernel/database/schema.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: ▲ [WARNING] The condition "types" here will never be used as it comes after both "import" and "require" [package.json]
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:23:6:
+@unifiedcommerce/core:test:       23 │       "types": "./src/auth/auth-schema.ts"
+@unifiedcommerce/core:test:          ╵       ~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "import" condition comes earlier and will be used for all "import" statements:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:21:6:
+@unifiedcommerce/core:test:       21 │       "import": "./dist/auth/auth-schema.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "require" condition comes earlier and will be used for all "require" calls:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:22:6:
+@unifiedcommerce/core:test:       22 │       "require": "./dist/auth/auth-schema.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: ▲ [WARNING] The condition "types" here will never be used as it comes after both "import" and "require" [package.json]
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:29:6:
+@unifiedcommerce/core:test:       29 │       "types": "./src/testing.ts"
+@unifiedcommerce/core:test:          ╵       ~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "import" condition comes earlier and will be used for all "import" statements:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:27:6:
+@unifiedcommerce/core:test:       27 │       "import": "./dist/testing.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "require" condition comes earlier and will be used for all "require" calls:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:28:6:
+@unifiedcommerce/core:test:       28 │       "require": "./dist/testing.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: ▲ [WARNING] The condition "types" here will never be used as it comes after both "import" and "require" [package.json]
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:35:6:
+@unifiedcommerce/core:test:       35 │       "types": "./src/drizzle.ts"
+@unifiedcommerce/core:test:          ╵       ~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "import" condition comes earlier and will be used for all "import" statements:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:33:6:
+@unifiedcommerce/core:test:       33 │       "import": "./dist/drizzle.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "require" condition comes earlier and will be used for all "require" calls:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:34:6:
+@unifiedcommerce/core:test:       34 │       "require": "./dist/drizzle.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: 
+@unifiedcommerce/adapter-ses:test: 
+@unifiedcommerce/adapter-ses:test:  RUN  v3.2.4 /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-ses
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/adapter-ses:test: 
+@unifiedcommerce/adapter-resend:test: 
+@unifiedcommerce/adapter-resend:test:  RUN  v3.2.4 /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-resend
+@unifiedcommerce/core:test:  RUN  v3.2.4 /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core
+@unifiedcommerce/core:test: 
+@unifiedcommerce/adapter-resend:test: 
+@unifiedcommerce/sdk:test:  RUN  v3.2.4 /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/sdk
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/adapter-resend:test:  ✓ test/resend.test.ts (6 tests) 3ms
+@unifiedcommerce/sdk:test:  ❯ test/sdk.test.ts (12 tests | 4 failed) 16ms
+@unifiedcommerce/sdk:test:    ✓ sdk client > sends auth header on every request 5ms
+@unifiedcommerce/sdk:test:    ✓ sdk client > catalog.list sends GET to /api/catalog/entities 1ms
+@unifiedcommerce/sdk:test:    ✓ sdk client > catalog.get sends GET with path param 0ms
+@unifiedcommerce/sdk:test:    ✓ sdk client > catalog.create sends POST with body 1ms
+@unifiedcommerce/sdk:test:    ✓ sdk client > cart.addItem sends POST with path and body 1ms
+@unifiedcommerce/sdk:test:    ✓ sdk client > orders.list sends GET 0ms
+@unifiedcommerce/sdk:test:    × sdk client > me.profile.get sends GET to /api/me/profile 4ms
+@unifiedcommerce/sdk:test:      → Cannot read properties of undefined (reading 'profile')
+@unifiedcommerce/sdk:test:    × sdk client > me.orders.tracking sends GET with path param 1ms
+@unifiedcommerce/sdk:test:      → Cannot read properties of undefined (reading 'orders')
+@unifiedcommerce/sdk:test:    × sdk client > me.orders.reorder sends POST 1ms
+@unifiedcommerce/sdk:test:      → Cannot read properties of undefined (reading 'orders')
+@unifiedcommerce/sdk:test:    ✓ sdk client > raw client can access plugin routes 1ms
+@unifiedcommerce/sdk:test:    ✓ sdk client > search.query sends GET with query params 0ms
+@unifiedcommerce/sdk:test:    × sdk client > webhooks.create sends POST 0ms
+@unifiedcommerce/sdk:test:      → Cannot read properties of undefined (reading 'create')
+@unifiedcommerce/adapter-ses:test:  ✓ test/ses.test.ts (5 tests) 3ms
+@unifiedcommerce/adapter-resend:test: 
+@unifiedcommerce/adapter-resend:test:  Test Files  1 passed (1)
+@unifiedcommerce/adapter-resend:test:       Tests  6 passed (6)
+@unifiedcommerce/adapter-resend:test:    Start at  00:02:38
+@unifiedcommerce/adapter-resend:test:    Duration  1.06s (transform 48ms, setup 0ms, collect 57ms, tests 3ms, environment 0ms, prepare 166ms)
+@unifiedcommerce/adapter-resend:test: 
+@unifiedcommerce/adapter-ses:test: 
+@unifiedcommerce/adapter-ses:test:  Test Files  1 passed (1)
+@unifiedcommerce/adapter-ses:test:       Tests  5 passed (5)
+@unifiedcommerce/adapter-ses:test:    Start at  00:02:38
+@unifiedcommerce/adapter-ses:test:    Duration  1.06s (transform 74ms, setup 0ms, collect 98ms, tests 3ms, environment 0ms, prepare 214ms)
+@unifiedcommerce/adapter-ses:test: 
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/sdk:test: ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/sdk:test:  FAIL  test/sdk.test.ts > sdk client > me.profile.get sends GET to /api/me/profile
+@unifiedcommerce/sdk:test: TypeError: Cannot read properties of undefined (reading 'profile')
+@unifiedcommerce/sdk:test:  ❯ test/sdk.test.ts:83:18
+@unifiedcommerce/sdk:test:      81|   it("me.profile.get sends GET to /api/me/profile", async () => {
+@unifiedcommerce/sdk:test:      82|     const { sdk, calls } = createMockSDK();
+@unifiedcommerce/sdk:test:      83|     await sdk.me.profile.get();
+@unifiedcommerce/sdk:test:        |                  ^
+@unifiedcommerce/sdk:test:      84| 
+@unifiedcommerce/sdk:test:      85|     expect(calls[0]?.url).toContain("/api/me/profile");
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/sdk:test: ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/sdk:test:  FAIL  test/sdk.test.ts > sdk client > me.orders.tracking sends GET with path param
+@unifiedcommerce/sdk:test: TypeError: Cannot read properties of undefined (reading 'orders')
+@unifiedcommerce/sdk:test:  ❯ test/sdk.test.ts:90:18
+@unifiedcommerce/sdk:test:      88|   it("me.orders.tracking sends GET with path param", async () => {
+@unifiedcommerce/sdk:test:      89|     const { sdk, calls } = createMockSDK();
+@unifiedcommerce/sdk:test:      90|     await sdk.me.orders.tracking("ord-1");
+@unifiedcommerce/sdk:test:        |                  ^
+@unifiedcommerce/sdk:test:      91| 
+@unifiedcommerce/sdk:test:      92|     expect(calls[0]?.url).toContain("/api/me/orders/ord-1/tracking");
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/sdk:test: ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/sdk:test:  FAIL  test/sdk.test.ts > sdk client > me.orders.reorder sends POST
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/sdk:test:  Test Files  1 failed (1)
+@unifiedcommerce/sdk:test:       Tests  4 failed | 8 passed (12)
+@unifiedcommerce/sdk:test: TypeError: Cannot read properties of undefined (reading 'orders')
+@unifiedcommerce/sdk:test:    Start at  00:02:38
+@unifiedcommerce/sdk:test:    Duration  1.08s (transform 109ms, setup 0ms, collect 136ms, tests 16ms, environment 0ms, prepare 177ms)
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/sdk:test:  ❯ test/sdk.test.ts:97:18
+@unifiedcommerce/sdk:test:      95|   it("me.orders.reorder sends POST", async () => {
+@unifiedcommerce/sdk:test:      96|     const { sdk, calls } = createMockSDK();
+@unifiedcommerce/sdk:test:      97|     await sdk.me.orders.reorder("ord-1");
+@unifiedcommerce/sdk:test:        |                  ^
+@unifiedcommerce/sdk:test:      98| 
+@unifiedcommerce/sdk:test:      99|     expect(calls[0]?.method).toBe("POST");
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/sdk:test: ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/sdk:test:  FAIL  test/sdk.test.ts > sdk client > webhooks.create sends POST
+@unifiedcommerce/sdk:test: TypeError: Cannot read properties of undefined (reading 'create')
+@unifiedcommerce/sdk:test:  ❯ test/sdk.test.ts:120:24
+@unifiedcommerce/sdk:test:     118|   it("webhooks.create sends POST", async () => {
+@unifiedcommerce/sdk:test:     119|     const { sdk, calls } = createMockSDK();
+@unifiedcommerce/sdk:test:     120|     await sdk.webhooks.create({ url: "https://hook.example.com", event…
+@unifiedcommerce/sdk:test:        |                        ^
+@unifiedcommerce/sdk:test:     121| 
+@unifiedcommerce/sdk:test:     122|     expect(calls[0]?.method).toBe("POST");
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/sdk:test: ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/sdk:test: error: script "test" exited with code 1
+ ERROR  @unifiedcommerce/sdk#test: command (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/sdk) /Users/mithushancj/.bun/bin/bun run test exited (1)
+
+ Tasks:    3 successful, 7 total
+Cached:    0 cached, 7 total
+  Time:    2.908s 
+Failed:    @unifiedcommerce/sdk#test
+
+ ERROR  run failed: command  exited (1)
+error: script "test" exited with code 1

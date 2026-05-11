@@ -1,0 +1,277 @@
+---
+title: Your First Store
+description: Build a working streetwear store with products, inventory, cart, and checkout.
+---
+
+In this tutorial you will set up a complete commerce store called "Acme Streetwear" with real products, inventory, and a working checkout flow. By the end you will have placed an order through the REST API and understand how the pieces fit together.
+
+## What you will build
+
+- A PostgreSQL-backed store with two entity types (product and gift card)
+- Inventory tracking across a warehouse
+- A full cart-to-checkout-to-order flow
+- A seed script that populates demo data
+
+## Prerequisites
+
+- Bun 1.3+ or Node.js 20+
+- PostgreSQL running locally
+- A terminal and a text editor
+
+## Step 1: Create the project
+
+```bash
+mkdir acme-store && cd acme-store
+bun init -y
+bun add @porulle/core @porulle/adapter-postgres @hono/node-server
+bun add -d drizzle-kit typescript
+```
+
+## Step 2: Write the config
+
+Create `commerce.config.ts` at the project root. This file declares everything about your store — entity types, adapters, auth, and shipping.
+
+```ts title="commerce.config.ts"
+import { defineConfig, Ok, type PaymentAdapter } from "@porulle/core";
+import { postgresAdapter } from "@porulle/adapter-postgres";
+
+const DATABASE_URL = process.env.DATABASE_URL
+  ?? "postgres://localhost:5432/acme_store";
+
+const mockPayments: PaymentAdapter = {
+  providerId: "mock-payments",
+  async createPaymentIntent(params) {
+    return Ok({
+      id: `pi_${Date.now()}`,
+      status: "requires_capture",
+      amount: params.amount,
+      currency: params.currency,
+      clientSecret: `secret_${Date.now()}`,
+    });
+  },
+  async capturePayment(id, amount) {
+    return Ok({ id, status: "succeeded", amountCaptured: amount ?? 0 });
+  },
+  async refundPayment(_id, amount) {
+    return Ok({ id: `re_${Date.now()}`, status: "succeeded", amountRefunded: amount });
+  },
+  async cancelPaymentIntent() { return Ok(undefined); },
+  async verifyWebhook() {
+    return Ok({ id: "evt_mock", type: "payment.succeeded", data: {} });
+  },
+};
+
+export default defineConfig({
+  storeName: "Acme Streetwear",
+
+  databaseAdapter: postgresAdapter({ connectionString: DATABASE_URL }),
+
+  auth: {
+    requireEmailVerification: false,
+    apiKeys: { enabled: true },
+    trustedOrigins: ["http://localhost:4000"],
+    roles: {
+      admin: { permissions: ["*:*"] },
+      staff: {
+        permissions: [
+          "catalog:create", "catalog:update", "catalog:read",
+          "inventory:adjust", "inventory:read",
+          "orders:create", "orders:read", "orders:update",
+          "cart:create", "cart:update", "customers:read",
+        ],
+      },
+      customer: {
+        permissions: [
+          "catalog:read", "cart:create", "cart:read", "cart:update",
+          "orders:create", "orders:read:own",
+        ],
+      },
+    },
+  },
+
+  entities: {
+    product: {
+      fields: [
+        { name: "weight", type: "number", unit: "grams" },
+        { name: "material", type: "text" },
+      ],
+      variants: { enabled: true, optionTypes: ["size", "color"] },
+      fulfillment: "physical",
+    },
+    gift_card: {
+      fields: [{ name: "denomination", type: "number" }],
+      variants: { enabled: false },
+      fulfillment: "digital",
+    },
+  },
+
+  shipping: {
+    type: "weight_based",
+    flatRate: 500,
+    freeShippingThreshold: 10000,
+    brackets: [
+      { upToGrams: 500, cost: 499 },
+      { upToGrams: 1000, cost: 799 },
+      { upToGrams: 2000, cost: 1199 },
+    ],
+    fallbackCost: 1599,
+  },
+
+  payments: [mockPayments],
+});
+```
+
+Two entity types are declared: `product` (physical, weight-based shipping) and `gift_card` (digital, no shipping). The engine treats them uniformly through the `sellable_entities` table. See [The Entity Model](/concepts/entity-model/) for why.
+
+## Step 3: Create the server
+
+```ts title="src/server.ts"
+import { serve } from "@hono/node-server";
+import { createServer } from "@porulle/core";
+import config from "../commerce.config.js";
+
+const PORT = Number(process.env.PORT ?? 4000);
+const app = createServer(await config);
+
+app.get("/health", (c) => c.json({ status: "ok", store: "Acme Streetwear" }));
+
+serve({ fetch: app.fetch, port: PORT }, (info) => {
+  console.log(`Acme Streetwear running at http://localhost:${info.port}`);
+});
+```
+
+## Step 4: Set up the database
+
+```ts title="drizzle.config.ts"
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  dialect: "postgresql",
+  dbCredentials: {
+    url: process.env.DATABASE_URL ?? "postgres://localhost:5432/acme_store",
+  },
+  schema: [
+    "./node_modules/@porulle/core/src/kernel/database/schema.ts",
+    "./node_modules/@porulle/core/src/auth/auth-schema.ts",
+  ],
+});
+```
+
+```bash
+createdb acme_store
+bunx drizzle-kit push --config drizzle.config.ts
+bun run src/server.ts
+```
+
+You should see `Acme Streetwear running at http://localhost:4000`. Open a new terminal for the API calls.
+
+## Step 5: Create products
+
+```bash
+# Create a Classic Tee entity
+ENTITY=$(curl -s -X POST http://localhost:4000/api/catalog/entities \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{
+    "type": "product",
+    "slug": "classic-tee",
+    "status": "active",
+    "metadata": { "weight": 200, "material": "cotton" }
+  }')
+ENTITY_ID=$(echo $ENTITY | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
+echo "Entity: $ENTITY_ID"
+
+# Set the English title and description
+curl -s -X PUT "http://localhost:4000/api/catalog/entities/$ENTITY_ID/attributes/en" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{
+    "title": "Classic Logo Tee",
+    "description": "Premium cotton tee with screen-printed logo."
+  }'
+```
+
+## Step 6: Add inventory
+
+Before checkout can succeed, the engine needs to know how much stock exists. Create a warehouse and stock the tee.
+
+```bash
+# Create a warehouse
+WAREHOUSE=$(curl -s -X POST http://localhost:4000/api/inventory/warehouses \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"code": "MAIN", "name": "Main Warehouse", "isActive": true}')
+WAREHOUSE_ID=$(echo $WAREHOUSE | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
+echo "Warehouse: $WAREHOUSE_ID"
+
+# Stock 100 units
+curl -s -X POST http://localhost:4000/api/inventory/adjust \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d "{
+    \"entityId\": \"$ENTITY_ID\",
+    \"warehouseId\": \"$WAREHOUSE_ID\",
+    \"type\": \"receipt\",
+    \"quantity\": 100
+  }"
+```
+
+## Step 7: Cart and checkout
+
+```bash
+# Create a cart
+CART=$(curl -s -X POST http://localhost:4000/api/carts \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"currency": "USD"}')
+CART_ID=$(echo $CART | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
+echo "Cart: $CART_ID"
+
+# Add 2 tees (price in cents: 2999 = $29.99)
+curl -s -X POST "http://localhost:4000/api/carts/$CART_ID/items" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d "{\"entityId\": \"$ENTITY_ID\", \"quantity\": 2, \"unitPriceSnapshot\": 2999}"
+
+# Checkout
+curl -s -X POST http://localhost:4000/api/checkout \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d "{
+    \"cartId\": \"$CART_ID\",
+    \"paymentMethodId\": \"mock-payments\",
+    \"currency\": \"USD\",
+    \"shippingAddress\": {
+      \"country\": \"US\",
+      \"postalCode\": \"90210\",
+      \"state\": \"CA\",
+      \"city\": \"Beverly Hills\",
+      \"line1\": \"123 Commerce St\"
+    }
+  }"
+```
+
+You will see an order with an `orderNumber` like `ORD-2026-000001`, a calculated `grandTotal` (two tees at $29.99 + weight-based shipping), and a `status` of `pending`.
+
+## What just happened
+
+The checkout pipeline ran eight steps:
+
+1. Validated the cart is not empty
+2. Resolved current prices for each line item
+3. Checked inventory availability (100 units available, 2 requested — passes)
+4. Applied any promotion codes (none)
+5. Calculated tax (none configured, defaults to 0)
+6. Calculated shipping (two 200g tees = 400g, falls into the 0–500g bracket = $4.99)
+7. Authorized payment via the mock adapter
+8. Created the order in a database transaction
+
+Steps 1–8 are before hooks. After the transaction commits, after hooks ran: reserved inventory (decrement by 2), captured payment, and recorded an analytics event.
+
+All of this is configurable through hooks. In the next tutorial you will build a loyalty plugin that hooks into this pipeline.
+
+## Next steps
+
+- [Build a Loyalty Plugin](/tutorials/build-a-plugin/) — extend the checkout pipeline with custom logic
+- [Tea Shop POS tutorial](/tutorials/tea-shop-pos/) — a different workflow: terminals, shifts, split payment
+- [Add custom tables](/extending/custom-tables/) — create your own database tables alongside the core schema

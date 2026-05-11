@@ -1,0 +1,89 @@
+---
+title: The Entity Model
+description: Why Porulle uses a single table for all sellable things, and how config-driven behavior replaces code-driven polymorphism.
+---
+
+Every commerce system has to answer a fundamental question: how do you represent the things you sell? A fashion store sells physical products with sizes and colors. A learning platform sells courses with access periods. A restaurant sells menu items with modifiers. These are different enough that most platforms either pick one model and force everything into it, or create separate subsystems per type.
+
+Porulle takes a third approach: one table, many types, with config-driven behavior.
+
+## Why one table for everything
+
+The `sellable_entities` table stores all sellable things regardless of type. A product, a digital download, and a course are all rows in the same table. The `type` column distinguishes them; a `metadata` JSONB column holds type-specific data.
+
+The temptation to use one table per entity type is strong — a `products` table and a `courses` table feel more natural to model, and you get proper column types for each field. But in a commerce engine, the downstream systems matter more than the catalog model.
+
+Cart, checkout, orders, inventory, pricing, promotions, search, and fulfillment all reference sellable things. If products and courses live in separate tables, every one of these systems needs to know about both tables. A cart line item needs a polymorphic foreign key. An order needs to join multiple tables to hydrate its line items. A promotion applying to "any item over $50" needs to query across tables.
+
+With a unified table, none of these systems need to know about entity types at all. A cart line item references `sellable_entities.id`. An order joins one table. A promotion filters on price, not type. The complexity lives in one place — the entity config — instead of being smeared across every service.
+
+This also matters for plugins. A reviews plugin that attaches ratings to sellable entities works for products, courses, and menu items without adaptation. If entities lived in separate tables, the plugin would need a per-type adapter or a polymorphic join strategy.
+
+## Why not table inheritance or polymorphic associations
+
+PostgreSQL supports table inheritance (`CREATE TABLE products INHERITS sellable_entities`). Porulle does not use it for two reasons.
+
+First, PostgreSQL table inheritance has real limitations: foreign keys don't propagate to child tables, `SELECT * FROM sellable_entities` does not return child rows by default, unique constraints across the hierarchy are not enforced. These are not theoretical concerns — they cause production bugs that are hard to diagnose.
+
+Second, inheritance ties the schema to entity types. Adding a new entity type means creating a new table and running a migration. With JSONB, adding a new entity type is a config change — no migration, no schema change, no deployment.
+
+Polymorphic associations (storing `entity_type` + `entity_id` as a pair, common in Ruby on Rails) cannot be enforced with foreign keys, make joins verbose, and scatter type awareness across every table that references entities. The unified table avoids all of this.
+
+## How config replaces code
+
+In a traditional commerce platform, entity-type-specific behavior lives in code — subclasses, interfaces, or strategy patterns. Adding a new entity type requires writing new code.
+
+Porulle moves this behavior into configuration:
+
+```ts title="commerce.config.ts"
+entities: {
+  product: {
+    fields: [
+      { name: "weight", type: "number", unit: "grams" },
+      { name: "material", type: "text" },
+    ],
+    variants: { enabled: true, optionTypes: ["size", "color"] },
+    fulfillment: "physical",
+  },
+  course: {
+    fields: [{ name: "modules", type: "json" }],
+    variants: { enabled: false },
+    fulfillment: "digital-access",
+  },
+}
+```
+
+Four systems read this config and adjust behavior accordingly.
+
+**The catalog service** uses `fields` to validate metadata on create and update. Declaring `weight` as a number rejects strings. An undeclared field is rejected as unknown. A type with no field definitions accepts anything in metadata.
+
+**The shipping calculator** uses `fulfillment` to decide whether a line item incurs shipping cost during checkout. `"physical"` means shipping applies. `"digital"`, `"digital-download"`, `"digital-access"` mean shipping is skipped. A single checkout can contain a hoodie and a PDF — the shipping calculator charges shipping only for the physical item.
+
+**The kernel** uses `hooks` to register entity-scoped lifecycle callbacks. A `beforeCreate` hook on `product` fires only when creating products, not courses. This prevents cross-type interference and allows different validation rules per type.
+
+## The trade-off: metadata is not schema-enforced
+
+The cost of JSONB is that the database does not enforce the schema. A `weight` field declared as `number` in config is validated at the application layer, not by a PostgreSQL `CHECK` constraint or a `NUMERIC` column type. Direct SQL writes bypass this validation.
+
+In practice this is acceptable:
+
+1. All writes go through the catalog service, which validates against config. Direct SQL writes are exceptional.
+2. JSONB supports indexing (`CREATE INDEX ON sellable_entities USING GIN (metadata jsonb_path_ops)`), so query performance is not significantly worse than typed columns for most access patterns.
+3. The flexibility of adding fields without migrations outweighs the risk of schema drift from direct writes.
+
+If strict schema enforcement is critical, use [custom tables](/extending/custom-tables/) to create a typed extension table with proper columns and a foreign key back to `sellable_entities`.
+
+## Where this model breaks down
+
+The unified entity model works well when entity types share the same lifecycle (create → publish → price → sell → fulfill). It breaks down when types need fundamentally different lifecycles.
+
+A subscription with recurring billing has a different lifecycle than a one-time purchase. A booking with time slots has a different lifecycle than a physical shipment. These differences can be handled with hooks and custom fulfillment adapters to a point, but if the lifecycle diverges enough, the shared model becomes a constraint.
+
+This is why plugins like `@porulle/plugin-appointments` exist as separate modules rather than as entity types. They add their own tables, services, and routes *alongside* the entity model rather than fitting into `sellable_entities`. The entity model is the default for straightforward "list it, price it, sell it, fulfill it" flows. When the flow itself is different, build a plugin.
+
+## Related
+
+- [Configuration Reference](/reference/configuration/) — full `EntityConfig` type definition
+- [Hook System Reference](/reference/hooks/) — entity hooks and the three-slot execution model
+- [Plugin Architecture](/concepts/plugin-architecture/) — how plugins extend behavior without modifying the entity model
+- [Add Custom Tables](/extending/custom-tables/) — when JSONB metadata is not enough and you need typed columns

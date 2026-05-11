@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1773357402403,
+      "tag": "0000_majestic_malice",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778429092940,
+      "tag": "0001_add-orders-amount-captured",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,282 @@
+---
+title: Tea Shop POS
+description: Register a terminal, open a shift, ring up a sale with split payment, close the shift, and read the Z-report.
+---
+
+In this tutorial you will build a point-of-sale system for a tea shop called "Ceylon Brew." You will register a terminal, open a cashier shift, process a sale with split payment (cash + card), void a transaction, close the shift, and read the Z-report. Every step uses the REST API.
+
+## What you will build
+
+- A POS terminal registered at your store
+- A cashier shift with an opening float
+- Two completed transactions, one with split payment
+- One voided transaction
+- A closed shift with cash variance calculation
+- A Z-report showing sales totals and payment method breakdown
+
+## Prerequisites
+
+- The store from [Your First Store tutorial](/tutorials/first-store/) running at `http://localhost:4000`
+- `curl` installed
+
+All commands use the dev API key `dev-staff-key`.
+
+## Step 1: Install and enable the POS plugin
+
+```bash
+bun add @porulle/plugin-pos
+```
+
+Update `commerce.config.ts`:
+
+```ts title="commerce.config.ts"
+import { posPlugin } from "@porulle/plugin-pos";
+
+export default defineConfig({
+  // ... existing config ...
+  plugins: [posPlugin()],
+});
+```
+
+Update `drizzle.config.ts` to pick up the POS schema:
+
+```ts title="drizzle.config.ts"
+schema: [
+  "./node_modules/@porulle/core/src/kernel/database/schema.ts",
+  "./node_modules/@porulle/core/src/auth/auth-schema.ts",
+  "./node_modules/@porulle/plugin-pos/src/schema.ts",
+],
+```
+
+Push the new tables and restart:
+
+```bash
+bunx drizzle-kit push --config drizzle.config.ts
+bun run src/server.ts
+```
+
+This adds six tables: `pos_terminals`, `pos_shifts`, `pos_transactions`, `pos_payments`, `pos_cash_events`, `pos_return_items`.
+
+## Step 2: Register a terminal
+
+A terminal represents a physical register or device.
+
+```bash
+TERMINAL=$(curl -s -X POST http://localhost:4000/api/pos/terminals \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"name": "Main Counter", "code": "MC1"}')
+TERMINAL_ID=$(echo $TERMINAL | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
+echo "Terminal: $TERMINAL_ID"
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "id": "a1b2c3d4-...",
+    "name": "Main Counter",
+    "code": "MC1",
+    "isActive": true
+  }
+}
+```
+
+## Step 3: Open a shift
+
+A shift tracks who is operating the register and how much cash is in the drawer. All monetary values are integers in the smallest currency unit (cents for USD).
+
+```bash
+SHIFT=$(curl -s -X POST http://localhost:4000/api/pos/shifts/open \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d "{
+    \"terminalId\": \"$TERMINAL_ID\",
+    \"operatorId\": \"cashier-1\",
+    \"openingFloat\": 500000
+  }")
+SHIFT_ID=$(echo $SHIFT | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
+echo "Shift: $SHIFT_ID"
+```
+
+`openingFloat: 500000` = $5,000.00 starting cash.
+
+## Step 4: Create a cart and start a transaction
+
+Every POS transaction starts with a cart.
+
+```bash
+CART=$(curl -s -X POST http://localhost:4000/api/carts \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"currency": "USD"}')
+CART_ID=$(echo $CART | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
+
+TXN=$(curl -s -X POST http://localhost:4000/api/pos/transactions \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d "{
+    \"shiftId\": \"$SHIFT_ID\",
+    \"terminalId\": \"$TERMINAL_ID\",
+    \"operatorId\": \"cashier-1\",
+    \"cartId\": \"$CART_ID\"
+  }")
+TXN_ID=$(echo $TXN | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
+echo "Transaction: $TXN_ID ($(echo $TXN | python3 -c \"import sys,json; print(json.load(sys.stdin)['data']['receiptNumber'])\"))"
+```
+
+## Step 5: Add a split payment
+
+A split payment uses multiple payment methods on one transaction. $35 cash + $15 card:
+
+```bash
+# Cash: $35.00 = 3500 cents
+curl -s -X POST "http://localhost:4000/api/pos/transactions/$TXN_ID/payments" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"method": "cash", "amount": 3500}'
+
+# Card: $15.00 = 1500 cents
+curl -s -X POST "http://localhost:4000/api/pos/transactions/$TXN_ID/payments" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"method": "card", "amount": 1500, "reference": "****4321"}'
+```
+
+## Step 6: Complete the transaction
+
+```bash
+curl -s -X POST "http://localhost:4000/api/pos/transactions/$TXN_ID/complete" \
+  -H "x-api-key: dev-staff-key"
+```
+
+```json
+{
+  "data": {
+    "status": "completed",
+    "total": 5000,
+    "receiptNumber": "MC1-0001"
+  }
+}
+```
+
+Total is 5000 (3500 + 1500). The shift's `salesCount` increments to 1 and `salesTotal` to 5000.
+
+## Step 7: Process a second transaction (cash only)
+
+```bash
+CART2=$(curl -s -X POST http://localhost:4000/api/carts \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"currency": "USD"}')
+CART2_ID=$(echo $CART2 | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
+
+TXN2=$(curl -s -X POST http://localhost:4000/api/pos/transactions \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d "{\"shiftId\": \"$SHIFT_ID\", \"terminalId\": \"$TERMINAL_ID\", \"operatorId\": \"cashier-1\", \"cartId\": \"$CART2_ID\"}")
+TXN2_ID=$(echo $TXN2 | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
+
+curl -s -X POST "http://localhost:4000/api/pos/transactions/$TXN2_ID/payments" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"method": "cash", "amount": 2200}'
+
+curl -s -X POST "http://localhost:4000/api/pos/transactions/$TXN2_ID/complete" \
+  -H "x-api-key: dev-staff-key"
+```
+
+The shift now has 2 completed transactions totaling $72.00.
+
+## Step 8: Void a transaction
+
+Voided transactions do not count toward shift sales.
+
+```bash
+CART3=$(curl -s -X POST http://localhost:4000/api/carts \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"currency": "USD"}')
+CART3_ID=$(echo $CART3 | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
+
+TXN3=$(curl -s -X POST http://localhost:4000/api/pos/transactions \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d "{\"shiftId\": \"$SHIFT_ID\", \"terminalId\": \"$TERMINAL_ID\", \"operatorId\": \"cashier-1\", \"cartId\": \"$CART3_ID\"}")
+TXN3_ID=$(echo $TXN3 | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
+
+curl -s -X POST "http://localhost:4000/api/pos/transactions/$TXN3_ID/void" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"reason": "Customer changed mind"}'
+```
+
+## Step 9: Close the shift
+
+The expected cash = opening float + cash sales = $5,000 + ($35 + $22) = $5,057. Say the cashier counts $5,056.50:
+
+```bash
+curl -s -X POST "http://localhost:4000/api/pos/shifts/$SHIFT_ID/close" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"closingCount": 505650}'
+```
+
+```json
+{
+  "data": {
+    "status": "closed",
+    "openingFloat": 500000,
+    "closingCount": 505650,
+    "expectedCash": 505700,
+    "cashVariance": -50,
+    "salesCount": 2,
+    "salesTotal": 7200
+  }
+}
+```
+
+`cashVariance: -50` means 50 cents short. This could indicate a counting error or cash loss.
+
+## Step 10: Read the Z-report
+
+```bash
+curl -s "http://localhost:4000/api/pos/shifts/$SHIFT_ID/report" \
+  -H "x-api-key: dev-staff-key"
+```
+
+```json
+{
+  "data": {
+    "shift": {
+      "status": "closed",
+      "salesCount": 2,
+      "salesTotal": 7200,
+      "cashVariance": -50
+    },
+    "cashEvents": [
+      { "type": "float", "amount": 500000 }
+    ],
+    "paymentMethodTotals": [
+      { "method": "cash", "total": 5700, "count": 2 },
+      { "method": "card", "total": 1500, "count": 1 }
+    ],
+    "transactionCount": 2
+  }
+}
+```
+
+## What you learned
+
+- **Terminals** represent physical registers. Each has a unique code.
+- **Shifts** track cash in/out for a cashier session. Opening float is the starting cash.
+- **Transactions** link to shifts. Completed transactions accumulate into shift totals. Voided transactions do not.
+- **Split payment** supports multiple methods (cash + card) on one transaction.
+- **Cash variance** = closing count − expected cash. Negative means cash is short.
+- **Z-report** summarizes the entire shift for end-of-day reconciliation.
+
+## Next steps
+
+- [POS Plugin Reference](/reference/plugins/) — all POS endpoints and data types
+- [Build a Loyalty Plugin](/tutorials/build-a-plugin/) — hooks, schema, custom routes

@@ -1,0 +1,164 @@
+---
+title: Email Notifications
+description: Order confirmations, password resets, and custom templates with Resend or AWS SES.
+---
+
+## Development: console adapter
+
+Use the built-in console adapter during development. It logs every email to your terminal — no API key, no SMTP server, no external service needed.
+
+```ts title="commerce.config.ts"
+import { consoleEmailAdapter } from "@porulle/core";
+
+export default defineConfig({
+  email: consoleEmailAdapter(),
+});
+```
+
+When an email is triggered, you see output like:
+
+```
+============================================================
+  EMAIL: order-confirmation
+============================================================
+  To:       customer@example.com
+  Template: order-confirmation
+  Data:
+    orderId: "ord_abc123"
+    total: 13997
+    currency: "USD"
+============================================================
+```
+
+## Production: Resend
+
+```bash
+bun add @porulle/adapter-resend
+```
+
+```ts title="commerce.config.ts"
+import { resendAdapter } from "@porulle/adapter-resend";
+
+export default defineConfig({
+  email: resendAdapter({
+    apiKey: process.env.RESEND_API_KEY!,
+    from: "Acme Store <orders@acme.com>",
+  }),
+});
+```
+
+## Production: AWS SES
+
+```bash
+bun add @porulle/adapter-ses
+```
+
+```ts title="commerce.config.ts"
+import { sesAdapter } from "@porulle/adapter-ses";
+
+export default defineConfig({
+  email: sesAdapter({
+    region: "us-east-1",
+    from: "Acme Store <orders@acme.com>",
+    credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+    },
+  }),
+});
+```
+
+The sender address must be verified in SES. If your account is in the SES sandbox, recipient addresses must also be verified.
+
+Both adapters ship with default HTML templates for all built-in email types. No additional configuration is needed for basic use.
+
+## Customize templates
+
+Override subjects and HTML bodies per template key:
+
+```ts
+email: resendAdapter({
+  apiKey: process.env.RESEND_API_KEY!,
+  from: "Acme Store <orders@acme.com>",
+
+  subjects: {
+    "order-confirmation": (data) => `Thanks for your order #${String(data.orderId).slice(0, 8)}!`,
+  },
+
+  templates: {
+    "order-confirmation": (data) => `
+      <h1>Order Confirmed</h1>
+      <p>Hi! Your order <strong>#${data.orderId}</strong> is confirmed.</p>
+      <p>Total: ${data.currency} ${(Number(data.total) / 100).toFixed(2)}</p>
+      <a href="https://mystore.com/orders/${data.orderId}">View Order</a>
+    `,
+  },
+}),
+```
+
+If you use Resend's dashboard templates, pass template IDs:
+
+```ts
+email: resendAdapter({
+  apiKey: process.env.RESEND_API_KEY!,
+  from: "Acme Store <orders@acme.com>",
+  resendTemplateIds: {
+    "order-confirmation": "tmpl_abc123",
+    "password-reset": "tmpl_def456",
+  },
+}),
+```
+
+## Built-in template keys
+
+| Template | Triggered by | Data fields |
+|----------|-------------|-------------|
+| `order-confirmation` | Checkout completion | `orderId`, `total`, `currency` |
+| `order-status-change` | Order status hook | `orderId`, `newStatus`, `previousStatus` |
+| `password-reset` | Better Auth password reset | `url` |
+| `email-verification` | Better Auth email verification | `url` |
+| `appointment:reminder` | Appointment plugin (24h + 1h before) | `bookingId`, `reminderType` |
+| `appointment:confirmation-notice` | Appointment booking confirmed | `bookingId`, `providerId` |
+| `appointment:cancellation-notice` | Appointment booking cancelled | `bookingId` |
+| `appointment:no-show-notice` | Appointment marked no-show | `bookingId` |
+
+## Write a custom email adapter
+
+The email interface requires a single `send` method:
+
+```typescript
+interface EmailAdapter {
+  send(input: {
+    template: string;
+    to: string;
+    data?: Record<string, unknown>;
+  }): Promise<void>;
+}
+```
+
+Any object matching this signature works. Example SendGrid adapter:
+
+```typescript
+import sgMail from "@sendgrid/mail";
+
+export function sendgridAdapter(options: { apiKey: string; from: string }) {
+  sgMail.setApiKey(options.apiKey);
+
+  return {
+    async send(input: { template: string; to: string; data?: Record<string, unknown> }) {
+      await sgMail.send({
+        to: input.to,
+        from: options.from,
+        subject: input.template,
+        html: `<pre>${JSON.stringify(input.data, null, 2)}</pre>`,
+      });
+    },
+  };
+}
+```
+
+## Related
+
+- [Adapter Reference](/reference/adapters/) — full `EmailAdapter` interface definition
+- [Hook System guide](/extending/hooks/) — register hooks that trigger emails
+- [Deployment guide](/production/deployment/) — environment variables for API keys

@@ -1,0 +1,28 @@
+$ turbo run lint
+• turbo 2.9.12
+
+   • Packages in scope: @repo/eslint-config, @repo/typescript-config, @repo/ui, @unifiedcommerce/adapter-local-storage, @unifiedcommerce/adapter-meilisearch, @unifiedcommerce/adapter-pg-search, @unifiedcommerce/adapter-postgres, @unifiedcommerce/adapter-r2, @unifiedcommerce/adapter-resend, @unifiedcommerce/adapter-s3, @unifiedcommerce/adapter-ses, @unifiedcommerce/adapter-stripe, @unifiedcommerce/adapter-tax-manual, @unifiedcommerce/adapter-taxjar, @unifiedcommerce/cli, @unifiedcommerce/core, @unifiedcommerce/db, @unifiedcommerce/fashion-starter, @unifiedcommerce/import-flat, @unifiedcommerce/import-shopify, @unifiedcommerce/import-woocommerce, @unifiedcommerce/plugin-appointments, @unifiedcommerce/plugin-giftcards, @unifiedcommerce/plugin-loyalty, @unifiedcommerce/plugin-marketplace, @unifiedcommerce/plugin-notifications, @unifiedcommerce/plugin-pos, @unifiedcommerce/plugin-pos-restaurant, @unifiedcommerce/plugin-procurement, @unifiedcommerce/plugin-production, @unifiedcommerce/plugin-reviews, @unifiedcommerce/plugin-scheduled-orders, @unifiedcommerce/plugin-uom, @unifiedcommerce/plugin-warehouse, @unifiedcommerce/plugin-wishlist, @unifiedcommerce/sdk, docs, restaurant-example, saas-example, store-example, tea-avenue, web
+   • Running lint in 42 packages
+   • Remote caching disabled
+
+@unifiedcommerce/adapter-ses:lint: cache miss, executing a7d2b706a3a933cd
+@unifiedcommerce/core:lint: cache miss, executing 1a10d70c6f09ce52
+@repo/ui:lint: cache miss, executing b1b520f6ceaddcd2
+@unifiedcommerce/sdk:lint: cache miss, executing bb2902480c687f85
+@unifiedcommerce/adapter-resend:lint: cache miss, executing 87f00885a921c6f2
+@unifiedcommerce/core:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/adapter-resend:lint: $ eslint . --max-warnings 1000
+@repo/ui:lint: $ eslint . --max-warnings 0
+@unifiedcommerce/adapter-ses:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/sdk:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/sdk:lint: /bin/bash: eslint: command not found
+@unifiedcommerce/sdk:lint: error: script "lint" exited with code 127
+ ERROR  @unifiedcommerce/sdk#lint: command (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/sdk) /Users/mithushancj/.bun/bin/bun run lint exited (127)
+
+ Tasks:    0 successful, 5 total
+Cached:    0 cached, 5 total
+  Time:    200ms 
+Failed:    @unifiedcommerce/sdk#lint
+
+ ERROR  run failed: command  exited (127)
+error: script "lint" exited with code 127

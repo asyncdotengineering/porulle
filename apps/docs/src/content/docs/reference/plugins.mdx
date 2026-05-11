@@ -1,0 +1,263 @@
+---
+title: Plugin API
+description: defineCommercePlugin, manifest, PluginContext, router() builder, and plugin testing helpers.
+---
+
+For a step-by-step example, see the [Build a Loyalty Plugin tutorial](/tutorials/build-a-plugin/). For the conceptual model, see [Plugin Architecture](/concepts/plugin-architecture/).
+
+## CommercePlugin
+
+A plugin is a config transform function:
+
+```ts
+type CommercePlugin = (config: CommerceConfig) => CommerceConfig | Promise<CommerceConfig>;
+```
+
+Plugins are listed in `config.plugins[]` and applied sequentially during `defineConfig()`.
+
+---
+
+## defineCommercePlugin
+
+```ts
+function defineCommercePlugin(manifest: CommercePluginManifest): CommercePlugin;
+```
+
+### CommercePluginManifest
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | `string` | Yes | Unique plugin identifier |
+| `version` | `string` | Yes | Semantic version |
+| `permissions` | `PluginPermission[]` | No | Permission scopes declared by this plugin |
+| `schema` | `() => Record<string, unknown>` | No | Returns Drizzle `pgTable` objects |
+| `hooks` | `() => PluginHookRegistration[]` | No | Returns hook registrations |
+| `routes` | `(ctx: PluginContext) => PluginRouteRegistration[]` | No | Returns HTTP route registrations |
+| `analyticsModels` | `() => AnalyticsModel[]` | No | Returns analytics model definitions |
+
+### PluginPermission
+
+```ts
+interface PluginPermission {
+  scope: string;
+  description: string;
+}
+```
+
+Permissions declared here are registered with the authorization system at boot. Routes can require them via `.permission("scope")`.
+
+```ts
+permissions: [
+  { scope: "wishlist:read", description: "View wishlists" },
+  { scope: "wishlist:write", description: "Create and modify wishlists" },
+],
+```
+
+---
+
+## PluginContext
+
+Provided to the `routes` factory function at kernel boot time:
+
+```ts
+interface PluginContext {
+  config: CommerceConfig;
+  services: Record<string, unknown>;
+  database: {
+    db: PluginDb;
+    transaction<T>(fn: (tx: PluginDb) => Promise<T>): Promise<T>;
+  };
+  logger: PluginLogger;
+}
+```
+
+`database.db` is typed as `PluginDb`. Use it directly for Drizzle queries without casting.
+
+---
+
+## PluginHookRegistration
+
+```ts
+interface PluginHookRegistration {
+  key: string;
+  handler: (...args: unknown[]) => unknown;
+}
+```
+
+`key` corresponds to any hook key (e.g., `"checkout.beforeCreate"`, `"orders.afterCreate"`). The handler is appended to the array for that key in `config.hooks`.
+
+---
+
+## router() builder
+
+The `router()` builder provides a fluent API for defining plugin routes with built-in authentication, permissions, input validation, and OpenAPI documentation.
+
+```ts
+import { router } from "@porulle/core";
+
+const routes = router("wishlist", "/api/wishlist")
+  .get("/", { summary: "List wishlist items" })
+    .auth()
+    .handler(async ({ actor, db }) => {
+      const items = await db.select().from(wishlistItems)
+        .where(eq(wishlistItems.customerId, actor.userId));
+      return { data: items };
+    })
+  .post("/", { summary: "Add item to wishlist" })
+    .auth()
+    .permission("wishlist:write")
+    .input(addItemSchema)
+    .handler(async ({ input, actor, db }) => {
+      const [item] = await db.insert(wishlistItems)
+        .values({ customerId: actor.userId, ...input })
+        .returning();
+      return { data: item };
+    })
+  .delete("/:id", { summary: "Remove item from wishlist" })
+    .auth()
+    .permission("wishlist:write")
+    .handler(async ({ actor, db, params }) => {
+      await db.delete(wishlistItems)
+        .where(eq(wishlistItems.id, params.id));
+      return { data: { deleted: true } };
+    })
+  .build();
+```
+
+**`router(tag, prefix)`** — creates a route group. `tag` is used for OpenAPI grouping; `prefix` is prepended to all route paths.
+
+**Chain methods:**
+
+| Method | Description |
+|--------|-------------|
+| `.get(path, opts?)` / `.post()` / `.put()` / `.patch()` / `.delete()` | Start a new route definition. `opts` accepts `{ summary }` for OpenAPI. |
+| `.auth()` | Require authentication. `actor` is guaranteed in the handler context. |
+| `.permission(scope)` | Require a permission scope. Implicitly calls `.auth()`. |
+| `.input(zodSchema)` | Validate the request body with a Zod schema. Parsed value is available as `input`. |
+| `.handler(fn)` | The route handler. Receives `{ input, actor, services, db, params }`. |
+| `.build()` | Returns the array of `PluginRouteRegistration` objects. |
+
+All routes defined via `router()` appear automatically in the OpenAPI spec at `GET /api/doc` and the Swagger UI at `GET /api/reference`.
+
+---
+
+## Plugin lifecycle
+
+1. **Collection** — Plugins are applied in array order during `defineConfig()`. Order matters: if Plugin B queries tables from Plugin A, Plugin A must come first.
+2. **Permissions** — Permission scopes are registered globally at boot.
+3. **Schema** — Table definitions are pushed into `config.customSchemas[]` and merged via `buildSchema(config)`.
+4. **Hooks** — Hook registrations are merged into `config.hooks`.
+5. **Routes** — Route factories are chained and executed at kernel boot, receiving `PluginContext`.
+6. **Analytics models** — Models are pushed into `config.analytics.models`.
+
+---
+
+## Official plugins
+
+| Package | Description |
+|---------|-------------|
+| `@porulle/plugin-marketplace` | Multi-vendor marketplace, commissions, sub-orders, financial ledger, disputes |
+| `@porulle/plugin-pos` | POS terminals, shifts, split payment, returns, Z-reports |
+| `@porulle/plugin-pos-restaurant` | Restaurant extensions: modifiers, tables, KDS, combos |
+| `@porulle/plugin-uom` | Units of measure, category-based conversions, AP/EP yield |
+| `@porulle/plugin-procurement` | Suppliers, purchase orders, goods received notes |
+| `@porulle/plugin-warehouse` | Stock transfers, wastage, stock reconciliation |
+| `@porulle/plugin-production` | Multi-level BOM, cost rollup, production orders |
+| `@porulle/plugin-notifications` | Unified dispatcher: SMS, push, print, templates, audit |
+| `@porulle/plugin-scheduled-orders` | Future/scheduled orders with auto-processing |
+| `@porulle/plugin-reviews` | Customer reviews, ratings, moderation, owner reply |
+| `@porulle/plugin-appointments` | Appointment scheduling, slot generation, double-booking prevention |
+| `@porulle/plugin-gift-cards` | Stored-value cards, balance tracking, checkout integration |
+
+---
+
+## Plugin testing helpers
+
+### `createPluginTestApp(plugin, overrides?)`
+
+Boots an in-memory PGlite database, pushes the merged schema (core + plugin tables), mounts the `x-test-actor` middleware, and registers all plugin routes.
+
+```ts
+import { createPluginTestApp } from "@porulle/core";
+
+const { app, kernel, db } = await createPluginTestApp(myPlugin());
+```
+
+**Returns:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `app` | `OpenAPIHono` | Hono app with routes registered. Call `app.request(url, init)` to test. |
+| `kernel` | `Kernel` | Booted kernel. Use for direct service-layer assertions. |
+| `db` | `PluginDb` | Drizzle database instance. Use for direct query assertions. |
+
+Pass `databaseAdapter` in overrides to use a real PostgreSQL instance instead of PGlite.
+
+### `jsonHeaders(actor?)`
+
+Builds request headers with `x-test-actor` injection:
+
+```ts
+import { jsonHeaders, testAdminActor } from "@porulle/core";
+
+const res = await app.request("http://localhost/api/my-route", {
+  method: "POST",
+  headers: jsonHeaders(testAdminActor),
+  body: JSON.stringify({ ... }),
+});
+```
+
+### Test actors
+
+| Export | Role | Permissions |
+|--------|------|-------------|
+| `testAdminActor` | admin | `*:*` |
+| `testStaffActor` | staff | catalog, inventory, orders |
+| `testCustomerActor` | customer | catalog:read, cart, orders:read:own |
+| `testNoPermActor` | customer | (none) |
+
+### Typed hook helpers
+
+```ts
+import { beforeHook, afterHook } from "@porulle/core";
+
+hooks: () => [
+  afterHook<{ id: string; grandTotal: number }>("orders.afterCreate", async ({ result, context }) => {
+    await context.jobs.enqueue("loyalty:award-points", { orderId: result.id });
+  }),
+],
+```
+
+---
+
+## @porulle/db package
+
+Plugin developers import from `@porulle/db` instead of `drizzle-orm` directly.
+
+```ts
+import { defineTable, column, eq, and, desc, sql } from "@porulle/db";
+```
+
+### defineTable(name, columns)
+
+Wraps Drizzle's `pgTable` with auto-injected fields for org-scoped tables:
+
+| Auto-injected field | Description |
+|--------------------|-------------|
+| `id` | `uuid`, primary key, `defaultRandom()` |
+| `organizationId` | `text`, NOT NULL, FK to `organization.id` |
+| `createdAt` | `timestamptz`, `defaultNow()`, NOT NULL |
+| `updatedAt` | `timestamptz`, `defaultNow()`, NOT NULL |
+
+Child tables (detected by FK to a table that has `organizationId`) get only `id` and `createdAt` — no duplicate `organizationId`.
+
+### column namespace
+
+| Builder | Options |
+|---------|---------|
+| `column.text(opts?)` | `unique`, `optional`, `enum`, `default` |
+| `column.integer(opts?)` | `unique`, `optional`, `default` |
+| `column.boolean(opts?)` | `optional`, `default` |
+| `column.uuid(opts?)` | `optional`, `references` (PgTable for FK) |
+| `column.timestamp(opts?)` | `optional`, `default` (`"now"`) |
+| `column.json(opts?)` | `optional`, `default` |

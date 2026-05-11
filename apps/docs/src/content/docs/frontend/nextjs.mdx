@@ -1,0 +1,177 @@
+---
+title: Next.js
+description: Mount Porulle inside a Next.js App Router project.
+---
+
+This guide mounts the Porulle Hono app inside a Next.js App Router catch-all route. The result: your Next.js frontend and the commerce API run in the same process, with no separate server, proxy, or CORS configuration.
+
+## Install
+
+```bash
+bun add @porulle/core @porulle/adapter-postgres hono postgres drizzle-orm
+bun add -d drizzle-kit
+```
+
+## Create the commerce config
+
+```ts title="commerce.config.ts"
+import { defineConfig, Ok, type PaymentAdapter } from "@porulle/core";
+import { postgresAdapter } from "@porulle/adapter-postgres";
+
+const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://localhost:5432/my_store";
+
+const mockPayments: PaymentAdapter = {
+  providerId: "mock-payments",
+  async createPaymentIntent(p) {
+    return Ok({ id: `pi_${Date.now()}`, status: "requires_capture", amount: p.amount, currency: p.currency, clientSecret: `secret_${Date.now()}` });
+  },
+  async capturePayment(id, amount) { return Ok({ id, status: "succeeded", amountCaptured: amount ?? 0 }); },
+  async refundPayment(_id, amount) { return Ok({ id: `re_${Date.now()}`, status: "succeeded", amountRefunded: amount }); },
+  async cancelPaymentIntent() { return Ok(undefined); },
+  async verifyWebhook() { return Ok({ id: "evt_mock", type: "payment.succeeded", data: {} }); },
+};
+
+export default defineConfig({
+  storeName: "My Store",
+  database: { provider: "postgresql" },
+  databaseAdapter: postgresAdapter({ connectionString: DATABASE_URL }),
+  auth: {
+    requireEmailVerification: false,
+    apiKeys: { enabled: true },
+    trustedOrigins: ["http://localhost:3000"],
+  },
+  payments: [mockPayments],
+});
+```
+
+Replace `mockPayments` with a real adapter before production. See the [Payment Adapter guide](/extending/payment-adapter/).
+
+## Mount as a Next.js API route
+
+Create a catch-all route that delegates all `/api/*` requests to the Hono app:
+
+```ts title="src/app/api/[[...route]]/route.ts"
+import { handle } from "hono/vercel";
+import { createServer } from "@porulle/core";
+import config from "../../../../commerce.config";
+
+const { app } = await createServer(config);
+
+export const GET = handle(app);
+export const POST = handle(app);
+export const PUT = handle(app);
+export const PATCH = handle(app);
+export const DELETE = handle(app);
+```
+
+All Porulle routes are now available at `/api/*` inside your Next.js app.
+
+## Add drizzle.config.ts
+
+```ts title="drizzle.config.ts"
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  dialect: "postgresql",
+  dbCredentials: {
+    url: process.env.DATABASE_URL ?? "postgres://localhost:5432/my_store",
+  },
+  schema: [
+    "./node_modules/@porulle/core/src/kernel/database/schema.ts",
+    "./node_modules/@porulle/plugin-*/src/schema.ts",
+  ],
+});
+```
+
+## Push the database schema
+
+```bash
+createdb my_store
+bunx drizzle-kit push --config drizzle.config.ts
+```
+
+## Verify
+
+```bash
+bun run dev
+curl http://localhost:3000/api/catalog/entities
+```
+
+Expected: `{ "success": true, "data": [] }`. The OpenAPI spec is at `http://localhost:3000/api/doc`.
+
+## Exclude native binaries from Turbopack
+
+If Turbopack fails to bundle `postgres` or other native packages:
+
+```ts title="next.config.ts"
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  serverExternalPackages: [
+    "@porulle/core",
+    "drizzle-orm",
+    "postgres",
+  ],
+};
+
+export default nextConfig;
+```
+
+## Add the typed SDK
+
+With the dev server running, generate types from your OpenAPI spec:
+
+```bash
+bun add @porulle/sdk @tanstack/react-query openapi-react-query
+bun add -d openapi-typescript
+bunx @porulle/sdk generate --url http://localhost:3000/api/doc --output src/generated/api-types.ts
+```
+
+Create a typed client. Use an empty `baseUrl` so SDK calls route through the same Next.js process:
+
+```ts title="src/lib/commerce.ts"
+import { createClient } from "@porulle/sdk";
+import { createCommerceHooks } from "@porulle/sdk/react";
+import { QueryClient } from "@tanstack/react-query";
+import type { paths } from "@/generated/api-types";
+
+export const client = createClient<paths>({
+  baseUrl: "",
+  auth: { type: "cookie" },
+});
+
+export const commerce = createCommerceHooks(client);
+
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { staleTime: 30_000, refetchOnWindowFocus: false },
+  },
+});
+```
+
+Add a script to `package.json` for regenerating types:
+
+```json
+{
+  "scripts": {
+    "db:push": "bunx drizzle-kit push --config drizzle.config.ts",
+    "sdk:generate": "bunx @porulle/sdk generate --url http://localhost:3000/api/doc --output src/generated/api-types.ts"
+  }
+}
+```
+
+## Deploy to Vercel
+
+The Hono Vercel preset deploys the catch-all route as a serverless function automatically. No additional configuration is needed beyond setting environment variables:
+
+- `DATABASE_URL` — PostgreSQL connection string (Neon, Supabase, etc.)
+- `BETTER_AUTH_SECRET` — generate with `openssl rand -hex 32`
+- `BETTER_AUTH_URL` — your app's public URL
+
+See the [Deployment guide](/production/deployment/) for Vercel-specific project settings and the conditional exports requirement.
+
+## Related
+
+- [Typed SDK Client guide](/frontend/sdk/) — full SDK usage including React hooks
+- [Authentication guide](/building/authentication/) — session cookies and trusted origins for browser requests
+- [Deployment guide](/production/deployment/) — Vercel, Cloudflare Workers, Docker

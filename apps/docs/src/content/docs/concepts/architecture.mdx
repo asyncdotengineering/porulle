@@ -1,0 +1,95 @@
+---
+title: Architecture
+description: Kernel, modules, adapters, interfaces, and why the boundaries sit where they do.
+---
+
+Porulle is built around four ideas: a kernel that boots and owns all services, domain modules that encapsulate business logic, swappable adapters for external concerns, and thin interface layers that expose the kernel to the outside world. This page explains how those pieces connect and why the boundaries are where they are.
+
+## The kernel
+
+Everything starts with `createKernel(config)` (called internally by `createServer`). The kernel is a plain function. It reads the frozen `CommerceConfig`, instantiates every repository and service, wires them together, registers hook handlers, and returns a `Kernel` object. That object is the single source of truth for the running application: it holds all services, the database connection, and the hook registry.
+
+The kernel does not know about HTTP. It does not import Hono or any transport library. This separation is intentional — the same kernel can be used behind a REST server, a test harness, a CLI tool, or any custom interface an adopter builds on top, without changing any business logic.
+
+`createServer(config)` is a thin wrapper that creates a kernel, sets up authentication, mounts the REST router, and applies custom routes from config or plugins. The server depends on the kernel; the kernel depends on nothing above it.
+
+## The module pattern
+
+Each business domain — catalog, cart, orders, inventory, pricing, promotions, fulfillment, customers, webhooks, analytics, media, search, tax, shipping — is a module. A module has three parts:
+
+- **Schema**: Drizzle table definitions. These live alongside the module code, not in a separate migrations folder, because the schema *is* the code.
+- **Repository**: Data access. The repository is the only layer that reads or writes the database directly. All repositories use Drizzle ORM against PostgreSQL. Tests use PGlite (in-process WASM PostgreSQL) with real SQL against the same repository code — no mocks.
+- **Service**: Business logic. Services accept domain-level inputs, call repositories, run hooks, and return `Result<T>` values. Services never import Hono, never read HTTP headers, and never return HTTP status codes.
+
+This three-part structure is consistent across all modules. If you understand how `catalog` works, you understand how `inventory` works. The consistency is more valuable than any individual design choice within it.
+
+### Why services, not direct DB access
+
+Routes could call repositories directly. Fewer files, less indirection. Porulle does not do this for two reasons.
+
+First, business rules accumulate. Creating an order is not just inserting a row — it validates the cart, resolves prices, checks inventory, applies promotions, calculates tax and shipping, authorizes payment, and fires hooks. That logic needs a home that is not a route handler.
+
+Second, multiple interfaces may need the same logic. The REST API and any adopter-built interface (CLI, RPC, agent shim) both need to create orders. If the logic lives in a route handler, every other interface duplicates it. If it lives in a service, every interface calls the same function.
+
+## The adapter pattern
+
+Several concerns are external: which database you use, which payment processor, where files are stored, how search works, how tax is calculated. Each is represented by an adapter interface.
+
+```ts
+interface PaymentAdapter {
+  readonly providerId: string;
+  createPaymentIntent(params: CreatePaymentIntentParams): Promise<Result<PaymentIntent>>;
+  capturePayment(paymentIntentId: string): Promise<Result<PaymentCapture>>;
+  refundPayment(paymentId: string, amount: number): Promise<Result<PaymentRefund>>;
+}
+```
+
+Adapters return `Result<T>`, not thrown exceptions. A Stripe failure is `{ ok: false, error: { code: "PAYMENT_FAILED", message: "..." } }`, not an uncaught promise rejection. See [Result Types](/concepts/result-types/) for the reasoning.
+
+Swapping an adapter is a config change — you pass a different adapter to `defineConfig` and nothing else changes. No service code changes.
+
+Current adapter interfaces: `DatabaseAdapter`, `PaymentAdapter`, `StorageAdapter`, `SearchAdapter`, `TaxAdapter`, `AnalyticsAdapter`, `EmailAdapter`. See [Adapter Interfaces](/reference/adapters/) for full type definitions.
+
+## The interface layer
+
+Porulle ships one interface: **REST via Hono**. Routes parse HTTP requests, call services, and translate `Result<T>` into HTTP responses using `mapErrorToStatus` (`packages/core/src/interfaces/rest/error.ts`). Error codes map to status codes: `NOT_FOUND` → 404, `VALIDATION_FAILED` → 422, `FORBIDDEN` → 403.
+
+The kernel is interface-agnostic. Adopters who want MCP, UCP, ACP, or custom RPC wrap the REST API or call the in-process `LocalAPI` from a companion package. The engine stays REST-only.
+
+A hook context includes an `origin` field (`"rest"` or `"local"`) for cases where behavior should differ by caller, but most hooks ignore it.
+
+The customer portal (`/api/me/*`) provides authenticated customers with access to their own orders, addresses, and profile. It uses the same kernel services with customer-scoped access controls.
+
+## Config-driven design
+
+`defineConfig` is the entry point for application authors. It:
+
+1. Merges user input with sensible defaults
+2. Applies all plugins in order (each plugin is a config transform function)
+3. Freezes the result to prevent runtime mutation
+
+The frozen config is passed to `createKernel`, which reads but never modifies it. There is no `setConfig` or `updateConfig` API — the config is fixed at startup.
+
+This is inspired by PayloadCMS, which uses the same config-as-code approach. Porulle's config controls commerce-specific concerns: entity types, payment adapters, shipping rules, tax providers, and checkout hooks. See [Plugin Architecture](/concepts/plugin-architecture/) for how plugins interact with this pipeline.
+
+## Why Hono
+
+1. **Runtime-agnostic**: Hono runs on Node.js, Bun, and Cloudflare Workers without code changes. Commerce workloads benefit from both edge deployment (catalog reads) and traditional servers (checkout transactions).
+2. **Lightweight**: Near-zero overhead. The router is fast, middleware is composable, no hidden magic.
+3. **TypeScript-first**: Route parameter mismatches, middleware variable access, and response types caught at compile time.
+
+## Why Drizzle
+
+- **Schema-as-code**: Drizzle schemas are plain TypeScript. They can be imported, composed, and extended by plugins — essential for the plugin system, where plugins contribute their own tables via `customSchemas[]`.
+- **SQL-like API**: Drizzle's query builder mirrors SQL. If you know SQL, you know Drizzle.
+- **Migration tooling**: `drizzle-kit` generates migrations from schema diffs, supports push-based development without migration files during prototyping.
+- **Performance**: Minimal queries, prepared statement support. Checkout latency is directly affected by database performance.
+
+The trade-off: Drizzle is less mature than Prisma and has a smaller ecosystem. The schema-as-code approach aligns with Porulle's config-driven architecture in a way Prisma's separate schema file format does not.
+
+## Related
+
+- [Plugin Architecture](/concepts/plugin-architecture/) — how plugins extend behavior without modifying the engine
+- [Hook Pipeline](/concepts/hook-pipeline/) — how checkout orchestration works
+- [Adapter Interfaces](/reference/adapters/) — full type definitions for every adapter interface
+- [Configuration Reference](/reference/configuration/) — every `defineConfig` option

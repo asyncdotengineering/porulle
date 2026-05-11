@@ -1,0 +1,245 @@
+---
+title: Deploy to Production
+description: Run Porulle on Bun, Node.js, Vercel, Cloudflare Workers, or inside a Next.js app.
+---
+
+`createServer(config)` returns a Hono app. Hono is runtime-agnostic — the same app object runs on Bun, Node.js, Vercel, and Cloudflare Workers without deployment-specific packages in your business logic.
+
+## Environment variables
+
+Set these for every deployment target:
+
+```bash title=".env"
+DATABASE_URL=postgres://user:password@host:5432/my_store
+BETTER_AUTH_SECRET=<output of: openssl rand -hex 32>
+BETTER_AUTH_URL=https://your-app.example.com
+PORT=4000
+```
+
+`BETTER_AUTH_SECRET` signs session tokens. `BETTER_AUTH_URL` is the public URL of your app — Better Auth uses it to validate CSRF tokens and configure cookie domains. Never commit either to git.
+
+## Run migrations before deploying
+
+Reserve `drizzle-kit push` for development. In production, use generated migration files:
+
+```bash
+bunx drizzle-kit generate --config drizzle.config.ts
+bunx drizzle-kit migrate --config drizzle.config.ts
+```
+
+Run this step in your CI/CD pipeline before your app starts, or as a one-time pre-deploy command.
+
+## Production auth config
+
+Disable the dev API key and lock down trusted origins before going live:
+
+```ts title="commerce.config.ts"
+export default defineConfig({
+  auth: {
+    enableDevKey: false,
+    requireEmailVerification: true,
+    trustedOrigins: ["https://mystore.com"],
+    apiKeys: { enabled: true },
+    roles: {
+      admin: { permissions: ["*:*"] },
+      customer: {
+        permissions: [
+          "catalog:read",
+          "cart:create", "cart:read", "cart:update",
+          "orders:create", "orders:read:own",
+        ],
+      },
+    },
+  },
+});
+```
+
+## Bun
+
+No adapter needed. Hono's `app.fetch` works directly with Bun's built-in server:
+
+```ts title="src/server.ts"
+import { createServer } from "@porulle/core";
+import config from "./commerce.config";
+
+const { app } = await createServer(config);
+
+export default {
+  port: Number(process.env.PORT ?? 4000),
+  fetch: app.fetch,
+};
+```
+
+```bash
+bun run src/server.ts
+```
+
+## Node.js
+
+Install `@hono/node-server` to bridge Hono to Node's HTTP server:
+
+```bash
+bun add @hono/node-server
+```
+
+```ts title="src/server.ts"
+import { serve } from "@hono/node-server";
+import { createServer } from "@porulle/core";
+import config from "./commerce.config";
+
+const { app } = await createServer(config);
+
+serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 4000) }, (info) => {
+  console.log(`Store running at http://localhost:${info.port}`);
+});
+```
+
+## Vercel
+
+Vercel supports Hono natively with zero configuration. Export the app as the default export and set Framework Preset to **Hono** in the Vercel dashboard:
+
+```ts title="src/index.ts"
+import { createServer } from "@porulle/core";
+import config from "../commerce.config.js";
+
+const { app } = await createServer(config);
+
+export default app;
+```
+
+No `vercel.json`, no `handle()` wrapper, no named HTTP exports needed.
+
+**Vercel project settings:**
+
+| Setting | Value |
+|---------|-------|
+| Framework Preset | Hono |
+| Root Directory | `apps/your-app` |
+| Install Command | `bun install` |
+| Build Command | auto-detected via Turbo |
+
+**Required environment variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string (Neon, Supabase, etc.) |
+| `BETTER_AUTH_SECRET` | Signs session tokens. Generate: `openssl rand -hex 32` |
+| `BETTER_AUTH_URL` | Your app's public URL (e.g., `https://your-app.vercel.app`) |
+
+All workspace packages must have conditional exports pointing `"import"` to compiled `dist/*.js` files, not TypeScript source. Vercel's bundler cannot process raw TypeScript from `node_modules`.
+
+## Next.js App Router
+
+Create a catch-all API route that delegates all `/api/*` requests to the Hono app:
+
+```ts title="app/api/[[...route]]/route.ts"
+import { handle } from "hono/vercel";
+import { createServer } from "@porulle/core";
+import config from "../../../commerce.config";
+
+const { app } = await createServer(config);
+
+export const GET = handle(app);
+export const POST = handle(app);
+export const PUT = handle(app);
+export const PATCH = handle(app);
+export const DELETE = handle(app);
+```
+
+Your Next.js frontend and the commerce API run in the same process. No separate server, no proxy, no CORS. See the [Next.js guide](/frontend/nextjs/) for the full setup including `serverExternalPackages`.
+
+## Cloudflare Workers
+
+Workers require a database adapter that works in the Workers runtime (no Node.js `net` module). Use Hyperdrive (TCP pooling at edge) with `postgres`, or the Neon WebSocket driver as a fallback:
+
+```ts title="src/worker.ts"
+import postgres from "postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { createServer, defineConfig, type DatabaseAdapter } from "@porulle/core";
+
+type Env = {
+  DATABASE_URL: string;
+  BETTER_AUTH_SECRET: string;
+  BETTER_AUTH_URL: string;
+  ORG_ID?: string;
+  HYPERDRIVE?: { connectionString: string };
+};
+
+let singleton: { app: { fetch: typeof fetch } } | null = null;
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    if (!singleton) {
+      const connStr = env.HYPERDRIVE?.connectionString ?? env.DATABASE_URL;
+      const client = postgres(connStr, { prepare: false });
+      const db = drizzle({ client });
+
+      const databaseAdapter: DatabaseAdapter = {
+        provider: "postgresql",
+        db,
+        async transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
+          return db.transaction(async (tx) => fn(tx));
+        },
+      };
+
+      const config = await defineConfig({
+        storeName: "My Store",
+        database: { provider: "postgresql" },
+        databaseAdapter,
+        auth: {
+          ...(env.ORG_ID ? { defaultOrganizationId: env.ORG_ID } : {}),
+          requireEmailVerification: false,
+        },
+      });
+
+      singleton = await createServer(config);
+    }
+
+    return singleton.app.fetch(request);
+  },
+};
+```
+
+```toml title="wrangler.toml"
+name = "my-store"
+main = "src/worker.ts"
+compatibility_flags = ["nodejs_compat"]
+compatibility_date = "2026-04-01"
+
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "<your-hyperdrive-id>"
+```
+
+```bash
+npx wrangler hyperdrive create my-store-db \
+  --connection-string="postgres://user:pass@host:5432/dbname"
+npx wrangler secret put DATABASE_URL
+npx wrangler secret put BETTER_AUTH_SECRET
+npx wrangler secret put BETTER_AUTH_URL
+npx wrangler deploy
+```
+
+## Docker
+
+```dockerfile title="Dockerfile"
+FROM oven/bun:1
+WORKDIR /app
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+COPY . .
+RUN bunx drizzle-kit migrate --config drizzle.config.ts
+EXPOSE 4000
+CMD ["bun", "run", "src/server.ts"]
+```
+
+```bash
+docker build -t mystore .
+docker run -p 4000:4000 -e DATABASE_URL=postgres://... mystore
+```
+
+## Related
+
+- [Authentication guide](/building/authentication/) — production auth config in detail
+- [Multi-Tenancy guide](/production/multi-tenancy/) — `storeResolver` for SaaS deployments
+- [Next.js guide](/frontend/nextjs/) — full Next.js App Router setup

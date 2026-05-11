@@ -1,0 +1,270 @@
+---
+title: Analytics
+description: Built-in analytics models, measures, dimensions, query format, filter operators, and scope rules.
+---
+
+The analytics subsystem compiles semantic queries into SQL and runs them against PostgreSQL via the `DrizzleAnalyticsAdapter`. No external service is required.
+
+For query setup and custom model registration, see the [Analytics guide](/building/analytics/).
+
+---
+
+## Query format
+
+```ts
+interface AnalyticsQueryParams {
+  measures: string[];
+  dimensions?: string[];
+  timeDimensions?: AnalyticsTimeDimension[];
+  filters?: AnalyticsFilter[];
+  order?: Record<string, "asc" | "desc">;
+  limit?: number;
+}
+```
+
+| Property | Required | Description |
+|----------|----------|-------------|
+| `measures` | Yes | Measure names in `ModelName.measureName` format |
+| `dimensions` | No | Dimension names for GROUP BY |
+| `timeDimensions` | No | Time-based grouping and filtering |
+| `filters` | No | Array of filter objects |
+| `order` | No | Sort order by measure or dimension |
+| `limit` | No | Row limit (default: 100) |
+
+### TimeDimension
+
+```ts
+{
+  dimension: "Orders.placedAt",
+  granularity: "month",                         // day | week | month | year
+  dateRange: ["2025-01-01", "2025-12-31"]       // or preset string like "last 6 months"
+}
+```
+
+### Filter
+
+```ts
+{
+  member: "Orders.status",
+  operator: "equals",
+  values: ["confirmed", "processing"]
+}
+```
+
+### Filter operators
+
+| Operator | Applies to | Description |
+|----------|-----------|-------------|
+| `equals` | string, number, time | Exact match (supports multiple values) |
+| `notEquals` | string, number, time | Excludes exact matches |
+| `contains` | string | Case-insensitive substring match |
+| `in` | string, number | Value is in the provided list |
+| `notIn` | string, number | Value is not in the provided list |
+| `gt` / `gte` | number | Greater than / greater than or equal |
+| `lt` / `lte` | number | Less than / less than or equal |
+| `beforeDate` | time | Before a timestamp |
+| `afterDate` | time | After a timestamp |
+| `inDateRange` | time | Between two timestamps |
+
+### Boolean logic
+
+Combine filters with `and` / `or`:
+
+```json
+{
+  "filters": [
+    {
+      "or": [
+        { "member": "Orders.status", "operator": "equals", "values": ["confirmed"] },
+        { "member": "Orders.status", "operator": "equals", "values": ["processing"] }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+## Built-in models
+
+### Orders
+
+Table: `orders`
+
+**Measures:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `Orders.count` | count | Number of orders |
+| `Orders.revenue` | sum | Sum of grand totals |
+| `Orders.averageOrderValue` | avg | Average grand total per order |
+| `Orders.subtotalRevenue` | sum | Sum of subtotals (before tax/shipping) |
+| `Orders.taxCollected` | sum | Sum of tax amounts |
+| `Orders.shippingRevenue` | sum | Sum of shipping charges |
+| `Orders.discountsGiven` | sum | Sum of discounts applied |
+| `Orders.uniqueCustomers` | countDistinct | Unique customers who ordered |
+
+**Dimensions:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `Orders.id` | string | Order UUID |
+| `Orders.orderNumber` | string | Human-readable order number |
+| `Orders.status` | string | Order status |
+| `Orders.currency` | string | Currency code |
+| `Orders.placedAt` | time | Order creation timestamp |
+
+### OrderLineItems
+
+Table: `order_line_items` (left join to `orders`)
+
+**Measures:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `OrderLineItems.count` | count | Number of line items |
+| `OrderLineItems.itemsSold` | sum | Total quantity of items sold |
+| `OrderLineItems.lineItemRevenue` | sum | Sum of line item total prices |
+| `OrderLineItems.averageUnitPrice` | avg | Average unit price across line items |
+
+**Dimensions:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `OrderLineItems.entityType` | string | Entity type (product, service, etc.) |
+| `OrderLineItems.sku` | string | SKU at time of purchase |
+| `OrderLineItems.title` | string | Product title at time of purchase |
+| `OrderLineItems.fulfillmentStatus` | string | Line item fulfillment status |
+
+### Inventory
+
+Table: `inventory_levels`
+
+**Measures:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `Inventory.totalOnHand` | sum | Total on-hand quantity |
+| `Inventory.totalReserved` | sum | Total reserved quantity |
+| `Inventory.totalAvailable` | sum | Total available (on hand minus reserved) |
+| `Inventory.inventoryValue` | sum | Total inventory value at cost |
+| `Inventory.lowStockCount` | count | Items below reorder threshold |
+
+**Dimensions:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `Inventory.entityId` | string | Catalog entity UUID |
+| `Inventory.warehouseId` | string | Warehouse UUID |
+| `Inventory.lastRestockedAt` | time | Last restock timestamp |
+
+**Segments:**
+
+| Name | Description |
+|------|-------------|
+| `Inventory.lowStock` | Items at or below reorder threshold |
+
+### Customers
+
+Table: `customers`
+
+**Measures:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `Customers.customerCount` | count | Total customer profiles |
+| `Customers.newCustomers` | count | New customer profiles |
+| `Customers.returningCustomers` | count | Customers with more than one order |
+
+**Dimensions:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `Customers.createdAt` | time | Profile creation timestamp |
+| `Customers.customerGroup` | string | Customer group (from metadata) |
+
+---
+
+## Plugin models
+
+### VendorOrders (Marketplace Plugin)
+
+Table: `marketplace_vendor_sub_orders`
+
+| Measure | Description |
+|---------|-------------|
+| `VendorOrders.count` | Number of vendor sub-orders |
+| `VendorOrders.revenue` | Vendor-attributed revenue |
+| `VendorOrders.commissionPaid` | Total commissions paid |
+| `VendorOrders.netPayout` | Net payout after commission |
+
+### VendorBalance (Marketplace Plugin)
+
+Table: `marketplace_vendor_balances`
+
+| Measure | Description |
+|---------|-------------|
+| `VendorBalance.totalCredits` | Total credits (earnings) |
+| `VendorBalance.totalDebits` | Total debits (payouts) |
+| `VendorBalance.netBalance` | Net balance (credits minus debits) |
+
+### VendorReviews (Marketplace Plugin)
+
+| Measure | Description |
+|---------|-------------|
+| `VendorReviews.count` | Number of reviews |
+| `VendorReviews.averageRating` | Mean review rating |
+
+---
+
+## Scoped analytics
+
+All queries run within an `AnalyticsScope` that restricts data visibility based on the caller's role. Scopes are constructed exclusively through `buildAnalyticsScope(actor)`:
+
+```ts
+import { buildAnalyticsScope } from "@porulle/core";
+
+const scope = buildAnalyticsScope(actor);
+const result = await kernel.analytics.query(params, scope);
+```
+
+### Role-to-scope mapping
+
+| Actor role | Data access |
+|------------|-------------|
+| `admin`, `owner`, `staff` | All models, all rows |
+| Vendor (actor has `vendorId`) | Vendor models only, filtered by `vendorId` |
+| `customer` | Customer models only, filtered by `customerId` |
+| Unauthenticated | All queries blocked |
+
+---
+
+## Custom models
+
+Contribute models from a plugin via `analyticsModels`:
+
+```ts
+import { defineCommercePlugin } from "@porulle/core";
+import type { AnalyticsModel } from "@porulle/core";
+
+const model: AnalyticsModel = {
+  name: "Subscriptions",
+  table: "subscriptions",
+  measures: {
+    count: { type: "count" },
+    mrr: { sql: "monthly_amount", type: "sum" },
+  },
+  dimensions: {
+    status: { sql: "status", type: "string" },
+    startedAt: { sql: "started_at", type: "time" },
+  },
+};
+
+export const myPlugin = defineCommercePlugin({
+  id: "my-plugin",
+  version: "1.0.0",
+  analyticsModels: () => [model],
+});
+```
+
+Models appear in `GET /api/analytics/meta` and can be queried via `GET /api/analytics/query` like any built-in model.

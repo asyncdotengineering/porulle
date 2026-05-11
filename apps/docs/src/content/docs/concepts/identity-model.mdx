@@ -1,0 +1,137 @@
+---
+title: Identity and Store Resolution
+description: How Porulle resolves who a user is, which store they belong to, and what they can do — across single-store, marketplace, and multi-store SaaS deployments.
+---
+
+Commerce platforms have an identity problem that most web applications do not. In a typical SaaS app, a user is a user. In commerce, a single deployment might serve customers browsing a storefront, staff processing orders, vendors managing their own catalog, AI agents placing orders on behalf of customers, and platform administrators overseeing everything. Each persona sees different data, has different permissions, and arrives through a different interface.
+
+## Why identity is not just authentication
+
+Better Auth handles authentication — verifying that a user is who they claim to be. But authentication answers only one question: "Is this person real?"
+
+Commerce needs three more:
+
+1. **Which store do they belong to?** In a multi-store deployment, a customer on Store A should not see Store B's catalog.
+2. **What role do they have?** A staff member who can process orders is different from a customer who can only view their own.
+3. **What commerce profile do they have?** Addresses, order history, loyalty points — these are commerce concerns, not auth concerns.
+
+Porulle separates these into three layers.
+
+## The three identity layers
+
+**Layer 1: Auth identity (Better Auth)**
+
+The `user` table holds authentication identity — email, password hash, name, OAuth accounts. This is the only layer that exists for every signed-in user. Better Auth manages it entirely.
+
+**Layer 2: Organization membership (Better Auth organization plugin)**
+
+The `member` table holds org memberships with roles. An admin is a user who is a member of an organization with role `"admin"`. A staff member has role `"staff"`. Customers typically have no org membership at all.
+
+**Layer 3: Commerce profile (Porulle customers table)**
+
+The `customers` table holds commerce-specific data — addresses, phone, metadata, order history references. This layer is created lazily, only when a user first interacts with commerce (places an order, visits their profile page, goes through checkout). An admin who never buys anything never gets a customer profile.
+
+This separation matters because the layers have different lifecycles. A user can exist in Better Auth without being a member of any organization and without having a customer profile. A platform admin might be a member of every organization but have zero customer profiles.
+
+## Why customers are not org members
+
+The first instinct when building multi-tenancy is to make everyone an org member. Porulle rejects this for three reasons.
+
+**Scale.** A store with 100,000 customers would have 100,000 rows in the `member` table. The `member` table is designed for tens of users (staff, admins), not hundreds of thousands. It is queried on every request to resolve roles, and large membership lists degrade auth middleware performance.
+
+**Cross-store customers.** In a multi-store SaaS, a customer might shop at multiple stores. Adding them to every store's organization creates N membership rows and forces the user to "switch" active organizations — a concept that makes sense for staff but is bewildering for shoppers.
+
+**Simplicity.** Most Porulle deployments are single-store. Requiring org membership for customers adds complexity that 90% of users never need.
+
+Instead, customers get their role from a fallback. The auth middleware checks: does this user have an `activeOrganizationRole` from Better Auth? If yes, use it (they are admin, staff, vendor). If no, default to `"customer"` with the permissions defined in `config.auth.customerPermissions`. No org membership row needed.
+
+## How store resolution works
+
+The question "which store does this request belong to?" has different answers depending on the deployment pattern.
+
+### Single store
+
+The engine auto-creates a default organization at boot. The constant `DEFAULT_ORG_ID` (value: `"org_default"`, defined in `packages/core/src/auth/org.ts`) is the universal fallback — whenever an actor has no org membership, `resolveOrgId()` returns this value.
+
+Every user, every product, every order belongs to this default org. The developer never thinks about organizations — the engine handles it silently.
+
+### Marketplace
+
+One organization, multiple vendors operating within it. The marketplace plugin (`@porulle/plugin-marketplace`) adds a `vendorId` field to the auth user table and a `vendor` entity with its own catalog, orders, and commissions. Vendor-scoped queries filter by `vendorId` in addition to `organizationId`.
+
+Customers shop across all vendors in a single checkout. Orders are split into vendor-specific sub-orders by the marketplace plugin.
+
+### Multi-store SaaS
+
+Multiple organizations, each representing an independent store. This requires store resolution — when a customer visits Store A's frontend, the engine needs to know to scope all queries to Store A's organization.
+
+The `auth.storeResolver` config option handles this. It is a function that receives the raw `Request` object and returns an organization ID:
+
+```ts title="commerce.config.ts"
+auth: {
+  strictOrgResolution: true,
+  storeResolver: async (request) => {
+    const storeId = request.headers.get("x-store-id");
+    return storeId ?? null;
+  },
+}
+```
+
+Common resolution strategies:
+
+- **Header-based**: The frontend sends an `x-store-id` header. Simple, works with any frontend framework.
+- **Domain-based**: Each store has its own domain (e.g., `marinabay.platform.com`). The resolver looks up the org by domain from the database.
+- **Path-based**: The URL contains the store slug. Requires URL rewriting.
+
+If no `storeResolver` is configured, the middleware falls back to `org_default`. Single-store and marketplace deployments work without any configuration — the resolver is purely additive.
+
+When `strictOrgResolution: true` is set and resolution fails, the request is rejected with HTTP 503. Without it, requests fall into the default org. Production B2B multi-tenant deployments must configure `storeResolver`.
+
+## Why organizations scope everything
+
+Porulle uses the word "organization" for what most commerce platforms call a "store" or "tenant." Better Auth ships an `organization` plugin with member management, invitations, and role-based access control. Renaming it to "store" would mean forking or wrapping Better Auth's API.
+
+The mapping is simple: one organization is one store. One catalog, one set of orders, one set of customers, one set of prices.
+
+### Why shared tables, not schema-per-tenant
+
+Three isolation strategies exist for multi-tenant systems. Database-per-tenant is operationally expensive (Shopify uses it, but they have the engineering team). Schema-per-tenant has per-schema migration complexity and no Drizzle support for dynamic schema selection. Porulle uses shared tables with row-level scoping — all tenants share the same tables, with an `organizationId` column on every top-level table.
+
+The trade-off: shared tables mean a bug in query scoping could leak data between tenants. Porulle mitigates this at three layers:
+
+1. Every service resolves the org from the actor context internally, so callers never handle org IDs directly.
+2. The `defineTable` abstraction auto-injects the `organizationId` column.
+3. The scoped DB proxy auto-stamps `organizationId` on INSERT operations.
+
+The multi-org isolation test suite (`packages/core/test/multi-org-isolation.test.ts`) verifies that cross-org access fails for every operation.
+
+### Why composite unique constraints
+
+Six columns that were previously globally unique — `sellable_entities.slug`, `categories.slug`, `brands.slug`, `warehouses.code`, `promotions.code`, `customers.email` — became composite unique on `(organizationId, column)`. This allows two organizations to have the same product slug or warehouse code.
+
+This is essential for vertical SaaS: if a restaurant platform onboards 500 restaurants, each must be able to name their category "appetizers" without conflicting with every other restaurant.
+
+## Where customer profiles are created
+
+A customer profile is not created on signup. It is created lazily, the first time a user interacts with a commerce-specific endpoint:
+
+- `GET /api/me/profile` — the customer portal auto-creates the profile via `getOrCreateByUserId()`
+- `POST /api/checkout` — checkout looks up or creates the customer profile
+- Any customer portal endpoint (`/api/me/addresses`, `/api/me/orders`) — same lazy creation
+
+In a multi-store SaaS, a customer gets a separate profile in each store they shop at — created when they first interact with that store.
+
+## Trade-offs of this model
+
+**Gained:** A clean separation between auth (who are you?), access (what can you do?), and commerce (what have you bought?). Each layer can evolve independently.
+
+**Given up:** Immediacy. When a customer signs up, there is no customer profile until they do something. The admin panel's customer list does not show "registered but never purchased" users — they exist only in Better Auth's user table.
+
+**Risk:** The `storeResolver` is trusted. If a malicious frontend sends a wrong `x-store-id` header, the customer sees the wrong store's data. For domain-based resolution this is less of a concern (the domain is controlled by DNS), but for header-based resolution the frontend must be trusted.
+
+## Related
+
+- [Multi-Tenancy guide](/production/multi-tenancy/) — how to configure multi-store deployments
+- [Authentication guide](/building/authentication/) — roles, permissions, API keys, social login
+- [Configuration Reference](/reference/configuration/) — `storeResolver` parameter documentation
+- [Security Model](/production/security-model/) — org resolution profiles, rate limits, cookie hygiene

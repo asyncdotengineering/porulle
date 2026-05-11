@@ -1,0 +1,26 @@
+{
+  "name": "saas-example",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "description": "Multi-tenant SaaS demo — multiple stores on one UnifiedCommerce instance",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "seed": "tsx src/scripts/seed.ts",
+    "db:push": "bunx drizzle-kit push --config drizzle.config.ts",
+    "db:reset": "psql -h localhost -p 5432 -c 'DROP DATABASE IF EXISTS saas_example' postgres && psql -h localhost -p 5432 -c 'CREATE DATABASE saas_example' postgres && bun run db:push && echo 'Database reset complete'"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.6",
+    "@porulle/adapter-local-storage": "workspace:*",
+    "@porulle/adapter-postgres": "workspace:*",
+    "@porulle/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@porulle/typescript-config": "workspace:*",
+    "drizzle-kit": "^0.31.9",
+    "tsx": "^4.20.6",
+    "typescript": "5.9.2"
+  }
+}

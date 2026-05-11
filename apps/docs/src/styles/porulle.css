@@ -1,0 +1,63 @@
+/* Porulle — warm technical palette (bronze / ink), aligned with sibling Starlight themes. */
+
+:root,
+:root:root {
+  --sl-font: ui-sans-serif, system-ui, "Segoe UI", Inter, sans-serif;
+  --sl-font-mono: ui-monospace, "JetBrains Mono", "SF Mono", monospace;
+
+  --sl-color-accent-low: #2a1810;
+  --sl-color-accent: #d4a574;
+  --sl-color-accent-high: #f0dcc4;
+
+  --sl-color-white: #faf6f1;
+  --sl-color-gray-1: #ebe4da;
+  --sl-color-gray-2: #cfc3b2;
+  --sl-color-gray-3: #9a876f;
+  --sl-color-gray-4: #6b5a47;
+  --sl-color-gray-5: #423529;
+  --sl-color-gray-6: #2e251c;
+  --sl-color-black: #1a1510;
+
+  --sl-color-bg: #1a1510;
+  --sl-color-bg-nav: #221a14;
+  --sl-color-bg-sidebar: #1a1510;
+  --sl-color-bg-inline-code: #2e251c;
+  --sl-color-text: #ebe4da;
+  --sl-color-text-accent: #f0dcc4;
+  --sl-color-hairline: #423529;
+  --sl-color-hairline-light: #2e251c;
+  --sl-color-hairline-shade: #2e251c;
+}
+
+:root[data-theme="light"][data-theme="light"] {
+  --sl-color-accent-low: #faf3ea;
+  --sl-color-accent: #b07a3d;
+  --sl-color-accent-high: #5c3d1c;
+
+  --sl-color-white: #1a1510;
+  --sl-color-gray-1: #2e251c;
+  --sl-color-gray-2: #423529;
+  --sl-color-gray-3: #6b5a47;
+  --sl-color-gray-4: #9a876f;
+  --sl-color-gray-5: #cfc3b2;
+  --sl-color-gray-6: #ebe4da;
+  --sl-color-gray-7: #f2ebe3;
+  --sl-color-black: #faf6f1;
+
+  --sl-color-bg: #faf6f1;
+  --sl-color-bg-nav: #f5efe6;
+  --sl-color-bg-sidebar: #f8f2ea;
+  --sl-color-bg-inline-code: #ebe4da;
+  --sl-color-text: #2e251c;
+  --sl-color-text-accent: #8a5528;
+  --sl-color-hairline: #cfc3b2;
+  --sl-color-hairline-light: #ebe4da;
+  --sl-color-hairline-shade: #cfc3b2;
+}
+
+.sl-markdown-content h2,
+.sl-markdown-content h3,
+.sl-markdown-content h4 {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}

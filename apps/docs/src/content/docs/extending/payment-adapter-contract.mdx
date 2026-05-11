@@ -1,0 +1,99 @@
+---
+title: Payment Adapter Contract
+description: The rules every payment adapter implementation must follow.
+---
+
+
+Rules for implementing a `PaymentAdapter` that integrates with UnifiedCommerce Engine's payment orchestration. The interface is defined at `packages/core/src/modules/payments/adapter.ts`.
+
+## Why this contract exists
+
+In commit `7cb06e3`, `payments.refund(paymentIntentId, order.grandTotal)` refunded the full order total instead of the captured amount. For partial captures (common in multi-shipment orders), this caused over-refunds. The fix added `amountCaptured` tracking on orders and a refund cap (`Math.min(grandTotal, amountCaptured)`) in `packages/core/src/modules/orders/service.ts:460--463`. Adapters that return inaccurate capture amounts defeat this defense.
+
+## Interface walkthrough
+
+```ts
+export interface PaymentAdapter {
+  readonly providerId: string;
+  createPaymentIntent(params: CreatePaymentIntentParams): Promise<Result<PaymentIntent>>;
+  capturePayment(paymentIntentId: string, amount?: number): Promise<Result<PaymentCapture>>;
+  refundPayment(paymentId: string, amount: number, reason?: string): Promise<Result<PaymentRefund>>;
+  cancelPaymentIntent(paymentIntentId: string): Promise<Result<void>>;
+  verifyWebhook(request: Request): Promise<Result<PaymentWebhookEvent>>;
+}
+```
+
+### `createPaymentIntent`
+
+Creates a payment intent and returns a `PaymentIntent` with `id`, `status`, `amount`, `currency`, and `clientSecret`. The `clientSecret` is sent to the storefront for client-side confirmation. If the provider requires a challenge (3DS, OTP), the returned `status` should indicate `requires_action` or equivalent, and the `clientSecret` must be available for the challenge flow.
+
+### `capturePayment`
+
+Captures a previously authorized payment. Must return `PaymentCapture` with an accurate `amountCaptured` -- this is the source of truth the framework stores on the order (`orders.amountCaptured`). If you return `amountCaptured: 0` on a successful capture, the refund cap will be zero and refunds will fail.
+
+### `refundPayment`
+
+Initiates a refund. The framework already caps the refund at `amountCaptured` before calling this method. The adapter should also enforce its own cap as defense in depth -- reject amounts exceeding what was captured. Return `PaymentRefund` with `id`, `status`, and `amountRefunded`.
+
+### `cancelPaymentIntent`
+
+Cancels an intent that has not been captured. For intents that are already captured, use `refundPayment` instead.
+
+### `verifyWebhook`
+
+Verifies the signature on an incoming webhook request. Must use timing-safe comparison to prevent timing attacks. In Node.js, use `crypto.timingSafeEqual`. The Stripe adapter delegates to `stripe.webhooks.constructEvent()` which handles this internally (`packages/adapters/adapter-stripe/src/index.ts:128`).
+
+Return `PaymentWebhookEvent` with `id`, `type`, and `data`. The framework's `processed_webhook_events` table prevents replay on the inbound side; the adapter prevents forgery.
+
+## Idempotency
+
+Every charge and refund call must accept and propagate an idempotency key. Stripe uses the `Idempotency-Key` header. Other providers have equivalent mechanisms.
+
+Mock adapters used in testing must also honor idempotency keys. Idempotency is a correctness contract, not an optimization. If your mock does not deduplicate by key, integration tests will not catch double-charge bugs.
+
+## Webhook signature verification
+
+Required for every adapter. Two common schemes:
+
+**Stripe signature scheme** -- the adapter reads the `stripe-signature` header, which contains a timestamp and HMAC. The Stripe SDK's `constructEvent()` handles verification. Reference: `packages/adapters/adapter-stripe/src/index.ts:110--141`.
+
+**Generic HMAC scheme** -- for providers without SDK support:
+
+```ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+const expected = createHmac("sha256", webhookSecret)
+  .update(rawBody)
+  .digest();
+const provided = Buffer.from(signatureHeader, "hex");
+if (!timingSafeEqual(expected, provided)) {
+  return Err({ code: "WEBHOOK_VERIFICATION_FAILED", message: "Invalid signature" });
+}
+```
+
+Never use `===` for signature comparison. It is vulnerable to timing attacks.
+
+## Challenge / 3DS flow
+
+When a payment requires cardholder authentication, `createPaymentIntent` should return a status indicating the challenge requirement (e.g., `requires_action`). The `clientSecret` is used by the storefront to initiate the challenge via the provider's client SDK (Stripe.js Elements, Braintree Hosted Fields).
+
+The framework does not have a first-class challenge flow type today. The workaround: return the challenge status and `clientSecret` through the standard `PaymentIntent` response. The storefront reads the status, handles the challenge client-side, and confirms via the provider's SDK. This is how the Stripe adapter works -- `client_secret` is always returned on the intent.
+
+## Anti-patterns
+
+**Returning `amountCaptured: 0` on a successful capture.** The framework reads this to cap refunds. Zero means zero refund capability. This was the root cause of the over-refund bug.
+
+**Skipping signature verification "for testing."** Every test environment should verify signatures. Use a known test secret. Skipping verification in any environment normalizes skipping it in production.
+
+**Logging the full webhook payload.** PCI-DSS restricts storage of cardholder data. Stripe webhook payloads can contain PAN fragments. Strip sensitive fields before logging. The adapter itself receives the raw request body for signature verification -- do not log it.
+
+**Throwing instead of returning `Result<T>`.** The `PaymentsService` (`packages/core/src/modules/payments/service.ts`) catches exceptions at the top level, but the contract is `Result<T>`. Throwing forces callers into try/catch instead of the `if (result.ok)` pattern used everywhere else.
+
+## Reference implementation
+
+The Stripe adapter at `packages/adapters/adapter-stripe/src/index.ts` is the canonical implementation. Key sections:
+
+- `createPaymentIntent` (line 27) -- intent creation with automatic payment methods
+- `capturePayment` (line 57) -- returns `amount_received` as `amountCaptured`
+- `refundPayment` (line 73) -- creates refund with optional reason
+- `verifyWebhook` (line 110) -- signature verification via Stripe SDK

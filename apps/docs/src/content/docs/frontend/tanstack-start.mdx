@@ -1,0 +1,140 @@
+---
+title: TanStack Start
+description: Mount Porulle inside a TanStack Start project.
+---
+
+This guide mounts the Porulle Hono app inside a TanStack Start project. TanStack Start uses Vinxi (Vite + server-side rendering) with file-based routing. The pattern is similar to the Next.js integration but uses TanStack's API route convention.
+
+## Install
+
+```bash
+bun add @porulle/core @porulle/adapter-postgres hono postgres drizzle-orm
+bun add -d drizzle-kit
+```
+
+## Create the commerce config
+
+```ts title="commerce.config.ts"
+import { defineConfig, Ok, type PaymentAdapter } from "@porulle/core";
+import { postgresAdapter } from "@porulle/adapter-postgres";
+
+const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://localhost:5432/my_store";
+
+const mockPayments: PaymentAdapter = {
+  providerId: "mock-payments",
+  async createPaymentIntent(p) {
+    return Ok({ id: `pi_${Date.now()}`, status: "requires_capture", amount: p.amount, currency: p.currency, clientSecret: `secret_${Date.now()}` });
+  },
+  async capturePayment(id, amount) { return Ok({ id, status: "succeeded", amountCaptured: amount ?? 0 }); },
+  async refundPayment(_id, amount) { return Ok({ id: `re_${Date.now()}`, status: "succeeded", amountRefunded: amount }); },
+  async cancelPaymentIntent() { return Ok(undefined); },
+  async verifyWebhook() { return Ok({ id: "evt_mock", type: "payment.succeeded", data: {} }); },
+};
+
+export default defineConfig({
+  storeName: "My Store",
+  database: { provider: "postgresql" },
+  databaseAdapter: postgresAdapter({ connectionString: DATABASE_URL }),
+  auth: {
+    requireEmailVerification: false,
+    apiKeys: { enabled: true },
+    trustedOrigins: ["http://localhost:3000"],
+  },
+  payments: [mockPayments],
+});
+```
+
+Replace `mockPayments` with a real adapter before production. See the [Payment Adapter guide](/extending/payment-adapter/).
+
+## Mount as a TanStack Start API route
+
+TanStack Start uses `app/routes/api/` for server-side API handlers. Create a wildcard route to delegate all `/api/*` requests to the Hono app:
+
+```ts title="app/routes/api/$.ts"
+import { createAPIFileRoute } from "@tanstack/start/api";
+import { createServer } from "@porulle/core";
+import config from "../../../commerce.config";
+
+const { app } = await createServer(config);
+
+export const APIRoute = createAPIFileRoute("/api/$")({
+  GET: ({ request }) => app.fetch(request),
+  POST: ({ request }) => app.fetch(request),
+  PUT: ({ request }) => app.fetch(request),
+  PATCH: ({ request }) => app.fetch(request),
+  DELETE: ({ request }) => app.fetch(request),
+});
+```
+
+All Porulle routes are now available at `/api/*` inside your TanStack Start app.
+
+## Add drizzle.config.ts
+
+```ts title="drizzle.config.ts"
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  dialect: "postgresql",
+  dbCredentials: {
+    url: process.env.DATABASE_URL ?? "postgres://localhost:5432/my_store",
+  },
+  schema: [
+    "./node_modules/@porulle/core/src/kernel/database/schema.ts",
+    "./node_modules/@porulle/plugin-*/src/schema.ts",
+  ],
+});
+```
+
+## Push the database schema
+
+```bash
+createdb my_store
+bunx drizzle-kit push --config drizzle.config.ts
+```
+
+## Verify
+
+```bash
+bun run dev
+curl http://localhost:3000/api/catalog/entities
+```
+
+Expected: `{ "success": true, "data": [] }`. The OpenAPI spec is at `http://localhost:3000/api/doc`.
+
+## Add the typed SDK
+
+Generate types from your OpenAPI spec with the dev server running:
+
+```bash
+bun add @porulle/sdk @tanstack/react-query openapi-react-query
+bun add -d openapi-typescript
+bunx @porulle/sdk generate --url http://localhost:3000/api/doc --output src/generated/api-types.ts
+```
+
+Create a typed client. Use an empty `baseUrl` so SDK calls route through the same TanStack Start process:
+
+```ts title="src/lib/commerce.ts"
+import { createClient } from "@porulle/sdk";
+import { createCommerceHooks } from "@porulle/sdk/react";
+import { QueryClient } from "@tanstack/react-query";
+import type { paths } from "@/generated/api-types";
+
+export const client = createClient<paths>({
+  baseUrl: "",
+  auth: { type: "cookie" },
+});
+
+export const commerce = createCommerceHooks(client);
+
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { staleTime: 30_000, refetchOnWindowFocus: false },
+  },
+});
+```
+
+## Related
+
+- [Next.js guide](/frontend/nextjs/) — same pattern for Next.js App Router
+- [Typed SDK Client guide](/frontend/sdk/) — full SDK usage including React hooks
+- [Deployment guide](/production/deployment/) — production deployment options

@@ -1,0 +1,221 @@
+---
+title: Payment Adapter
+description: Integrate a new payment provider by implementing the PaymentAdapter interface.
+---
+
+Porulle is payment-provider agnostic. Any provider that can authorize, capture, refund, and sign webhooks can be integrated by implementing the `PaymentAdapter` interface.
+
+For the adopter contract (capture accuracy, webhook verification requirements, idempotency rules), see the [Payment Adapter Contract](/extending/payment-adapter-contract/).
+
+## The interface
+
+Every payment adapter implements five methods. All return `Result<T>` — use `Ok()` for success, `Err()` for failure, never throw. For the full type definitions (`CreatePaymentIntentParams`, `PaymentIntent`, `PaymentCapture`, `PaymentRefund`, `PaymentWebhookEvent`), see the [Adapter Reference](/reference/adapters/).
+
+```ts
+interface PaymentAdapter {
+  providerId: string;
+  createPaymentIntent(params: CreatePaymentIntentParams): Promise<Result<PaymentIntent>>;
+  capturePayment(paymentIntentId: string, amount?: number): Promise<Result<PaymentCapture>>;
+  refundPayment(paymentId: string, amount: number, reason?: string): Promise<Result<PaymentRefund>>;
+  cancelPaymentIntent(paymentIntentId: string): Promise<Result<void>>;
+  verifyWebhook(request: Request): Promise<Result<PaymentWebhookEvent>>;
+}
+```
+
+## Implement the adapter
+
+This example implements Stripe:
+
+```ts title="src/payments/stripe-adapter.ts"
+import type {
+  PaymentAdapter,
+  PaymentIntent,
+  PaymentCapture,
+  PaymentRefund,
+  PaymentWebhookEvent,
+} from "@porulle/core";
+import { Ok, Err } from "@porulle/core";
+import type { Result } from "@porulle/core";
+import Stripe from "stripe";
+
+interface StripeAdapterOptions {
+  secretKey: string;
+  webhookSecret: string;
+}
+
+export function stripeAdapter(options: StripeAdapterOptions): PaymentAdapter {
+  const stripe = new Stripe(options.secretKey);
+
+  return {
+    providerId: "stripe",
+
+    async createPaymentIntent(params): Promise<Result<PaymentIntent>> {
+      try {
+        const intent = await stripe.paymentIntents.create({
+          amount: params.amount,
+          currency: params.currency,
+          metadata: {
+            orderId: params.orderId,
+            ...(params.customerId && { customerId: params.customerId }),
+            ...params.metadata,
+          },
+        });
+
+        return Ok({
+          id: intent.id,
+          status: intent.status,
+          amount: intent.amount,
+          currency: intent.currency,
+          clientSecret: intent.client_secret,
+        });
+      } catch (error) {
+        return Err({
+          code: "PAYMENT_FAILED",
+          message: error instanceof Error ? error.message : "Failed to create payment intent",
+        });
+      }
+    },
+
+    async capturePayment(paymentIntentId, amount): Promise<Result<PaymentCapture>> {
+      try {
+        const intent = await stripe.paymentIntents.capture(paymentIntentId, {
+          ...(amount != null && { amount_to_capture: amount }),
+        });
+
+        return Ok({
+          id: intent.id,
+          status: intent.status,
+          amountCaptured: intent.amount_received,
+        });
+      } catch (error) {
+        return Err({
+          code: "CAPTURE_FAILED",
+          message: error instanceof Error ? error.message : "Failed to capture payment",
+        });
+      }
+    },
+
+    async refundPayment(paymentId, amount, reason): Promise<Result<PaymentRefund>> {
+      try {
+        const refund = await stripe.refunds.create({
+          payment_intent: paymentId,
+          amount,
+          ...(reason && { reason: "requested_by_customer" }),
+        });
+
+        return Ok({
+          id: refund.id,
+          status: refund.status ?? "succeeded",
+          amountRefunded: refund.amount,
+        });
+      } catch (error) {
+        return Err({
+          code: "REFUND_FAILED",
+          message: error instanceof Error ? error.message : "Failed to refund payment",
+        });
+      }
+    },
+
+    async cancelPaymentIntent(paymentIntentId): Promise<Result<void>> {
+      try {
+        await stripe.paymentIntents.cancel(paymentIntentId);
+        return Ok(undefined);
+      } catch (error) {
+        return Err({
+          code: "CANCEL_FAILED",
+          message: error instanceof Error ? error.message : "Failed to cancel payment intent",
+        });
+      }
+    },
+
+    async verifyWebhook(request): Promise<Result<PaymentWebhookEvent>> {
+      try {
+        const body = await request.text();
+        const signature = request.headers.get("stripe-signature");
+        if (!signature) {
+          return Err({ code: "WEBHOOK_FAILED", message: "Missing stripe-signature header" });
+        }
+
+        const event = stripe.webhooks.constructEvent(body, signature, options.webhookSecret);
+
+        return Ok({
+          id: event.id,
+          type: event.type,
+          data: event.data.object,
+        });
+      } catch (error) {
+        return Err({
+          code: "WEBHOOK_FAILED",
+          message: error instanceof Error ? error.message : "Webhook verification failed",
+        });
+      }
+    },
+  };
+}
+```
+
+## Register the adapter
+
+Add the adapter to the `payments` array in `commerce.config.ts`:
+
+```ts title="commerce.config.ts"
+import { defineConfig } from "@porulle/core";
+import { stripeAdapter } from "./src/payments/stripe-adapter.js";
+
+export default defineConfig({
+  payments: [
+    stripeAdapter({
+      secretKey: process.env.STRIPE_SECRET_KEY!,
+      webhookSecret: process.env.STRIPE_WEBHOOK_SECRET!,
+    }),
+  ],
+  // ...
+});
+```
+
+To support multiple payment providers (for example, Stripe online and a terminal provider for POS), add both to the array. The engine selects the adapter by `providerId` at checkout time.
+
+## Error handling
+
+Never throw from adapter methods. All failures must return `Err({ code, message })`. The checkout pipeline treats a thrown exception from an adapter as an unrecoverable error — it cannot roll back cleanly or surface a user-facing message.
+
+Codes are free-form strings you define. The engine does not interpret them; they are passed through to the error response so your frontend can act on them.
+
+For the rationale behind `Result<T>`, see the [Result Types explanation](/concepts/result-types/).
+
+## Testing the adapter
+
+Use the mock adapter pattern in tests to isolate checkout logic from the payment provider:
+
+```ts
+import { Ok, type PaymentAdapter } from "@porulle/core";
+
+export const mockAdapter: PaymentAdapter = {
+  providerId: "mock",
+  async createPaymentIntent(p) {
+    return Ok({
+      id: `pi_${Date.now()}`,
+      status: "requires_capture",
+      amount: p.amount,
+      currency: p.currency,
+      clientSecret: `secret_${Date.now()}`,
+    });
+  },
+  async capturePayment(id, amount) {
+    return Ok({ id, status: "succeeded", amountCaptured: amount ?? 0 });
+  },
+  async refundPayment(_id, amount) {
+    return Ok({ id: `re_${Date.now()}`, status: "succeeded", amountRefunded: amount });
+  },
+  async cancelPaymentIntent() { return Ok(undefined); },
+  async verifyWebhook() {
+    return Ok({ id: "evt_mock", type: "payment.succeeded", data: {} });
+  },
+};
+```
+
+## Related
+
+- [Adapter Reference](/reference/adapters/) — full interface definitions and type signatures
+- [Hook Pipeline](/concepts/hook-pipeline/) — how `authorizePayment` and `completeCheckout` call the adapter
+- [Result Types](/concepts/result-types/) — why `Result<T>` instead of exceptions

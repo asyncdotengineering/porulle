@@ -1,0 +1,200 @@
+---
+title: Authentication
+description: Roles, permissions, API keys, social login, 2FA, and store resolution.
+---
+
+Porulle uses [Better Auth](https://better-auth.com/) for authentication. This guide covers configuring roles, permissions, API keys, social login, and multi-store resolution in `defineConfig`. For the underlying design rationale, see [Identity and Store Resolution](/concepts/identity-model/).
+
+## Roles and permissions
+
+Define roles in `auth.roles`. Each role has an array of permission strings in `"module:action"` or `"module:action:scope"` format.
+
+```ts title="commerce.config.ts"
+import { defineConfig } from "@porulle/core";
+
+export default defineConfig({
+  auth: {
+    roles: {
+      owner: { permissions: ["*:*"] },
+      admin: { permissions: ["*:*"] },
+      staff: {
+        permissions: [
+          "catalog:create", "catalog:update", "catalog:read",
+          "inventory:adjust", "inventory:read",
+          "orders:create", "orders:read", "orders:update",
+          "customers:read",
+          "cart:create", "cart:update",
+        ],
+      },
+      customer: {
+        permissions: [
+          "catalog:read",
+          "cart:create", "cart:read", "cart:update",
+          "orders:create", "orders:read:own",
+          "customers:read:self", "customers:update:self",
+        ],
+      },
+    },
+  },
+});
+```
+
+Available permission scopes:
+
+| Module | Actions | Scoped variants |
+|--------|---------|-----------------|
+| `catalog` | `create`, `read`, `update`, `delete` | — |
+| `orders` | `create`, `read`, `update` | `read:own` |
+| `customers` | `read`, `update` | `read:self`, `update:self` |
+| `cart` | `create`, `read`, `update` | — |
+| `inventory` | `read`, `adjust` | — |
+| `media` | `read`, `write` | — |
+| `pricing` | `read`, `manage` | — |
+| `promotions` | `read`, `manage` | — |
+| `webhooks` | `manage` | — |
+| `audit` | `read` | — |
+| `jobs` | `admin` | — |
+| `*` | `*` | Wildcard — grants everything |
+
+Plugins declare additional scopes (e.g., `loyalty:read`, `pos:operate`, `gift-cards:admin`). Check the plugin's manifest for its permission names.
+
+## Trusted origins
+
+Better Auth requires `trustedOrigins` for CSRF protection. Browsers send session cookies with cross-origin requests — without an explicit allowlist, the server rejects them.
+
+```ts
+auth: {
+  trustedOrigins: [
+    "http://localhost:4000",
+    "https://store.example.com",
+    "https://admin.example.com",
+  ],
+}
+```
+
+Add every origin that will make authenticated requests.
+
+## API keys
+
+```ts
+auth: {
+  apiKeys: { enabled: true },
+}
+```
+
+Clients authenticate by sending the key in the `x-api-key` header:
+
+```bash
+curl -H "x-api-key: your-key" http://localhost:4000/api/catalog/entities
+```
+
+The development key `dev-staff-key` is available only when `NODE_ENV !== "production"`. Generate production keys with:
+
+```bash
+bunx @porulle/cli api-key create --name "storefront" --role staff
+```
+
+## Social login
+
+```ts
+auth: {
+  socialProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    },
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID!,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+    },
+  },
+}
+```
+
+## Two-factor authentication
+
+```ts
+auth: {
+  twoFactor: {
+    enabled: true,
+    requiredForRoles: ["owner", "admin"],
+  },
+}
+```
+
+If you omit `requiredForRoles`, 2FA is optional for all users.
+
+## Bearer token authentication
+
+After sign-in, use the session token as a Bearer token for non-browser clients:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:4000/api/auth/sign-in/email \
+  -H "content-type: application/json" \
+  -d '{"email":"admin@example.com","password":"secret"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+curl -H "Authorization: Bearer $TOKEN" http://localhost:4000/api/catalog/entities
+```
+
+## React Native / Expo
+
+```bash
+npx expo install @better-auth/expo expo-secure-store
+```
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react";
+import { expoClient } from "@better-auth/expo/client";
+import * as SecureStore from "expo-secure-store";
+
+export const authClient = createAuthClient({
+  baseURL: "https://api.example.com",
+  plugins: [
+    expoClient({
+      scheme: "myapp",
+      storagePrefix: "myapp",
+      storage: SecureStore,
+    }),
+  ],
+});
+```
+
+The `expoClient` plugin handles token storage, refresh, and header injection automatically.
+
+## Multi-store resolution
+
+For multi-tenant SaaS deployments, configure `storeResolver` to map requests to organization IDs:
+
+```ts
+auth: {
+  strictOrgResolution: true,
+  storeResolver: async (request) => {
+    const storeId = request.headers.get("x-store-id");
+    return storeId ?? null;
+  },
+}
+```
+
+If `strictOrgResolution` is `true` and resolution returns `null`, the request is rejected with HTTP 503. Single-store deployments do not need `storeResolver`.
+
+## Session options
+
+```ts
+auth: {
+  requireEmailVerification: true,
+  sessionDuration: 60 * 60 * 24 * 7, // 7 days in seconds
+}
+```
+
+## Authentication methods summary
+
+| Method | Header | Best for |
+|--------|--------|----------|
+| Session cookie | Auto-set by browser | Web storefronts, admin panels |
+| Bearer token | `Authorization: Bearer <token>` | Mobile apps, SPAs, server-to-server |
+| API key | `x-api-key: <key>` | External integrations, CI, AI agents |
+
+## Security model
+
+The adopter security contract is in the [Security Model](/production/security-model/). It documents rate limits, cookie hygiene (`__Secure-` prefix, `HttpOnly`, `SameSite: lax`), the two org resolution profiles (B2C single-storefront, B2B multi-tenant), and Phase 2 gaps (agent attestation, per-region data residency).

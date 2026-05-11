@@ -1,0 +1,728 @@
+---
+title: REST API
+description: All endpoints, methods, request bodies, query parameters, and response shapes.
+---
+
+All routes are mounted under the `/api` prefix. The full interactive spec is available at `GET /api/reference` (Swagger UI) and `GET /api/doc` (OpenAPI 3.0 JSON).
+
+**Authentication:** API key via `x-api-key` header, or a Better Auth session cookie for browser clients.
+
+**Successful responses:** `{ data: ... }`. List endpoints include `meta.pagination`. Errors return `{ error: { code, message } }`.
+
+**`X-Request-Id`:** Every response includes this header with a unique request identifier.
+
+---
+
+## OpenAPI and Swagger
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/doc` | OpenAPI 3.0 JSON spec |
+| `GET` | `/api/reference` | Swagger UI (interactive explorer) |
+
+All core routes and plugin routes registered via `router()` appear in the spec automatically.
+
+---
+
+## Health
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/health` | Server status, version, database connectivity |
+
+Probes the database connection. Returns `503` if the database is unreachable.
+
+```json
+// healthy
+{ "status": "ok", "version": "0.1.0" }
+
+// unhealthy
+{ "status": "error", "version": "0.1.0", "database": "unreachable" }
+```
+
+---
+
+## Request limits
+
+**Body size:** 1 MB maximum. Requests exceeding this receive `413 Payload Too Large`.
+
+**Rate limiting:** Returns `429 Too Many Requests` when exceeded.
+
+Rate limit headers on every response:
+
+| Header | Description |
+|--------|-------------|
+| `X-RateLimit-Limit` | Max requests in the current window |
+| `X-RateLimit-Remaining` | Remaining requests in this window |
+| `X-RateLimit-Reset` | Unix timestamp when the window resets |
+| `Retry-After` | Seconds until retry (only on `429`) |
+
+**CSRF:** Mutation methods (`POST`, `PUT`, `PATCH`, `DELETE`) validate the `Origin` header for browser requests. API-key requests are exempt.
+
+---
+
+## Catalog
+
+Base path: `/api/catalog`
+
+### Entities
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/catalog/entities` | List catalog entities |
+| `GET` | `/catalog/entities/:idOrSlug` | Get entity by UUID or slug |
+| `POST` | `/catalog/entities` | Create a catalog entity |
+| `PATCH` | `/catalog/entities/:id` | Update an entity |
+| `DELETE` | `/catalog/entities/:id` | Delete an entity |
+| `POST` | `/catalog/entities/:id/publish` | Transition to `active` status |
+| `POST` | `/catalog/entities/:id/archive` | Transition to `archived` status |
+| `POST` | `/catalog/entities/:id/discontinue` | Transition to `discontinued` status |
+
+**`GET /catalog/entities` query parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | `string` | Filter by entity type (`product`, `digitalDownload`, etc.) |
+| `status` | `string` | Filter by status (`draft`, `active`, `archived`, `discontinued`) |
+| `category` | `string` | Filter by category ID |
+| `brand` | `string` | Filter by brand ID |
+| `page` | `number` | Page number (default `1`) |
+| `limit` | `number` | Items per page (default `20`, max `100`) |
+| `sort` | `string` | Sort field and direction (e.g. `createdAt:desc`) |
+| `include` | `string` | Comma-separated: `attributes`, `variants`, `categories`, `brands`, `media`, `inventory`, `pricing` |
+
+**`POST /catalog/entities` body:**
+
+```json
+{
+  "type": "product",
+  "slug": "blue-widget",
+  "status": "draft",
+  "metadata": {}
+}
+```
+
+### Localized attributes
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `PUT` | `/catalog/entities/:id/attributes/:locale` | Set localized attributes |
+| `GET` | `/catalog/entities/:id/attributes/:locale` | Get localized attributes |
+
+**`PUT` body:**
+
+```json
+{
+  "title": "Blue Widget",
+  "description": "A fine blue widget.",
+  "seoTitle": "Buy Blue Widget",
+  "seoDescription": "Best blue widget online."
+}
+```
+
+### Categories
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/catalog/categories` | List all categories |
+| `POST` | `/catalog/categories` | Create a category |
+| `PATCH` | `/catalog/categories/:categoryId` | Update a category |
+| `DELETE` | `/catalog/categories/:categoryId` | Delete a category |
+| `POST` | `/catalog/entities/:id/categories/:categoryId` | Add entity to a category |
+| `DELETE` | `/catalog/entities/:id/categories/:categoryId` | Remove entity from a category |
+
+### Brands
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/catalog/brands` | List all brands |
+| `POST` | `/catalog/brands` | Create a brand |
+| `PATCH` | `/catalog/brands/:brandId` | Update a brand |
+| `DELETE` | `/catalog/brands/:brandId` | Delete a brand |
+| `POST` | `/catalog/entities/:id/brands/:brandId` | Add entity to a brand |
+| `DELETE` | `/catalog/entities/:id/brands/:brandId` | Remove entity from a brand |
+
+### Options and variants
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/catalog/entities/:id/options` | Create an option type |
+| `POST` | `/catalog/options/:optionTypeId/values` | Create an option value |
+| `POST` | `/catalog/entities/:id/variants` | Create a single variant |
+| `POST` | `/catalog/entities/:id/variants/generate` | Generate variants from an option matrix |
+
+---
+
+## Cart
+
+Base path: `/api/carts`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/carts` | Create a new cart |
+| `GET` | `/carts/:id` | Get cart with line items |
+| `POST` | `/carts/:id/items` | Add an item to the cart |
+| `PATCH` | `/carts/:id/items/:itemId` | Update item quantity |
+| `DELETE` | `/carts/:id/items/:itemId` | Remove an item from the cart |
+
+**`POST /carts` body:**
+
+```json
+{
+  "currency": "USD",
+  "customerId": "optional-uuid"
+}
+```
+
+**`POST /carts/:id/items` body:**
+
+```json
+{
+  "entityId": "uuid",
+  "variantId": "uuid-or-omit",
+  "quantity": 2,
+  "unitPriceSnapshot": 1999
+}
+```
+
+**`PATCH /carts/:id/items/:itemId` body:**
+
+```json
+{ "quantity": 3 }
+```
+
+---
+
+## Checkout
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/checkout` | Create an order from a cart |
+
+**Body:**
+
+```json
+{
+  "cartId": "uuid",
+  "paymentMethodId": "pm_...",
+  "currency": "USD",
+  "customerId": "optional",
+  "customerGroupIds": ["optional"],
+  "promotionCodes": ["SAVE10"],
+  "shippingAddress": {
+    "line1": "123 Main St",
+    "city": "Springfield",
+    "state": "IL",
+    "postalCode": "62701",
+    "country": "US"
+  }
+}
+```
+
+Returns the created order. If after-hooks produce non-fatal errors, the response includes `meta.hookErrors`.
+
+Failure: `422` with `{ error: { code: "CHECKOUT_FAILED", message: "..." } }`.
+
+---
+
+## Orders
+
+Base path: `/api/orders`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/orders` | List orders |
+| `GET` | `/orders/:idOrNumber` | Get order by UUID or order number (`ORD-YYYY-NNNNNN`) |
+| `PATCH` | `/orders/:id/status` | Change order status |
+| `GET` | `/orders/:id/fulfillments` | List fulfillments for an order |
+
+**`GET /orders` query parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `status` | `string` | Filter by status |
+| `page` | `number` | Page number |
+| `limit` | `number` | Items per page |
+
+**`PATCH /orders/:id/status` body:**
+
+```json
+{
+  "status": "confirmed",
+  "reason": "optional reason string"
+}
+```
+
+Valid transitions: `pending → confirmed → processing → partially_fulfilled | fulfilled → refunded`. Cancel is allowed from `pending`, `confirmed`, `processing`, `partially_fulfilled`.
+
+---
+
+## Inventory
+
+Base path: `/api/inventory`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/inventory/check` | Check stock for one or more entities |
+| `POST` | `/inventory/adjust` | Adjust an inventory level |
+| `POST` | `/inventory/reserve` | Reserve inventory |
+| `POST` | `/inventory/release` | Release a reservation |
+| `POST` | `/inventory/warehouses` | Create a warehouse |
+| `GET` | `/inventory/warehouses` | List warehouses |
+
+**`GET /inventory/check` query parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `entityIds` | `string` | Comma-separated entity UUIDs |
+
+**`POST /inventory/adjust` body:**
+
+```json
+{
+  "entityId": "uuid",
+  "variantId": "optional-uuid",
+  "warehouseId": "uuid",
+  "type": "restock",
+  "quantity": 50
+}
+```
+
+---
+
+## Pricing
+
+Base path: `/api/pricing`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/pricing/prices` | Create a price record |
+| `GET` | `/pricing/prices` | List prices |
+| `POST` | `/pricing/modifiers` | Create a price modifier |
+
+**`GET /pricing/prices` query parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `entityId` | `string` | Filter by entity ID |
+| `variantId` | `string` | Filter by variant ID |
+| `currency` | `string` | Filter by currency code |
+| `customerGroupId` | `string` | Filter by customer group |
+
+**`POST /pricing/prices` body:**
+
+```json
+{
+  "entityId": "uuid",
+  "variantId": "optional-uuid",
+  "currency": "USD",
+  "amount": 2999
+}
+```
+
+---
+
+## Promotions
+
+Base path: `/api/promotions`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/promotions` | Create a promotion |
+| `GET` | `/promotions` | List active promotions |
+| `POST` | `/promotions/validate` | Validate a promotion code against a cart |
+| `POST` | `/promotions/:id/deactivate` | Deactivate a promotion |
+
+**`POST /promotions` body:**
+
+```json
+{
+  "code": "SAVE10",
+  "name": "Save 10%",
+  "type": "percentage_off_order",
+  "value": 10,
+  "validFrom": "2025-01-01T00:00:00Z",
+  "validUntil": "2025-12-31T23:59:59Z"
+}
+```
+
+`validFrom` and `validUntil` are ISO 8601 strings coerced to `Date` objects on the server.
+
+**`POST /promotions/validate` body:**
+
+```json
+{
+  "code": "SAVE10",
+  "currency": "USD",
+  "subtotal": 5000,
+  "lineItems": [
+    {
+      "entityId": "uuid",
+      "entityType": "product",
+      "quantity": 1,
+      "unitPrice": 5000,
+      "totalPrice": 5000
+    }
+  ],
+  "customerId": "optional",
+  "customerGroupIds": ["optional"]
+}
+```
+
+---
+
+## Search
+
+Base path: `/api/search`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/search` | Full-text search across catalog entities |
+| `GET` | `/search/suggest` | Autocomplete prefix suggestions |
+
+**`GET /search` query parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `q` | `string` | Search query |
+| `type` | `string` | Filter by entity type |
+| `category` | `string` | Filter by category |
+| `brand` | `string` | Filter by brand |
+| `status` | `string` | Filter by status |
+| `page` | `number` | Page number (default `1`) |
+| `limit` | `number` | Results per page (default `20`, max `100`) |
+| `facets` | `string` | Comma-separated facet fields to return |
+
+Response includes `data` (hits array) and `meta` with `total`, `page`, `limit`, `facets`.
+
+**`GET /search/suggest` query parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `prefix` | `string` | Prefix to match |
+| `type` | `string` | Filter by entity type |
+| `limit` | `number` | Max suggestions (default `10`) |
+
+---
+
+## Media
+
+Base path: `/api/media`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/media/upload` | Upload a file (`multipart/form-data`) |
+| `GET` | `/media/:id` | Get media URL (redirects `302`) |
+| `DELETE` | `/media/:id` | Delete a media asset |
+| `POST` | `/media/attach` | Attach a media asset to an entity |
+
+**`POST /media/upload`** fields (`multipart/form-data`):
+
+| Field | Type | Required |
+|-------|------|----------|
+| `file` | `File` | Yes |
+| `alt` | `string` | No |
+
+**`GET /media/:id` query parameters:**
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `signed` | `"true"` | Return a signed URL with expiry instead of a public URL |
+
+**`POST /media/attach` body:**
+
+```json
+{
+  "entityId": "uuid",
+  "mediaAssetId": "uuid",
+  "role": "thumbnail"
+}
+```
+
+---
+
+## Payments
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/payments/webhook` | Payment provider webhook receiver |
+
+Accepts raw webhook payloads from the configured payment adapter. On `payment_intent.succeeded` with `metadata.orderId`, transitions the order to `confirmed` automatically.
+
+---
+
+## Webhooks
+
+Base path: `/api/webhooks`
+
+Requires `webhooks:manage` permission.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/webhooks` | Register a webhook endpoint |
+| `GET` | `/webhooks` | List registered endpoints |
+| `DELETE` | `/webhooks/:id` | Delete a webhook endpoint |
+
+---
+
+## Customer portal
+
+Base path: `/api/me`
+
+Requires an authenticated Better Auth session cookie. All routes return `401` without a session.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/me/profile` | Get current customer profile |
+| `PATCH` | `/me/profile` | Update current customer profile |
+| `GET` | `/me/addresses` | List customer addresses |
+| `POST` | `/me/addresses` | Add a new address |
+| `DELETE` | `/me/addresses/:id` | Delete an address |
+| `GET` | `/me/orders` | List orders for the current customer |
+| `GET` | `/me/orders/:idOrNumber` | Get a specific order by UUID or order number |
+| `GET` | `/me/orders/:idOrNumber/tracking` | Get fulfillment tracking for an order |
+| `GET` | `/me/orders/:orderId/downloads` | Get download links for digital items |
+| `POST` | `/me/orders/:orderId/reorder` | Create a new cart pre-filled from a previous order |
+
+**`GET /me/orders` query parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `status` | `string` | Filter by order status |
+| `page` | `number` | Page number |
+| `limit` | `number` | Items per page |
+
+---
+
+## Analytics
+
+Base path: `/api/analytics`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/analytics/meta` | List available models, measures, and dimensions |
+| `POST` | `/analytics/query` | Execute an analytics query |
+
+**`POST /analytics/query` body:** See [Analytics reference](/reference/analytics/) for the full query format.
+
+---
+
+## Audit
+
+Base path: `/api/audit`
+
+Requires `audit:read` permission.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/audit` | List audit entries |
+| `GET` | `/audit/:entityType/:entityId` | Audit history for a specific entity |
+
+**`GET /audit` query parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `entityType` | `string` | Filter by entity type (e.g. `order`, `catalog_entity`, `inventory`) |
+| `entityId` | `string` | Filter by entity UUID |
+| `event` | `string` | Filter by event name (e.g. `orders.statusChange`) |
+| `actorId` | `string` | Filter by actor |
+| `from` | `string` | ISO 8601 start date |
+| `to` | `string` | ISO 8601 end date |
+| `limit` | `number` | Max entries (default `50`, max `100`) |
+
+---
+
+## Auth
+
+Base path: `/api/auth`
+
+Authentication is handled by [Better Auth](https://www.better-auth.com/). These are the core sign-up/sign-in endpoints. Better Auth exposes additional endpoints for password reset, email verification, sessions, and OAuth.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/auth/sign-up/email` | Register a new user |
+| `POST` | `/auth/sign-in/email` | Sign in with email and password |
+| `GET` | `/auth/get-session` | Get the current session |
+
+**`POST /auth/sign-up/email` body:**
+
+```json
+{
+  "email": "user@example.com",
+  "password": "secret",
+  "name": "Jane Doe"
+}
+```
+
+**`POST /auth/sign-in/email` body:**
+
+```json
+{
+  "email": "user@example.com",
+  "password": "secret"
+}
+```
+
+---
+
+## Job management
+
+Base path: `/api/admin/jobs`
+
+Requires `jobs:admin` permission.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/admin/jobs/failed` | List failed background jobs |
+| `POST` | `/admin/jobs/:id/retry` | Re-enqueue a failed job |
+
+**`GET /admin/jobs/failed` query parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `page` | `number` | Page number |
+| `limit` | `number` | Items per page |
+
+**`POST /admin/jobs/:id/retry`** returns the updated job record.
+
+The cron job runner endpoint:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/jobs/run` | Process pending jobs (cron target) |
+
+Query parameters: `queue` (default `"default"`), `limit` (default `10`). Requires `*:*` permission via `x-api-key`.
+
+---
+
+## Marketplace plugin
+
+Added by `@porulle/plugin-marketplace`. All paths prefixed with `/api/marketplace/`.
+
+### Vendor management (admin)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/vendors` | List vendors |
+| `POST` | `/vendors` | Register a vendor |
+| `GET` | `/vendors/:id` | Vendor detail |
+| `PATCH` | `/vendors/:id` | Update vendor |
+| `POST` | `/vendors/:id/approve` | Approve vendor |
+| `POST` | `/vendors/:id/reject` | Reject with reason |
+| `POST` | `/vendors/:id/suspend` | Suspend vendor |
+| `POST` | `/vendors/:id/reinstate` | Reinstate vendor |
+| `GET` | `/vendors/:id/documents` | List documents |
+| `POST` | `/vendors/:id/documents` | Upload document |
+| `POST` | `/vendors/:id/documents/:docId/approve` | Approve document |
+| `POST` | `/vendors/:id/documents/:docId/reject` | Reject document |
+| `GET` | `/vendors/:id/balance` | Balance ledger |
+| `GET` | `/vendors/:id/performance` | Performance metrics and rating |
+
+### Vendor portal (self-service)
+
+Scoped automatically to `actor.vendorId`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/vendor/me` | Own vendor profile |
+| `PATCH` | `/vendor/me` | Update own profile |
+| `GET` | `/vendor/me/orders` | Own sub-orders |
+| `POST` | `/vendor/me/orders/:id/confirm` | Confirm sub-order |
+| `POST` | `/vendor/me/orders/:id/ship` | Ship with tracking number |
+| `POST` | `/vendor/me/orders/:id/deliver` | Mark delivered |
+| `POST` | `/vendor/me/orders/:id/cancel` | Cancel sub-order |
+| `GET` | `/vendor/me/payouts` | Payout history |
+| `GET` | `/vendor/me/balance` | Balance ledger |
+| `GET` | `/vendor/me/reviews` | Reviews received |
+
+### Other marketplace endpoints
+
+| Group | Paths |
+|-------|-------|
+| Commission rules | `GET /commission-rules`, `POST /commission-rules`, `PATCH /commission-rules/:id`, `DELETE /commission-rules/:id` |
+| Payouts | `GET /payouts`, `POST /payouts/run`, `POST /payouts/:id/retry` |
+| Sub-orders (admin) | `GET /sub-orders`, `GET /sub-orders/:id`, `PATCH /sub-orders/:id/status` |
+| Disputes | `POST /disputes`, `GET /disputes`, `POST /disputes/:id/respond`, `POST /disputes/:id/escalate`, `POST /disputes/:id/resolve` |
+| Returns | `POST /returns`, `POST /returns/:id/ship-back`, `POST /returns/:id/receive` |
+| Reviews | `POST /vendors/:id/reviews`, `GET /vendors/:id/reviews`, `PATCH /vendors/:id/reviews/:reviewId` |
+
+---
+
+## Permission requirements
+
+| Endpoint group | Required permission |
+|----------------|---------------------|
+| `POST /webhooks`, `GET /webhooks`, `DELETE /webhooks/:id` | `webhooks:manage` |
+| `GET /audit`, `GET /audit/:entityType/:entityId` | `audit:read` |
+| `POST /pricing/prices`, `POST /pricing/modifiers` | `pricing:create` |
+| `GET /pricing/prices` | `pricing:update` |
+| `POST /promotions` | `promotions:create` |
+| `PATCH /promotions/:id`, `POST /promotions/:id/deactivate` | `promotions:update` |
+| `POST /marketplace/vendors/:id/approve`, `.../suspend` | `marketplace:admin` |
+| `GET /admin/jobs/failed`, `POST /admin/jobs/:id/retry` | `jobs:admin` |
+
+---
+
+## Webhook event types
+
+Events that trigger delivery when a matching endpoint is registered:
+
+| Event | Trigger |
+|-------|---------|
+| `orders.create` | New order created via checkout |
+| `orders.statusChange` | Order transitions to a new status |
+| `catalog.create` | New catalog entity created |
+| `catalog.update` | Catalog entity updated |
+| `catalog.delete` | Catalog entity deleted |
+| `inventory.afterAdjust` | Inventory level adjusted |
+| `customers.create` | New customer profile created |
+| `customers.update` | Customer profile updated |
+| `pricing.create` | New price record created |
+| `pricing.update` | Price record updated |
+| `promotions.create` | New promotion created |
+| `promotions.update` | Promotion updated or deactivated |
+| `fulfillment.create` | New fulfillment record created |
+| `cart.afterAddItem` | Item added to a cart |
+
+---
+
+## Error codes
+
+```json
+{
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Entity not found."
+  }
+}
+```
+
+| Code | HTTP status | Description |
+|------|-------------|-------------|
+| `NOT_FOUND` | `404` | Resource does not exist |
+| `VALIDATION_FAILED` | `422` | Input validation failed |
+| `CHECKOUT_FAILED` | `422` | Checkout pipeline error |
+| `FORBIDDEN` | `403` | Insufficient permissions |
+| `CONFLICT` | `409` | Conflicting state (e.g., duplicate slug) |
+| `TOO_MANY_REQUESTS` | `429` | Rate limit exceeded |
+| `PAYLOAD_TOO_LARGE` | `413` | Request body exceeds 1 MB |
+
+---
+
+## Pagination
+
+All list endpoints accept `page` and `limit` query parameters. `limit` is capped at `100`.
+
+```json
+{
+  "data": [],
+  "meta": {
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "total": 142,
+      "totalPages": 8
+    }
+  }
+}
+```

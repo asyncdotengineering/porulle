@@ -1,0 +1,2886 @@
+---
+title: The Full Thesis
+description: The original founding RFC for Porulle, dated 2026-03-08, preserved verbatim with name substitutions. Some sections describe plans that have since changed.
+sidebar:
+  order: 99
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+<Aside type="note" title="This is a historical artifact">
+
+This is the original founding RFC, written in March 2026 before the framework had a name or a line of code. It is preserved here verbatim with one mechanical change — every reference to "UnifiedCommerce Engine" has been swapped to "Porulle".
+
+**Some sections describe plans that have since changed:**
+
+- §20 (MCP Integration) and §21 (Cube.js Analytics) describe an AI-native / semantic-analytics layer that was removed from the v0.1.0 alpha. Agent-native primitives are now an explicit Phase 2 commitment, not a v0.1.0 feature.
+- §33 (Phased Delivery Plan) is now history — Phases 0–5 were completed in May 2026 and the framework shipped at v0.1.0 alpha.
+- Some package paths reference `@unifiedcommerce/*` — the published packages live at `@porulle/*` on npm.
+
+For the distilled current-day version, read [The Thesis](/concepts/thesis/). For what actually shipped, see [Architecture](/concepts/architecture/) and the rest of the docs.
+
+</Aside>
+
+## 1. Summary
+
+This RFC proposes the architecture for a new headless commerce kernel -- a programmable, serverless-first engine that treats every sellable thing as a first-class citizen, whether that thing is a physical product with size variants, a digital download, a consulting session, an online course, an office chair in an internal inventory system, or a line item on a point-of-sale terminal.
+
+The engine is not an "e-commerce platform" in the traditional sense. It is a commerce primitive layer -- a set of composable building blocks that let developers construct any transactional system. It ships with strong opinions about developer experience, AI interoperability, and analytical capability, but remains agnostic about the storefront, the deployment target, and the database vendor.
+
+The engine draws direct architectural inspiration from PayloadCMS and Strapi: configuration is code, behavior is declared through co-located lifecycle hooks, and the extension model uses schema registration and hook composition rather than pub/sub event systems. This eliminates the indirection, invisible execution ordering, and debugging difficulty that event-driven architectures introduce. A developer reads the config file and knows exactly what happens at every lifecycle point in the system.
+
+Authentication is fully delegated to better-auth, a framework-agnostic TypeScript authentication library that shares the same Drizzle database instance as the engine. Authorization (role-to-permission mapping and enforcement) is the engine's responsibility, built on top of better-auth's identity layer.
+
+The name "Porulle" is a working title. The engine itself is the subject of this RFC.
+
+---
+
+## 2. Motivation and Problem Statement
+
+### 2.1 The Current Landscape is Fragmented
+
+The commerce tooling ecosystem has fractured into silos. Shopify excels at DTC storefronts but fights you if you want to build an internal inventory tool. Several open-source alternatives are composable but carry strong opinions about Node.js long-running servers and event-driven architectures that scatter behavior across subscriber files. Saleor gives you GraphQL but locks you into a Python/Django world. CommerceJS and BigCommerce are SaaS-first, which means vendor lock-in is the default posture.
+
+None of these systems were designed from the ground up to answer the question: "What if everything you sell -- physical goods, digital goods, services, appointments, subscriptions, internal assets -- could share the same transactional kernel?"
+
+### 2.2 Serverless is No Longer Optional
+
+The deployment landscape has shifted. Cloudflare Workers, Vercel Edge Functions, AWS Lambda, and Deno Deploy have proven that compute-at-the-edge is viable for real workloads. PayloadCMS demonstrated that a full CMS can run inside a Cloudflare Worker by embracing the right abstractions (no filesystem dependency, no long-lived process assumptions, adapter-based database access). Commerce engines should follow this path.
+
+Running a commerce backend should not require provisioning a VPS, managing a process supervisor, or paying for idle compute. A developer should be able to deploy a fully functional commerce API with `npx deploy` and have it running at the edge in under sixty seconds.
+
+### 2.3 AI is Not a Feature -- It is an Interface
+
+Every major commerce platform is bolting on "AI features" as afterthoughts: chatbots that summarize order history, recommendation engines that run as separate microservices. This misses the point entirely.
+
+AI should be a first-class interface to the commerce engine, not an add-on. This means the engine must expose its capabilities through the Model Context Protocol (MCP) from day one, allowing any LLM -- whether it is Claude, GPT, or a locally-hosted model -- to read catalogs, create orders, adjust pricing, generate reports, and manage inventory through tool calls. An AI agent should be able to operate the commerce engine with the same fidelity as a human developer using the REST API.
+
+### 2.4 Analytics Should Not Be an Afterthought
+
+Commerce platforms generate enormous volumes of structured data -- orders, line items, customer interactions, inventory movements, pricing changes. Yet analytics is typically offloaded to external BI tools through ETL pipelines. This RFC proposes embedding a semantic analytics layer (built on Cube.js) directly into the engine, so that every deployment ships with a queryable analytical model that can be extended by developers and consumed by AI agents.
+
+### 2.5 Event Buses Add Complexity Without Proportional Value
+
+Many commerce engines use an internal event bus / pub-sub pattern for inter-module communication. While this pattern has merit in distributed microservice architectures, it introduces three problems in a monolithic kernel:
+
+First, indirection. A developer creates an order and, to understand what happens next, must grep the codebase for every subscriber to the `order.created` event. Those subscribers can be in any file, any plugin, registered at any time during boot. The execution order depends on registration order, which is invisible at the call site.
+
+Second, silent failure. When an event listener throws, the typical pattern is to log and continue, which means you can end up in a half-executed state where the order was created but inventory was never reserved because a listener failed silently.
+
+Third, two extension models. The event bus sits alongside lifecycle hooks, giving developers two different mechanisms to extend behavior. This is cognitive overhead that provides no architectural benefit in a single-process kernel.
+
+PayloadCMS and Strapi proved that co-located lifecycle hooks are simpler to write, simpler to debug, and simpler to reason about. This engine follows that pattern: lifecycle hooks are the single extension primitive. There is no event bus.
+
+### 2.6 Authentication is a Solved Problem
+
+Building authentication from scratch in a commerce engine is a security risk and a waste of engineering time. Password hashing, session management, CSRF protection, OAuth flows, two-factor authentication, email verification, password reset -- these are well-understood problems with battle-tested solutions. The engine delegates authentication entirely to better-auth, a TypeScript-native, framework-agnostic authentication library that runs on the same database as the engine.
+
+---
+
+## 3. Design Principles
+
+These are the non-negotiable architectural principles that every design decision in this RFC must satisfy. When two goals conflict, this ordering determines which wins.
+
+### 3.1 Developer Experience Above All
+
+The engine is a tool for developers. Every API surface, every configuration format, every error message, and every CLI command must be designed with the assumption that the developer's time is the most expensive resource in the system. TypeScript types must be end-to-end. Configuration must be code, not YAML. Errors must be actionable, not cryptic. A developer should open the config file and understand the entire behavior of the system without reading any other file.
+
+### 3.2 Serverless-First, Not Serverless-Only
+
+Every module in the engine must be capable of running inside a serverless function with a cold start budget of under 50ms for the critical path. This means no heavy ORM initialization, no filesystem assumptions, no in-process caching that requires warm state.
+
+However, the engine must also run perfectly well in a traditional Node.js long-running server for developers who prefer that model. The contract is: serverless is the primary deployment target, and anything that works in serverless works everywhere else by definition.
+
+### 3.3 Zero Vendor Lock-In
+
+The engine must be deployable to Cloudflare Workers, Vercel Edge Functions, AWS Lambda, Deno Deploy, and bare Node.js without code changes. This is achieved through an adapter pattern: every infrastructure dependency (database, storage, cache, queue) is accessed through an adapter interface. Swapping from Cloudflare D1 to Vercel Postgres to a self-hosted PostgreSQL instance should require changing a single configuration line, not refactoring application code.
+
+### 3.4 AI-Native from Day Zero
+
+The MCP server implementation is not a plugin. It is a core module that ships with the engine and is tested with the same rigor as the REST API. Every resource the engine manages must be accessible through MCP tools. The analytical layer must be queryable through MCP. The engine must produce structured context that LLMs can reason about.
+
+### 3.5 Composition Over Configuration
+
+The engine ships with sensible defaults for common commerce patterns, but it must never force a developer into a pattern. Every behavior should be composable: swap the pricing engine, replace the fulfillment logic, add a custom order state, extend the catalog schema. The hook system is the single extension mechanism, and it must be powerful enough to change any behavior without forking the core.
+
+### 3.6 One Extension Primitive
+
+There is exactly one way to extend the engine's behavior: lifecycle hooks. There is no event bus. There is no separate pub/sub system. There is no "pipeline" abstraction that differs from hooks. Hooks are declared in the config file for application-level behavior. Plugins register additional hooks through the plugin context. The checkout flow is hooks. Webhook delivery is hooks. Analytics recording is hooks. One pattern, used everywhere, understood immediately.
+
+### 3.7 Do Not Build What is Already Solved
+
+Authentication, email delivery, tax calculation, search indexing, payment processing -- these are infrastructure concerns with mature, battle-tested libraries. The engine uses adapter interfaces and delegates to purpose-built libraries (better-auth for identity, Stripe for payments, TaxJar for tax, Meilisearch for search) rather than reimplementing them.
+
+---
+
+## 4. High-Level Architecture
+
+The engine is organized as a layered kernel with clear boundaries between each layer.
+
+```
++------------------------------------------------------------------+
+|                        Consumer Interfaces                        |
+|  [ REST API ]  [ GraphQL ]  [ MCP Server ]  [ Admin SDK ]       |
++------------------------------------------------------------------+
+|                        Route Extensions                           |
+|  [ Config Routes ]  [ Plugin Routes ]  [ Custom Middleware ]     |
++------------------------------------------------------------------+
+|                        Application Layer                          |
+|  [ Catalog ]  [ Cart ]  [ Checkout ]  [ Orders ]  [ Customers ] |
+|  [ Inventory ]  [ Fulfillment ]  [ Pricing ]  [ Promotions ]    |
++------------------------------------------------------------------+
+|                        Core Kernel Layer                          |
+|  [ Lifecycle Hook Registry ]  [ State Machine ]                  |
+|  [ Validation ]  [ Result Types ]  [ Serialization ]             |
++------------------------------------------------------------------+
+|                        Auth Layer (better-auth)                   |
+|  [ Sessions ]  [ OAuth ]  [ 2FA ]  [ API Keys ]  [ Orgs ]      |
+|  [ Permission Resolution ]  [ Actor Construction ]               |
++------------------------------------------------------------------+
+|                        Analytics Layer                            |
+|  [ Cube.js Semantic Layer ]  [ Pre-built Models ]                |
+|  [ Custom Measures/Dimensions ]  [ MCP Query Interface ]         |
++------------------------------------------------------------------+
+|                        Infrastructure Adapters                    |
+|  [ Database ]  [ Cache ]  [ Storage ]  [ Queue ]  [ Search ]    |
+|  [ Payment ]  [ Tax ]  [ Shipping ]  [ Email ]                  |
++------------------------------------------------------------------+
+|                        Deployment Adapters                        |
+|  [ Cloudflare ]  [ Vercel ]  [ AWS Lambda ]  [ Node.js ]        |
++------------------------------------------------------------------+
+```
+
+The Consumer Interfaces layer receives external requests and translates them into application-layer operations. Every interface (REST, GraphQL, MCP) calls the same underlying service methods. The interface layer is a thin translation skin.
+
+The Route Extensions layer allows developers to add custom endpoints in the config file and plugins to register additional routes. Custom routes have full access to the kernel's services, database, and hook registry.
+
+The Application Layer contains all business logic. Each module is a self-contained service with its own validation rules and lifecycle hook execution. Modules communicate through the service container -- a module that needs to check inventory calls `context.services.inventory`, never an event emission.
+
+The Auth Layer is powered by better-auth. It handles all authentication concerns. The engine builds its authorization model (role-to-permission mapping and enforcement) on top of better-auth's identity layer.
+
+The Core Kernel Layer provides the lifecycle hook registry, state machines, validation primitives, and the Result type.
+
+The Analytics Layer reads from the same database through Cube.js, translating raw tables into business concepts.
+
+The Infrastructure Adapters layer provides concrete implementations of abstract interfaces.
+
+The Deployment Adapters layer translates between the engine's HTTP handler and each deployment target's format.
+
+---
+
+## 5. Technology Decisions and Rationale
+
+### 5.1 Language: TypeScript (Strict Mode, No Exceptions)
+
+The entire engine is written in TypeScript with `strict: true`, `noUncheckedIndexedAccess: true`, and `exactOptionalPropertyTypes: true`. Every function has explicit return types. Every error is a typed discriminated union, not a thrown exception.
+
+### 5.2 HTTP Framework: Hono
+
+Hono is the HTTP framework for all API surfaces. It runs identically on Cloudflare Workers, Vercel Edge, Deno, Bun, and Node.js. It has zero dependencies, sub-millisecond cold starts, and a middleware model that aligns with the lifecycle hook design.
+
+```typescript
+// src/runtime/server.ts
+// This is the entry point. Every deployment adapter wraps this.
+
+import { Hono } from "hono";
+import type { CommerceConfig } from "../config/types";
+import { createRestRoutes } from "../interfaces/rest";
+import { createGraphQLHandler } from "../interfaces/graphql";
+import { createMCPHandler } from "../interfaces/mcp";
+import { createCustomerPortalRoutes } from "../interfaces/rest/customer-portal";
+import { createAuth } from "../auth/setup";
+import { authMiddleware } from "../auth/middleware";
+import { createPOSAuthRoutes } from "../auth/pos";
+import { createKernel } from "../kernel";
+
+export function createServer(config: CommerceConfig) {
+  const kernel = createKernel(config);
+  const auth = createAuth(kernel.database, config);
+  const app = new Hono();
+
+  // 1. Apply global middleware from config.
+  if (config.middleware) {
+    for (const mw of config.middleware) {
+      app.use("*", mw);
+    }
+  }
+
+  // 2. Mount better-auth handler. Serves all /api/auth/* routes.
+  app.on(["POST", "GET"], "/api/auth/**", (c) => auth.handler(c.req.raw));
+
+  // 3. Mount POS PIN auth routes if enabled.
+  if (config.auth?.posPin?.enabled) {
+    app.route("/api/auth/pos", createPOSAuthRoutes(auth, kernel));
+  }
+
+  // 4. Apply auth middleware to all subsequent routes.
+  app.use("*", authMiddleware(auth, config));
+
+  // 5. Mount core routes.
+  app.route("/api", createRestRoutes(kernel));
+  app.route("/graphql", createGraphQLHandler(kernel));
+  app.route("/mcp", createMCPHandler(kernel, config.mcpTools));
+
+  // 6. Mount customer self-service routes.
+  app.route("/api/me", createCustomerPortalRoutes(kernel));
+
+  // 7. Mount plugin routes.
+  for (const route of kernel.pluginRoutes) {
+    app.on(route.method, route.path, route.handler);
+  }
+
+  // 8. Mount config-level custom routes.
+  if (config.routes) {
+    config.routes(app, kernel);
+  }
+
+  return app;
+}
+```
+
+### 5.3 ORM and Database Access: Drizzle ORM
+
+Drizzle ORM is the database access layer. It generates SQL at build time, has zero runtime overhead, produces fully typed query results, and works in serverless environments without connection pooling hacks. It supports PostgreSQL, MySQL, SQLite (including Cloudflare D1), and Turso/libSQL.
+
+Drizzle was chosen over Prisma because Prisma requires a binary query engine that adds cold start latency and complicates edge deployments. Drizzle was chosen over Kysely because Drizzle provides a schema-as-code model that aligns with the engine's config-driven philosophy.
+
+### 5.4 Authentication: better-auth
+
+better-auth is the authentication layer. It is framework-agnostic, TypeScript-native, and runs on the same database as the engine through the Drizzle adapter. It provides email/password auth, social login, session management, two-factor authentication, API keys, and organization-based multi-tenancy with RBAC -- all through a plugin system. The engine does not implement any authentication logic. Section 14 covers the integration in detail.
+
+### 5.5 Configuration as Code
+
+Following the PayloadCMS model, the engine is configured through a single TypeScript file. This file is the source of truth. Every lifecycle hook, every entity type, every field definition, every fulfillment strategy, every plugin, every custom route, and every auth setting -- all declared in one file.
+
+```typescript
+// commerce.config.ts
+// This is the developer's entry point. Everything starts here.
+
+import { defineConfig } from "@porulle/core";
+import { cloudflareD1 } from "@porulle/adapter-d1";
+import { stripePayment } from "@porulle/adapter-stripe";
+import { resendEmail } from "@porulle/adapter-resend";
+import { taxjarTax } from "@porulle/adapter-taxjar";
+import { analyticsPlugin } from "@porulle/plugin-analytics";
+import { posPlugin } from "@porulle/plugin-pos";
+
+// Hook functions -- imported so you can cmd-click to the source.
+import { validateProductMetadata, generateSlugFromTitle } from "./hooks/catalog";
+import { syncToSearchIndex, removeFromSearchIndex } from "./hooks/search";
+import { validateStock, resolvePrice, recalculateCartTotals } from "./hooks/cart";
+import {
+  validateCartNotEmpty, resolveCurrentPrices, checkInventoryAvailability,
+  applyPromotionCodes, calculateTax, calculateShipping, validatePaymentMethod,
+  authorizePayment, capturePayment, reserveInventory, initiateFulfillment,
+  sendConfirmation, recordAnalyticsEvent
+} from "./hooks/checkout";
+import {
+  validateTransition, checkRefundEligibility,
+  releaseOrReserveInventory, sendStatusEmail
+} from "./hooks/orders";
+
+// Custom route modules.
+import { wishlistRoutes, wishlists } from "./routes/wishlist";
+import { storeLocatorRoutes, storeLocations } from "./routes/store-locator";
+
+export default defineConfig({
+  // -- Database adapter. Swap this line to change databases. --
+  database: cloudflareD1({ binding: "DB" }),
+
+  // -- Authentication (better-auth). See Section 14. --
+  auth: {
+    requireEmailVerification: true,
+    sessionDuration: 60 * 60 * 24 * 7,
+    socialProviders: {
+      google: {
+        clientId: process.env.GOOGLE_CLIENT_ID!,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      },
+    },
+    twoFactor: { enabled: true, requiredForRoles: ["owner", "admin", "vendor"] },
+    apiKeys: { enabled: true },
+    posPin: { enabled: true },
+    roles: {
+      owner: { permissions: ["*:*"] },
+      admin: { permissions: ["*:*"] },
+      store_manager: {
+        permissions: ["catalog:*", "orders:*", "customers:read", "inventory:*", "analytics:query", "pricing:*"],
+      },
+      pos_operator: {
+        permissions: ["catalog:read", "orders:create", "orders:read", "inventory:read"],
+      },
+      vendor: {
+        permissions: ["catalog:create", "catalog:read", "catalog:update", "orders:read", "inventory:read", "inventory:adjust", "analytics:query"],
+      },
+      ai_agent: {
+        permissions: ["catalog:read", "orders:read", "analytics:query", "mcp:access"],
+      },
+    },
+    customerPermissions: [
+      "catalog:read", "cart:create", "cart:read", "cart:update",
+      "orders:create", "orders:read:own", "customers:read:self", "customers:update:self",
+      "wishlist:read:own", "wishlist:create:own", "wishlist:delete:own",
+    ],
+  },
+
+  // -- Entity types. Each defines fields, variants, fulfillment, and hooks. --
+  entities: {
+    product: {
+      fields: [
+        { name: "weight", type: "number", unit: "grams" },
+        { name: "dimensions", type: "json", schema: dimensionsSchema },
+      ],
+      variants: { enabled: true, optionTypes: ["size", "color", "material"] },
+      fulfillment: "physical",
+      hooks: {
+        beforeCreate: [validateProductMetadata, generateSlugFromTitle],
+        afterCreate: [syncToSearchIndex],
+        beforeUpdate: [validateProductMetadata],
+        afterUpdate: [syncToSearchIndex],
+        beforeDelete: [checkNoActiveOrders],
+        afterDelete: [removeFromSearchIndex],
+      },
+    },
+    service: {
+      fields: [
+        { name: "duration", type: "number", unit: "minutes" },
+        { name: "provider", type: "relation", target: "staff" },
+      ],
+      variants: { enabled: false },
+      fulfillment: "appointment",
+      hooks: {
+        afterCreate: [syncToSearchIndex],
+        afterUpdate: [syncToSearchIndex, notifySchedulingSystem],
+      },
+    },
+    course: {
+      fields: [
+        { name: "modules", type: "json", schema: courseModulesSchema },
+        { name: "accessDuration", type: "number", unit: "days" },
+      ],
+      variants: { enabled: true, optionTypes: ["tier"] },
+      fulfillment: "digital-access",
+      hooks: {
+        afterCreate: [syncToSearchIndex],
+        afterUpdate: [syncToSearchIndex],
+      },
+    },
+    digitalDownload: {
+      fields: [
+        { name: "fileAssetId", type: "text" },
+        { name: "maxDownloads", type: "number" },
+      ],
+      variants: { enabled: false },
+      fulfillment: "digital-download",
+      hooks: { afterCreate: [syncToSearchIndex] },
+    },
+    internalAsset: {
+      fields: [
+        { name: "assetTag", type: "text" },
+        { name: "department", type: "text" },
+        { name: "condition", type: "select", options: ["new", "good", "fair", "poor"] },
+      ],
+      variants: { enabled: false },
+      fulfillment: "internal-transfer",
+      hooks: {},
+    },
+  },
+
+  // -- Cart lifecycle hooks. --
+  cart: {
+    ttlMinutes: 60 * 24 * 7,
+    hooks: {
+      beforeAddItem: [validateStock, resolvePrice],
+      afterAddItem: [recalculateCartTotals],
+      beforeRemoveItem: [],
+      afterRemoveItem: [recalculateCartTotals],
+      beforeUpdateQuantity: [validateStock],
+      afterUpdateQuantity: [recalculateCartTotals],
+    },
+  },
+
+  // -- Checkout lifecycle hooks. The checkout IS the hook chain. --
+  checkout: {
+    hooks: {
+      beforeCreate: [
+        validateCartNotEmpty, resolveCurrentPrices, checkInventoryAvailability,
+        applyPromotionCodes, calculateTax, calculateShipping,
+        validatePaymentMethod, authorizePayment,
+      ],
+      afterCreate: [
+        capturePayment, reserveInventory, initiateFulfillment,
+        sendConfirmation, recordAnalyticsEvent,
+      ],
+    },
+  },
+
+  // -- Order lifecycle hooks. --
+  orders: {
+    hooks: {
+      beforeCreate: [],
+      afterCreate: [recordAnalyticsEvent],
+      beforeStatusChange: [validateTransition, checkRefundEligibility],
+      afterStatusChange: [releaseOrReserveInventory, sendStatusEmail, recordAnalyticsEvent],
+      beforeDelete: [blockDeletionIfFulfilled],
+    },
+  },
+
+  // -- Inventory lifecycle hooks. --
+  inventory: {
+    hooks: { afterAdjust: [checkLowStockThreshold, recordAnalyticsEvent] },
+  },
+
+  // -- Infrastructure adapters. --
+  payments: [stripePayment({ secretKey: process.env.STRIPE_SECRET_KEY })],
+  tax: taxjarTax({ apiKey: process.env.TAXJAR_API_KEY }),
+  email: resendEmail({ apiKey: process.env.RESEND_API_KEY }),
+
+  // -- Plugins. --
+  plugins: [
+    analyticsPlugin({ cubeApiUrl: process.env.CUBE_API_URL }),
+    posPlugin({ terminalMode: true }),
+  ],
+
+  // -- AI/MCP configuration. --
+  mcp: {
+    enabled: true,
+    capabilities: [
+      "catalog:read", "catalog:write", "orders:read", "orders:write",
+      "analytics:query", "inventory:read", "inventory:write",
+    ],
+  },
+
+  // -- Custom schemas for custom routes. Included in migration generation. --
+  customSchemas: [wishlists, storeLocations],
+
+  // -- Custom routes. Mounted alongside core routes. --
+  routes: (app, kernel) => {
+    app.route("/api/wishlist", wishlistRoutes(kernel));
+    app.route("/api/store-locator", storeLocatorRoutes(kernel));
+  },
+
+  // -- Custom MCP tools. Merged with core tools. --
+  mcpTools: (kernel) => [
+    {
+      name: "wishlist_get",
+      description: "Get a customer's wishlist with current pricing.",
+      inputSchema: {
+        type: "object",
+        required: ["customerId"],
+        properties: { customerId: { type: "string" } },
+      },
+      handler: async (params: any) => {
+        const items = await kernel.database
+          .select().from(wishlists)
+          .where(eq(wishlists.customerId, params.customerId));
+        return { content: [{ type: "text", text: JSON.stringify(items, null, 2) }] };
+      },
+    },
+  ],
+
+  // -- Global middleware. --
+  middleware: [],
+});
+```
+
+### 5.6 Why Not tRPC?
+
+tRPC provides excellent type safety between client and server, but it is designed for TypeScript-to-TypeScript communication. A headless commerce engine must serve clients written in any language. GraphQL and REST provide language-agnostic interfaces.
+
+---
+
+## 6. Core Kernel Design
+
+The kernel provides four critical primitives: the lifecycle hook registry, the state machine, the Result type, and the error taxonomy. There is no event bus. There is no pub/sub system.
+
+### 6.1 Lifecycle Hook Registry
+
+The hook registry manages hook registration, execution order, and transactional integrity. Hooks are categorized into two types.
+
+`before` hooks receive the operation data and can modify it or throw to abort the operation. They share a database transaction -- if any `before` hook throws, the entire transaction rolls back.
+
+`after` hooks receive the committed result and perform side effects. An `after` hook that throws surfaces an error to the caller but does not roll back the committed operation.
+
+This is not an event emitter. There is no mitt, no EventEmitter, no pub/sub library. The hook system is a `Map` of string keys to ordered arrays of functions, executed in a sequential `for` loop. Each `before` hook receives the output of the previous hook. The execution order is deterministic: prepended hooks first (from plugins), then configured hooks (from the config file, in array order), then appended hooks (from plugins).
+
+```typescript
+// src/kernel/hooks/types.ts
+
+export type BeforeHook<TData> = (args: {
+  data: TData;
+  operation: "create" | "update" | "delete" | "statusChange" | "addItem" | "removeItem";
+  context: HookContext;
+}) => Promise<TData> | TData;
+
+export type AfterHook<TData> = (args: {
+  data: TData | null;
+  result: TData;
+  operation: "create" | "update" | "delete" | "statusChange" | "addItem" | "removeItem";
+  context: HookContext;
+}) => Promise<void> | void;
+
+export interface HookContext {
+  /** The authenticated user, API key, or MCP agent. */
+  actor: Actor;
+  /** Database transaction handle. Before-hooks share this transaction. */
+  tx: Transaction;
+  /** Structured logger scoped to this operation. */
+  logger: Logger;
+  /** Access to all registered services. */
+  services: ServiceContainer;
+  /** Mutable scratchpad for hooks to pass data between themselves. */
+  metadata: Record<string, unknown>;
+}
+```
+
+```typescript
+// src/kernel/hooks/registry.ts
+
+export class HookRegistry {
+  private registry = new Map<string, {
+    prepended: Function[];
+    configured: Function[];
+    appended: Function[];
+  }>();
+
+  /** Called once during boot. Stores hooks from commerce.config.ts. */
+  registerConfigHooks(hookName: string, handlers: Function[]): void {
+    this.ensureEntry(hookName);
+    this.registry.get(hookName)!.configured = handlers;
+  }
+
+  /** Called by plugins. Runs AFTER config hooks. */
+  append(hookName: string, handler: Function): void {
+    this.ensureEntry(hookName);
+    this.registry.get(hookName)!.appended.push(handler);
+  }
+
+  /** Called by plugins. Runs BEFORE config hooks. */
+  prepend(hookName: string, handler: Function): void {
+    this.ensureEntry(hookName);
+    this.registry.get(hookName)!.prepended.push(handler);
+  }
+
+  /** Returns the flat, deterministically ordered hook array. */
+  resolve(hookName: string): Function[] {
+    const entry = this.registry.get(hookName);
+    if (!entry) return [];
+    return [...entry.prepended, ...entry.configured, ...entry.appended];
+  }
+
+  private ensureEntry(hookName: string): void {
+    if (!this.registry.has(hookName)) {
+      this.registry.set(hookName, { prepended: [], configured: [], appended: [] });
+    }
+  }
+}
+```
+
+```typescript
+// src/kernel/hooks/executor.ts
+
+export async function runBeforeHooks<T>(
+  hooks: BeforeHook<T>[], data: T, operation: string, context: HookContext
+): Promise<T> {
+  let current = data;
+  for (const hook of hooks) {
+    current = await hook({ data: current, operation: operation as any, context });
+  }
+  return current;
+}
+
+export async function runAfterHooks<T>(
+  hooks: AfterHook<T>[], originalData: T | null, committedResult: T,
+  operation: string, context: HookContext
+): Promise<HookReport> {
+  const errors: HookError[] = [];
+  for (const hook of hooks) {
+    try {
+      await hook({ data: originalData, result: committedResult, operation: operation as any, context });
+    } catch (error) {
+      errors.push({
+        hookName: hook.name || "(anonymous)",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      context.logger.error(`After-hook "${hook.name}" failed`, { error });
+    }
+  }
+  return { errors, hasErrors: errors.length > 0 };
+}
+
+export interface HookReport {
+  errors: HookError[];
+  hasErrors: boolean;
+}
+
+export interface HookError {
+  hookName: string;
+  message: string;
+}
+```
+
+### 6.2 How a Service Method Uses Hooks
+
+This is the concrete pattern every module follows:
+
+```typescript
+// src/modules/catalog/service.ts (create method)
+
+async create(input: CreateEntityInput, actor: Actor): Promise<Result<SellableEntity>> {
+  // 1. Resolve hooks from the registry.
+  const beforeHooks = [
+    ...this.hooks.resolve("catalog.beforeCreate"),
+    ...this.hooks.resolve(`catalog.${input.type}.beforeCreate`),
+  ] as BeforeHook<CreateEntityInput>[];
+
+  const afterHooks = [
+    ...this.hooks.resolve("catalog.afterCreate"),
+    ...this.hooks.resolve(`catalog.${input.type}.afterCreate`),
+  ] as AfterHook<SellableEntity>[];
+
+  try {
+    // 2. Execute inside a transaction. Before-hooks share the tx.
+    const { entity, context } = await this.db.transaction(async (tx) => {
+      const context: HookContext = {
+        actor, tx,
+        logger: createScopedLogger("catalog.create", { entityType: input.type }),
+        services: this.services,
+        metadata: {},
+      };
+
+      // 3. Run before-hooks. Each receives the output of the previous one.
+      const processedInput = await runBeforeHooks(beforeHooks, input, "create", context);
+
+      // 4. Perform the database write.
+      const [entity] = await tx.insert(sellableEntities).values({
+        type: processedInput.type,
+        slug: processedInput.slug,
+        status: "draft",
+        metadata: processedInput.metadata ?? {},
+      }).returning();
+
+      if (processedInput.attributes) {
+        await tx.insert(sellableAttributes).values({
+          entityId: entity.id,
+          locale: processedInput.attributes.locale ?? "en",
+          title: processedInput.attributes.title,
+          description: processedInput.attributes.description,
+        });
+      }
+
+      return { entity, context };
+    });
+
+    // 5. Run after-hooks outside the transaction.
+    const hookReport = await runAfterHooks(afterHooks, null, entity, "create", context);
+
+    return Ok(entity, hookReport.hasErrors ? { hookErrors: hookReport.errors } : undefined);
+  } catch (error) {
+    if (error instanceof CommerceError) return Err(error);
+    throw error;
+  }
+}
+```
+
+### 6.3 State Machine
+
+```typescript
+// src/kernel/state-machine/machine.ts
+
+export interface StateDefinition<TState extends string> {
+  states: readonly TState[];
+  initial: TState;
+  transitions: Record<TState, readonly TState[]>;
+  terminal: readonly TState[];
+}
+
+export const orderStateMachine: StateDefinition<
+  "pending" | "confirmed" | "processing" | "partially_fulfilled" |
+  "fulfilled" | "cancelled" | "refunded"
+> = {
+  states: ["pending", "confirmed", "processing", "partially_fulfilled",
+           "fulfilled", "cancelled", "refunded"],
+  initial: "pending",
+  transitions: {
+    pending: ["confirmed", "cancelled"],
+    confirmed: ["processing", "cancelled"],
+    processing: ["partially_fulfilled", "fulfilled", "cancelled"],
+    partially_fulfilled: ["fulfilled", "cancelled"],
+    fulfilled: ["refunded"],
+    cancelled: [],
+    refunded: [],
+  },
+  terminal: ["cancelled", "refunded"],
+};
+
+export function canTransition<TState extends string>(
+  machine: StateDefinition<TState>, from: TState, to: TState
+): boolean {
+  return machine.transitions[from].includes(to);
+}
+
+export function assertTransition<TState extends string>(
+  machine: StateDefinition<TState>, from: TState, to: TState
+): void {
+  if (!canTransition(machine, from, to)) {
+    throw new CommerceInvalidTransitionError(
+      `Cannot transition from "${from}" to "${to}". ` +
+      `Allowed transitions from "${from}": [${machine.transitions[from].join(", ")}]`
+    );
+  }
+}
+```
+
+### 6.4 Result Type (No Thrown Exceptions for Business Logic)
+
+```typescript
+// src/kernel/result.ts
+
+export type Result<T, E = CommerceError> =
+  | { ok: true; value: T; meta?: Record<string, unknown> }
+  | { ok: false; error: E };
+
+export function Ok<T>(value: T, meta?: Record<string, unknown>): Result<T, never> {
+  return { ok: true, value, meta };
+}
+
+export function Err<E>(error: E): Result<never, E> {
+  return { ok: false, error };
+}
+```
+
+### 6.5 Structured Error Taxonomy
+
+```typescript
+// src/kernel/errors.ts
+
+export interface CommerceError {
+  code: string;
+  message: string;
+  details?: unknown;
+}
+
+export class CommerceNotFoundError implements CommerceError {
+  code = "NOT_FOUND" as const;
+  constructor(public message: string, public details?: unknown) {}
+}
+// NOT_FOUND -> 404
+
+export class CommerceValidationError implements CommerceError {
+  code = "VALIDATION_FAILED" as const;
+  constructor(public message: string, public fieldErrors?: FieldError[], public details?: unknown) {}
+}
+// VALIDATION_FAILED -> 422
+
+export class CommerceForbiddenError implements CommerceError {
+  code = "FORBIDDEN" as const;
+  constructor(public message: string, public details?: unknown) {}
+}
+// FORBIDDEN -> 403
+
+export class CommerceConflictError implements CommerceError {
+  code = "CONFLICT" as const;
+  constructor(public message: string, public details?: unknown) {}
+}
+// CONFLICT -> 409
+
+export class CommerceInvalidTransitionError implements CommerceError {
+  code = "INVALID_TRANSITION" as const;
+  constructor(public message: string, public details?: unknown) {}
+}
+// INVALID_TRANSITION -> 422
+```
+
+---
+
+## 7. The Catalog System: Universal Sellable Entity Model
+
+Instead of separate tables for "products", "services", and "courses", the engine uses a single polymorphic entity model called `SellableEntity`. From the kernel's perspective, all sellable things have a price, can be added to a cart, can be checked out, and have a fulfillment strategy. The differences (physical products need shipping; courses need access provisioning) belong in the fulfillment layer, not the catalog layer. The unified model enables mixed carts.
+
+### 7.1 Entity Schema
+
+```typescript
+// src/modules/catalog/schema.ts
+
+import { pgTable, text, timestamp, jsonb, boolean, integer, uuid, index } from "drizzle-orm/pg-core";
+
+export const sellableEntities = pgTable("sellable_entities", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  type: text("type").notNull(), // "product", "service", "course", "digital", "internal_asset"
+  slug: text("slug").notNull().unique(),
+  status: text("status", {
+    enum: ["draft", "active", "archived", "discontinued"],
+  }).notNull().default("draft"),
+  isVisible: boolean("is_visible").notNull().default(false),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+}, (table) => ({
+  typeIdx: index("idx_sellable_entities_type").on(table.type),
+  statusIdx: index("idx_sellable_entities_status").on(table.status),
+  slugIdx: index("idx_sellable_entities_slug").on(table.slug),
+}));
+
+export const sellableAttributes = pgTable("sellable_attributes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  entityId: uuid("entity_id").references(() => sellableEntities.id, { onDelete: "cascade" }).notNull(),
+  locale: text("locale").notNull().default("en"),
+  title: text("title").notNull(),
+  subtitle: text("subtitle"),
+  description: text("description"),
+  richDescription: jsonb("rich_description"), // ProseMirror-compatible JSON.
+  seoTitle: text("seo_title"),
+  seoDescription: text("seo_description"),
+}, (table) => ({
+  entityLocaleIdx: index("idx_sellable_attrs_entity_locale").on(table.entityId, table.locale),
+}));
+
+export const sellableCustomFields = pgTable("sellable_custom_fields", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  entityId: uuid("entity_id").references(() => sellableEntities.id, { onDelete: "cascade" }).notNull(),
+  fieldName: text("field_name").notNull(),
+  fieldType: text("field_type", {
+    enum: ["text", "number", "boolean", "date", "json", "relation"],
+  }).notNull(),
+  textValue: text("text_value"),
+  numberValue: integer("number_value"),
+  booleanValue: boolean("boolean_value"),
+  dateValue: timestamp("date_value", { withTimezone: true }),
+  jsonValue: jsonb("json_value"),
+}, (table) => ({
+  entityFieldIdx: index("idx_custom_fields_entity_field").on(table.entityId, table.fieldName),
+  textValueIdx: index("idx_custom_fields_text").on(table.fieldName, table.textValue),
+  numberValueIdx: index("idx_custom_fields_number").on(table.fieldName, table.numberValue),
+}));
+
+export const categories = pgTable("categories", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  parentId: uuid("parent_id").references((): any => categories.id, { onDelete: "set null" }),
+  slug: text("slug").notNull().unique(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+});
+
+export const entityCategories = pgTable("entity_categories", {
+  entityId: uuid("entity_id").references(() => sellableEntities.id, { onDelete: "cascade" }).notNull(),
+  categoryId: uuid("category_id").references(() => categories.id, { onDelete: "cascade" }).notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+```
+
+### 7.2 Catalog Service Interface
+
+```typescript
+// src/modules/catalog/service.ts
+
+export interface CatalogService {
+  create(input: CreateEntityInput, actor: Actor): Promise<Result<SellableEntity>>;
+  update(id: string, input: UpdateEntityInput, actor: Actor): Promise<Result<SellableEntity>>;
+  delete(id: string, actor: Actor): Promise<Result<void>>;
+  getById(id: string, options?: GetOptions): Promise<Result<SellableEntity>>;
+  getBySlug(slug: string, options?: GetOptions): Promise<Result<SellableEntity>>;
+  list(params: ListParams): Promise<Result<PaginatedResult<SellableEntity>>>;
+  publish(id: string, actor: Actor): Promise<Result<SellableEntity>>;
+  archive(id: string, actor: Actor): Promise<Result<SellableEntity>>;
+  setAttributes(entityId: string, locale: string, attrs: SetAttributesInput): Promise<Result<void>>;
+  getAttributes(entityId: string, locale: string): Promise<Result<EntityAttributes>>;
+  addToCategory(entityId: string, categoryId: string): Promise<Result<void>>;
+  removeFromCategory(entityId: string, categoryId: string): Promise<Result<void>>;
+}
+
+export interface GetOptions {
+  includeAttributes?: boolean | { locales: string[] };
+  includeVariants?: boolean;
+  includePricing?: boolean;
+  includeInventory?: boolean;
+  includeMedia?: boolean;
+  includeCategories?: boolean;
+}
+```
+
+---
+
+## 8. Variant and Option Architecture
+
+Variants represent the concrete, purchasable configurations of a sellable entity. A t-shirt might have "Blue / Large" and "Red / Small" variants. A course might have "Basic Tier" and "Pro Tier" variants.
+
+```typescript
+// src/modules/catalog/schema.ts (continued)
+
+export const optionTypes = pgTable("option_types", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  entityId: uuid("entity_id").references(() => sellableEntities.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),           // "size", "color"
+  displayName: text("display_name").notNull(), // "Size", "Color"
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+
+export const optionValues = pgTable("option_values", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  optionTypeId: uuid("option_type_id").references(() => optionTypes.id, { onDelete: "cascade" }).notNull(),
+  value: text("value").notNull(),            // "S", "M", "L"
+  displayValue: text("display_value").notNull(), // "Small", "Medium", "Large"
+  sortOrder: integer("sort_order").notNull().default(0),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+});
+
+export const variants = pgTable("variants", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  entityId: uuid("entity_id").references(() => sellableEntities.id, { onDelete: "cascade" }).notNull(),
+  sku: text("sku").unique(),
+  barcode: text("barcode"),
+  status: text("status", { enum: ["active", "discontinued"] }).notNull().default("active"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+});
+
+export const variantOptionValues = pgTable("variant_option_values", {
+  variantId: uuid("variant_id").references(() => variants.id, { onDelete: "cascade" }).notNull(),
+  optionValueId: uuid("option_value_id").references(() => optionValues.id, { onDelete: "cascade" }).notNull(),
+});
+```
+
+The engine does not auto-generate the Cartesian product of all option values. A variant generation utility supports three modes: "all" (full Cartesian product), "manual" (explicit specification), and "matrix" (inclusion/exclusion rules).
+
+---
+
+## 9. Pricing Engine
+
+The pricing engine is separated from the catalog. Prices are resolved at query time through a pipeline. All monetary amounts are stored as integers in the smallest currency unit (USD $29.99 = 2999). This eliminates floating-point errors entirely.
+
+```typescript
+// src/modules/pricing/schema.ts
+
+export const prices = pgTable("prices", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  entityId: uuid("entity_id").references(() => sellableEntities.id, { onDelete: "cascade" }),
+  variantId: uuid("variant_id").references(() => variants.id, { onDelete: "cascade" }),
+  amount: integer("amount").notNull(),
+  currency: text("currency").notNull().default("USD"),
+  customerGroupId: uuid("customer_group_id"),
+  minQuantity: integer("min_quantity").notNull().default(1),
+  maxQuantity: integer("max_quantity"),
+  validFrom: timestamp("valid_from", { withTimezone: true }),
+  validUntil: timestamp("valid_until", { withTimezone: true }),
+});
+
+export const priceModifiers = pgTable("price_modifiers", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  type: text("type", {
+    enum: ["percentage_discount", "fixed_discount", "markup", "override"],
+  }).notNull(),
+  value: integer("value").notNull(), // Percentage: basis points (1000 = 10%). Fixed: smallest unit.
+  priority: integer("priority").notNull().default(0),
+  conditions: jsonb("conditions").$type<PriceCondition[]>().default([]),
+  validFrom: timestamp("valid_from", { withTimezone: true }),
+  validUntil: timestamp("valid_until", { withTimezone: true }),
+});
+```
+
+### 9.1 Price Resolution
+
+```typescript
+// src/modules/pricing/resolver.ts
+
+export interface PriceResolutionContext {
+  entityId: string;
+  variantId: string | null;
+  currency: string;
+  quantity: number;
+  customerId: string | null;
+  customerGroupIds: string[];
+  timestamp: Date;
+}
+
+export interface ResolvedPrice {
+  baseAmount: number;
+  finalAmount: number;
+  currency: string;
+  appliedModifiers: AppliedModifier[];
+  breakdown: PriceBreakdownStep[];
+}
+
+export interface PriceBreakdownStep {
+  label: string;   // "Base price", "Volume discount (10%)"
+  amount: number;  // Amount after this step.
+  delta: number;   // Change from previous step. Negative = discount.
+}
+
+// Resolution pipeline:
+// 1. Find applicable base prices (entity/variant, currency, customer group, quantity range, validity).
+// 2. Select most specific base price.
+// 3. Apply modifiers in priority order.
+// 4. Return final price with full breakdown.
+```
+
+---
+
+## 10. Cart and Checkout Pipeline
+
+### 10.1 Cart Schema
+
+The cart is a server-side entity. Server-side carts allow AI agents to manage carts through MCP, POS terminals to share state, and analytics to track composition in real time.
+
+```typescript
+// src/modules/cart/schema.ts
+
+export const carts = pgTable("carts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  customerId: uuid("customer_id"),
+  status: text("status", {
+    enum: ["active", "merged", "checked_out", "abandoned"],
+  }).notNull().default("active"),
+  currency: text("currency").notNull().default("USD"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const cartLineItems = pgTable("cart_line_items", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  cartId: uuid("cart_id").references(() => carts.id, { onDelete: "cascade" }).notNull(),
+  entityId: uuid("entity_id").references(() => sellableEntities.id).notNull(),
+  variantId: uuid("variant_id").references(() => variants.id),
+  quantity: integer("quantity").notNull().default(1),
+  unitPriceSnapshot: integer("unit_price_snapshot").notNull(),
+  currency: text("currency").notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+  addedAt: timestamp("added_at", { withTimezone: true }).defaultNow().notNull(),
+});
+```
+
+### 10.2 Checkout as Hooks
+
+There is no separate "checkout pipeline" abstraction. The checkout flow is the `checkout.beforeCreate` and `checkout.afterCreate` hook chains declared in the config. Each step is a hook function, run in array order, sharing a database transaction. If any `beforeCreate` hook throws, the entire transaction rolls back.
+
+```typescript
+// src/hooks/checkout.ts
+
+export const validateCartNotEmpty: BeforeHook<CheckoutData> = async ({ data, context }) => {
+  const cart = await context.services.cart.getById(data.cartId);
+  if (!cart.ok || cart.value.lineItems.length === 0) {
+    throw new CommerceValidationError("Cannot checkout an empty cart.");
+  }
+  data.lineItems = cart.value.lineItems;
+  return data;
+};
+
+export const resolveCurrentPrices: BeforeHook<CheckoutData> = async ({ data, context }) => {
+  for (const item of data.lineItems) {
+    const price = await context.services.pricing.resolve({
+      entityId: item.entityId, variantId: item.variantId,
+      currency: data.currency, quantity: item.quantity, customerId: data.customerId,
+    });
+    if (!price.ok) throw new CommerceValidationError(`Cannot resolve price for ${item.entityId}.`);
+    item.resolvedUnitPrice = price.value.finalAmount;
+    item.resolvedTotal = price.value.finalAmount * item.quantity;
+  }
+  data.subtotal = data.lineItems.reduce((sum, li) => sum + li.resolvedTotal, 0);
+  return data;
+};
+
+export const checkInventoryAvailability: BeforeHook<CheckoutData> = async ({ data, context }) => {
+  for (const item of data.lineItems) {
+    const available = await context.services.inventory.getAvailable(item.entityId, item.variantId);
+    if (!available.ok || available.value < item.quantity) {
+      throw new CommerceValidationError(
+        `Insufficient stock for "${item.title}". Available: ${available.ok ? available.value : 0}, requested: ${item.quantity}.`
+      );
+    }
+  }
+  return data;
+};
+
+export const authorizePayment: BeforeHook<CheckoutData> = async ({ data, context }) => {
+  const result = await context.services.payments.authorize({
+    amount: data.total, currency: data.currency,
+    paymentMethodId: data.paymentMethodId,
+    metadata: { checkoutId: data.checkoutId },
+  });
+  if (!result.ok) throw new CommerceValidationError(`Payment authorization failed: ${result.error.message}`);
+  data.paymentIntentId = result.value.id;
+  return data;
+};
+
+export const capturePayment: AfterHook<Order> = async ({ result: order, context }) => {
+  await context.services.payments.capture(context.metadata.paymentIntentId as string);
+};
+
+export const reserveInventory: AfterHook<Order> = async ({ result: order, context }) => {
+  for (const li of order.lineItems) {
+    await context.services.inventory.reserve({
+      entityId: li.entityId, variantId: li.variantId,
+      quantity: li.quantity, orderId: order.id,
+    });
+  }
+};
+
+export const sendConfirmation: AfterHook<Order> = async ({ result: order, context }) => {
+  if (order.customerId) {
+    const customer = await context.services.customers.getById(order.customerId);
+    if (customer.ok && customer.value.email) {
+      await context.services.email.send({
+        template: "order-confirmation", to: customer.value.email, data: { order },
+      });
+    }
+  }
+};
+```
+
+---
+
+## 11. Order Lifecycle and State Machine
+
+Orders use the state machine from Section 6.3. The order service enforces transitions by running `beforeStatusChange` hooks, then `afterStatusChange` hooks for side effects.
+
+```typescript
+// src/modules/orders/schema.ts
+
+export const orders = pgTable("orders", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  orderNumber: text("order_number").notNull().unique(), // "ORD-2026-00001"
+  customerId: uuid("customer_id"),
+  status: text("status").notNull().default("pending"),
+  currency: text("currency").notNull(),
+  subtotal: integer("subtotal").notNull(),
+  taxTotal: integer("tax_total").notNull(),
+  shippingTotal: integer("shipping_total").notNull(),
+  discountTotal: integer("discount_total").notNull().default(0),
+  grandTotal: integer("grand_total").notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+  placedAt: timestamp("placed_at", { withTimezone: true }).defaultNow().notNull(),
+  fulfilledAt: timestamp("fulfilled_at", { withTimezone: true }),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+});
+
+export const orderLineItems = pgTable("order_line_items", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  orderId: uuid("order_id").references(() => orders.id, { onDelete: "cascade" }).notNull(),
+  entityId: uuid("entity_id").references(() => sellableEntities.id).notNull(),
+  entityType: text("entity_type").notNull(),
+  variantId: uuid("variant_id"),
+  sku: text("sku"),
+  title: text("title").notNull(), // Snapshot at order time.
+  quantity: integer("quantity").notNull(),
+  unitPrice: integer("unit_price").notNull(),
+  totalPrice: integer("total_price").notNull(),
+  taxAmount: integer("tax_amount").notNull().default(0),
+  discountAmount: integer("discount_amount").notNull().default(0),
+  fulfillmentStatus: text("fulfillment_status").notNull().default("unfulfilled"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+});
+
+export const orderStatusHistory = pgTable("order_status_history", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  orderId: uuid("order_id").references(() => orders.id, { onDelete: "cascade" }).notNull(),
+  fromStatus: text("from_status").notNull(),
+  toStatus: text("to_status").notNull(),
+  reason: text("reason"),
+  changedBy: text("changed_by").notNull(), // User ID, "system", "mcp-agent:<id>"
+  changedAt: timestamp("changed_at", { withTimezone: true }).defaultNow().notNull(),
+});
+```
+
+---
+
+## 12. Fulfillment Abstraction Layer
+
+Fulfillment is where entity types diverge. The engine uses a strategy pattern: each entity type declares a fulfillment strategy in the config, and the fulfillment module dispatches to the appropriate handler.
+
+```typescript
+// src/modules/fulfillment/types.ts
+
+export interface FulfillmentStrategy {
+  type: string;
+  canFulfill(lineItem: OrderLineItem, context: HookContext): Promise<Result<boolean>>;
+  fulfill(lineItem: OrderLineItem, context: HookContext): Promise<Result<FulfillmentRecord>>;
+  reverse(fulfillmentId: string, context: HookContext): Promise<Result<void>>;
+}
+
+// Built-in strategies:
+// "physical"           - Ship via carrier (Shippo, EasyPost, manual).
+// "digital-download"   - Generate signed download URL with TTL and max-downloads.
+// "digital-access"     - Grant access to content (LMS webhook, internal flag).
+// "appointment"        - Schedule via calendar adapter (Google Calendar, Cal.com).
+// "internal-transfer"  - Record asset transfer between departments.
+```
+
+---
+
+## 13. Payment Adapter System
+
+```typescript
+// src/modules/payments/adapter.ts
+
+export interface PaymentAdapter {
+  readonly providerId: string;
+  createPaymentIntent(params: CreatePaymentIntentParams): Promise<Result<PaymentIntent>>;
+  capturePayment(paymentIntentId: string, amount?: number): Promise<Result<PaymentCapture>>;
+  refundPayment(paymentId: string, amount: number, reason?: string): Promise<Result<PaymentRefund>>;
+  cancelPaymentIntent(paymentIntentId: string): Promise<Result<void>>;
+  verifyWebhook(request: Request): Promise<Result<PaymentWebhookEvent>>;
+}
+
+export interface CreatePaymentIntentParams {
+  amount: number;
+  currency: string;
+  orderId: string;
+  customerId?: string;
+  metadata?: Record<string, string>;
+  terminalId?: string; // For POS.
+}
+```
+
+---
+
+## 14. Authentication: better-auth Integration
+
+Authentication is fully delegated to better-auth. The engine does not implement password hashing, session management, CSRF protection, OAuth flows, or any other authentication concern. better-auth runs on the same Drizzle database instance, using the same connection, the same migration pipeline, and the same transaction manager.
+
+### 14.1 Why better-auth
+
+better-auth is a framework-agnostic TypeScript authentication library with first-class Hono support and a Drizzle ORM adapter. It provides email/password auth, social login (Google, GitHub, Apple, Discord, and more), session management, two-factor authentication (TOTP), passkeys, API keys, and organization-based multi-tenancy with RBAC. It runs in-process, on your database, under your control. There is no external SaaS dependency.
+
+The alignment with the engine's stack is precise: same language (TypeScript strict), same database layer (Drizzle), same HTTP framework (Hono), same deployment targets (Cloudflare Workers, Vercel Edge, Node.js).
+
+### 14.2 better-auth Setup
+
+```typescript
+// src/auth/setup.ts
+
+import { betterAuth } from "better-auth";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { organization } from "better-auth/plugins";
+import { twoFactor } from "better-auth/plugins";
+import { apiKey } from "better-auth/plugins";
+
+export function createAuth(db: DatabaseAdapter, config: CommerceConfig) {
+  return betterAuth({
+    database: drizzleAdapter(db, { provider: config.database.provider }),
+
+    emailAndPassword: {
+      enabled: true,
+      requireEmailVerification: config.auth?.requireEmailVerification ?? true,
+      sendResetPassword: async ({ user, url }) => {
+        await config.email.send({
+          template: "password-reset",
+          to: user.email,
+          data: { resetUrl: url, userName: user.name },
+        });
+      },
+      sendVerificationEmail: async ({ user, url }) => {
+        await config.email.send({
+          template: "email-verification",
+          to: user.email,
+          data: { verifyUrl: url, userName: user.name },
+        });
+      },
+    },
+
+    socialProviders: config.auth?.socialProviders ?? {},
+
+    session: {
+      expiresIn: config.auth?.sessionDuration ?? 60 * 60 * 24 * 7,
+      updateAge: 60 * 60 * 24,
+    },
+
+    plugins: [
+      organization({
+        roles: buildOrganizationRoles(config.auth?.roles ?? {}),
+      }),
+      ...(config.auth?.twoFactor?.enabled
+        ? [twoFactor({ issuer: config.storeName ?? "Porulle" })]
+        : []),
+      ...(config.auth?.apiKeys?.enabled ? [apiKey()] : []),
+    ],
+
+    user: {
+      additionalFields: {
+        vendorId: { type: "string", required: false },
+        posOperatorPin: { type: "string", required: false },
+      },
+    },
+  });
+}
+```
+
+### 14.3 Auth Middleware: Translating Identity to Actor
+
+The auth middleware runs on every request. It resolves the better-auth session (or API key) and constructs the engine's `Actor` type.
+
+```typescript
+// src/auth/middleware.ts
+
+export function authMiddleware(auth: BetterAuthInstance, config: CommerceConfig): MiddlewareHandler {
+  return async (c, next) => {
+    // 1. Try session-based auth (cookies, bearer token).
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+
+    if (session) {
+      c.set("actor", {
+        type: "user",
+        userId: session.user.id,
+        email: session.user.email,
+        name: session.user.name,
+        vendorId: session.user.vendorId ?? null,
+        organizationId: session.session.activeOrganizationId ?? null,
+        role: session.session.activeOrganizationRole ?? "customer",
+        permissions: resolvePermissions(session, config),
+      } satisfies Actor);
+      await next();
+      return;
+    }
+
+    // 2. Try API key auth (machine-to-machine, MCP agents).
+    const apiKeyHeader = c.req.header("x-api-key") || c.req.header("authorization")?.replace("Bearer ", "");
+    if (apiKeyHeader && config.auth?.apiKeys?.enabled) {
+      try {
+        const keyResult = await auth.api.verifyApiKey({ key: apiKeyHeader });
+        if (keyResult) {
+          c.set("actor", {
+            type: "api_key",
+            userId: keyResult.userId,
+            email: null,
+            name: keyResult.name ?? "API Key",
+            vendorId: null,
+            organizationId: null,
+            role: "api_key",
+            permissions: keyResult.permissions ?? config.auth?.roles?.ai_agent?.permissions ?? [],
+          } satisfies Actor);
+          await next();
+          return;
+        }
+      } catch { /* Invalid key. Fall through to anonymous. */ }
+    }
+
+    // 3. No valid auth. Actor is null (anonymous).
+    c.set("actor", null);
+    await next();
+  };
+}
+
+function resolvePermissions(session: BetterAuthSession, config: CommerceConfig): string[] {
+  const role = session.session.activeOrganizationRole;
+  if (!role) {
+    return config.auth?.customerPermissions ?? [
+      "catalog:read", "cart:create", "cart:read", "cart:update",
+      "orders:create", "orders:read:own", "customers:read:self", "customers:update:self",
+    ];
+  }
+  const roleConfig = config.auth?.roles?.[role];
+  return roleConfig ? roleConfig.permissions : [];
+}
+```
+
+### 14.4 The Actor Type
+
+```typescript
+// src/auth/types.ts
+
+export interface Actor {
+  type: "user" | "api_key";
+  userId: string;
+  email: string | null;
+  name: string;
+  vendorId: string | null;
+  organizationId: string | null;
+  role: string;
+  permissions: string[];
+}
+```
+
+### 14.5 POS PIN Authentication
+
+POS terminals use a simplified auth flow. The operator enters a numeric PIN. This route validates the PIN and creates a standard better-auth session with a shorter TTL.
+
+```typescript
+// src/auth/pos.ts
+
+import { Hono } from "hono";
+import { eq } from "drizzle-orm";
+
+export function createPOSAuthRoutes(auth: BetterAuthInstance, kernel: Kernel) {
+  const router = new Hono();
+
+  // POST /api/auth/pos/pin
+  router.post("/pin", async (c) => {
+    const { pin, terminalId } = await c.req.json<{ pin: string; terminalId: string }>();
+
+    if (!pin || !terminalId) {
+      return c.json({ error: { code: "VALIDATION_FAILED", message: "PIN and terminal ID are required." } }, 422);
+    }
+
+    const users = await kernel.database
+      .select().from(user)
+      .where(eq(user.posOperatorPin, hashPin(pin)))
+      .limit(1);
+
+    if (!users.length) {
+      return c.json({ error: { code: "FORBIDDEN", message: "Invalid credentials." } }, 401);
+    }
+
+    const operator = users[0];
+
+    // Create a better-auth session scoped to one 8-hour shift.
+    const session = await auth.api.createSession({
+      userId: operator.id,
+      expiresIn: 60 * 60 * 8,
+    });
+
+    kernel.logger.info("POS session started", {
+      operatorId: operator.id, operatorName: operator.name, terminalId,
+    });
+
+    return c.json({
+      data: {
+        session: { token: session.token, expiresAt: session.expiresAt },
+        operator: { id: operator.id, name: operator.name, role: "pos_operator" },
+        terminalId,
+      },
+    });
+  });
+
+  // POST /api/auth/pos/clock-out
+  router.post("/clock-out", async (c) => {
+    const actor = c.get("actor");
+    if (!actor) return c.json({ error: { code: "FORBIDDEN", message: "Not authenticated." } }, 401);
+
+    const token = c.req.header("authorization")?.replace("Bearer ", "");
+    if (token) await auth.api.revokeSession({ token });
+
+    kernel.logger.info("POS session ended", { operatorId: actor.userId });
+    return c.json({ data: { clockedOut: true } });
+  });
+
+  return router;
+}
+```
+
+### 14.6 Routes Provided by better-auth
+
+better-auth automatically serves these routes. The engine does not reimplement any of them:
+
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/auth/sign-up` | POST | Create account (email/password). |
+| `/api/auth/sign-in/email` | POST | Sign in with email/password. |
+| `/api/auth/sign-in/social` | POST | Initiate social login. |
+| `/api/auth/callback/:provider` | GET | OAuth callback. |
+| `/api/auth/sign-out` | POST | Sign out, revoke session. |
+| `/api/auth/session` | GET | Get current session. |
+| `/api/auth/forgot-password` | POST | Send password reset email. |
+| `/api/auth/reset-password` | POST | Reset password with token. |
+| `/api/auth/verify-email` | GET | Verify email with token. |
+| `/api/auth/two-factor/enable` | POST | Enable 2FA (TOTP). |
+| `/api/auth/two-factor/verify` | POST | Verify 2FA code. |
+| `/api/auth/organization/create` | POST | Create organization. |
+| `/api/auth/organization/invite` | POST | Invite member. |
+| `/api/auth/organization/set-active` | POST | Set active organization for session. |
+| `/api/auth/api-key/create` | POST | Generate API key. |
+| `/api/auth/api-key/revoke` | POST | Revoke API key. |
+
+The engine adds `/api/auth/pos/pin` and `/api/auth/pos/clock-out` for POS authentication.
+
+---
+
+## 15. Authorization: Permission Model
+
+Authentication ("who is this person?") is better-auth's job. Authorization ("what can this person do?") is the engine's job.
+
+### 15.1 Permission Check
+
+```typescript
+// src/auth/permissions.ts
+
+export function assertPermission(actor: Actor | null, required: string): void {
+  if (!actor) throw new CommerceForbiddenError("Authentication required.");
+  if (actor.permissions.includes("*:*")) return;
+  const [resource] = required.split(":");
+  if (actor.permissions.includes(`${resource}:*`)) return;
+  if (actor.permissions.includes(required)) return;
+  throw new CommerceForbiddenError(
+    `Permission "${required}" is required. Your role "${actor.role}" does not include this permission.`
+  );
+}
+
+export function assertOwnership(actor: Actor | null, resourceOwnerId: string | null): void {
+  if (!actor) throw new CommerceForbiddenError("Authentication required.");
+  if (actor.permissions.includes("*:*")) return;
+  if (actor.userId !== resourceOwnerId) {
+    throw new CommerceForbiddenError("You do not have access to this resource.");
+  }
+}
+```
+
+### 15.2 Usage in Service Methods
+
+```typescript
+async create(input: CreateEntityInput, actor: Actor): Promise<Result<SellableEntity>> {
+  assertPermission(actor, "catalog:create");
+  // ... hook + create logic ...
+}
+
+async getById(id: string, actor: Actor): Promise<Result<Order>> {
+  assertPermission(actor, "orders:read");
+  const order = await this.db.select().from(orders).where(eq(orders.id, id)).limit(1);
+  if (!order.length) return Err(new CommerceNotFoundError(`Order not found.`));
+  // If actor only has "orders:read:own", enforce ownership.
+  if (!actor.permissions.includes("orders:read") && actor.permissions.includes("orders:read:own")) {
+    assertOwnership(actor, order[0].customerId);
+  }
+  return Ok(order[0]);
+}
+```
+
+---
+
+## 16. Customer Portal and Self-Service
+
+Customers need to see their orders, track shipments, manage their profile, reorder, and access digital purchases. The engine provides dedicated endpoints under `/api/me` that are automatically scoped to the authenticated customer.
+
+### 16.1 Customer Portal Routes
+
+```typescript
+// src/interfaces/rest/customer-portal.ts
+
+import { Hono } from "hono";
+import type { Kernel } from "../../kernel";
+
+export function createCustomerPortalRoutes(kernel: Kernel) {
+  const router = new Hono();
+
+  // All /api/me routes require authentication.
+  router.use("*", async (c, next) => {
+    if (!c.get("actor")) return c.json({ error: { code: "FORBIDDEN", message: "Authentication required." } }, 401);
+    await next();
+  });
+
+  // GET /api/me/profile
+  router.get("/profile", async (c) => {
+    const actor = c.get("actor") as Actor;
+    const customer = await kernel.services.customers.getByUserId(actor.userId);
+    if (!customer.ok) return c.json({ error: customer.error }, 404);
+    return c.json({ data: customer.value });
+  });
+
+  // PATCH /api/me/profile
+  router.patch("/profile", async (c) => {
+    const actor = c.get("actor") as Actor;
+    assertPermission(actor, "customers:update:self");
+    const body = await c.req.json();
+    const result = await kernel.services.customers.updateByUserId(actor.userId, body);
+    if (!result.ok) return c.json({ error: result.error }, 422);
+    return c.json({ data: result.value });
+  });
+
+  // GET /api/me/addresses
+  router.get("/addresses", async (c) => {
+    const actor = c.get("actor") as Actor;
+    const addresses = await kernel.services.customers.getAddresses(actor.userId);
+    return c.json({ data: addresses.ok ? addresses.value : [] });
+  });
+
+  // POST /api/me/addresses
+  router.post("/addresses", async (c) => {
+    const actor = c.get("actor") as Actor;
+    const body = await c.req.json();
+    const result = await kernel.services.customers.addAddress(actor.userId, body);
+    if (!result.ok) return c.json({ error: result.error }, 422);
+    return c.json({ data: result.value }, 201);
+  });
+
+  // DELETE /api/me/addresses/:id
+  router.delete("/addresses/:id", async (c) => {
+    const actor = c.get("actor") as Actor;
+    const result = await kernel.services.customers.deleteAddress(actor.userId, c.req.param("id"));
+    if (!result.ok) return c.json({ error: result.error }, 404);
+    return c.json({ data: { deleted: true } });
+  });
+
+  // GET /api/me/orders
+  router.get("/orders", async (c) => {
+    const actor = c.get("actor") as Actor;
+    const result = await kernel.services.orders.listByCustomer(actor.userId, {
+      page: parseInt(c.req.query("page") ?? "1"),
+      limit: parseInt(c.req.query("limit") ?? "20"),
+      status: c.req.query("status") ?? undefined,
+    });
+    if (!result.ok) return c.json({ error: result.error }, 500);
+    return c.json({ data: result.value.items, meta: result.value.pagination });
+  });
+
+  // GET /api/me/orders/:idOrNumber
+  router.get("/orders/:idOrNumber", async (c) => {
+    const actor = c.get("actor") as Actor;
+    const id = c.req.param("idOrNumber");
+    const result = isUUID(id)
+      ? await kernel.services.orders.getById(id, actor)
+      : await kernel.services.orders.getByNumber(id, actor);
+    if (!result.ok) return c.json({ error: result.error }, mapErrorToStatus(result.error));
+    return c.json({ data: result.value });
+  });
+
+  // GET /api/me/orders/:idOrNumber/tracking
+  router.get("/orders/:idOrNumber/tracking", async (c) => {
+    const actor = c.get("actor") as Actor;
+    const id = c.req.param("idOrNumber");
+    const orderResult = isUUID(id)
+      ? await kernel.services.orders.getById(id, actor)
+      : await kernel.services.orders.getByNumber(id, actor);
+    if (!orderResult.ok) return c.json({ error: orderResult.error }, mapErrorToStatus(orderResult.error));
+
+    const fulfillments = await kernel.services.fulfillment.getByOrderId(orderResult.value.id);
+    if (!fulfillments.ok) return c.json({ error: fulfillments.error }, 500);
+
+    return c.json({
+      data: fulfillments.value.map((f) => ({
+        fulfillmentId: f.id,
+        status: f.status,
+        carrier: f.carrier ?? null,
+        trackingNumber: f.trackingNumber ?? null,
+        trackingUrl: f.trackingUrl ?? null,
+        estimatedDelivery: f.estimatedDelivery ?? null,
+        shippedAt: f.shippedAt ?? null,
+        deliveredAt: f.deliveredAt ?? null,
+        lineItems: f.lineItems.map((li) => ({ title: li.title, quantity: li.quantity, sku: li.sku })),
+      })),
+    });
+  });
+
+  // GET /api/me/orders/:orderId/downloads
+  router.get("/orders/:orderId/downloads", async (c) => {
+    const actor = c.get("actor") as Actor;
+    const orderResult = await kernel.services.orders.getById(c.req.param("orderId"), actor);
+    if (!orderResult.ok) return c.json({ error: orderResult.error }, mapErrorToStatus(orderResult.error));
+
+    const digitalItems = orderResult.value.lineItems.filter((li) => li.entityType === "digitalDownload");
+    const downloads = await Promise.all(
+      digitalItems.map(async (li) => {
+        const dl = await kernel.services.fulfillment.getDownloadUrl(orderResult.value.id, li.id, actor.userId);
+        return {
+          lineItemId: li.id, title: li.title,
+          downloadUrl: dl.ok ? dl.value.url : null,
+          downloadsRemaining: dl.ok ? dl.value.remaining : 0,
+          expiresAt: dl.ok ? dl.value.expiresAt : null,
+        };
+      })
+    );
+    return c.json({ data: downloads });
+  });
+
+  // GET /api/me/courses
+  router.get("/courses", async (c) => {
+    const actor = c.get("actor") as Actor;
+    const result = await kernel.services.fulfillment.getDigitalAccess(actor.userId, "course");
+    if (!result.ok) return c.json({ error: result.error }, 500);
+    return c.json({
+      data: result.value.map((a) => ({
+        entityId: a.entityId, title: a.title,
+        accessGrantedAt: a.grantedAt, accessExpiresAt: a.expiresAt,
+        isActive: a.isActive, orderId: a.orderId,
+      })),
+    });
+  });
+
+  // POST /api/me/orders/:orderId/reorder
+  router.post("/orders/:orderId/reorder", async (c) => {
+    const actor = c.get("actor") as Actor;
+    const orderResult = await kernel.services.orders.getById(c.req.param("orderId"), actor);
+    if (!orderResult.ok) return c.json({ error: orderResult.error }, mapErrorToStatus(orderResult.error));
+
+    const cartResult = await kernel.services.cart.create({
+      customerId: actor.userId, currency: orderResult.value.currency,
+    });
+    if (!cartResult.ok) return c.json({ error: cartResult.error }, 500);
+
+    const addResults = await Promise.all(
+      orderResult.value.lineItems.map((li) =>
+        kernel.services.cart.addItem({
+          cartId: cartResult.value.id, entityId: li.entityId,
+          variantId: li.variantId ?? undefined, quantity: li.quantity,
+        }, actor)
+      )
+    );
+
+    const failures = addResults
+      .map((r, i) => (!r.ok ? { item: orderResult.value.lineItems[i].title, reason: r.error.message } : null))
+      .filter(Boolean);
+
+    return c.json({
+      data: {
+        cartId: cartResult.value.id,
+        itemsAdded: addResults.filter((r) => r.ok).length,
+        itemsFailed: failures,
+      },
+    }, 201);
+  });
+
+  return router;
+}
+```
+
+### 16.2 Customer Portal Route Summary
+
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/me/profile` | GET | Get customer profile. |
+| `/api/me/profile` | PATCH | Update profile. |
+| `/api/me/addresses` | GET | List saved addresses. |
+| `/api/me/addresses` | POST | Add address. |
+| `/api/me/addresses/:id` | DELETE | Remove address. |
+| `/api/me/orders` | GET | List orders (paginated, filterable). |
+| `/api/me/orders/:idOrNumber` | GET | Get single order with details. |
+| `/api/me/orders/:idOrNumber/tracking` | GET | Shipment tracking. |
+| `/api/me/orders/:orderId/downloads` | GET | Download links for digital products. |
+| `/api/me/courses` | GET | Purchased courses with access status. |
+| `/api/me/orders/:orderId/reorder` | POST | Create cart from previous order. |
+
+---
+
+## 17. Tenant and Multi-Store Architecture
+
+The engine supports multi-tenancy at the database level. Every major table includes a `tenantId` column. In single-tenant mode, this is a default value with negligible overhead. In multi-tenant mode, all queries are scoped through Drizzle middleware. better-auth's organization plugin provides the tenant identity -- an "organization" maps to a "tenant" or "store."
+
+---
+
+## 18. API Surface: GraphQL and REST
+
+### 18.1 REST API
+
+```typescript
+// src/interfaces/rest/routes/catalog.ts
+
+export function catalogRoutes(kernel: Kernel) {
+  const router = new Hono();
+
+  router.get("/entities", async (c) => {
+    const params = parseListParams(c.req.query());
+    const result = await kernel.services.catalog.list(params);
+    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    return c.json({ data: result.value.items, meta: result.value.pagination });
+  });
+
+  router.get("/entities/:idOrSlug", async (c) => {
+    const identifier = c.req.param("idOrSlug");
+    const options = parseGetOptions(c.req.query());
+    const result = isUUID(identifier)
+      ? await kernel.services.catalog.getById(identifier, options)
+      : await kernel.services.catalog.getBySlug(identifier, options);
+    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    return c.json({ data: result.value });
+  });
+
+  router.post("/entities", async (c) => {
+    const input = await c.req.json<CreateEntityInput>();
+    const result = await kernel.services.catalog.create(input, c.get("actor"));
+    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    return c.json({ data: result.value }, 201);
+  });
+
+  return router;
+}
+```
+
+### 18.2 GraphQL API
+
+The GraphQL schema is programmatically generated from the commerce config. Custom fields automatically appear in the schema.
+
+---
+
+## 19. Route Extension System
+
+Two mechanisms for custom endpoints: config-level routes and plugin-level routes. Both use standard Hono handlers with full kernel access.
+
+### 19.1 Config-Level Custom Routes
+
+```typescript
+// routes/wishlist.ts -- complete example
+
+import { Hono } from "hono";
+import { pgTable, uuid, timestamp, index } from "drizzle-orm/pg-core";
+import { eq, and } from "drizzle-orm";
+import type { Kernel } from "@porulle/core";
+import { assertPermission } from "@porulle/core/auth";
+
+export const wishlists = pgTable("wishlists", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  customerId: uuid("customer_id").notNull(),
+  entityId: uuid("entity_id").notNull(),
+  variantId: uuid("variant_id"),
+  addedAt: timestamp("added_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  customerIdx: index("idx_wishlists_customer").on(table.customerId),
+}));
+
+export function wishlistRoutes(kernel: Kernel) {
+  const router = new Hono();
+
+  router.get("/", async (c) => {
+    const actor = c.get("actor");
+    if (!actor) return c.json({ error: "Authentication required." }, 401);
+    assertPermission(actor, "wishlist:read:own");
+    const items = await kernel.database.select().from(wishlists)
+      .where(eq(wishlists.customerId, actor.userId));
+    const hydrated = await Promise.all(items.map(async (item) => {
+      const entity = await kernel.services.catalog.getById(item.entityId, {
+        includeAttributes: true, includePricing: true,
+      });
+      return { wishlistItemId: item.id, addedAt: item.addedAt,
+        entity: entity.ok ? entity.value : null, variantId: item.variantId };
+    }));
+    return c.json({ data: hydrated });
+  });
+
+  router.post("/", async (c) => {
+    const actor = c.get("actor");
+    if (!actor) return c.json({ error: "Authentication required." }, 401);
+    assertPermission(actor, "wishlist:create:own");
+    const body = await c.req.json<{ entityId: string; variantId?: string }>();
+    const entity = await kernel.services.catalog.getById(body.entityId);
+    if (!entity.ok) return c.json({ error: "Entity not found." }, 404);
+    const existing = await kernel.database.select().from(wishlists)
+      .where(and(eq(wishlists.customerId, actor.userId), eq(wishlists.entityId, body.entityId)))
+      .limit(1);
+    if (existing.length > 0) return c.json({ error: "Already in wishlist." }, 409);
+    const [item] = await kernel.database.insert(wishlists).values({
+      customerId: actor.userId, entityId: body.entityId, variantId: body.variantId,
+    }).returning();
+    return c.json({ data: item }, 201);
+  });
+
+  router.delete("/:itemId", async (c) => {
+    const actor = c.get("actor");
+    if (!actor) return c.json({ error: "Authentication required." }, 401);
+    assertPermission(actor, "wishlist:delete:own");
+    const [deleted] = await kernel.database.delete(wishlists)
+      .where(and(eq(wishlists.id, c.req.param("itemId")), eq(wishlists.customerId, actor.userId)))
+      .returning();
+    if (!deleted) return c.json({ error: "Not found." }, 404);
+    return c.json({ data: { deleted: true } });
+  });
+
+  return router;
+}
+```
+
+### 19.2 Plugin-Level Routes
+
+Plugins register routes through `ctx.routes.add()`. These are the same Hono handlers, registered programmatically.
+
+### 19.3 Custom MCP Tools
+
+Custom MCP tools declared in the config are merged with core tools so AI agents can access both.
+
+---
+
+## 20. AI-Native Layer and MCP Integration
+
+The MCP integration is a native interface to the commerce kernel. It is not an API wrapper.
+
+### 20.1 MCP Server Implementation
+
+```typescript
+// src/interfaces/mcp/server.ts
+
+export function registerMCPCapabilities(kernel: Kernel) {
+  return {
+    tools: [
+      {
+        name: "catalog_search",
+        description: "Search the catalog. Filter by type, status, category, price range, free-text. Returns paginated results with pricing and availability.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            query: { type: "string" }, type: { type: "string", enum: ["product", "service", "course", "digital", "internal_asset"] },
+            status: { type: "string", enum: ["draft", "active", "archived"] },
+            categorySlug: { type: "string" }, minPrice: { type: "number" }, maxPrice: { type: "number" },
+            currency: { type: "string", default: "USD" }, page: { type: "number", default: 1 }, limit: { type: "number", default: 20 },
+          },
+        },
+        handler: async (params: any) => {
+          const result = await kernel.services.catalog.list({
+            filter: buildFilterFromMCPParams(params),
+            sort: { field: "createdAt", direction: "desc" },
+            pagination: { page: params.page ?? 1, limit: params.limit ?? 20 },
+          });
+          if (!result.ok) return { error: result.error };
+          return { content: [{ type: "text", text: JSON.stringify(result.value, null, 2) }] };
+        },
+      },
+      {
+        name: "catalog_create_entity",
+        description: "Create a new catalog entity. Requires type, slug, title. Created in draft status.",
+        inputSchema: {
+          type: "object", required: ["type", "slug", "title"],
+          properties: {
+            type: { type: "string" }, slug: { type: "string" },
+            title: { type: "string" }, description: { type: "string" }, metadata: { type: "object" },
+          },
+        },
+        handler: async (params: any) => {
+          const result = await kernel.services.catalog.create({
+            type: params.type, slug: params.slug,
+            attributes: { locale: "en", title: params.title, description: params.description },
+            metadata: params.metadata,
+          }, kernel.getMCPActor());
+          if (!result.ok) return { error: result.error };
+          return { content: [{ type: "text", text: JSON.stringify(result.value, null, 2) }] };
+        },
+      },
+      {
+        name: "cart_create",
+        description: "Create a new shopping cart. Returns cart ID for subsequent operations.",
+        inputSchema: { type: "object", properties: { customerId: { type: "string" }, currency: { type: "string", default: "USD" } } },
+        handler: async (params: any) => {
+          const result = await kernel.services.cart.create(params);
+          if (!result.ok) return { error: result.error };
+          return { content: [{ type: "text", text: JSON.stringify(result.value, null, 2) }] };
+        },
+      },
+      {
+        name: "cart_add_item",
+        description: "Add item to cart. If entity has variants and no variantId provided, fails with available variants.",
+        inputSchema: {
+          type: "object", required: ["cartId", "entityId"],
+          properties: { cartId: { type: "string" }, entityId: { type: "string" }, variantId: { type: "string" }, quantity: { type: "number", default: 1 } },
+        },
+        handler: async (params: any) => {
+          const result = await kernel.services.cart.addItem(params, kernel.getMCPActor());
+          if (!result.ok) return { error: result.error };
+          return { content: [{ type: "text", text: JSON.stringify(result.value, null, 2) }] };
+        },
+      },
+      {
+        name: "order_get",
+        description: "Get order details by ID or order number. Includes line items, payment, fulfillment, and AI context (available transitions, permitted actions, summary).",
+        inputSchema: { type: "object", properties: { orderId: { type: "string" }, orderNumber: { type: "string" } } },
+        handler: async (params: any) => {
+          const result = params.orderId
+            ? await kernel.services.orders.getById(params.orderId, kernel.getMCPActor())
+            : await kernel.services.orders.getByNumber(params.orderNumber, kernel.getMCPActor());
+          if (!result.ok) return { error: result.error };
+          const enriched = enrichOrderForAgent(result.value, kernel.getMCPActor().permissions);
+          return { content: [{ type: "text", text: JSON.stringify(enriched, null, 2) }] };
+        },
+      },
+      {
+        name: "inventory_check",
+        description: "Check stock levels for one or more entities/variants.",
+        inputSchema: { type: "object", required: ["entityIds"], properties: { entityIds: { type: "array", items: { type: "string" } } } },
+        handler: async (params: any) => {
+          const result = await kernel.services.inventory.checkMultiple(params.entityIds);
+          if (!result.ok) return { error: result.error };
+          return { content: [{ type: "text", text: JSON.stringify(result.value, null, 2) }] };
+        },
+      },
+      {
+        name: "inventory_adjust",
+        description: "Adjust inventory. Positive adds stock, negative removes. Requires reason.",
+        inputSchema: {
+          type: "object", required: ["entityId", "adjustment", "reason"],
+          properties: { entityId: { type: "string" }, variantId: { type: "string" }, adjustment: { type: "number" }, reason: { type: "string" } },
+        },
+        handler: async (params: any) => {
+          const result = await kernel.services.inventory.adjust(params, kernel.getMCPActor());
+          if (!result.ok) return { error: result.error };
+          return { content: [{ type: "text", text: JSON.stringify(result.value, null, 2) }] };
+        },
+      },
+      {
+        name: "analytics_query",
+        description: "Query analytics. Measures: revenue, order_count, average_order_value, items_sold, unique_customers, cart_abandonment_rate, inventory_value, gross_margin. Dimensions: time, entity_type, category, customer_segment, payment_method, fulfillment_type, geography. Granularity: hour, day, week, month, quarter, year.",
+        inputSchema: {
+          type: "object", required: ["measures"],
+          properties: {
+            measures: { type: "array", items: { type: "string" } },
+            dimensions: { type: "array", items: { type: "string" } },
+            timeDimension: { type: "object", properties: {
+              dimension: { type: "string" }, granularity: { type: "string" }, dateRange: { type: "array", items: { type: "string" } },
+            }},
+            filters: { type: "array", items: { type: "object" } },
+            limit: { type: "number", default: 100 },
+          },
+        },
+        handler: async (params: any) => {
+          const result = await kernel.services.analytics.query(params);
+          if (!result.ok) return { error: result.error };
+          return { content: [{ type: "text", text: JSON.stringify(result.value, null, 2) }] };
+        },
+      },
+    ],
+    resources: [
+      {
+        uri: "commerce://schema/entity-types",
+        name: "Entity Type Schema",
+        description: "Complete schema of all entity types, fields, variants, fulfillment strategies.",
+        mimeType: "application/json",
+        handler: async () => ({ content: [{ type: "text", text: JSON.stringify(kernel.config.entities, null, 2) }] }),
+      },
+      {
+        uri: "commerce://schema/order-states",
+        name: "Order State Machine",
+        description: "All order states and valid transitions.",
+        mimeType: "application/json",
+        handler: async () => ({ content: [{ type: "text", text: JSON.stringify(orderStateMachine, null, 2) }] }),
+      },
+    ],
+  };
+}
+```
+
+### 20.2 AI Context Enrichment
+
+```typescript
+// src/interfaces/mcp/context-enrichment.ts
+
+export function enrichOrderForAgent(order: Order, permissions: string[]): EnrichedOrder {
+  return {
+    ...order,
+    _context: {
+      availableTransitions: getAvailableTransitions(order.status, orderStateMachine),
+      permittedActions: computePermittedActions(order, permissions),
+      summary: `Order ${order.orderNumber}: ${order.lineItems.reduce((s, li) => s + li.quantity, 0)} item(s) ` +
+        `totaling ${formatMoney(order.grandTotal, order.currency)}. Status: ${order.status}.`,
+      relatedQueries: [
+        { tool: "inventory_check", params: { entityIds: order.lineItems.map((li) => li.entityId) } },
+      ],
+    },
+  };
+}
+```
+
+### 20.3 MCP Transport
+
+```typescript
+// src/interfaces/mcp/transport.ts
+
+export function createMCPHandler(kernel: Kernel, customTools?: Function) {
+  const router = new Hono();
+  const capabilities = registerMCPCapabilities(kernel);
+  if (customTools) capabilities.tools.push(...customTools(kernel));
+
+  router.get("/sse", async (c) => {
+    return streamSSE(c, async (stream) => { await handleMCPSession(stream, capabilities, kernel); });
+  });
+
+  router.post("/tools/:toolName", async (c) => {
+    const tool = capabilities.tools.find((t) => t.name === c.req.param("toolName"));
+    if (!tool) return c.json({ error: "Tool not found" }, 404);
+    return c.json(await tool.handler(await c.req.json()));
+  });
+
+  return router;
+}
+```
+
+---
+
+## 21. Analytics Layer: Cube.js Integration
+
+### 21.1 Pre-Built Data Models
+
+```javascript
+// cube/schema/Orders.js
+cube("Orders", {
+  sql: `SELECT * FROM orders`,
+  joins: {
+    OrderLineItems: { relationship: "hasMany", sql: `${CUBE}.id = ${OrderLineItems}.order_id` },
+    Customers: { relationship: "belongsTo", sql: `${CUBE}.customer_id = ${Customers}.id` },
+  },
+  measures: {
+    count: { type: "count" },
+    revenue: { sql: "grand_total", type: "sum", title: "Total Revenue" },
+    averageOrderValue: { sql: "grand_total", type: "avg" },
+    subtotalRevenue: { sql: "subtotal", type: "sum" },
+    taxCollected: { sql: "tax_total", type: "sum" },
+    shippingRevenue: { sql: "shipping_total", type: "sum" },
+    discountsGiven: { sql: "discount_total", type: "sum" },
+    uniqueCustomers: { sql: "customer_id", type: "countDistinct" },
+  },
+  dimensions: {
+    id: { sql: "id", type: "string", primaryKey: true },
+    orderNumber: { sql: "order_number", type: "string" },
+    status: { sql: "status", type: "string" },
+    currency: { sql: "currency", type: "string" },
+    placedAt: { sql: "placed_at", type: "time" },
+  },
+  preAggregations: {
+    dailyRevenue: {
+      measures: [Orders.revenue, Orders.count, Orders.averageOrderValue, Orders.uniqueCustomers],
+      dimensions: [Orders.status, Orders.currency],
+      timeDimension: Orders.placedAt, granularity: "day",
+      refreshKey: { every: "1 hour" },
+    },
+  },
+});
+
+// cube/schema/Inventory.js
+cube("Inventory", {
+  sql: `SELECT * FROM inventory_levels`,
+  measures: {
+    totalOnHand: { sql: "quantity_on_hand", type: "sum" },
+    totalReserved: { sql: "quantity_reserved", type: "sum" },
+    totalAvailable: { sql: `${CUBE}.quantity_on_hand - ${CUBE}.quantity_reserved`, type: "sum" },
+    inventoryValue: { sql: `${CUBE}.quantity_on_hand * ${CUBE}.unit_cost`, type: "sum" },
+    lowStockCount: { type: "count", filters: [{ sql: `${CUBE}.quantity_on_hand <= ${CUBE}.reorder_threshold` }] },
+  },
+  dimensions: {
+    entityId: { sql: "entity_id", type: "string", primaryKey: true },
+    warehouseId: { sql: "warehouse_id", type: "string" },
+    lastRestockedAt: { sql: "last_restocked_at", type: "time" },
+  },
+});
+```
+
+### 21.2 Developer Extension
+
+Developers add Cube.js model files to a configured directory. Plugins register models via `ctx.analytics.registerModel()`.
+
+---
+
+## 22. Plugin and Extension System
+
+### 22.1 Plugin Interface
+
+```typescript
+export interface CommercePlugin {
+  name: string;
+  version: string;
+  register(context: PluginContext): Promise<void> | void;
+  boot?(context: PluginContext): Promise<void> | void;
+}
+
+export interface PluginContext {
+  hooks: { append(hookName: string, handler: Function): void; prepend(hookName: string, handler: Function): void; };
+  mcp: MCPToolRegistry;
+  routes: RouteRegistry;
+  analytics: AnalyticsModelRegistry;
+  database: { registerSchema(schema: Record<string, any>): void; query: DatabaseQueryInterface; };
+  config: CommerceConfig;
+  logger: Logger;
+  services: ServiceContainer;
+}
+```
+
+### 22.2 The Three Extension Primitives
+
+**Schema registration.** Join tables that reference core tables. Core schema is never modified.
+
+**Hook composition.** Append or prepend to any lifecycle point.
+
+**Service/route/MCP registration.** Additive -- never replaces core functionality.
+
+---
+
+## 23. Reference Plugin: Marketplace
+
+The marketplace introduces vendors, order splitting, commissions, and payouts. It exercises all three extension primitives.
+
+### 23.1 Marketplace Schema
+
+```typescript
+// packages/plugin-marketplace/src/schema.ts
+
+export const vendors = pgTable("vendors", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  status: text("status", { enum: ["pending_review", "approved", "suspended", "deactivated"] }).notNull().default("pending_review"),
+  commissionRate: integer("commission_rate").notNull().default(1000),
+  payoutMethod: text("payout_method", { enum: ["stripe_connect", "bank_transfer", "manual"] }).notNull().default("stripe_connect"),
+  payoutAccountId: text("payout_account_id"),
+  payoutSchedule: text("payout_schedule", { enum: ["instant", "daily", "weekly", "biweekly", "monthly"] }).notNull().default("weekly"),
+  minimumPayoutAmount: integer("minimum_payout_amount").notNull().default(1000),
+  description: text("description"),
+  logo: text("logo_url"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Join table. Core sellable_entities is NOT modified.
+export const vendorEntities = pgTable("vendor_entities", {
+  entityId: uuid("entity_id").references(() => sellableEntities.id, { onDelete: "cascade" }).notNull(),
+  vendorId: uuid("vendor_id").references(() => vendors.id, { onDelete: "cascade" }).notNull(),
+}, (table) => ({
+  entityIdx: index("idx_vendor_entities_entity").on(table.entityId),
+  vendorIdx: index("idx_vendor_entities_vendor").on(table.vendorId),
+}));
+
+export const vendorSubOrders = pgTable("vendor_sub_orders", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  parentOrderId: uuid("parent_order_id").references(() => orders.id, { onDelete: "cascade" }).notNull(),
+  vendorId: uuid("vendor_id").references(() => vendors.id).notNull(),
+  subOrderNumber: text("sub_order_number").notNull().unique(),
+  status: text("status", { enum: ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"] }).notNull().default("pending"),
+  subtotal: integer("subtotal").notNull(),
+  commissionAmount: integer("commission_amount").notNull(),
+  vendorPayout: integer("vendor_payout").notNull(),
+  currency: text("currency").notNull(),
+  trackingNumber: text("tracking_number"),
+  trackingUrl: text("tracking_url"),
+  shippedAt: timestamp("shipped_at", { withTimezone: true }),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const vendorPayouts = pgTable("vendor_payouts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  vendorId: uuid("vendor_id").references(() => vendors.id).notNull(),
+  status: text("status", { enum: ["pending", "processing", "completed", "failed"] }).notNull().default("pending"),
+  amount: integer("amount").notNull(),
+  currency: text("currency").notNull(),
+  periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+  periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+  subOrderIds: jsonb("sub_order_ids").$type<string[]>().notNull(),
+  payoutReference: text("payout_reference"),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+```
+
+### 23.2 Marketplace Plugin Registration
+
+```typescript
+// packages/plugin-marketplace/src/index.ts
+
+export function marketplacePlugin(options: MarketplacePluginOptions): CommercePlugin {
+  return {
+    name: "@porulle/plugin-marketplace",
+    version: "0.1.0",
+    register(ctx: PluginContext) {
+      ctx.database.registerSchema(schema);
+
+      // Vendor validation on catalog create.
+      ctx.hooks.append("catalog.beforeCreate", async ({ data, context }) => {
+        if (context.actor.vendorId) {
+          const vendor = await context.tx.select().from(schema.vendors)
+            .where(eq(schema.vendors.id, context.actor.vendorId)).limit(1);
+          if (!vendor.length || vendor[0].status !== "approved")
+            throw new CommerceForbiddenError("Vendor account must be approved.");
+          context.metadata.vendorId = context.actor.vendorId;
+        }
+        return data;
+      });
+
+      // Link entity to vendor after creation.
+      ctx.hooks.append("catalog.afterCreate", async ({ result, context }) => {
+        if (context.metadata.vendorId) {
+          await context.tx.insert(schema.vendorEntities).values({
+            entityId: result.id, vendorId: context.metadata.vendorId as string,
+          });
+        }
+      });
+
+      // Scope catalog to vendor or approved vendors.
+      ctx.hooks.append("catalog.beforeList", async ({ data, context }) => {
+        if (context.actor.vendorId) {
+          data.filters.push({ type: "join", table: "vendor_entities", on: "entity_id", where: { vendor_id: context.actor.vendorId } });
+        } else if (!context.actor.permissions.includes("catalog:*")) {
+          data.filters.push({ type: "join", table: "vendor_entities", on: "entity_id",
+            innerJoin: { table: "vendors", on: "id", where: { status: "approved" } } });
+        }
+        return data;
+      });
+
+      // Enrich reads with vendor info.
+      ctx.hooks.append("catalog.afterRead", async ({ result, context }) => {
+        const vl = await context.tx.select({ id: schema.vendors.id, name: schema.vendors.name, slug: schema.vendors.slug })
+          .from(schema.vendorEntities).innerJoin(schema.vendors, eq(schema.vendors.id, schema.vendorEntities.vendorId))
+          .where(eq(schema.vendorEntities.entityId, result.id)).limit(1);
+        if (vl.length > 0) result.vendor = vl[0];
+      });
+
+      // Split orders into vendor sub-orders after creation.
+      ctx.hooks.append("orders.afterCreate", async ({ result: order, context }) => {
+        const lineItemsByVendor = await groupLineItemsByVendor(context.tx, order.lineItems);
+        for (const [vendorId, lineItems] of Object.entries(lineItemsByVendor)) {
+          const vendor = await context.tx.select().from(schema.vendors).where(eq(schema.vendors.id, vendorId)).limit(1);
+          if (!vendor.length) continue;
+          const subtotal = lineItems.reduce((sum, li) => sum + li.totalPrice, 0);
+          const commission = Math.round(subtotal * (vendor[0].commissionRate / 10000));
+          await context.tx.insert(schema.vendorSubOrders).values({
+            parentOrderId: order.id, vendorId,
+            subOrderNumber: `${order.orderNumber}-V${vendorId.slice(0, 4).toUpperCase()}`,
+            subtotal, commissionAmount: commission, vendorPayout: subtotal - commission, currency: order.currency,
+          });
+          await context.services.email.send({
+            template: "vendor-new-order", to: vendor[0].email,
+            data: { order, vendorLineItems: lineItems, commission, payout: subtotal - commission },
+          });
+        }
+      });
+
+      // Prevent marking fulfilled unless all sub-orders delivered.
+      ctx.hooks.append("orders.beforeStatusChange", async ({ data, context }) => {
+        if (data.newStatus === "fulfilled") {
+          const subOrders = await context.tx.select().from(schema.vendorSubOrders)
+            .where(eq(schema.vendorSubOrders.parentOrderId, data.orderId));
+          if (subOrders.length > 0 && !subOrders.every((so) => so.status === "delivered")) {
+            throw new CommerceValidationError("Not all vendor sub-orders delivered.",
+              subOrders.map((so) => ({ subOrderNumber: so.subOrderNumber, status: so.status })));
+          }
+        }
+        return data;
+      });
+
+      // Marketplace routes, MCP tools, and analytics models.
+      ctx.routes.add("get", "/api/marketplace/vendors", listVendors(ctx));
+      ctx.routes.add("post", "/api/marketplace/vendors", createVendor(ctx));
+      ctx.routes.add("post", "/api/marketplace/vendors/:id/approve", approveVendor(ctx));
+      ctx.routes.add("get", "/api/marketplace/orders/:orderId/sub-orders", listSubOrders(ctx));
+      ctx.routes.add("post", "/api/marketplace/payouts/process", processPayouts(ctx));
+
+      ctx.mcp.registerTool({ name: "marketplace_vendor_list", description: "List vendors.", /* ... */ handler: async (p) => { /* ... */ } });
+      ctx.mcp.registerTool({ name: "marketplace_sub_orders", description: "Sub-orders for an order.", /* ... */ handler: async (p) => { /* ... */ } });
+      ctx.mcp.registerTool({ name: "marketplace_payout_summary", description: "Vendor payout summary.", /* ... */ handler: async (p) => { /* ... */ } });
+
+      ctx.analytics.registerModel({
+        name: "MarketplaceSubOrders", sql: `SELECT * FROM vendor_sub_orders`,
+        measures: {
+          subOrderCount: { type: "count" }, totalRevenue: { sql: "subtotal", type: "sum" },
+          totalCommissions: { sql: "commission_amount", type: "sum" }, totalVendorPayouts: { sql: "vendor_payout", type: "sum" },
+        },
+        dimensions: { vendorId: { sql: "vendor_id", type: "string" }, status: { sql: "status", type: "string" }, createdAt: { sql: "created_at", type: "time" } },
+      });
+    },
+  };
+}
+```
+
+### 23.3 Consumer Activation
+
+```typescript
+plugins: [
+  marketplacePlugin({ defaultCommissionRate: 1500, payoutSchedule: "weekly", minimumPayoutAmount: 5000, requireApproval: true }),
+],
+```
+
+---
+
+## 24. Serverless Deployment Architecture
+
+```typescript
+// adapters/cloudflare/src/index.ts
+import { createServer } from "@porulle/core";
+import config from "../../commerce.config";
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const server = createServer({
+      ...config, database: cloudflareD1({ binding: env.DB }),
+      storage: cloudflareR2({ binding: env.ASSETS }), cache: cloudflareKV({ binding: env.CACHE }),
+    });
+    return server.fetch(request, env, ctx);
+  },
+};
+
+// adapters/vercel/src/index.ts
+import { createServer } from "@porulle/core";
+import { handle } from "hono/vercel";
+import config from "../../commerce.config";
+
+const server = createServer({
+  ...config, database: vercelPostgres({ connectionString: process.env.POSTGRES_URL }),
+  storage: vercelBlob({ token: process.env.BLOB_READ_WRITE_TOKEN }),
+});
+export const GET = handle(server);
+export const POST = handle(server);
+export const PUT = handle(server);
+export const DELETE = handle(server);
+export const config = { runtime: "edge" };
+
+// adapters/node/src/index.ts
+import { serve } from "@hono/node-server";
+import { createServer } from "@porulle/core";
+import config from "../../commerce.config";
+
+const server = createServer({
+  ...config, database: nodePostgres({ connectionString: process.env.DATABASE_URL }),
+  storage: localFileStorage({ basePath: "./uploads" }),
+});
+serve({ fetch: server.fetch, port: 3000 });
+```
+
+CLI:
+```
+npx @porulle/cli init my-store
+npx @porulle/cli generate migration
+npx @porulle/cli deploy --target cloudflare
+npx @porulle/cli deploy --target vercel
+npx @porulle/cli dev
+```
+
+---
+
+## 25. Database Strategy and Portability
+
+| Database              | Adapter Package                       | Best For                       |
+|-----------------------|---------------------------------------|--------------------------------|
+| PostgreSQL            | @porulle/adapter-postgres     | Production self-hosted         |
+| Cloudflare D1 (SQLite)| @porulle/adapter-d1          | Cloudflare Workers             |
+| Turso (libSQL)        | @porulle/adapter-turso        | Edge-native with replication   |
+| Vercel Postgres       | @porulle/adapter-vercel-pg    | Vercel deployments             |
+| PlanetScale (MySQL)   | @porulle/adapter-planetscale  | Serverless MySQL               |
+| SQLite (local)        | @porulle/adapter-sqlite       | Development and testing        |
+
+Migrations are generated by Drizzle Kit from schema definitions (core + plugin + custom schemas in one pipeline). better-auth's tables are included.
+
+---
+
+## 26. Webhooks and External Notifications
+
+Webhook delivery is an `afterHook`, not a separate event system.
+
+```typescript
+// src/modules/webhooks/hook.ts
+export const deliverWebhooks: AfterHook<any> = async ({ result, operation, context }) => {
+  const eventName = `${context.metadata.moduleName}.${operation}`;
+  const endpoints = await context.services.webhooks.getEndpointsForEvent(eventName);
+  for (const endpoint of endpoints) {
+    await context.services.queue.enqueue("webhook.deliver", {
+      endpointId: endpoint.id, event: eventName, payload: result,
+    });
+  }
+};
+
+// src/modules/webhooks/schema.ts
+export const webhookEndpoints = pgTable("webhook_endpoints", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  url: text("url").notNull(),
+  secret: text("secret").notNull(),
+  events: jsonb("events").$type<string[]>().notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+});
+
+export const webhookDeliveries = pgTable("webhook_deliveries", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  endpointId: uuid("endpoint_id").references(() => webhookEndpoints.id).notNull(),
+  eventName: text("event_name").notNull(),
+  payload: jsonb("payload").notNull(),
+  statusCode: integer("status_code"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  failedAt: timestamp("failed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+```
+
+Payloads are signed with HMAC-SHA256 using the endpoint's secret (header: `X-Commerce-Signature`).
+
+---
+
+## 27. Media and Asset Management
+
+```typescript
+export interface StorageAdapter {
+  readonly providerId: string;
+  upload(key: string, data: ArrayBuffer | ReadableStream, contentType: string): Promise<Result<StoredFile>>;
+  getUrl(key: string): Promise<Result<string>>;
+  getSignedUrl(key: string, expiresIn: number): Promise<Result<string>>;
+  delete(key: string): Promise<Result<void>>;
+  list(prefix: string): Promise<Result<StoredFile[]>>;
+}
+
+export const mediaAssets = pgTable("media_assets", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  storageKey: text("storage_key").notNull(),
+  filename: text("filename").notNull(),
+  contentType: text("content_type").notNull(),
+  size: integer("size").notNull(),
+  width: integer("width"), height: integer("height"),
+  alt: text("alt"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const entityMedia = pgTable("entity_media", {
+  entityId: uuid("entity_id").references(() => sellableEntities.id, { onDelete: "cascade" }).notNull(),
+  variantId: uuid("variant_id").references(() => variants.id, { onDelete: "cascade" }),
+  mediaAssetId: uuid("media_asset_id").references(() => mediaAssets.id, { onDelete: "cascade" }).notNull(),
+  role: text("role", { enum: ["primary", "gallery", "thumbnail", "video", "document"] }).notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+```
+
+---
+
+## 28. Search and Indexing
+
+```typescript
+export interface SearchAdapter {
+  readonly providerId: string;
+  index(document: SearchDocument): Promise<Result<void>>;
+  remove(documentId: string): Promise<Result<void>>;
+  search(query: SearchQuery): Promise<Result<SearchResults>>;
+  suggest(prefix: string, options?: SuggestOptions): Promise<Result<string[]>>;
+}
+// Adapters: meilisearch, algolia, typesense, pg-search (PostgreSQL full-text, zero deps).
+```
+
+Search indexing is handled by `afterCreate`/`afterUpdate` hooks on catalog entities (`syncToSearchIndex` in the config).
+
+---
+
+## 29. Tax and Compliance Abstraction
+
+```typescript
+export interface TaxAdapter {
+  readonly providerId: string;
+  calculate(params: TaxCalculationParams): Promise<Result<TaxCalculationResult>>;
+  reportTransaction(params: TaxReportParams): Promise<Result<void>>;
+  voidTransaction(transactionId: string): Promise<Result<void>>;
+}
+// Adapters: taxjar, avalara, tax-manual (flat-rate).
+```
+
+---
+
+## 30. Developer Experience Surface
+
+### 30.1 Type-Safe SDK
+
+```typescript
+import { createClient } from "@porulle/sdk";
+const commerce = createClient({ baseUrl: "https://api.mystore.com" });
+
+const { data: orders } = await commerce.me.orders.list({ page: 1, limit: 10 });
+const { data: tracking } = await commerce.me.orders.tracking("ORD-2026-00001");
+const { data: downloads } = await commerce.me.orders.downloads("order-uuid");
+await commerce.me.profile.update({ firstName: "Jane" });
+await commerce.me.orders.reorder("order-uuid");
+```
+
+### 30.2 Local Development
+
+```bash
+npx @porulle/cli init my-commerce --template starter
+cd my-commerce
+npm run dev
+# REST at /api, Customer portal at /api/me, Auth at /api/auth,
+# GraphQL at /graphql, MCP at /mcp. Hot reload on config changes.
+```
+
+### 30.3 Error Messages
+
+```
+CommerceForbiddenError: Permission "catalog:create" is required.
+
+  Your role "customer" does not include this permission.
+  Customers can browse the catalog (catalog:read) but cannot create listings.
+```
+
+```
+CommerceValidationError: Cannot add item to cart.
+
+  Entity "blue-widget" (type: product) has variants enabled,
+  but no variantId was provided. This entity has 6 active variants.
+
+  To list available variants:
+    GET /api/catalog/entities/blue-widget?include=variants
+```
+
+---
+
+## 31. Dependency Map
+
+### 31.1 Core Runtime (required for every deployment)
+
+| Package | Role |
+|---------|------|
+| `typescript` | Language. Strict mode. |
+| `hono` | HTTP framework. Zero deps, all targets. |
+| `drizzle-orm` | Database access. Zero runtime overhead. |
+| `drizzle-kit` | Migration generation. Dev dependency. |
+| `better-auth` | Authentication. Drizzle adapter, Hono support, orgs, 2FA, API keys. |
+
+### 31.2 Database Drivers (one required)
+
+| Package | Adapter |
+|---------|---------|
+| `postgres` (postgres.js) | adapter-postgres |
+| `better-sqlite3` | adapter-sqlite |
+| `@libsql/client` | adapter-turso |
+| `@vercel/postgres` | adapter-vercel-pg |
+| `@planetscale/database` | adapter-planetscale |
+
+### 31.3 Analytics
+
+| Package | Role |
+|---------|------|
+| `@cubejs-backend/server-core` | Semantic analytics layer |
+| `@cubejs-backend/api-gateway` | Cube.js REST API |
+
+### 31.4 Infrastructure Adapters (optional)
+
+| Category | Package | Adapter |
+|----------|---------|---------|
+| Payment | `stripe` | adapter-stripe |
+| Search | `meilisearch` | adapter-meilisearch |
+| Search | `algoliasearch` | adapter-algolia |
+| Tax | `taxjar` | adapter-taxjar |
+| Email | `resend` | adapter-resend |
+| Storage | `@aws-sdk/client-s3` | adapter-s3 |
+
+### 31.5 Deployment (dev dependencies)
+
+| Package | Context |
+|---------|---------|
+| `@hono/node-server` | Node.js adapter |
+| `wrangler` | Cloudflare CLI |
+| `vercel` | Vercel CLI |
+
+### 31.6 CLI (dev dependencies)
+
+| Package | Role |
+|---------|------|
+| `citty` | CLI framework |
+| `consola` | CLI logging |
+| `giget` | Template scaffolding |
+
+### 31.7 What is NOT a Dependency
+
+No Express/Fastify/Koa (Hono). No Prisma (Drizzle). No Redis (optional adapter). No Bull/BullMQ (adapter-based queuing). No event emitter library (no mitt, no nanoevents). No Passport.js/next-auth/lucia/clerk (better-auth).
+
+---
+
+## 32. Migration and Adoption Strategy
+
+| Source Platform | Import Adapter | Supported Data |
+|-----------------|----------------|----------------|
+| Shopify | @porulle/import-shopify | Products, variants, orders, customers |
+| WooCommerce | @porulle/import-woocommerce | Products, orders, customers |
+| CSV/JSON | @porulle/import-flat | Any entity type |
+
+The engine supports incremental adoption. Start with the catalog module and add cart, checkout, orders later.
+
+---
+
+## 33. Phased Delivery Plan
+
+### Phase 0: Foundation (Weeks 1-4)
+
+Core kernel (hook registry, state machine, result types, errors), config-as-code system, database adapters (PostgreSQL, SQLite), Hono server, better-auth integration with session middleware, POS PIN auth, deployment adapters (Cloudflare, Node.js), CLI scaffolding.
+
+Exit criteria: `npx init`, sign up, sign in, valid session on health check. Deployable to Cloudflare and Node.js.
+
+### Phase 1: Catalog and Inventory (Weeks 5-8)
+
+Universal sellable entity model, variants, custom fields, media assets, inventory tracking, REST API, MCP server with catalog and inventory tools. Auth and permissions enforced.
+
+Exit criteria: Create entities, manage variants, track inventory, query through REST and MCP.
+
+### Phase 2: Cart, Checkout, and Orders (Weeks 9-14)
+
+Cart module, checkout hook chain, order lifecycle, Stripe adapter, fulfillment strategies, webhooks, customer portal (order history, tracking, downloads, reorder).
+
+Exit criteria: Full purchase flow -- sign up, browse, add to cart, checkout with Stripe, view orders, track shipments, download digital purchases. AI agent can do the same through MCP.
+
+### Phase 3: Pricing, Tax, and Promotions (Weeks 15-18)
+
+Pricing engine with resolution pipeline, TaxJar integration, promotion system.
+
+Exit criteria: Volume discounts, customer-group pricing, scheduled price changes work through checkout.
+
+### Phase 4: Analytics and AI Enrichment (Weeks 19-22)
+
+Cube.js integration, pre-built models, analytics MCP tools, AI context enrichment, GraphQL API.
+
+Exit criteria: AI agent answers "What was our revenue by category last month?" accurately.
+
+### Phase 5: Ecosystem and Polish (Weeks 23-26)
+
+Plugin docs, marketplace reference plugin, Vercel adapter, generated TypeScript SDK, import utilities, Meilisearch adapter, POS plugin.
+
+Exit criteria: Migrate a Shopify store, deploy to Vercel, build a Next.js storefront with the SDK, extend with marketplace plugin.
+
+---
+
+## 34. Open Questions and Future Work
+
+### 34.1 Open Questions
+
+Multi-currency pricing: exchange rate management needs a dedicated design pass.
+
+Subscription and recurring billing: billing lifecycle (trials, grace periods, proration) needs its own state machine.
+
+Product bundles: inventory and fulfillment questions around composite entities are unresolved.
+
+Passkeys: should better-auth's passkey support be enabled by default for customers?
+
+Partial shipments: customer portal tracking response needs clear per-item status when orders are split across fulfillments.
+
+### 34.2 Future Work
+
+Visual admin panel generated from config. Storefront SDKs (Next.js, Nuxt, SvelteKit, Astro) with better-auth client components. Multi-vendor marketplace promoted to first-class. Real-time inventory sync. Rules engine. Customer notification preferences.
+
+---
+
+## Appendix A: Package Structure
+
+```
+packages/
+  core/
+    src/
+      kernel/
+        hooks/             # Registry, executor, types.
+        state-machine/     # State machine definitions.
+        result.ts          # Result type.
+        errors.ts          # Error taxonomy.
+      auth/
+        setup.ts           # better-auth configuration.
+        middleware.ts      # Session resolution, Actor construction.
+        permissions.ts     # Permission checks, ownership.
+        pos.ts             # POS PIN auth routes.
+        types.ts           # Actor type.
+      modules/
+        catalog/           # Entities, variants, categories.
+        cart/              # Cart management.
+        orders/            # Order lifecycle.
+        inventory/         # Stock tracking, reservation.
+        pricing/           # Price resolution.
+        fulfillment/       # Fulfillment dispatch.
+        payments/          # Payment adapter.
+        customers/         # Profiles, addresses, groups.
+        media/             # Assets.
+        search/            # Search adapter.
+        tax/               # Tax adapter.
+        webhooks/          # Delivery as hooks.
+        analytics/         # Cube.js integration.
+      interfaces/
+        rest/
+          routes/          # Core REST routes.
+          customer-portal/ # /api/me routes.
+        graphql/
+        mcp/
+      runtime/
+        server.ts
+      config/
+        types.ts
+        defaults.ts
+
+  adapters/
+    adapter-postgres/  adapter-d1/  adapter-turso/
+    adapter-vercel-pg/ adapter-sqlite/  adapter-planetscale/
+    adapter-stripe/  adapter-r2/  adapter-s3/
+    adapter-resend/  adapter-taxjar/  adapter-meilisearch/
+
+  deployment/
+    cloudflare/  vercel/  node/  lambda/
+
+  plugins/
+    plugin-marketplace/  plugin-pos/
+    plugin-subscriptions/  plugin-loyalty/
+
+  sdk/client/
+  cli/
+  cube/schema/
+```
+
+---
+
+## Appendix B: Inventory Schema
+
+```typescript
+export const inventoryLevels = pgTable("inventory_levels", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  entityId: uuid("entity_id").references(() => sellableEntities.id, { onDelete: "cascade" }).notNull(),
+  variantId: uuid("variant_id").references(() => variants.id, { onDelete: "cascade" }),
+  warehouseId: uuid("warehouse_id").references(() => warehouses.id).notNull(),
+  quantityOnHand: integer("quantity_on_hand").notNull().default(0),
+  quantityReserved: integer("quantity_reserved").notNull().default(0),
+  quantityIncoming: integer("quantity_incoming").notNull().default(0),
+  unitCost: integer("unit_cost"),
+  reorderThreshold: integer("reorder_threshold"),
+  reorderQuantity: integer("reorder_quantity"),
+  lastRestockedAt: timestamp("last_restocked_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  entityVariantWarehouseIdx: index("idx_inventory_entity_variant_warehouse")
+    .on(table.entityId, table.variantId, table.warehouseId),
+}));
+
+export const warehouses = pgTable("warehouses", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  code: text("code").notNull().unique(),
+  address: jsonb("address").$type<Address>(),
+  isActive: boolean("is_active").notNull().default(true),
+  priority: integer("priority").notNull().default(0),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+});
+
+export const inventoryMovements = pgTable("inventory_movements", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  entityId: uuid("entity_id").references(() => sellableEntities.id).notNull(),
+  variantId: uuid("variant_id").references(() => variants.id),
+  warehouseId: uuid("warehouse_id").references(() => warehouses.id).notNull(),
+  type: text("type", { enum: ["receipt", "sale", "return", "adjustment", "transfer", "reservation", "release"] }).notNull(),
+  quantity: integer("quantity").notNull(),
+  referenceType: text("reference_type"),
+  referenceId: text("reference_id"),
+  reason: text("reason"),
+  performedBy: text("performed_by").notNull(),
+  performedAt: timestamp("performed_at", { withTimezone: true }).defaultNow().notNull(),
+});
+```
+
+---
+
+## Appendix C: Customer Schema
+
+```typescript
+export const customers = pgTable("customers", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull().unique(), // Links to better-auth's user table.
+  email: text("email").unique(),
+  phone: text("phone"),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const customerAddresses = pgTable("customer_addresses", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  customerId: uuid("customer_id").references(() => customers.id, { onDelete: "cascade" }).notNull(),
+  type: text("type", { enum: ["shipping", "billing"] }).notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  line1: text("line1").notNull(),
+  line2: text("line2"),
+  city: text("city").notNull(),
+  state: text("state"),
+  postalCode: text("postal_code"),
+  country: text("country").notNull(),
+  phone: text("phone"),
+});
+
+export const customerGroups = pgTable("customer_groups", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+});
+
+export const customerGroupMembers = pgTable("customer_group_members", {
+  customerId: uuid("customer_id").references(() => customers.id, { onDelete: "cascade" }).notNull(),
+  groupId: uuid("group_id").references(() => customerGroups.id, { onDelete: "cascade" }).notNull(),
+});
+```
+
+better-auth manages the `user` and `session` tables. The `customers` table links to better-auth's user table through the `userId` column and stores commerce-specific data.
+
+---
+
+This RFC represents the complete architectural vision for the Porulle engine. Every code sample is a blueprint -- it should compile with minor imports added. The single extension primitive (lifecycle hooks), the co-located config-as-code model, the join-table-only plugin schema strategy, the delegation of authentication to better-auth, and the customer self-service portal are the architectural decisions that differentiate this engine from every existing commerce platform.
+
+The next step is to review this RFC with the full engineering team, resolve the open questions in Section 34, and begin Phase 0 implementation.

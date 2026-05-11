@@ -1,0 +1,82 @@
+---
+title: Gift Cards
+description: Gift card entity type, balance tracking, and redemption at checkout.
+---
+
+The gift card plugin adds a `gift_cards` entity type, balance ledger, and a checkout hook that applies card balances as a payment method.
+
+## Install
+
+```bash
+bun add @porulle/plugin-gift-cards
+```
+
+## Register
+
+```ts title="commerce.config.ts"
+import { giftCardsPlugin } from "@porulle/plugin-gift-cards";
+
+export default defineConfig({
+  plugins: [giftCardsPlugin()],
+});
+```
+
+Update `drizzle.config.ts` to include the plugin schema:
+
+```ts title="drizzle.config.ts"
+schema: [
+  "./node_modules/@porulle/core/src/kernel/database/schema.ts",
+  "./node_modules/@porulle/core/src/auth/auth-schema.ts",
+  "./node_modules/@porulle/plugin-gift-cards/src/schema.ts",
+],
+```
+
+Push the new tables and restart:
+
+```bash
+bunx drizzle-kit push --config drizzle.config.ts
+bun run src/server.ts
+```
+
+## Issue a gift card
+
+```bash
+curl -X POST http://localhost:4000/api/gift-cards \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"amount": 5000, "currency": "USD", "recipientEmail": "friend@example.com"}'
+```
+
+The response includes a `code` field. Share the code with the recipient.
+
+## Redeem at checkout
+
+Pass the gift card code in the checkout request:
+
+```bash
+curl -X POST http://localhost:4000/api/checkout \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{
+    "cartId": "...",
+    "giftCardCode": "GC-XXXX-YYYY",
+    "paymentMethodId": "stripe",
+    "currency": "USD",
+    "shippingAddress": { ... }
+  }'
+```
+
+The plugin applies the gift card balance first and charges the remainder to the payment method. If the gift card covers the full order, no payment method is required.
+
+## Check a balance
+
+```bash
+curl "http://localhost:4000/api/gift-cards/GC-XXXX-YYYY/balance" \
+  -H "x-api-key: dev-staff-key"
+```
+
+## Related
+
+- [Plugin API Reference](/reference/plugins/) — gift card plugin manifest and endpoints
+- [Build a Loyalty Plugin](/tutorials/build-a-plugin/) — learn how plugins define schema and hooks
+- [Hook System guide](/extending/hooks/) — how the redemption hook integrates with checkout

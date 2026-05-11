@@ -1,0 +1,30 @@
+---
+title: Building a Store
+description: Task-focused guides for shipping a Porulle-powered store — auth, payments, email, analytics, and the bundled commerce plugins.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+You have Porulle installed and a database wired up. Now you need to ship a store. This section is the recipe shelf — each page solves one task end-to-end.
+
+## Customer-facing
+
+<CardGrid>
+  <LinkCard title="Authentication" href="/building/authentication/" description="Roles, permissions, API keys, social login. The auth surface adopters configure first." />
+  <LinkCard title="Email Notifications" href="/building/email/" description="Order confirmations, password resets, custom transactional emails through Resend or SES." />
+  <LinkCard title="Analytics" href="/building/analytics/" description="SQL-backed analytics with scoped access for admin / vendor / customer views." />
+</CardGrid>
+
+## Bundled plugins
+
+<CardGrid>
+  <LinkCard title="Gift Cards" href="/building/gift-cards/" description="Issue, redeem, and reconcile gift cards as a first-class commerce primitive." />
+  <LinkCard title="Point of Sale" href="/building/pos/" description="In-store terminals, shift management, split payments, end-of-day Z-reports." />
+  <LinkCard title="Supply Chain" href="/building/supply-chain/" description="Procurement, production runs, warehouse transfers, wastage tracking." />
+</CardGrid>
+
+## Where to next
+
+- [**Extending Porulle**](/extending/) — when the bundled features don't cover your case and you need to add hooks, plugins, or custom routes.
+- [**Reference**](/reference/) — the exhaustive API + configuration surface.
+- [**Concepts**](/concepts/) — design rationale for the entity model, hook pipeline, and identity layer.

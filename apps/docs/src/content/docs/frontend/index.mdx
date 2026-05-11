@@ -1,0 +1,41 @@
+---
+title: Frontend Integration
+description: Wiring Porulle to your storefront — Next.js, TanStack Start, the typed SDK client, OpenAPI types.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+Porulle is a backend framework. Your storefront calls its REST API. This section covers the established patterns for wiring the API into a TypeScript frontend with full type safety end-to-end.
+
+<CardGrid>
+  <LinkCard title="Next.js" href="/frontend/nextjs/" description="Mount Porulle as a Hono app inside a Next.js route handler, share types between server components and client components." />
+  <LinkCard title="TanStack Start" href="/frontend/tanstack-start/" description="Server functions calling Porulle's LocalAPI in-process — zero HTTP overhead." />
+  <LinkCard title="Typed SDK Client" href="/frontend/sdk/" description="@porulle/sdk plus React Query hooks. Compile-time validated requests and responses against your OpenAPI spec." />
+</CardGrid>
+
+## The general pattern
+
+Porulle exposes its API at `/api/*` (mounted by `createServer`). Every route is documented in the OpenAPI spec served at `/api/doc`. Generate TypeScript types from that spec, then call the API through `@porulle/sdk` for end-to-end type safety:
+
+```bash
+bunx openapi-typescript http://localhost:4000/api/doc -o src/generated/api-types.ts
+```
+
+```ts
+import { createClient } from "@porulle/sdk";
+import type { paths } from "./generated/api-types";
+
+const client = createClient<paths>({
+  baseUrl: process.env.NEXT_PUBLIC_API_URL!,
+});
+
+const { data } = await client.GET("/api/catalog/entities", {
+  params: { query: { type: "product", limit: 10 } },
+});
+```
+
+## Where to next
+
+- [**Reference → REST API**](/reference/rest-api/) — every endpoint
+- [**Building a Store**](/building/) — task-focused server-side guides
+- [**Concepts → Architecture**](/concepts/architecture/) — why the kernel is interface-agnostic

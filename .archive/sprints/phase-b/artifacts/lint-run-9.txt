@@ -1,0 +1,622 @@
+$ turbo run lint
+• turbo 2.9.12
+
+   • Packages in scope: @repo/eslint-config, @repo/typescript-config, @repo/ui, @unifiedcommerce/adapter-local-storage, @unifiedcommerce/adapter-meilisearch, @unifiedcommerce/adapter-pg-search, @unifiedcommerce/adapter-postgres, @unifiedcommerce/adapter-r2, @unifiedcommerce/adapter-resend, @unifiedcommerce/adapter-s3, @unifiedcommerce/adapter-ses, @unifiedcommerce/adapter-stripe, @unifiedcommerce/adapter-tax-manual, @unifiedcommerce/adapter-taxjar, @unifiedcommerce/cli, @unifiedcommerce/core, @unifiedcommerce/db, @unifiedcommerce/fashion-starter, @unifiedcommerce/import-flat, @unifiedcommerce/import-shopify, @unifiedcommerce/import-woocommerce, @unifiedcommerce/plugin-appointments, @unifiedcommerce/plugin-giftcards, @unifiedcommerce/plugin-loyalty, @unifiedcommerce/plugin-marketplace, @unifiedcommerce/plugin-notifications, @unifiedcommerce/plugin-pos, @unifiedcommerce/plugin-pos-restaurant, @unifiedcommerce/plugin-procurement, @unifiedcommerce/plugin-production, @unifiedcommerce/plugin-reviews, @unifiedcommerce/plugin-scheduled-orders, @unifiedcommerce/plugin-uom, @unifiedcommerce/plugin-warehouse, @unifiedcommerce/plugin-wishlist, @unifiedcommerce/sdk, docs, restaurant-example, saas-example, store-example, tea-avenue, web
+   • Running lint in 42 packages
+   • Remote caching disabled
+
+@unifiedcommerce/adapter-resend:lint: cache hit, replaying logs a2eba7a0818099d8
+@unifiedcommerce/adapter-resend:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/sdk:lint: cache hit, replaying logs a9c0e1aac32b0d22
+@unifiedcommerce/sdk:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/sdk:lint: 
+@unifiedcommerce/sdk:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/sdk/src/cli.ts
+@unifiedcommerce/sdk:lint:    46:5   warning  API_URL is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/sdk:lint:    61:12  warning  'err' is defined but never used                      @typescript-eslint/no-unused-vars
+@unifiedcommerce/sdk:lint:   102:39  warning  Empty block statement                                no-empty
+@unifiedcommerce/sdk:lint: 
+@unifiedcommerce/sdk:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/sdk/src/client.ts
+@unifiedcommerce/sdk:lint:    2:15  warning  'PathsWithMethod' is defined but never used                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-unused-vars
+@unifiedcommerce/sdk:lint:    2:32  warning  'MediaType' is defined but never used                                                                                                                                                                                                                                                                                                                                                      @typescript-eslint/no-unused-vars
+@unifiedcommerce/sdk:lint:   33:45  warning  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+@unifiedcommerce/sdk:lint: - If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+@unifiedcommerce/sdk:lint: - If you want a type meaning "any object", you probably want `object` instead.
+@unifiedcommerce/adapter-ses:lint: cache hit, replaying logs 830c43d55132ab78
+@unifiedcommerce/adapter-ses:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/core:lint: cache hit, replaying logs 1a10d70c6f09ce52
+@unifiedcommerce/sdk:lint: - If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+@unifiedcommerce/sdk:lint: 
+@unifiedcommerce/sdk:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/sdk/src/react.ts
+@unifiedcommerce/sdk:lint:   33:52  warning  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+@unifiedcommerce/sdk:lint: - If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+@unifiedcommerce/sdk:lint: - If you want a type meaning "any object", you probably want `object` instead.
+@unifiedcommerce/sdk:lint: - If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+@unifiedcommerce/sdk:lint:   40:42  warning  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+@unifiedcommerce/sdk:lint: - If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+@unifiedcommerce/sdk:lint: - If you want a type meaning "any object", you probably want `object` instead.
+@unifiedcommerce/sdk:lint: - If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+@unifiedcommerce/sdk:lint:   40:47  warning  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+@unifiedcommerce/sdk:lint: - If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+@unifiedcommerce/sdk:lint: - If you want a type meaning "any object", you probably want `object` instead.
+@unifiedcommerce/sdk:lint: - If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+@unifiedcommerce/sdk:lint: 
+@unifiedcommerce/sdk:lint: ✖ 9 problems (0 errors, 9 warnings)
+@unifiedcommerce/sdk:lint: 
+@unifiedcommerce/core:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/cube/schema/Customers.js
+@unifiedcommerce/core:lint:   1:1  warning  'cube' is not defined  no-undef
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/cube/schema/Inventory.js
+@unifiedcommerce/core:lint:   1:1  warning  'cube' is not defined  no-undef
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/cube/schema/OrderLineItems.js
+@unifiedcommerce/core:lint:   1:1  warning  'cube' is not defined  no-undef
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/cube/schema/Orders.js
+@unifiedcommerce/core:lint:    1:1   warning  'cube' is not defined    no-undef
+@unifiedcommerce/core:lint:   26:18  warning  'Orders' is not defined  no-undef
+@unifiedcommerce/core:lint:   26:34  warning  'Orders' is not defined  no-undef
+@unifiedcommerce/core:lint:   27:22  warning  'Orders' is not defined  no-undef
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/scripts/check-store-guard.mjs
+@unifiedcommerce/core:lint:    4:47  warning  'URL' is not defined      no-undef
+@unifiedcommerce/core:lint:   47:5   warning  'console' is not defined  no-undef
+@unifiedcommerce/core:lint:   49:7   warning  'console' is not defined  no-undef
+@unifiedcommerce/core:lint:   51:5   warning  'process' is not defined  no-undef
+@unifiedcommerce/core:lint:   56:3   warning  'console' is not defined  no-undef
+@unifiedcommerce/core:lint:   57:3   warning  'process' is not defined  no-undef
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/scripts/generate-plugin-types.mjs
+@unifiedcommerce/core:lint:    4:47  warning  'URL' is not defined      no-undef
+@unifiedcommerce/core:lint:   68:3   warning  'console' is not defined  no-undef
+@unifiedcommerce/core:lint:   69:3   warning  'process' is not defined  no-undef
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/auth/setup.ts
+@unifiedcommerce/core:lint:   148:27  warning  NODE_ENV is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/auth/strict-org-resolution.ts
+@unifiedcommerce/core:lint:   11:7  warning  STRICT_ORG_RESOLUTION is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/config/types.ts
+@unifiedcommerce/core:lint:   382:23  warning  Unexpected any. Specify a different type                          @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   402:18  warning  An interface declaring no members is equivalent to its supertype  @typescript-eslint/no-empty-object-type
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/generated/plugin-capabilities.d.ts
+@unifiedcommerce/core:lint:   1:1  warning  Unused eslint-disable directive (no problems were reported)
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/generated/plugin-manifest.ts
+@unifiedcommerce/core:lint:   1:1  warning  Unused eslint-disable directive (no problems were reported)
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/generated/plugin-repositories.d.ts
+@unifiedcommerce/core:lint:   1:1  warning  Unused eslint-disable directive (no problems were reported)
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/hooks/checkout-completion.ts
+@unifiedcommerce/core:lint:   38:11  warning  'OrdersServiceLike' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/interfaces/mcp/tools/promotions.ts
+@unifiedcommerce/core:lint:   55:25  warning  '_action' is assigned a value but never used      @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   55:63  warning  'currency' is assigned a value but never used     @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   55:73  warning  'subtotal' is assigned a value but never used     @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   56:11  warning  'lineItems' is assigned a value but never used    @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   56:22  warning  'cartId' is assigned a value but never used       @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   56:30  warning  'customerId' is assigned a value but never used   @typescript-eslint/no-unused-vars
+@repo/ui:lint: cache hit, replaying logs b1b520f6ceaddcd2
+@unifiedcommerce/core:lint:   56:42  warning  'promotionId' is assigned a value but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/interfaces/rest/index.ts
+@unifiedcommerce/core:lint:    28:24  warning  NODE_ENV is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint:    51:20  warning  NODE_ENV is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint:   111:58  warning  NODE_ENV is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/interfaces/rest/routes/checkout.ts
+@unifiedcommerce/core:lint:   25:15  warning  'ShippingAddress' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/interfaces/rest/routes/webhooks.ts
+@unifiedcommerce/core:lint:   32:51  warning  '_secret' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/interfaces/rest/schemas/carts.ts
+@unifiedcommerce/core:lint:   2:10  warning  'ErrorSchema' is defined but never used      @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   2:39  warning  'UuidParamSchema' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/interfaces/rest/schemas/checkout.ts
+@unifiedcommerce/core:lint:   2:10  warning  'ErrorSchema' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/interfaces/rest/schemas/inventory.ts
+@unifiedcommerce/core:lint:   2:10  warning  'ErrorSchema' is defined but never used  @typescript-eslint/no-unused-vars
+@repo/ui:lint: $ eslint . --max-warnings 0
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/interfaces/rest/schemas/media.ts
+@unifiedcommerce/core:lint:   2:10  warning  'ErrorSchema' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/interfaces/rest/schemas/orders.ts
+@unifiedcommerce/core:lint:   2:10  warning  'ErrorSchema' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/interfaces/rest/schemas/pricing.ts
+@unifiedcommerce/core:lint:   2:10  warning  'ErrorSchema' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/interfaces/rest/schemas/promotions.ts
+@unifiedcommerce/core:lint:   2:10  warning  'ErrorSchema' is defined but never used      @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   2:39  warning  'UuidParamSchema' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/interfaces/rest/schemas/webhooks.ts
+@unifiedcommerce/core:lint:   2:10  warning  'ErrorSchema' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/interfaces/rest/utils.ts
+@unifiedcommerce/core:lint:   1:15  warning  'CommerceError' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/kernel/database/migrate.ts
+@unifiedcommerce/core:lint:   70:9  warning  '_' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/kernel/jobs/adapter.ts
+@unifiedcommerce/core:lint:   30:5  warning  '_taskSlug' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   31:5  warning  '_input' is defined but never used     @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   32:5  warning  '_options' is defined but never used   @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/kernel/jobs/reaper.ts
+@unifiedcommerce/core:lint:    8:15  warning  JOB_REAP_THRESHOLD_MS is not listed as a dependency in turbo.json    turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint:   15:15  warning  JOBS_REAPER_INTERVAL_MS is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/kernel/local-api.ts
+@unifiedcommerce/core:lint:    81:62  warning  The `Function` type accepts any function-like value.
+@unifiedcommerce/core:lint: Prefer explicitly defining any function parameters and return type  @typescript-eslint/no-unsafe-function-type
+@unifiedcommerce/core:lint:   135:31  warning  The `Function` type accepts any function-like value.
+@unifiedcommerce/core:lint: Prefer explicitly defining any function parameters and return type  @typescript-eslint/no-unsafe-function-type
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/kernel/module/define.ts
+@unifiedcommerce/core:lint:   25:62  warning  '_TSchema' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   25:94  warning  '_TDeps' is defined but never used    @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/kernel/plugin/manifest.ts
+@unifiedcommerce/core:lint:   177:15  warning  NODE_ENV is not listed as a dependency in turbo.json                                                                     turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint:   262:43  warning  The `Function` type accepts any function-like value.
+@unifiedcommerce/core:lint: Prefer explicitly defining any function parameters and return type  @typescript-eslint/no-unsafe-function-type
+@unifiedcommerce/core:lint:   262:77  warning  The `Function` type accepts any function-like value.
+@unifiedcommerce/core:lint: Prefer explicitly defining any function parameters and return type  @typescript-eslint/no-unsafe-function-type
+@unifiedcommerce/core:lint:   282:43  warning  Unexpected any. Specify a different type                                                                                 @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/kernel/query/executor.ts
+@unifiedcommerce/core:lint:   5:3  warning  'RelationDefinition' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/modules/analytics/drizzle-adapter.ts
+@unifiedcommerce/core:lint:   233:17  warning  '_scope' is defined but never used                    @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   289:19  warning  'filterSql' is never reassigned. Use 'const' instead  prefer-const
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/modules/catalog/service.ts
+@unifiedcommerce/core:lint:   35:8  warning  'Category' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/modules/fulfillment/service.ts
+@unifiedcommerce/core:lint:    73:5  warning  '_lineItem' is defined but never used       @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:    74:5  warning  '_context' is defined but never used        @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:    81:5  warning  '_context' is defined but never used        @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:    93:5  warning  '_fulfillmentId' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:    94:5  warning  '_context' is defined but never used        @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   104:5  warning  '_lineItem' is defined but never used       @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   105:5  warning  '_context' is defined but never used        @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   112:5  warning  '_context' is defined but never used        @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   134:5  warning  '_fulfillmentId' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   135:5  warning  '_context' is defined but never used        @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   145:5  warning  '_lineItem' is defined but never used       @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   146:5  warning  '_context' is defined but never used        @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   153:5  warning  '_context' is defined but never used        @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   172:5  warning  '_fulfillmentId' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   173:5  warning  '_context' is defined but never used        @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   183:5  warning  '_lineItem' is defined but never used       @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   184:5  warning  '_context' is defined but never used        @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   191:5  warning  '_context' is defined but never used        @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   203:5  warning  '_fulfillmentId' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   204:5  warning  '_context' is defined but never used        @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   214:5  warning  '_lineItem' is defined but never used       @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   215:5  warning  '_context' is defined but never used        @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   222:5  warning  '_context' is defined but never used        @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   234:5  warning  '_fulfillmentId' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   235:5  warning  '_context' is defined but never used        @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/modules/orders/stale-order-cleanup.ts
+@unifiedcommerce/core:lint:   1:23  warning  'sql' is defined but never used          @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   3:31  warning  'TaskContext' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/modules/webhooks/worker.ts
+@unifiedcommerce/core:lint:   25:7  warning  NODE_ENV is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/runtime/commerce.ts
+@unifiedcommerce/core:lint:   9:54  warning  'LocalAPIOptions' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/runtime/kernel.ts
+@unifiedcommerce/core:lint:   111:7  warning  NODE_ENV is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/runtime/server.ts
+@unifiedcommerce/core:lint:     1:10  warning  'Hono' is defined but never used                              @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:    14:10  warning  'createKernel' is defined but never used                      @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:    15:10  warning  'ensureDefaultOrg' is defined but never used                  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:    16:10  warning  'createLogger' is defined but never used                      @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:    18:31  warning  'CommerceInstance' is defined but never used                  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:    56:21  warning  NODE_ENV is not listed as a dependency in turbo.json          turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint:   159:10  warning  NODE_ENV is not listed as a dependency in turbo.json          turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint:   170:10  warning  NODE_ENV is not listed as a dependency in turbo.json          turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint:   184:26  warning  TRUSTED_PROXY_IP is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint:   239:18  warning  NODE_ENV is not listed as a dependency in turbo.json          turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/utils/logger.ts
+@unifiedcommerce/core:lint:    6:7  warning  Unused eslint-disable directive (no problems were reported from 'no-console')
+@unifiedcommerce/core:lint:   10:7  warning  Unused eslint-disable directive (no problems were reported from 'no-console')
+@unifiedcommerce/core:lint:   14:7  warning  Unused eslint-disable directive (no problems were reported from 'no-console')
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/analytics-scope-security.test.ts
+@unifiedcommerce/core:lint:   24:7    warning  'VENDOR_B_SCOPE' is assigned a value but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   47:173  warning  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   48:120  warning  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   49:118  warning  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   50:80   warning  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   51:115  warning  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/api-carts.test.ts
+@unifiedcommerce/core:lint:   12:15  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/api-catalog.test.ts
+@unifiedcommerce/core:lint:    7:3   warning  'noPermActor' is defined but never used   @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   12:15  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/api-checkout.test.ts
+@unifiedcommerce/core:lint:    6:3   warning  'readonlyActor' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   11:15  warning  Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/api-inventory.test.ts
+@unifiedcommerce/core:lint:    7:3   warning  'noPermActor' is defined but never used   @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   12:15  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/api-media.test.ts
+@unifiedcommerce/core:lint:    6:3   warning  'readonlyActor' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   14:15  warning  Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/api-orders.test.ts
+@unifiedcommerce/core:lint:    7:3   warning  'noPermActor' is defined but never used   @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   12:15  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   45:18  warning  'createOrder' is defined but never used   @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/api-payments.test.ts
+@unifiedcommerce/core:lint:   10:15  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/api-pricing.test.ts
+@unifiedcommerce/core:lint:    6:3   warning  'readonlyActor' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   11:15  warning  Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/api-promotions.test.ts
+@unifiedcommerce/core:lint:    6:3   warning  'readonlyActor' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   11:15  warning  Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/api-search.test.ts
+@unifiedcommerce/core:lint:   10:15  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/api-webhooks.test.ts
+@unifiedcommerce/core:lint:   11:15  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/auth-permissions.test.ts
+@unifiedcommerce/core:lint:   15:8  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/auth-resolve-org-strict.test.ts
+@unifiedcommerce/core:lint:   13:12  warning  STRICT_ORG_RESOLUTION is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint:   22:5   warning  STRICT_ORG_RESOLUTION is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint:   31:5   warning  STRICT_ORG_RESOLUTION is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint:   41:5   warning  STRICT_ORG_RESOLUTION is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint:   51:5   warning  STRICT_ORG_RESOLUTION is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/auth-store-resolver-strict.test.ts
+@unifiedcommerce/core:lint:    4:38  warning  '_request' is defined but never used                               @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   10:12  warning  STRICT_ORG_RESOLUTION is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint:   36:5   warning  STRICT_ORG_RESOLUTION is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/cart-checkout-orders.test.ts
+@unifiedcommerce/core:lint:    44:6   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   156:36  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   162:10  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   164:59  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/cart-robustness.test.ts
+@unifiedcommerce/core:lint:   25:6  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   36:6  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/catalog-inventory.test.ts
+@unifiedcommerce/core:lint:   26:6  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/checkout-robustness.test.ts
+@unifiedcommerce/core:lint:    45:6   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:    75:73  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:    78:74  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:    81:73  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   113:34  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   119:8   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   163:48  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   199:70  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   257:70  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   313:85  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   356:85  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   427:14  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   489:37  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   555:59  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   601:59  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   647:59  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   685:59  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   789:59  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   843:59  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   884:59  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   970:59  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/define-module.test.ts
+@unifiedcommerce/core:lint:   59:11  warning  'modA' is assigned a value but only used as a type  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint:   64:11  warning  'modB' is assigned a value but only used as a type  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/inventory-robustness.test.ts
+@unifiedcommerce/core:lint:    23:6   warning  Unexpected any. Specify a different type     @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   312:11  warning  'result' is assigned a value but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/multi-org-isolation.test.ts
+@unifiedcommerce/core:lint:   50:38  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/orders-robustness.test.ts
+@unifiedcommerce/core:lint:   26:6   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   43:6   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   55:6   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   70:10  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   79:22  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/phase3-pricing-promotions-tax-shipping.test.ts
+@unifiedcommerce/core:lint:    76:14  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   454:16  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   457:82  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   467:16  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   509:38  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   515:12  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint:   577:16  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/phase5-search.test.ts
+@unifiedcommerce/core:lint:   21:6  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/plugin-test-utils.test.ts
+@unifiedcommerce/core:lint:   23:49  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/promotions-robustness.test.ts
+@unifiedcommerce/core:lint:   23:6  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/test/scoped-db-proxy.test.ts
+@unifiedcommerce/core:lint:   21:14  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/core:lint: 
+@unifiedcommerce/core:lint: ✖ 191 problems (0 errors, 191 warnings)
+@unifiedcommerce/core:lint:   0 errors and 7 warnings potentially fixable with the `--fix` option.
+@unifiedcommerce/core:lint: 
+docs:lint: cache hit, replaying logs 679eb36d932187dd
+docs:lint: $ eslint --max-warnings 0
+web:lint: cache hit, replaying logs 5fc66d050328650f
+web:lint: $ eslint --max-warnings 0
+@unifiedcommerce/import-flat:lint: cache miss, executing e599e54b17fce632
+@unifiedcommerce/adapter-tax-manual:lint: cache miss, executing c0675f66cb91078d
+@unifiedcommerce/import-shopify:lint: cache miss, executing fdfddb1a5aa0f58f
+@unifiedcommerce/adapter-r2:lint: cache miss, executing 379e13045b5ca2c1
+@unifiedcommerce/adapter-stripe:lint: cache miss, executing 364c2a999a76d9ab
+@unifiedcommerce/plugin-giftcards:lint: cache miss, executing df212d3769ee346e
+@unifiedcommerce/import-woocommerce:lint: cache miss, executing f628e8a2d09abfe7
+@unifiedcommerce/adapter-taxjar:lint: cache miss, executing a8b168ea143a0d6a
+@unifiedcommerce/adapter-s3:lint: cache miss, executing bd1dc217a1b77aae
+@unifiedcommerce/plugin-marketplace:lint: cache miss, executing 7a60ad89761b6bcf
+@unifiedcommerce/adapter-tax-manual:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/import-shopify:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/import-flat:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/adapter-stripe:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/adapter-r2:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/import-woocommerce:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/plugin-giftcards:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/adapter-s3:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/plugin-marketplace:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/adapter-taxjar:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/import-woocommerce:lint: 
+@unifiedcommerce/import-woocommerce:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/import/import-woocommerce/test/woocommerce-import.test.ts
+@unifiedcommerce/import-woocommerce:lint:   19:6  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/import-woocommerce:lint: 
+@unifiedcommerce/import-woocommerce:lint: ✖ 1 problem (0 errors, 1 warning)
+@unifiedcommerce/import-woocommerce:lint: 
+@unifiedcommerce/plugin-appointments:lint: cache miss, executing 715de74aef91b3c7
+@unifiedcommerce/adapter-pg-search:lint: cache miss, executing bd3789aa38719382
+@unifiedcommerce/adapter-pg-search:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/plugin-appointments:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/plugin-giftcards:lint: 
+@unifiedcommerce/plugin-giftcards:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-gift-cards/src/schema.ts
+@unifiedcommerce/plugin-giftcards:lint:   6:3  warning  'boolean' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-giftcards:lint: 
+@unifiedcommerce/plugin-giftcards:lint: ✖ 1 problem (0 errors, 1 warning)
+@unifiedcommerce/plugin-giftcards:lint: 
+@unifiedcommerce/adapter-meilisearch:lint: cache miss, executing 6e6bdc092a4019b7
+@unifiedcommerce/adapter-meilisearch:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/adapter-taxjar:lint: 
+@unifiedcommerce/adapter-taxjar:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-taxjar/test/taxjar.test.ts
+@unifiedcommerce/adapter-taxjar:lint:   73:20  warning  TAXJAR_SANDBOX_KEY is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/adapter-taxjar:lint: 
+@unifiedcommerce/adapter-taxjar:lint: ✖ 1 problem (0 errors, 1 warning)
+@unifiedcommerce/adapter-taxjar:lint: 
+@unifiedcommerce/adapter-postgres:lint: cache miss, executing 5e58968a077ab4eb
+@unifiedcommerce/adapter-postgres:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/adapter-stripe:lint: 
+@unifiedcommerce/adapter-stripe:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-stripe/test/stripe.test.ts
+@unifiedcommerce/adapter-stripe:lint:   7:18  warning  STRIPE_TEST_SECRET is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/adapter-stripe:lint: 
+@unifiedcommerce/adapter-stripe:lint: ✖ 1 problem (0 errors, 1 warning)
+@unifiedcommerce/adapter-stripe:lint: 
+@unifiedcommerce/adapter-local-storage:lint: cache miss, executing dcc1dd186956537f
+@unifiedcommerce/plugin-pos:lint: cache miss, executing 3a9d7a1f9ff1aa4b
+@unifiedcommerce/adapter-s3:lint: 
+@unifiedcommerce/adapter-s3:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-s3/src/index.ts
+@unifiedcommerce/adapter-s3:lint:    13:35   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/adapter-s3:lint:    59:111  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/adapter-s3:lint:    59:127  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/adapter-s3:lint:   142:58   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/adapter-s3:lint: 
+@unifiedcommerce/adapter-s3:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-s3/test/s3.test.ts
+@unifiedcommerce/adapter-s3:lint:   6:21  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/adapter-s3:lint: 
+@unifiedcommerce/adapter-s3:lint: ✖ 5 problems (0 errors, 5 warnings)
+@unifiedcommerce/adapter-s3:lint: 
+@unifiedcommerce/plugin-pos:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/adapter-local-storage:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/import-shopify:lint: 
+@unifiedcommerce/import-shopify:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/import/import-shopify/test/shopify-import.test.ts
+@unifiedcommerce/import-shopify:lint:   19:6  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/import-shopify:lint: 
+@unifiedcommerce/import-shopify:lint: ✖ 1 problem (0 errors, 1 warning)
+@unifiedcommerce/import-shopify:lint: 
+@unifiedcommerce/cli:lint: cache miss, executing 8ba43dc368131220
+@unifiedcommerce/cli:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/plugin-marketplace:lint: 
+@unifiedcommerce/plugin-marketplace:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-marketplace/src/hooks.ts
+@unifiedcommerce/plugin-marketplace:lint:    3:52  warning  'vendorPayouts' is defined but never used        @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-marketplace:lint:   34:17  warning  'entityType' is assigned a value but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-marketplace:lint: 
+@unifiedcommerce/plugin-marketplace:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-marketplace/src/mcp-tools.ts
+@unifiedcommerce/plugin-marketplace:lint:   25:54  warning  '_options' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-marketplace:lint: 
+@unifiedcommerce/plugin-marketplace:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-marketplace/src/routes/b2b.ts
+@unifiedcommerce/plugin-marketplace:lint:   19:4  warning  'options' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-marketplace:lint: 
+@unifiedcommerce/plugin-marketplace:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-marketplace/src/services/commission.ts
+@unifiedcommerce/plugin-marketplace:lint:   1:14  warning  'and' is defined but never used     @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-marketplace:lint:   1:25  warning  'lte' is defined but never used     @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-marketplace:lint:   1:30  warning  'gte' is defined but never used     @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-marketplace:lint:   1:35  warning  'isNull' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-marketplace:lint:   1:43  warning  'or' is defined but never used      @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-marketplace:lint: 
+@unifiedcommerce/plugin-marketplace:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-marketplace/src/services/contract-price.ts
+@unifiedcommerce/plugin-marketplace:lint:   1:25  warning  'lte' is defined but never used     @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-marketplace:lint:   1:30  warning  'gte' is defined but never used     @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-marketplace:lint:   1:35  warning  'isNull' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-marketplace:lint:   1:43  warning  'or' is defined but never used      @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-marketplace:lint: 
+@unifiedcommerce/plugin-marketplace:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-marketplace/src/services/payout.ts
+@unifiedcommerce/plugin-marketplace:lint:   1:30  warning  'lte' is defined but never used              @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-marketplace:lint:   2:50  warning  'vendorSubOrders' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-marketplace:lint: 
+@unifiedcommerce/plugin-marketplace:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-marketplace/src/services/review.ts
+@unifiedcommerce/plugin-marketplace:lint:   1:30  warning  'avg' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-marketplace:lint: 
+@unifiedcommerce/plugin-marketplace:lint: ✖ 16 problems (0 errors, 16 warnings)
+@unifiedcommerce/plugin-marketplace:lint: 
+@unifiedcommerce/adapter-meilisearch:lint: 
+@unifiedcommerce/adapter-meilisearch:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-meilisearch/src/index.ts
+@unifiedcommerce/adapter-meilisearch:lint:    40:26  warning  Unnecessary escape character: \"  no-useless-escape
+@unifiedcommerce/adapter-meilisearch:lint:    40:50  warning  Unnecessary escape character: \"  no-useless-escape
+@unifiedcommerce/adapter-meilisearch:lint:    44:28  warning  Unnecessary escape character: \"  no-useless-escape
+@unifiedcommerce/adapter-meilisearch:lint:    44:54  warning  Unnecessary escape character: \"  no-useless-escape
+@unifiedcommerce/adapter-meilisearch:lint:    48:32  warning  Unnecessary escape character: \"  no-useless-escape
+@unifiedcommerce/adapter-meilisearch:lint:    48:60  warning  Unnecessary escape character: \"  no-useless-escape
+@unifiedcommerce/adapter-meilisearch:lint:    52:28  warning  Unnecessary escape character: \"  no-useless-escape
+@unifiedcommerce/adapter-meilisearch:lint:    52:53  warning  Unnecessary escape character: \"  no-useless-escape
+@unifiedcommerce/adapter-meilisearch:lint:   156:48  warning  Unnecessary escape character: \"  no-useless-escape
+@unifiedcommerce/adapter-meilisearch:lint:   156:64  warning  Unnecessary escape character: \"  no-useless-escape
+@unifiedcommerce/adapter-meilisearch:lint: 
+@unifiedcommerce/adapter-meilisearch:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-meilisearch/test/meilisearch.test.ts
+@unifiedcommerce/adapter-meilisearch:lint:   12:37  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/adapter-meilisearch:lint:   18:45  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+@unifiedcommerce/adapter-meilisearch:lint: 
+@unifiedcommerce/adapter-meilisearch:lint: ✖ 12 problems (0 errors, 12 warnings)
+@unifiedcommerce/adapter-meilisearch:lint: 
+@unifiedcommerce/adapter-postgres:lint: 
+@unifiedcommerce/adapter-postgres:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-postgres/test/postgres.test.ts
+@unifiedcommerce/adapter-postgres:lint:   42:17  warning  POSTGRES_TEST_URL is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/adapter-postgres:lint:   63:17  warning  POSTGRES_TEST_URL is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/adapter-postgres:lint: 
+@unifiedcommerce/adapter-postgres:lint: ✖ 2 problems (0 errors, 2 warnings)
+@unifiedcommerce/adapter-postgres:lint: 
+@unifiedcommerce/plugin-appointments:lint: 
+@unifiedcommerce/plugin-appointments:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-appointments/src/hooks.ts
+@unifiedcommerce/plugin-appointments:lint:   13:28  warning  '_options' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-appointments:lint: 
+@unifiedcommerce/plugin-appointments:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-appointments/src/routes/bookings.ts
+@unifiedcommerce/plugin-appointments:lint:   6:15  warning  'BookingStatus' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-appointments:lint: 
+@unifiedcommerce/plugin-appointments:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-appointments/src/services/provider-service.ts
+@unifiedcommerce/plugin-appointments:lint:   1:14  warning  'and' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-appointments:lint: 
+@unifiedcommerce/plugin-appointments:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-appointments/test/slot-generation.test.ts
+@unifiedcommerce/plugin-appointments:lint:   3:15  warning  'SlotGenerationParams' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-appointments:lint: 
+@unifiedcommerce/plugin-appointments:lint: ✖ 4 problems (0 errors, 4 warnings)
+@unifiedcommerce/plugin-appointments:lint: 
+@unifiedcommerce/cli:lint: 
+@unifiedcommerce/cli:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/cli/src/commands/api-key.ts
+@unifiedcommerce/cli:lint:   57:3  warning  'config' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/cli:lint: 
+@unifiedcommerce/cli:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/cli/src/commands/dev.ts
+@unifiedcommerce/cli:lint:   170:18  warning  NODE_ENV is not listed as a dependency in turbo.json      turbo/no-undeclared-env-vars
+@unifiedcommerce/cli:lint:   171:22  warning  DATABASE_URL is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/cli:lint: 
+@unifiedcommerce/cli:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/cli/src/commands/doctor.ts
+@unifiedcommerce/cli:lint:   227:25  warning  DATABASE_URL is not listed as a dependency in turbo.json        turbo/no-undeclared-env-vars
+@unifiedcommerce/cli:lint:   348:9   warning  BETTER_AUTH_SECRET is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/cli:lint:   348:43  warning  BETTER_AUTH_SECRET is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/cli:lint:   357:9   warning  BETTER_AUTH_URL is not listed as a dependency in turbo.json     turbo/no-undeclared-env-vars
+@unifiedcommerce/cli:lint:   357:40  warning  BETTER_AUTH_URL is not listed as a dependency in turbo.json     turbo/no-undeclared-env-vars
+@unifiedcommerce/cli:lint:   368:10  warning  PORT is not listed as a dependency in turbo.json                turbo/no-undeclared-env-vars
+@unifiedcommerce/cli:lint:   411:11  warning  'configLoaded' is assigned a value but never used               @typescript-eslint/no-unused-vars
+@unifiedcommerce/cli:lint: 
+@unifiedcommerce/cli:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/cli/src/commands/import.ts
+@unifiedcommerce/cli:lint:     5:1   warning  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+@unifiedcommerce/cli:lint:     7:1   warning  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+@unifiedcommerce/cli:lint:     9:1   warning  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+@unifiedcommerce/cli:lint:   227:63  warning  Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+@unifiedcommerce/cli:lint:   228:66  warning  Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+@unifiedcommerce/cli:lint:   265:63  warning  Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+@unifiedcommerce/cli:lint:   266:66  warning  Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+@unifiedcommerce/cli:lint:   302:35  warning  Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+@unifiedcommerce/cli:lint: 
+@unifiedcommerce/cli:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/cli/templates/starter/commerce.config.ts
+@unifiedcommerce/cli:lint:   5:22  warning  DATABASE_URL is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/cli:lint: 
+@unifiedcommerce/cli:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/cli/templates/starter/drizzle.config.ts
+@unifiedcommerce/cli:lint:   13:10  warning  DATABASE_URL is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/cli:lint: 
+@unifiedcommerce/cli:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/cli/templates/starter/src/dev-server.ts
+@unifiedcommerce/cli:lint:   6:21  warning  PORT is not listed as a dependency in turbo.json  turbo/no-undeclared-env-vars
+@unifiedcommerce/cli:lint: 
+@unifiedcommerce/cli:lint: ✖ 21 problems (0 errors, 21 warnings)
+@unifiedcommerce/cli:lint: 
+@unifiedcommerce/plugin-pos:lint: 
+@unifiedcommerce/plugin-pos:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-pos/src/index.ts
+@unifiedcommerce/plugin-pos:lint:   54:9  warning  'options' is assigned a value but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-pos:lint: 
+@unifiedcommerce/plugin-pos:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-pos/src/routes/payments.ts
+@unifiedcommerce/plugin-pos:lint:   50:13  warning  'checkout' is assigned a value but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-pos:lint: 
+@unifiedcommerce/plugin-pos:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-pos/src/routes/returns.ts
+@unifiedcommerce/plugin-pos:lint:   109:31  warning  'actor' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-pos:lint: 
+@unifiedcommerce/plugin-pos:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-pos/src/services/payment-service.ts
+@unifiedcommerce/plugin-pos:lint:   4:40  warning  'posShifts' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-pos:lint: 
+@unifiedcommerce/plugin-pos:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-pos/src/services/receipt-service.ts
+@unifiedcommerce/plugin-pos:lint:    5:19  warning  'Transaction' is defined but never used         @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-pos:lint:    5:32  warning  'Payment' is defined but never used             @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-pos:lint:   96:11  warning  'totalPaid' is assigned a value but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-pos:lint: 
+@unifiedcommerce/plugin-pos:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-pos/test/shift-management.test.ts
+@unifiedcommerce/plugin-pos:lint:     6:3   warning  'testAdminActor' is defined but never used     @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-pos:lint:   148:11  warning  'shiftRes' is assigned a value but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-pos:lint: 
+@unifiedcommerce/plugin-pos:lint: ✖ 9 problems (0 errors, 9 warnings)
+@unifiedcommerce/plugin-pos:lint: 
+@unifiedcommerce/plugin-pos-restaurant:lint: cache miss, executing bfc575c8cc4f6d6e
+@unifiedcommerce/plugin-pos-restaurant:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/plugin-pos-restaurant:lint: 
+@unifiedcommerce/plugin-pos-restaurant:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-pos-restaurant/src/services/kds-service.ts
+@unifiedcommerce/plugin-pos-restaurant:lint:   23:19  warning  'desc' is defined but never used              @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-pos-restaurant:lint:   37:3   warning  'TicketItemStatus' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-pos-restaurant:lint: 
+@unifiedcommerce/plugin-pos-restaurant:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-pos-restaurant/src/services/modifier-service.ts
+@unifiedcommerce/plugin-pos-restaurant:lint:   15:19  warning  'desc' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-pos-restaurant:lint: 
+@unifiedcommerce/plugin-pos-restaurant:lint: /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-pos-restaurant/test/kds.test.ts
+@unifiedcommerce/plugin-pos-restaurant:lint:   12:15  warning  'Db' is defined but never used  @typescript-eslint/no-unused-vars
+@unifiedcommerce/plugin-pos-restaurant:lint: 
+@unifiedcommerce/plugin-pos-restaurant:lint: ✖ 4 problems (0 errors, 4 warnings)
+@unifiedcommerce/plugin-pos-restaurant:lint: 
+
+ Tasks:    25 successful, 25 total
+Cached:    7 cached, 25 total
+  Time:    4.8s 
+

@@ -1,0 +1,19 @@
+---
+title: Concepts
+description: The why behind Porulle's design — kernel, modules, adapters, plugin transforms, the hook pipeline, the identity model.
+---
+
+import { LinkCard, CardGrid } from "@astrojs/starlight/components";
+
+These pages cover *why* Porulle is shaped the way it is — the trade-offs considered, the alternatives rejected, the reasoning behind the current architecture.
+
+Read these when you want to deepen your mental model, not when you want to accomplish a specific task. For tasks, head to [Building a Store](/building/) or [Extending Porulle](/extending/). For exact API surface, [Reference](/reference/).
+
+<CardGrid>
+  <LinkCard title="Architecture" href="/concepts/architecture/" description="Kernel, modules, adapters, interfaces — and why the boundaries sit where they do. Start here." />
+  <LinkCard title="The Entity Model" href="/concepts/entity-model/" description="Why one sellable_entities table for products, services, gift cards, subscriptions. Config-driven behavior over code-driven polymorphism." />
+  <LinkCard title="Plugin Architecture" href="/concepts/plugin-architecture/" description="Why plugins are config-transform functions, not class hierarchies. The PayloadCMS lineage." />
+  <LinkCard title="Hook Pipeline" href="/concepts/hook-pipeline/" description="How the checkout pipeline executes, and why the compensation pattern keeps the system consistent under partial failure." />
+  <LinkCard title="Result Types" href="/concepts/result-types/" description="Why services return Result<T> instead of throwing. The discipline that makes services composable across interfaces." />
+  <LinkCard title="Identity and Store Resolution" href="/concepts/identity-model/" description="How customers, admins, vendors, and anonymous users are identified — and the org resolution profiles that determine how requests find their tenant." />
+</CardGrid>

@@ -1,0 +1,948 @@
+$ turbo run test
+• turbo 2.9.12
+
+   • Packages in scope: @repo/eslint-config, @repo/typescript-config, @repo/ui, @unifiedcommerce/adapter-local-storage, @unifiedcommerce/adapter-meilisearch, @unifiedcommerce/adapter-pg-search, @unifiedcommerce/adapter-postgres, @unifiedcommerce/adapter-r2, @unifiedcommerce/adapter-resend, @unifiedcommerce/adapter-s3, @unifiedcommerce/adapter-ses, @unifiedcommerce/adapter-stripe, @unifiedcommerce/adapter-tax-manual, @unifiedcommerce/adapter-taxjar, @unifiedcommerce/cli, @unifiedcommerce/core, @unifiedcommerce/db, @unifiedcommerce/fashion-starter, @unifiedcommerce/import-flat, @unifiedcommerce/import-shopify, @unifiedcommerce/import-woocommerce, @unifiedcommerce/plugin-appointments, @unifiedcommerce/plugin-giftcards, @unifiedcommerce/plugin-loyalty, @unifiedcommerce/plugin-marketplace, @unifiedcommerce/plugin-notifications, @unifiedcommerce/plugin-pos, @unifiedcommerce/plugin-pos-restaurant, @unifiedcommerce/plugin-procurement, @unifiedcommerce/plugin-production, @unifiedcommerce/plugin-reviews, @unifiedcommerce/plugin-scheduled-orders, @unifiedcommerce/plugin-uom, @unifiedcommerce/plugin-warehouse, @unifiedcommerce/plugin-wishlist, @unifiedcommerce/sdk, docs, restaurant-example, saas-example, store-example, tea-avenue, web
+   • Running test in 42 packages
+   • Remote caching disabled
+
+@unifiedcommerce/core:test: cache miss, executing 4b341fc0647bdd66
+@unifiedcommerce/adapter-ses:test: cache miss, executing 015e4c7e24ddda06
+@unifiedcommerce/core:build: cache miss, executing 9285a6184d7b537d
+@unifiedcommerce/sdk:build: cache miss, executing 7468c5e7515e753b
+@unifiedcommerce/sdk:test: cache miss, executing dc0418b2a5c164df
+@unifiedcommerce/adapter-resend:build: cache hit, replaying logs 47aeeb0d5595f8b0
+@unifiedcommerce/adapter-resend:build: $ rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json
+@unifiedcommerce/adapter-resend:test: cache hit, replaying logs 2143996635c25152
+@unifiedcommerce/adapter-resend:test: $ vitest run
+@unifiedcommerce/adapter-resend:test: 
+@unifiedcommerce/adapter-resend:test:  RUN  v3.2.4 /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-resend
+@unifiedcommerce/adapter-resend:test: 
+@unifiedcommerce/adapter-resend:test:  ✓ test/resend.test.ts (6 tests) 3ms
+@unifiedcommerce/adapter-resend:test: 
+@unifiedcommerce/adapter-resend:test:  Test Files  1 passed (1)
+@unifiedcommerce/adapter-resend:test:       Tests  6 passed (6)
+@unifiedcommerce/adapter-resend:test:    Start at  00:02:38
+@unifiedcommerce/adapter-resend:test:    Duration  1.06s (transform 48ms, setup 0ms, collect 57ms, tests 3ms, environment 0ms, prepare 166ms)
+@unifiedcommerce/adapter-resend:test: 
+@unifiedcommerce/core:test: $ vitest run
+@unifiedcommerce/sdk:build: $ rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json
+@unifiedcommerce/core:build: $ rm -rf dist tsconfig.build.tsbuildinfo && bun run generate:plugins && bun run check:store-guard && tsc -p tsconfig.build.json
+@unifiedcommerce/sdk:test: $ vitest run
+@unifiedcommerce/adapter-ses:test: $ vitest run
+@unifiedcommerce/core:build: $ node ./scripts/generate-plugin-types.mjs
+@unifiedcommerce/core:build: $ node ./scripts/check-store-guard.mjs
+@unifiedcommerce/core:test: ▲ [WARNING] The condition "types" here will never be used as it comes after both "import" and "require" [package.json]
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:11:6:
+@unifiedcommerce/core:test:       11 │       "types": "./src/index.ts"
+@unifiedcommerce/core:test:          ╵       ~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "import" condition comes earlier and will be used for all "import" statements:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:9:6:
+@unifiedcommerce/core:test:       9 │       "import": "./dist/index.js",
+@unifiedcommerce/core:test:         ╵       ~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "require" condition comes earlier and will be used for all "require" calls:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:10:6:
+@unifiedcommerce/core:test:       10 │       "require": "./dist/index.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: ▲ [WARNING] The condition "types" here will never be used as it comes after both "import" and "require" [package.json]
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:17:6:
+@unifiedcommerce/core:test:       17 │       "types": "./src/kernel/database/schema.ts"
+@unifiedcommerce/core:test:          ╵       ~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "import" condition comes earlier and will be used for all "import" statements:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:15:6:
+@unifiedcommerce/core:test:       15 │       "import": "./dist/kernel/database/schema.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "require" condition comes earlier and will be used for all "require" calls:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:16:6:
+@unifiedcommerce/core:test:       16 │       "require": "./dist/kernel/database/schema.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: ▲ [WARNING] The condition "types" here will never be used as it comes after both "import" and "require" [package.json]
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:23:6:
+@unifiedcommerce/core:test:       23 │       "types": "./src/auth/auth-schema.ts"
+@unifiedcommerce/core:test:          ╵       ~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "import" condition comes earlier and will be used for all "import" statements:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:21:6:
+@unifiedcommerce/core:test:       21 │       "import": "./dist/auth/auth-schema.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "require" condition comes earlier and will be used for all "require" calls:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:22:6:
+@unifiedcommerce/core:test:       22 │       "require": "./dist/auth/auth-schema.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: ▲ [WARNING] The condition "types" here will never be used as it comes after both "import" and "require" [package.json]
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:29:6:
+@unifiedcommerce/core:test:       29 │       "types": "./src/testing.ts"
+@unifiedcommerce/core:test:          ╵       ~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "import" condition comes earlier and will be used for all "import" statements:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:27:6:
+@unifiedcommerce/core:test:       27 │       "import": "./dist/testing.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "require" condition comes earlier and will be used for all "require" calls:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:28:6:
+@unifiedcommerce/core:test:       28 │       "require": "./dist/testing.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: ▲ [WARNING] The condition "types" here will never be used as it comes after both "import" and "require" [package.json]
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:35:6:
+@unifiedcommerce/core:test:       35 │       "types": "./src/drizzle.ts"
+@unifiedcommerce/core:test:          ╵       ~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "import" condition comes earlier and will be used for all "import" statements:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:33:6:
+@unifiedcommerce/core:test:       33 │       "import": "./dist/drizzle.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:   The "require" condition comes earlier and will be used for all "require" calls:
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:     package.json:34:6:
+@unifiedcommerce/core:test:       34 │       "require": "./dist/drizzle.js",
+@unifiedcommerce/core:test:          ╵       ~~~~~~~~~
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:  RUN  v3.2.4 /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core
+@unifiedcommerce/core:test: 
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/sdk:test:  RUN  v3.2.4 /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/sdk
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/adapter-ses:test: 
+@unifiedcommerce/adapter-ses:test:  RUN  v3.2.4 /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-ses
+@unifiedcommerce/adapter-ses:test: 
+@unifiedcommerce/sdk:test:  ✓ test/sdk.test.ts (12 tests) 9ms
+@unifiedcommerce/adapter-ses:test:  ✓ test/ses.test.ts (5 tests) 2ms
+@unifiedcommerce/adapter-ses:test: 
+@unifiedcommerce/adapter-ses:test:  Test Files  1 passed (1)
+@unifiedcommerce/adapter-ses:test:       Tests  5 passed (5)
+@unifiedcommerce/adapter-ses:test:    Start at  00:03:30
+@unifiedcommerce/adapter-ses:test:    Duration  801ms (transform 69ms, setup 0ms, collect 88ms, tests 2ms, environment 0ms, prepare 89ms)
+@unifiedcommerce/adapter-ses:test: 
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/sdk:test:  Test Files  1 passed (1)
+@unifiedcommerce/sdk:test:       Tests  12 passed (12)
+@unifiedcommerce/sdk:test:    Start at  00:03:30
+@unifiedcommerce/sdk:test:    Duration  803ms (transform 63ms, setup 0ms, collect 83ms, tests 9ms, environment 0ms, prepare 211ms)
+@unifiedcommerce/sdk:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[⣯] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/checkout-robustness.test.ts > checkout – validateCartNotEmpty (PGlite-backed) > empty cart → throws CommerceValidationError
+@unifiedcommerce/core:test: resolveOrgId fell back to deprecated DEFAULT_ORG_ID (org_default); set auth.defaultOrganizationId, pass defaultOrgId, or ensure the actor has organizationId.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/checkout-robustness.test.ts > checkout – validateCartNotEmpty (PGlite-backed) > empty cart → throws CommerceValidationError
+@unifiedcommerce/core:test: [kernel] Before-hook "validateCartNotEmpty" failed during create {
+@unifiedcommerce/core:test:   error: [32m'Cannot checkout an empty cart.'[39m,
+@unifiedcommerce/core:test:   requestId: [32m'065d7799-7111-4806-a543-9b62e35b0a2c'[39m
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/phase3-pricing-promotions-tax-shipping.test.ts > phase 3 pricing engine (PGlite-backed) > resolves base price tiers, customer groups, windows, modifiers and breakdown
+@unifiedcommerce/core:test: resolveOrgId fell back to deprecated DEFAULT_ORG_ID (org_default); set auth.defaultOrganizationId, pass defaultOrgId, or ensure the actor has organizationId.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/orders-robustness.test.ts > orders – happy path (PGlite-backed) > create order, list by customer, get by orderNumber
+@unifiedcommerce/core:test: resolveOrgId fell back to deprecated DEFAULT_ORG_ID (org_default); set auth.defaultOrganizationId, pass defaultOrgId, or ensure the actor has organizationId.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/cart-robustness.test.ts > cart – happy path (PGlite-backed) > create cart, add item, get cart with lineItems
+@unifiedcommerce/core:test: resolveOrgId fell back to deprecated DEFAULT_ORG_ID (org_default); set auth.defaultOrganizationId, pass defaultOrgId, or ensure the actor has organizationId.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/inventory-robustness.test.ts > inventory – happy path (PGlite-backed) > creates warehouse, adjusts +50, getAvailable returns 50
+@unifiedcommerce/core:test: resolveOrgId fell back to deprecated DEFAULT_ORG_ID (org_default); set auth.defaultOrganizationId, pass defaultOrgId, or ensure the actor has organizationId.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/promotions-robustness.test.ts > promotions – happy path (PGlite-backed) > percentage_off_order: 10% off $100 order = $10 discount
+@unifiedcommerce/core:test: resolveOrgId fell back to deprecated DEFAULT_ORG_ID (org_default); set auth.defaultOrganizationId, pass defaultOrgId, or ensure the actor has organizationId.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/api-catalog.test.ts > REST API: Catalog
+@unifiedcommerce/core:test: [2m2026-05-09T18:33:36.947Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/checkout-robustness.test.ts > checkout – resolveCurrentPrices (PGlite-backed) > entity with no price configured → throws CommerceValidationError
+@unifiedcommerce/core:test: [kernel] Before-hook "resolveCurrentPrices" failed during create {
+@unifiedcommerce/core:test:   error: [32m'Cannot resolve price for 9e74e428-566d-4314-9f71-4094847c7ae2.'[39m,
+@unifiedcommerce/core:test:   requestId: [32m'381cee73-79aa-4760-ac55-b6584d8798f5'[39m
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/checkout-robustness.test.ts > checkout – checkInventoryAvailability (PGlite-backed) > item out of stock → throws Insufficient stock error
+@unifiedcommerce/core:test: [kernel] Before-hook "checkInventoryAvailability" failed during create {
+@unifiedcommerce/core:test:   error: [32m'Insufficient stock for Out of Stock. Available: 0, requested: 1.'[39m,
+@unifiedcommerce/core:test:   requestId: [32m'2634d4d6-77fa-41eb-96f2-a8064e421c21'[39m
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/checkout-robustness.test.ts > checkout – checkInventoryAvailability (PGlite-backed) > item partially in stock (want 5, have 3) → throws
+@unifiedcommerce/core:test: [kernel] Before-hook "checkInventoryAvailability" failed during create {
+@unifiedcommerce/core:test:   error: [32m'Insufficient stock for Partial Stock. Available: 3, requested: 5.'[39m,
+@unifiedcommerce/core:test:   requestId: [32m'3a567099-a17a-45b0-8661-5771404f0938'[39m
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/phase3-pricing-promotions-tax-shipping.test.ts (4 tests) 7015ms
+@unifiedcommerce/core:test:    ✓ phase 3 pricing engine (PGlite-backed) > resolves base price tiers, customer groups, windows, modifiers and breakdown  425ms
+@unifiedcommerce/core:test:  ✓ test/api-catalog.test.ts (18 tests) 5012ms
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/checkout-robustness.test.ts > checkout – validatePaymentMethod (PGlite-backed) > missing paymentMethodId → throws CommerceValidationError
+@unifiedcommerce/core:test: [kernel] Before-hook "validatePaymentMethod" failed during create {
+@unifiedcommerce/core:test:   error: [32m'Payment method is required.'[39m,
+@unifiedcommerce/core:test:   requestId: [32m'4a97acdc-9101-48e7-b2f3-75646027a5ed'[39m
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/orders-robustness.test.ts (21 tests) 9135ms
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/inventory-robustness.test.ts (20 tests) 9279ms
+@unifiedcommerce/core:test:  ✓ test/promotions-robustness.test.ts (22 tests) 9378ms
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/checkout-robustness.test.ts > checkout – authorizePayment (PGlite-backed) > payment provider returns error → throws CommerceValidationError
+@unifiedcommerce/core:test: [kernel] Before-hook "authorizePayment" failed during create {
+@unifiedcommerce/core:test:   error: [32m'Payment authorization failed: Card declined'[39m,
+@unifiedcommerce/core:test:   requestId: [32m'1c9729c5-9a94-471f-a095-92cb5cfb55bb'[39m
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/cart-robustness.test.ts (24 tests) 9801ms
+@unifiedcommerce/core:test: stderr | test/analytics-scope-security.test.ts > Analytics Scope Security
+@unifiedcommerce/core:test: resolveOrgId fell back to deprecated DEFAULT_ORG_ID (org_default); set auth.defaultOrganizationId, pass defaultOrgId, or ensure the actor has organizationId.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:  ✓ test/analytics-scope-security.test.ts (19 tests) 2072ms
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/api-inventory.test.ts > REST API: Inventory
+@unifiedcommerce/core:test: [2m2026-05-09T18:33:42.950Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/module-tier3.test.ts (9 tests) 7ms
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/multi-org-isolation.test.ts (11 tests) 2367ms
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/api-inventory.test.ts (12 tests) 3945ms
+@unifiedcommerce/core:test:    ✓ REST API: Inventory > POST /api/inventory/reserve > rejects reservation when insufficient stock  436ms
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[⣯] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/api-carts.test.ts > REST API: Carts
+@unifiedcommerce/core:test: [2m2026-05-09T18:33:45.783Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/api-promotions.test.ts > REST API: Promotions
+@unifiedcommerce/core:test: [2m2026-05-09T18:33:45.816Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/checkout-robustness.test.ts (15 tests) 14110ms
+@unifiedcommerce/core:test:    ✓ checkout – happy path (PGlite-backed) > after-hooks: reserveInventory called for each line item after order created  318ms
+@unifiedcommerce/core:test:    ✓ checkout – edge cases (PGlite-backed) > checkout with 0-value items (free product)  410ms
+@unifiedcommerce/core:test:    ✓ checkout – edge cases (PGlite-backed) > line items with null variantId → reserves correctly without variantId  325ms
+@unifiedcommerce/core:test: stderr | test/api-pricing.test.ts > REST API: Pricing
+@unifiedcommerce/core:test: [2m2026-05-09T18:33:46.712Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/api-orders.test.ts > REST API: Orders
+@unifiedcommerce/core:test: [2m2026-05-09T18:33:47.090Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/api-promotions.test.ts > REST API: Promotions > POST /api/promotions/:id/deactivate > deactivates active promotion
+@unifiedcommerce/core:test: resolveOrgId fell back to deprecated DEFAULT_ORG_ID (org_default); set auth.defaultOrganizationId, pass defaultOrgId, or ensure the actor has organizationId.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/api-promotions.test.ts (15 tests) 5089ms
+@unifiedcommerce/core:test:    ✓ REST API: Promotions > POST /api/promotions/:id/deactivate > validates UUID format  310ms
+@unifiedcommerce/core:test: [2K[1G[⣯] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/api-carts.test.ts (16 tests) 5399ms
+@unifiedcommerce/core:test:    ✓ REST API: Carts > DELETE /api/carts/:id/items/:itemId > removes item from cart  376ms
+@unifiedcommerce/core:test:    ✓ REST API: Carts > DELETE /api/carts/:id/items/:itemId > returns 404 when removing non-existent item  325ms
+@unifiedcommerce/core:test:  ✓ test/api-pricing.test.ts (12 tests) 4772ms
+@unifiedcommerce/core:test:    ✓ REST API: Pricing > POST /api/pricing/modifiers > creates fixed discount modifier  346ms
+@unifiedcommerce/core:test:  ✓ test/api-orders.test.ts (9 tests) 4234ms
+@unifiedcommerce/core:test:    ✓ REST API: Orders > PATCH /api/orders/:id/status > validates status field  380ms
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/compensation-failures-integration.test.ts > compensation failures — persistence + admin API (PGlite)
+@unifiedcommerce/core:test: [2m2026-05-09T18:33:49.638Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/api-checkout.test.ts > REST API: Checkout
+@unifiedcommerce/core:test: [2m2026-05-09T18:33:49.743Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/compensation-failures-integration.test.ts > compensation failures — persistence + admin API (PGlite) > records compensation failure, lists via admin GET, resolves, second resolve is 409
+@unifiedcommerce/core:test: resolveOrgId fell back to deprecated DEFAULT_ORG_ID (org_default); set auth.defaultOrganizationId, pass defaultOrgId, or ensure the actor has organizationId.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/compensation-failures-integration.test.ts > compensation failures — persistence + admin API (PGlite) > records compensation failure, lists via admin GET, resolves, second resolve is 409
+@unifiedcommerce/core:test: [kernel] Compensation chain failed at step "capture-payment". Running 1 compensation(s). {
+@unifiedcommerce/core:test:   error: CommerceValidationError: Payment capture failed: Simulated capture failure for compensation test.
+@unifiedcommerce/core:test:       at Object.run [90m(/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/hooks/checkout-completion.ts:152:9[90m)[39m
+@unifiedcommerce/core:test:       at runCompensationChain [90m(/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/kernel/compensation/executor.ts:65:20[90m)[39m
+@unifiedcommerce/core:test:       at completeCheckout [90m(/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/hooks/checkout.ts:667:23[90m)[39m {
+@unifiedcommerce/core:test:     fieldErrors: [90mundefined[39m,
+@unifiedcommerce/core:test:     details: [90mundefined[39m,
+@unifiedcommerce/core:test:     code: [32m'VALIDATION_FAILED'[39m
+@unifiedcommerce/core:test:   }
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/compensation-failures-integration.test.ts > compensation failures — persistence + admin API (PGlite) > records compensation failure, lists via admin GET, resolves, second resolve is 409
+@unifiedcommerce/core:test: [kernel] Compensation for step "reserve-inventory" failed. Manual review required. {
+@unifiedcommerce/core:test:   compensateError: Error: forced inventory release failure during compensation
+@unifiedcommerce/core:test:       at InventoryService.inv.release [90m(/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39mtest/compensation-failures-integration.test.ts:96:13[90m)[39m
+@unifiedcommerce/core:test:       at Object.compensate [90m(/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/hooks/checkout-completion.ts:111:23[90m)[39m
+@unifiedcommerce/core:test:       at runCompensationChain [90m(/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/kernel/compensation/executor.ts:79:27[90m)[39m
+@unifiedcommerce/core:test:       at completeCheckout [90m(/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/hooks/checkout.ts:667:23[90m)[39m
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/compensation-failures-integration.test.ts > compensation failures — persistence + admin API (PGlite) > records compensation failure, lists via admin GET, resolves, second resolve is 409
+@unifiedcommerce/core:test: [kernel] Failed to update order 3b407a1e-0c51-42bc-92a5-0041eb20b843 status to cancelled after checkout failure. {
+@unifiedcommerce/core:test:   statusError: Error: forced inventory release failure during compensation
+@unifiedcommerce/core:test:       at InventoryService.inv.release [90m(/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39mtest/compensation-failures-integration.test.ts:96:13[90m)[39m
+@unifiedcommerce/core:test:       at OrderService.changeStatus [90m(/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/modules/orders/service.ts:408:29[90m)[39m
+@unifiedcommerce/core:test:       at completeCheckout [90m(/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/hooks/checkout.ts:685:9[90m)[39m
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/compensation-failures-integration.test.ts > compensation failures — persistence + admin API (PGlite) > records compensation failure, lists via admin GET, resolves, second resolve is 409
+@unifiedcommerce/core:test: [kernel] After-hook "completeCheckout" failed {
+@unifiedcommerce/core:test:   error: CommerceValidationError: Payment capture failed: Simulated capture failure for compensation test.
+@unifiedcommerce/core:test:       at Object.run [90m(/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/hooks/checkout-completion.ts:152:9[90m)[39m
+@unifiedcommerce/core:test:       at runCompensationChain [90m(/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/kernel/compensation/executor.ts:65:20[90m)[39m
+@unifiedcommerce/core:test:       at completeCheckout [90m(/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/hooks/checkout.ts:667:23[90m)[39m {
+@unifiedcommerce/core:test:     fieldErrors: [90mundefined[39m,
+@unifiedcommerce/core:test:     details: [90mundefined[39m,
+@unifiedcommerce/core:test:     code: [32m'VALIDATION_FAILED'[39m
+@unifiedcommerce/core:test:   }
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:  ✓ test/compensation-failures-integration.test.ts (1 test) 2870ms
+@unifiedcommerce/core:test: stderr | test/api-checkout.test.ts > REST API: Checkout > POST /api/checkout > creates order from cart with valid data
+@unifiedcommerce/core:test: [kernel] Before-hook "resolveCurrentPrices" failed during create {
+@unifiedcommerce/core:test:   error: [32m'Cannot resolve price for 653e07be-ad6f-4134-ab83-4354da4791de.'[39m,
+@unifiedcommerce/core:test:   requestId: [32m'75241e63-35cc-46ea-9fe4-136402e70977'[39m
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/api-checkout.test.ts > REST API: Checkout > POST /api/checkout > creates order from cart with valid data
+@unifiedcommerce/core:test: [checkout] Pipeline failed: {
+@unifiedcommerce/core:test:   message: [32m'Cannot resolve price for 653e07be-ad6f-4134-ab83-4354da4791de.'[39m,
+@unifiedcommerce/core:test:   stack: [32m'CommerceValidationError: Cannot resolve price for 653e07be-ad6f-4134-ab83-4354da4791de.\n'[39m +
+@unifiedcommerce/core:test:     [32m'    at resolveCurrentPrices (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/hooks/checkout.ts:232:13)'[39m,
+@unifiedcommerce/core:test:   code: [32m'VALIDATION_FAILED'[39m
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/phase5-search.test.ts > phase 5 search > supports REST search and suggest with facets
+@unifiedcommerce/core:test: resolveOrgId fell back to deprecated DEFAULT_ORG_ID (org_default); set auth.defaultOrganizationId, pass defaultOrgId, or ensure the actor has organizationId.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/api-checkout.test.ts > REST API: Checkout > POST /api/checkout > supports guest checkout without customerId
+@unifiedcommerce/core:test: [kernel] Before-hook "resolveCurrentPrices" failed during create {
+@unifiedcommerce/core:test:   error: [32m'Cannot resolve price for 8e57a66d-e8ce-4031-a36b-1f7d03125576.'[39m,
+@unifiedcommerce/core:test:   requestId: [32m'ab6a061e-c88e-49e9-83c8-57d36567cc91'[39m
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/api-checkout.test.ts > REST API: Checkout > POST /api/checkout > supports guest checkout without customerId
+@unifiedcommerce/core:test: [checkout] Pipeline failed: {
+@unifiedcommerce/core:test:   message: [32m'Cannot resolve price for 8e57a66d-e8ce-4031-a36b-1f7d03125576.'[39m,
+@unifiedcommerce/core:test:   stack: [32m'CommerceValidationError: Cannot resolve price for 8e57a66d-e8ce-4031-a36b-1f7d03125576.\n'[39m +
+@unifiedcommerce/core:test:     [32m'    at resolveCurrentPrices (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/hooks/checkout.ts:232:13)'[39m,
+@unifiedcommerce/core:test:   code: [32m'VALIDATION_FAILED'[39m
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [2K[1G[⣯] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/api-checkout.test.ts > REST API: Checkout > POST /api/checkout > supports promotion codes
+@unifiedcommerce/core:test: [kernel] Before-hook "resolveCurrentPrices" failed during create {
+@unifiedcommerce/core:test:   error: [32m'Cannot resolve price for 87bde302-1866-44ef-b9a7-25de9752dba5.'[39m,
+@unifiedcommerce/core:test:   requestId: [32m'cfac6ae7-f51d-45c6-b056-78a2a48e351a'[39m
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/api-checkout.test.ts > REST API: Checkout > POST /api/checkout > supports promotion codes
+@unifiedcommerce/core:test: [checkout] Pipeline failed: {
+@unifiedcommerce/core:test:   message: [32m'Cannot resolve price for 87bde302-1866-44ef-b9a7-25de9752dba5.'[39m,
+@unifiedcommerce/core:test:   stack: [32m'CommerceValidationError: Cannot resolve price for 87bde302-1866-44ef-b9a7-25de9752dba5.\n'[39m +
+@unifiedcommerce/core:test:     [32m'    at resolveCurrentPrices (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/hooks/checkout.ts:232:13)'[39m,
+@unifiedcommerce/core:test:   code: [32m'VALIDATION_FAILED'[39m
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/api-checkout.test.ts > REST API: Checkout > POST /api/checkout > includes shipping address in order
+@unifiedcommerce/core:test: [kernel] Before-hook "resolveCurrentPrices" failed during create {
+@unifiedcommerce/core:test:   error: [32m'Cannot resolve price for d7afb64e-3b6b-4a80-95a7-1fc0c63dae86.'[39m,
+@unifiedcommerce/core:test:   requestId: [32m'9f3e6ce4-ca41-4473-931f-a2c8c0b5f146'[39m
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/api-checkout.test.ts > REST API: Checkout > POST /api/checkout > includes shipping address in order
+@unifiedcommerce/core:test: [checkout] Pipeline failed: {
+@unifiedcommerce/core:test:   message: [32m'Cannot resolve price for d7afb64e-3b6b-4a80-95a7-1fc0c63dae86.'[39m,
+@unifiedcommerce/core:test:   stack: [32m'CommerceValidationError: Cannot resolve price for d7afb64e-3b6b-4a80-95a7-1fc0c63dae86.\n'[39m +
+@unifiedcommerce/core:test:     [32m'    at resolveCurrentPrices (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/src/hooks/checkout.ts:232:13)'[39m,
+@unifiedcommerce/core:test:   code: [32m'VALIDATION_FAILED'[39m
+@unifiedcommerce/core:test: }
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [2K[1G[⣯] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/api-checkout.test.ts (7 tests) 4493ms
+@unifiedcommerce/core:test:    ✓ REST API: Checkout > POST /api/checkout > supports promotion codes  304ms
+@unifiedcommerce/core:test:    ✓ REST API: Checkout > POST /api/checkout > includes shipping address in order  374ms
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/phase5-search.test.ts (2 tests) 4713ms
+@unifiedcommerce/core:test:    ✓ phase 5 search > supports REST search and suggest with facets  2475ms
+@unifiedcommerce/core:test:    ✓ phase 5 search > syncs documents to search adapter hooks and uses adapter for MCP free-text queries  2237ms
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/cart-checkout-orders.test.ts > cart + checkout + orders (PGlite-backed) > runs checkout hook chain and creates orders with transitions
+@unifiedcommerce/core:test: resolveOrgId fell back to deprecated DEFAULT_ORG_ID (org_default); set auth.defaultOrganizationId, pass defaultOrgId, or ensure the actor has organizationId.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/cart-checkout-orders.test.ts (1 test) 3152ms
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/api-search.test.ts > REST API: Search
+@unifiedcommerce/core:test: [2m2026-05-09T18:33:53.180Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/api-webhooks.test.ts > REST API: Webhooks
+@unifiedcommerce/core:test: [2m2026-05-09T18:33:53.553Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/hooks-db-non-null.test.ts (8 tests) 4466ms
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[⣯] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/mcp.test.ts > MCP protocol compliance > handles initialize handshake
+@unifiedcommerce/core:test: [2m2026-05-09T18:33:55.127Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: {"level":"info","time":1778351635181,"pid":27071,"hostname":"192.168.1.14","msg":"Job queue autorun disabled. Use GET /api/jobs/run for serverless cron, or set config.jobs.autorun.enabled = true for in-process polling."}
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: {"level":"info","time":1778351635231,"pid":27071,"hostname":"192.168.1.14","requestId":"89b692ce-2252-4978-9642-9ce92760a15a","method":"POST","path":"/mcp","status":200,"durationMs":34,"msg":"request completed"}
+@unifiedcommerce/core:test:  ✓ test/api-webhooks.test.ts (9 tests) 4625ms
+@unifiedcommerce/core:test:    ✓ REST API: Webhooks > POST /api/webhooks > creates webhook endpoint with valid data  304ms
+@unifiedcommerce/core:test:  ✓ test/compensation-failures-repository.test.ts (8 tests) 2429ms
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/api-search.test.ts (12 tests) 5511ms
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/mcp.test.ts > MCP protocol compliance > lists tools via tools/list
+@unifiedcommerce/core:test: [2m2026-05-09T18:33:56.322Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: {"level":"info","time":1778351636322,"pid":27071,"hostname":"192.168.1.14","msg":"Job queue autorun disabled. Use GET /api/jobs/run for serverless cron, or set config.jobs.autorun.enabled = true for in-process polling."}
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: {"level":"info","time":1778351636362,"pid":27071,"hostname":"192.168.1.14","requestId":"58f47ece-471e-41ca-a21e-a95b99f9ec9f","method":"POST","path":"/mcp","status":200,"durationMs":3,"msg":"request completed"}
+@unifiedcommerce/core:test: {"level":"info","time":1778351636368,"pid":27071,"hostname":"192.168.1.14","requestId":"338069c6-fed4-433a-ace5-418e48e555e0","method":"POST","path":"/mcp","status":200,"durationMs":5,"msg":"request completed"}
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[⣯] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/webhooks-event-names.test.ts (6 tests) 3131ms
+@unifiedcommerce/core:test:  ✓ test/define-module.test.ts (5 tests) 3ms
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/mcp.test.ts > MCP protocol compliance > calls tools via tools/call
+@unifiedcommerce/core:test: [2m2026-05-09T18:33:57.892Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: {"level":"info","time":1778351637893,"pid":27071,"hostname":"192.168.1.14","msg":"Job queue autorun disabled. Use GET /api/jobs/run for serverless cron, or set config.jobs.autorun.enabled = true for in-process polling."}
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: {"level":"info","time":1778351637901,"pid":27071,"hostname":"192.168.1.14","requestId":"8391d888-11ca-40b8-90d8-f5d3cfbea084","method":"POST","path":"/mcp","status":200,"durationMs":3,"msg":"request completed"}
+@unifiedcommerce/core:test: {"level":"info","time":1778351637921,"pid":27071,"hostname":"192.168.1.14","requestId":"7e43f025-933d-4a5d-a189-c1856bd9b610","method":"POST","path":"/mcp","status":200,"durationMs":20,"msg":"request completed"}
+@unifiedcommerce/core:test: {"level":"info","time":1778351637949,"pid":27071,"hostname":"192.168.1.14","requestId":"a2f79915-437b-41b7-9c50-e3bb35c25621","method":"POST","path":"/mcp","status":200,"durationMs":5,"msg":"request completed"}
+@unifiedcommerce/core:test: {"level":"info","time":1778351637956,"pid":27071,"hostname":"192.168.1.14","requestId":"fd6f6223-1cbc-41c6-83ea-9de05d58b5c1","method":"POST","path":"/mcp","status":200,"durationMs":7,"msg":"request completed"}
+@unifiedcommerce/core:test: {"level":"info","time":1778351637963,"pid":27071,"hostname":"192.168.1.14","requestId":"c47b279a-e9cc-40b0-b490-afe3b774aa35","method":"POST","path":"/mcp","status":200,"durationMs":7,"msg":"request completed"}
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/api-media.test.ts > REST API: Media
+@unifiedcommerce/core:test: [2m2026-05-09T18:33:58.522Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/catalog-inventory.test.ts > catalog + inventory (PGlite-backed) > supports entity lifecycle, localization, variants and inventory adjustments
+@unifiedcommerce/core:test: resolveOrgId fell back to deprecated DEFAULT_ORG_ID (org_default); set auth.defaultOrganizationId, pass defaultOrgId, or ensure the actor has organizationId.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/api-media.test.ts > REST API: Media > POST /api/media/upload > requires file parameter
+@unifiedcommerce/core:test: [api] Unhandled error: Failed to parse body as FormData.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/catalog-inventory.test.ts (1 test) 2821ms
+@unifiedcommerce/core:test:    ✓ catalog + inventory (PGlite-backed) > supports entity lifecycle, localization, variants and inventory adjustments  405ms
+@unifiedcommerce/core:test:  ✓ test/inventory-cross-org-isolation.test.ts (2 tests) 2897ms
+@unifiedcommerce/core:test: stderr | test/mcp.test.ts > MCP protocol compliance > lists resources via resources/list
+@unifiedcommerce/core:test: [2m2026-05-09T18:33:59.406Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: {"level":"info","time":1778351639458,"pid":27071,"hostname":"192.168.1.14","msg":"Job queue autorun disabled. Use GET /api/jobs/run for serverless cron, or set config.jobs.autorun.enabled = true for in-process polling."}
+@unifiedcommerce/core:test: {"level":"info","time":1778351639494,"pid":27071,"hostname":"192.168.1.14","requestId":"4c23723d-fd2b-471b-a9e0-ced3fc14c19a","method":"POST","path":"/mcp","status":200,"durationMs":23,"msg":"request completed"}
+@unifiedcommerce/core:test: {"level":"info","time":1778351639496,"pid":27071,"hostname":"192.168.1.14","requestId":"99f4cf3d-2eef-475d-be5b-6336eb6750cf","method":"POST","path":"/mcp","status":200,"durationMs":1,"msg":"request completed"}
+@unifiedcommerce/core:test:  ✓ test/mcp.test.ts (4 tests) 6736ms
+@unifiedcommerce/core:test:    ✓ MCP protocol compliance > handles initialize handshake  2471ms
+@unifiedcommerce/core:test:    ✓ MCP protocol compliance > lists tools via tools/list  1154ms
+@unifiedcommerce/core:test:    ✓ MCP protocol compliance > calls tools via tools/call  1577ms
+@unifiedcommerce/core:test:    ✓ MCP protocol compliance > lists resources via resources/list  1533ms
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/plugin-scoped-db.test.ts (2 tests) 5453ms
+@unifiedcommerce/core:test:  ✓ test/api-media.test.ts (7 tests | 1 skipped) 3711ms
+@unifiedcommerce/core:test:  ✓ test/module-tier0.test.ts (4 tests) 3ms
+@unifiedcommerce/core:test: stderr | test/api-payments.test.ts > REST API: Payments
+@unifiedcommerce/core:test: [2m2026-05-09T18:33:59.999Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/api-payments.test.ts > REST API: Payments > POST /api/payments/webhook > accepts valid webhook payload
+@unifiedcommerce/core:test: resolveOrgId fell back to deprecated DEFAULT_ORG_ID (org_default); set auth.defaultOrganizationId, pass defaultOrgId, or ensure the actor has organizationId.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/webhooks-single-retry.test.ts (1 test) 2230ms
+@unifiedcommerce/core:test:    ✓ webhook job retries (single fetch per attempt) > uses only job-level retries (4 fetches for 3 failures + success), backoff ≥ 1.5s, one delivery row per attempt  2229ms
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/module-tier2.test.ts (2 tests) 2ms
+@unifiedcommerce/core:test:  ✓ test/api-payments.test.ts (4 tests) 3019ms
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[⣯] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/auth-resolve-org-strict.test.ts (10 tests) 17ms
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[⣯] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/scoped-db-proxy.test.ts (4 tests) 2295ms
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/hooks.test.ts (4 tests) 3ms
+@unifiedcommerce/core:test: [2K[1G[⣯] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/catalog-read-list-hooks.test.ts (1 test) 2833ms
+@unifiedcommerce/core:test:    ✓ catalog entity-scoped list hooks (kernel registry keys) > fires catalog.product.beforeList and catalog.product.afterList with expected payloads  303ms
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[⣯] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/order-number-concurrency.test.ts (1 test) 3181ms
+@unifiedcommerce/core:test:  ✓ test/webhooks.test.ts (2 tests) 4321ms
+@unifiedcommerce/core:test:    ✓ webhook worker > performs one HTTP attempt per deliver call and throws on failure  2601ms
+@unifiedcommerce/core:test:    ✓ webhook worker > records success on first OK response  1719ms
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/auth-store-resolver-strict.test.ts > storeResolver strict org resolution (anonymous requests) > returns 503 ORG_RESOLUTION_FAILED when strictOrgResolution is true and storeResolver throws
+@unifiedcommerce/core:test: [2m2026-05-09T18:34:05.889Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/auth-store-resolver-strict.test.ts > storeResolver strict org resolution (anonymous requests) > returns 503 ORG_RESOLUTION_FAILED when strictOrgResolution is true and storeResolver throws
+@unifiedcommerce/core:test: {
+@unifiedcommerce/core:test:   err: Error: storeResolver synthetic failure
+@unifiedcommerce/core:test:       at Object.throwingStoreResolver [as storeResolver] [90m(/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39mtest/auth-store-resolver-strict.test.ts:5:9[90m)[39m
+@unifiedcommerce/core:test:       at [90m/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/auth/middleware.ts:189:46
+@unifiedcommerce/core:test:       at dispatch (file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/[4m.bun[24m/hono@4.12.18/node_modules/[4mhono[24m/dist/compose.js:22:17)
+@unifiedcommerce/core:test:       at [90m/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/test-utils/rest-api-test-utils.ts:113:5
+@unifiedcommerce/core:test:       at dispatch (file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/[4m.bun[24m/hono@4.12.18/node_modules/[4mhono[24m/dist/compose.js:22:17)
+@unifiedcommerce/core:test:       at [90m/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/test-utils/rest-api-test-utils.ts:97:5
+@unifiedcommerce/core:test:       at dispatch (file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/[4m.bun[24m/hono@4.12.18/node_modules/[4mhono[24m/dist/compose.js:22:17)
+@unifiedcommerce/core:test:       at file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/[4m.bun[24m/hono@4.12.18/node_modules/[4mhono[24m/dist/hono-base.js:301:25
+@unifiedcommerce/core:test:       at [90m/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39mtest/auth-store-resolver-strict.test.ts:21:19
+@unifiedcommerce/core:test:       at file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/[4m.bun[24m/@vitest+runner@3.2.4/node_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:752:20,
+@unifiedcommerce/core:test:   actor: [1mnull[22m,
+@unifiedcommerce/core:test:   path: [32m'/api/health'[39m,
+@unifiedcommerce/core:test:   method: [32m'GET'[39m
+@unifiedcommerce/core:test: } storeResolver failed while resolving organization (strict org resolution)
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/auth-customer-permissions-dedupe.test.ts > customerPermissions single source (middleware) > anonymous storeResolver path: uses same config.auth.customerPermissions override
+@unifiedcommerce/core:test: [2m2026-05-09T18:34:06.062Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/module-tier1.test.ts (2 tests) 2ms
+@unifiedcommerce/core:test:  ✓ test/auth-customer-permissions-dedupe.test.ts (2 tests) 4624ms
+@unifiedcommerce/core:test:    ✓ customerPermissions single source (middleware) > session path (no org role): uses config.auth.customerPermissions override  2833ms
+@unifiedcommerce/core:test:    ✓ customerPermissions single source (middleware) > anonymous storeResolver path: uses same config.auth.customerPermissions override  1781ms
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/inventory-concurrency.test.ts > inventory concurrency – parallel adjust race
+@unifiedcommerce/core:test: resolveOrgId fell back to deprecated DEFAULT_ORG_ID (org_default); set auth.defaultOrganizationId, pass defaultOrgId, or ensure the actor has organizationId.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:  ✓ test/jobs-reaper.test.ts (2 tests) 4251ms
+@unifiedcommerce/core:test:    ✓ stale job reaper (S2-06) > reverts stale processing jobs older than threshold and decrements attempts  2461ms
+@unifiedcommerce/core:test:    ✓ stale job reaper (S2-06) > does not reap processing jobs within the threshold  1789ms
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/inventory-concurrency.test.ts (1 test) 2961ms
+@unifiedcommerce/core:test:  ✓ test/inventory-schema.test.ts (1 test) 2798ms
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/result-errors.test.ts (2 tests) 2ms
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/auth-store-resolver-strict.test.ts > storeResolver strict org resolution (anonymous requests) > returns 503 ORG_RESOLUTION_FAILED when STRICT_ORG_RESOLUTION=true and strictOrgResolution is unset
+@unifiedcommerce/core:test: [2m2026-05-09T18:34:07.541Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/auth-store-resolver-strict.test.ts > storeResolver strict org resolution (anonymous requests) > returns 503 ORG_RESOLUTION_FAILED when STRICT_ORG_RESOLUTION=true and strictOrgResolution is unset
+@unifiedcommerce/core:test: {
+@unifiedcommerce/core:test:   err: Error: storeResolver synthetic failure
+@unifiedcommerce/core:test:       at Object.throwingStoreResolver [as storeResolver] [90m(/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39mtest/auth-store-resolver-strict.test.ts:5:9[90m)[39m
+@unifiedcommerce/core:test:       at [90m/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/auth/middleware.ts:189:46
+@unifiedcommerce/core:test:       at dispatch (file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/[4m.bun[24m/hono@4.12.18/node_modules/[4mhono[24m/dist/compose.js:22:17)
+@unifiedcommerce/core:test:       at [90m/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/test-utils/rest-api-test-utils.ts:113:5
+@unifiedcommerce/core:test:       at dispatch (file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/[4m.bun[24m/hono@4.12.18/node_modules/[4mhono[24m/dist/compose.js:22:17)
+@unifiedcommerce/core:test:       at [90m/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/test-utils/rest-api-test-utils.ts:97:5
+@unifiedcommerce/core:test:       at dispatch (file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/[4m.bun[24m/hono@4.12.18/node_modules/[4mhono[24m/dist/compose.js:22:17)
+@unifiedcommerce/core:test:       at file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/[4m.bun[24m/hono@4.12.18/node_modules/[4mhono[24m/dist/hono-base.js:301:25
+@unifiedcommerce/core:test:       at [90m/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39mtest/auth-store-resolver-strict.test.ts:43:19
+@unifiedcommerce/core:test:       at file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/[4m.bun[24m/@vitest+runner@3.2.4/node_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:752:20,
+@unifiedcommerce/core:test:   actor: [1mnull[22m,
+@unifiedcommerce/core:test:   path: [32m'/api/health'[39m,
+@unifiedcommerce/core:test:   method: [32m'GET'[39m
+@unifiedcommerce/core:test: } storeResolver failed while resolving organization (strict org resolution)
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/adapter-local-storage:build: cache miss, executing 4c1eaeffbb5f259a
+@unifiedcommerce/plugin-procurement:build: cache miss, executing 307a28704e77c846
+@unifiedcommerce/plugin-production:build: cache miss, executing 8281481414ee1bb6
+@unifiedcommerce/plugin-scheduled-orders:build: cache miss, executing ddcefbcb127497fc
+@unifiedcommerce/plugin-uom:build: cache miss, executing 509e1f415be2a0d3
+@unifiedcommerce/plugin-wishlist:build: cache miss, executing a0171a8c72b5fa33
+@unifiedcommerce/adapter-stripe:test: cache miss, executing df7eb85b96f0f076
+@unifiedcommerce/import-shopify:build: cache miss, executing c0b81e9a5c080f27
+@unifiedcommerce/plugin-loyalty:build: cache miss, executing 88a3dfc0787b866c
+@unifiedcommerce/plugin-procurement:build: $ rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json
+@unifiedcommerce/plugin-wishlist:build: $ rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json
+@unifiedcommerce/adapter-local-storage:build: $ rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json
+@unifiedcommerce/plugin-scheduled-orders:build: $ rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json
+@unifiedcommerce/plugin-uom:build: $ rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json
+@unifiedcommerce/plugin-production:build: $ rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json
+@unifiedcommerce/adapter-stripe:test: $ vitest run
+@unifiedcommerce/import-shopify:build: $ rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json
+@unifiedcommerce/plugin-loyalty:build: $ rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/config-types.test.ts (2 tests) 3ms
+@unifiedcommerce/adapter-stripe:test: 
+@unifiedcommerce/adapter-stripe:test:  RUN  v3.2.4 /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-stripe
+@unifiedcommerce/adapter-stripe:test: 
+@unifiedcommerce/core:test:  ✓ test/auth-permissions.test.ts (3 tests) 66ms
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[⣯] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[⣟] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[⡿] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/state-machine.test.ts (3 tests) 2ms
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/auth-store-resolver-strict.test.ts > storeResolver strict org resolution (anonymous requests) > legacy fallback: storeResolver throws, strict off, no env — request continues (public /api/health 200)
+@unifiedcommerce/core:test: [2m2026-05-09T18:34:11.757Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/auth-store-resolver-strict.test.ts > storeResolver strict org resolution (anonymous requests) > legacy fallback: storeResolver throws, strict off, no env — request continues (public /api/health 200)
+@unifiedcommerce/core:test: {
+@unifiedcommerce/core:test:   err: Error: storeResolver synthetic failure
+@unifiedcommerce/core:test:       at Object.throwingStoreResolver [as storeResolver] [90m(/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39mtest/auth-store-resolver-strict.test.ts:5:9[90m)[39m
+@unifiedcommerce/core:test:       at [90m/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/auth/middleware.ts:189:46
+@unifiedcommerce/core:test:       at dispatch (file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/[4m.bun[24m/hono@4.12.18/node_modules/[4mhono[24m/dist/compose.js:22:17)
+@unifiedcommerce/core:test:       at [90m/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/test-utils/rest-api-test-utils.ts:113:5
+@unifiedcommerce/core:test:       at dispatch (file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/[4m.bun[24m/hono@4.12.18/node_modules/[4mhono[24m/dist/compose.js:22:17)
+@unifiedcommerce/core:test:       at [90m/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39msrc/test-utils/rest-api-test-utils.ts:97:5
+@unifiedcommerce/core:test:       at dispatch (file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/[4m.bun[24m/hono@4.12.18/node_modules/[4mhono[24m/dist/compose.js:22:17)
+@unifiedcommerce/core:test:       at file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/[4m.bun[24m/hono@4.12.18/node_modules/[4mhono[24m/dist/hono-base.js:301:25
+@unifiedcommerce/core:test:       at [90m/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core/[39mtest/auth-store-resolver-strict.test.ts:67:19
+@unifiedcommerce/core:test:       at file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/[4m.bun[24m/@vitest+runner@3.2.4/node_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:752:20,
+@unifiedcommerce/core:test:   path: [32m'/api/health'[39m,
+@unifiedcommerce/core:test:   method: [32m'GET'[39m
+@unifiedcommerce/core:test: } storeResolver failed; continuing without actor (legacy org resolution)
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test:  ✓ test/auth-store-resolver-strict.test.ts (3 tests) 9480ms
+@unifiedcommerce/core:test:    ✓ storeResolver strict org resolution (anonymous requests) > returns 503 ORG_RESOLUTION_FAILED when strictOrgResolution is true and storeResolver throws  3160ms
+@unifiedcommerce/core:test:    ✓ storeResolver strict org resolution (anonymous requests) > returns 503 ORG_RESOLUTION_FAILED when STRICT_ORG_RESOLUTION=true and strictOrgResolution is unset  1668ms
+@unifiedcommerce/core:test:    ✓ storeResolver strict org resolution (anonymous requests) > legacy fallback: storeResolver throws, strict off, no env — request continues (public /api/health 200)  4651ms
+@unifiedcommerce/core:test: stderr | test/admin-permissions-route.test.ts > GET /api/admin/permissions
+@unifiedcommerce/core:test: [2m2026-05-09T18:34:12.554Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: stderr | test/admin-permissions-route.test.ts > GET /api/admin/permissions > denies non-admin actors
+@unifiedcommerce/core:test: [api] Unhandled error: Permission "admin" is required. Your role "staff" does not include this permission.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:  ✓ test/kernel-module-wiring.test.ts (3 tests) 5844ms
+@unifiedcommerce/core:test:  ❯ test/admin-permissions-route.test.ts (2 tests | 1 failed) 6148ms
+@unifiedcommerce/core:test:    ✓ GET /api/admin/permissions > returns core + plugin permissions for admin actors 105ms
+@unifiedcommerce/core:test:    × GET /api/admin/permissions > denies non-admin actors 8ms
+@unifiedcommerce/core:test:      → expected 500 to be 403 // Object.is equality
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/adapter-pg-search:test: cache miss, executing a30eba24596b3716
+@unifiedcommerce/adapter-pg-search:test: $ vitest run
+@unifiedcommerce/core:test:  ✓ test/jobs-adapter-org-required.test.ts (2 tests) 8197ms
+@unifiedcommerce/core:test:    ✓ DrizzleJobsAdapter organizationId (S1-06 / MT-5) > inserts job with explicit organizationId  4956ms
+@unifiedcommerce/core:test:    ✓ DrizzleJobsAdapter organizationId (S1-06 / MT-5) > throws OrgResolutionError when organizationId is empty  3226ms
+@unifiedcommerce/plugin-warehouse:build: cache miss, executing 19d767cc6b615d0b
+@unifiedcommerce/plugin-warehouse:build: $ rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json
+@unifiedcommerce/adapter-pg-search:test: 
+@unifiedcommerce/adapter-pg-search:test:  RUN  v3.2.4 /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-pg-search
+@unifiedcommerce/adapter-pg-search:test: 
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test:  ❯ test/server-edge-runtime.test.ts (1 test | 1 failed) 653ms
+@unifiedcommerce/core:test:    × createServer edge-like runtime > constructs without throwing when process has no on/exit 652ms
+@unifiedcommerce/core:test:      → Cannot read properties of undefined (reading 'Symbol(keypress-decoder)')
+@unifiedcommerce/core:test: stderr | test/url-alias-no-double-rate-limit.test.ts > URL alias — single middleware pass (rate limit) > does not double-count alias paths against /api/* rate limit
+@unifiedcommerce/core:test: [2m2026-05-09T18:34:17.341Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/plugin-uom:test: cache miss, executing 48478dc9c652d2e8
+@unifiedcommerce/plugin-uom:test: $ vitest run
+@unifiedcommerce/core:test: {"level":"info","time":1778351657367,"pid":27704,"hostname":"192.168.1.14","msg":"Job queue autorun disabled. Use GET /api/jobs/run for serverless cron, or set config.jobs.autorun.enabled = true for in-process polling."}
+@unifiedcommerce/core:test: {"level":"info","time":1778351657379,"pid":27704,"hostname":"192.168.1.14","requestId":"9301897a-0813-47c2-b896-2bd8f7329b0d","method":"GET","path":"/api/catalog/entities","status":200,"durationMs":7,"msg":"request completed"}
+@unifiedcommerce/core:test: {"level":"info","time":1778351657451,"pid":27704,"hostname":"192.168.1.14","requestId":"d9c69347-4cc4-4aed-8404-c9ec901d55f2","method":"GET","path":"/api/catalog/entities","status":200,"durationMs":72,"msg":"request completed"}
+@unifiedcommerce/core:test: {"level":"info","time":1778351657455,"pid":27704,"hostname":"192.168.1.14","requestId":"437da6b0-188e-4aaf-817f-b6651c25f245","method":"GET","path":"/api/catalog/entities","status":200,"durationMs":3,"msg":"request completed"}
+@unifiedcommerce/core:test: {"level":"info","time":1778351657457,"pid":27704,"hostname":"192.168.1.14","requestId":"15dabaeb-b117-41e2-8d19-90961d8a27c9","method":"GET","path":"/api/catalog/entities","status":200,"durationMs":1,"msg":"request completed"}
+@unifiedcommerce/core:test: {"level":"info","time":1778351657459,"pid":27704,"hostname":"192.168.1.14","requestId":"993a6b3e-1b7f-4efa-9730-c411dc5e6aaa","method":"GET","path":"/api/catalog/entities","status":200,"durationMs":1,"msg":"request completed"}
+@unifiedcommerce/core:test: {"level":"info","time":1778351657460,"pid":27704,"hostname":"192.168.1.14","requestId":"1b959e8b-ad4b-426c-940e-a142c71b71e2","method":"GET","path":"/api/catalog/entities","status":429,"durationMs":0,"msg":"request completed"}
+@unifiedcommerce/core:test:  ✓ test/url-alias-no-double-rate-limit.test.ts (1 test) 4427ms
+@unifiedcommerce/core:test:    ✓ URL alias — single middleware pass (rate limit) > does not double-count alias paths against /api/* rate limit  4427ms
+@unifiedcommerce/adapter-postgres:test: cache miss, executing 6c53c57151961cce
+@unifiedcommerce/adapter-postgres:test: $ vitest run
+@unifiedcommerce/core:test: stderr | test/plugin-test-utils.test.ts > plugin test utilities > boots a minimal kernel with createTestKernel
+@unifiedcommerce/core:test: resolveOrgId fell back to deprecated DEFAULT_ORG_ID (org_default); set auth.defaultOrganizationId, pass defaultOrgId, or ensure the actor has organizationId.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:  ✓ test/plugin-test-utils.test.ts (2 tests) 8593ms
+@unifiedcommerce/core:test:    ✓ plugin test utilities > captures plugin registrations with createTestPluginContext  5750ms
+@unifiedcommerce/core:test:    ✓ plugin test utilities > boots a minimal kernel with createTestKernel  2840ms
+@unifiedcommerce/adapter-meilisearch:test: cache miss, executing efbf35698bec91e4
+@unifiedcommerce/adapter-meilisearch:test: $ vitest run
+@unifiedcommerce/core:test: [⣷] Pulling schema from database...
+@unifiedcommerce/plugin-uom:test: 
+@unifiedcommerce/plugin-uom:test:  RUN  v3.2.4 /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/plugins/plugin-uom
+@unifiedcommerce/plugin-uom:test: 
+@unifiedcommerce/import-shopify:test: cache miss, executing 5ee8801b0db54327
+@unifiedcommerce/import-shopify:test: $ vitest run
+@unifiedcommerce/adapter-postgres:test: 
+@unifiedcommerce/adapter-postgres:test:  RUN  v3.2.4 /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-postgres
+@unifiedcommerce/adapter-postgres:test: 
+@unifiedcommerce/adapter-stripe:test:  ✓ test/stripe.test.ts (1 test) 4ms
+@unifiedcommerce/adapter-stripe:test: 
+@unifiedcommerce/adapter-stripe:test:  Test Files  1 passed (1)
+@unifiedcommerce/adapter-stripe:test:       Tests  1 passed (1)
+@unifiedcommerce/adapter-stripe:test:    Start at  00:04:09
+@unifiedcommerce/adapter-stripe:test:    Duration  9.51s (transform 2.09s, setup 0ms, collect 8.25s, tests 4ms, environment 0ms, prepare 416ms)
+@unifiedcommerce/adapter-stripe:test: 
+@unifiedcommerce/adapter-meilisearch:test: 
+@unifiedcommerce/adapter-meilisearch:test:  RUN  v3.2.4 /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-meilisearch
+@unifiedcommerce/adapter-meilisearch:test: 
+@unifiedcommerce/adapter-r2:test: cache miss, executing 2b44aa73859d8346
+@unifiedcommerce/adapter-r2:test: $ vitest run
+@unifiedcommerce/adapter-local-storage:test: cache miss, executing 81a28aa4826efe4d
+@unifiedcommerce/adapter-local-storage:test: $ vitest run
+@unifiedcommerce/import-shopify:test: 
+@unifiedcommerce/import-shopify:test:  RUN  v3.2.4 /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/import/import-shopify
+@unifiedcommerce/import-shopify:test: 
+@unifiedcommerce/import-flat:build: cache miss, executing ed68f5709d8af3f2
+@unifiedcommerce/import-flat:build: $ rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json
+@unifiedcommerce/adapter-r2:test: 
+@unifiedcommerce/adapter-r2:test:  RUN  v3.2.4 /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-r2
+@unifiedcommerce/adapter-r2:test: 
+@unifiedcommerce/adapter-local-storage:test: 
+@unifiedcommerce/adapter-local-storage:test:  RUN  v3.2.4 /Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-local-storage
+@unifiedcommerce/adapter-local-storage:test: 
+@unifiedcommerce/core:test: [2K[1G[✓] Pulling schema from database...
+@unifiedcommerce/core:test: stderr | test/server-health.test.ts > server > starts and serves /api/health with DB probe
+@unifiedcommerce/core:test: [2m2026-05-09T18:34:21.490Z[0m [33mWARN[0m [1m[Better Auth]:[0m [better-auth] Base URL could not be determined. Please set a valid base URL using the baseURL config option or the BETTER_AUTH_URL environment variable. Without this, callbacks and redirects may not work correctly.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: {"level":"info","time":1778351661509,"pid":27923,"hostname":"192.168.1.14","msg":"Job queue autorun disabled. Use GET /api/jobs/run for serverless cron, or set config.jobs.autorun.enabled = true for in-process polling."}
+@unifiedcommerce/core:test: {"level":"info","time":1778351661559,"pid":27923,"hostname":"192.168.1.14","requestId":"3f9824b3-0d36-42cd-8cb3-7fb079024f03","method":"GET","path":"/api/health","status":200,"durationMs":23,"msg":"request completed"}
+@unifiedcommerce/core:test:  ✓ test/server-health.test.ts (1 test) 4147ms
+@unifiedcommerce/core:test:    ✓ server > starts and serves /api/health with DB probe  4146ms
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:  FAIL  test/admin-permissions-route.test.ts > GET /api/admin/permissions > denies non-admin actors
+@unifiedcommerce/core:test: AssertionError: expected 500 to be 403 // Object.is equality
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [32m- Expected[39m
+@unifiedcommerce/core:test: [31m+ Received[39m
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: [32m- 403[39m
+@unifiedcommerce/core:test: [31m+ 500[39m
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:  ❯ test/admin-permissions-route.test.ts:65:24
+@unifiedcommerce/core:test:      63|       actor: testStaffActor,
+@unifiedcommerce/core:test:      64|     });
+@unifiedcommerce/core:test:      65|     expect(res.status).toBe(403);
+@unifiedcommerce/core:test:        |                        ^
+@unifiedcommerce/core:test:      66|   });
+@unifiedcommerce/core:test:      67| });
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:  FAIL  test/server-edge-runtime.test.ts > createServer edge-like runtime > constructs without throwing when process has no on/exit
+@unifiedcommerce/core:test: TypeError: Cannot read properties of undefined (reading 'Symbol(keypress-decoder)')
+@unifiedcommerce/core:test:  ❯ ../node_modules/.pnpm/hanji@0.0.8/node_modules/hanji/readline.js ../../node_modules/.bun/drizzle-kit@0.31.10/node_modules/drizzle-kit/api.js:2899:24
+@unifiedcommerce/core:test:  ❯ __require ../../node_modules/.bun/drizzle-kit@0.31.10/node_modules/drizzle-kit/api.js:16:50
+@unifiedcommerce/core:test:  ❯ ../node_modules/.pnpm/hanji@0.0.8/node_modules/hanji/index.js ../../node_modules/.bun/drizzle-kit@0.31.10/node_modules/drizzle-kit/api.js:3205:22
+@unifiedcommerce/core:test:  ❯ __require ../../node_modules/.bun/drizzle-kit@0.31.10/node_modules/drizzle-kit/api.js:16:50
+@unifiedcommerce/core:test:  ❯ src/cli/views.ts ../../node_modules/.bun/drizzle-kit@0.31.10/node_modules/drizzle-kit/api.js:9551:28
+@unifiedcommerce/core:test:  ❯ __init ../../node_modules/.bun/drizzle-kit@0.31.10/node_modules/drizzle-kit/api.js:13:56
+@unifiedcommerce/core:test:  ❯ src/serializer/index.ts ../../node_modules/.bun/drizzle-kit@0.31.10/node_modules/drizzle-kit/api.js:9800:5
+@unifiedcommerce/core:test:  ❯ __init ../../node_modules/.bun/drizzle-kit@0.31.10/node_modules/drizzle-kit/api.js:13:56
+@unifiedcommerce/core:test:  ❯ src/migrationPreparator.ts ../../node_modules/.bun/drizzle-kit@0.31.10/node_modules/drizzle-kit/api.js:9841:5
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: ⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: Vitest caught 3 unhandled errors during the test run.
+@unifiedcommerce/core:test: This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: ⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+@unifiedcommerce/core:test: TypeError: fetch failed
+@unifiedcommerce/core:test:  ❯ node:internal/deps/undici/undici:14976:13
+@unifiedcommerce/core:test:  ❯ processTicksAndRejections node:internal/process/task_queues:103:5
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: This error originated in "test/server-edge-runtime.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+@unifiedcommerce/core:test: Caused by: Error: not implemented... yet...
+@unifiedcommerce/core:test:  ❯ makeNetworkError node:internal/deps/undici/undici:9495:35
+@unifiedcommerce/core:test:  ❯ schemeFetch node:internal/deps/undici/undici:10891:34
+@unifiedcommerce/core:test:  ❯ node:internal/deps/undici/undici:10740:26
+@unifiedcommerce/core:test:  ❯ mainFetch node:internal/deps/undici/undici:10759:11
+@unifiedcommerce/core:test:  ❯ fetching node:internal/deps/undici/undici:10707:7
+@unifiedcommerce/core:test:  ❯ fetch node:internal/deps/undici/undici:10576:20
+@unifiedcommerce/core:test:  ❯ fetch node:internal/deps/undici/undici:14974:10
+@unifiedcommerce/core:test:  ❯ fetch node:internal/bootstrap/web/exposed-window-or-worker:75:12
+@unifiedcommerce/core:test:  ❯ startWasmDownload ../../node_modules/.bun/@electric-sql+pglite@0.3.16/node_modules/@electric-sql/pglite/src/utils.ts:17:55
+@unifiedcommerce/core:test:  ❯ L.Ve ../../node_modules/.bun/@electric-sql+pglite@0.3.16/node_modules/@electric-sql/pglite/src/pglite.ts:229:7
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: ⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+@unifiedcommerce/core:test: TypeError: fetch failed
+@unifiedcommerce/core:test:  ❯ node:internal/deps/undici/undici:14976:13
+@unifiedcommerce/core:test:  ❯ processTicksAndRejections node:internal/process/task_queues:103:5
+@unifiedcommerce/core:test:  ❯ Er ../../node_modules/.bun/@electric-sql+pglite@0.3.16/node_modules/@electric-sql/pglite/src/utils.ts:72:29
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: This error originated in "test/server-edge-runtime.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+@unifiedcommerce/core:test: Caused by: Error: not implemented... yet...
+@unifiedcommerce/core:test:  ❯ makeNetworkError node:internal/deps/undici/undici:9495:35
+@unifiedcommerce/core:test:  ❯ schemeFetch node:internal/deps/undici/undici:10891:34
+@unifiedcommerce/core:test:  ❯ node:internal/deps/undici/undici:10740:26
+@unifiedcommerce/core:test:  ❯ mainFetch node:internal/deps/undici/undici:10759:11
+@unifiedcommerce/core:test:  ❯ fetching node:internal/deps/undici/undici:10707:7
+@unifiedcommerce/core:test:  ❯ fetch node:internal/deps/undici/undici:10576:20
+@unifiedcommerce/core:test:  ❯ fetch node:internal/deps/undici/undici:14974:10
+@unifiedcommerce/core:test:  ❯ fetch node:internal/bootstrap/web/exposed-window-or-worker:75:12
+@unifiedcommerce/core:test:  ❯ getFsBundle ../../node_modules/.bun/@electric-sql+pglite@0.3.16/node_modules/@electric-sql/pglite/src/utils.ts:73:31
+@unifiedcommerce/core:test:  ❯ L.Ve ../../node_modules/.bun/@electric-sql+pglite@0.3.16/node_modules/@electric-sql/pglite/src/pglite.ts:240:9
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: ⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+@unifiedcommerce/core:test: TypeError: fetch failed
+@unifiedcommerce/core:test:  ❯ node:internal/deps/undici/undici:14976:13
+@unifiedcommerce/core:test:  ❯ processTicksAndRejections node:internal/process/task_queues:103:5
+@unifiedcommerce/core:test:  ❯ Er ../../node_modules/.bun/@electric-sql+pglite@0.3.16/node_modules/@electric-sql/pglite/src/utils.ts:72:29
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: This error originated in "test/server-edge-runtime.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+@unifiedcommerce/core:test: Caused by: Error: not implemented... yet...
+@unifiedcommerce/core:test:  ❯ makeNetworkError node:internal/deps/undici/undici:9495:35
+@unifiedcommerce/core:test:  ❯ schemeFetch node:internal/deps/undici/undici:10891:34
+@unifiedcommerce/core:test:  ❯ node:internal/deps/undici/undici:10740:26
+@unifiedcommerce/core:test:  ❯ mainFetch node:internal/deps/undici/undici:10759:11
+@unifiedcommerce/core:test:  ❯ fetching node:internal/deps/undici/undici:10707:7
+@unifiedcommerce/core:test:  ❯ fetch node:internal/deps/undici/undici:10576:20
+@unifiedcommerce/core:test:  ❯ fetch node:internal/deps/undici/undici:14974:10
+@unifiedcommerce/core:test:  ❯ fetch node:internal/bootstrap/web/exposed-window-or-worker:75:12
+@unifiedcommerce/core:test:  ❯ getFsBundle ../../node_modules/.bun/@electric-sql+pglite@0.3.16/node_modules/@electric-sql/pglite/src/utils.ts:73:31
+@unifiedcommerce/core:test:  ❯ L.Ve ../../node_modules/.bun/@electric-sql+pglite@0.3.16/node_modules/@electric-sql/pglite/src/pglite.ts:240:9
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test:  Test Files  2 failed | 55 passed (57)
+@unifiedcommerce/core:test:       Tests  2 failed | 365 passed | 1 skipped (368)
+@unifiedcommerce/core:test:      Errors  3 errors
+@unifiedcommerce/core:test:    Start at  00:03:30
+@unifiedcommerce/core:test:    Duration  51.39s (transform 2.33s, setup 644ms, collect 72.38s, tests 228.73s, environment 32ms, prepare 5.90s)
+@unifiedcommerce/core:test: 
+@unifiedcommerce/core:test: error: script "test" exited with code 1
+@unifiedcommerce/plugin-appointments:test: cache miss, executing 4c0b9fdcefa88577
+@unifiedcommerce/import-woocommerce:build: cache miss, executing d56cdfaed0a3de20
+@unifiedcommerce/adapter-local-storage:test: error: script "test" exited with code 130
+@unifiedcommerce/import-flat:test: cache miss, executing 70ace797783c7ab7
+@unifiedcommerce/plugin-wishlist:test: cache miss, executing 6bd207adf4b22bca
+@unifiedcommerce/plugin-loyalty:test: cache miss, executing a19bde501796533c
+@unifiedcommerce/adapter-tax-manual:test: cache miss, executing 1ccc1827cdda0819
+@unifiedcommerce/plugin-notifications:build: cache miss, executing 29cb8861a9ce5097
+@unifiedcommerce/plugin-reviews:build: cache miss, executing 82970e4423fadf44
+@unifiedcommerce/adapter-postgres:build: cache miss, executing 1ce9461a30f4317b
+@unifiedcommerce/plugin-marketplace:test: cache miss, executing 9adca5ab3f2aa204
+@unifiedcommerce/plugin-notifications:test: cache miss, executing 3934994544465dc9
+@unifiedcommerce/adapter-taxjar:test: cache miss, executing 5096aca6e496253d
+@unifiedcommerce/plugin-reviews:test: cache miss, executing d891f563a4584385
+@unifiedcommerce/adapter-pg-search:test: error: script "test" exited with code 1
+@unifiedcommerce/db:test: cache miss, executing 667bbf3b92e45c83
+@unifiedcommerce/adapter-s3:test: cache miss, executing 5078f900bcda3da7
+@unifiedcommerce/plugin-scheduled-orders:test: cache miss, executing 2b4a7bdcdb1e9d10
+@unifiedcommerce/plugin-warehouse:test: cache miss, executing 4edab41180710582
+@unifiedcommerce/adapter-stripe:build: cache miss, executing 138c619509c747f4
+@unifiedcommerce/plugin-giftcards:build: cache miss, executing 76577d0f5ee18344
+@unifiedcommerce/plugin-giftcards:test: cache miss, executing a2f06d255804253f
+@unifiedcommerce/import-woocommerce:test: cache miss, executing 5a2bcf4a14be92b0
+@unifiedcommerce/plugin-production:test: cache miss, executing 87e7731b217c5be2
+@unifiedcommerce/plugin-procurement:test: cache miss, executing 12f9794fe5ec4cd1
+@unifiedcommerce/adapter-r2:test: error: script "test" exited with code 1
+@unifiedcommerce/adapter-postgres:test: error: script "test" exited with code 130
+@unifiedcommerce/adapter-meilisearch:test: error: script "test" exited with code 1
+@unifiedcommerce/plugin-uom:test: error: script "test" exited with code 130
+ ERROR  @unifiedcommerce/core#test: command (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/core) /Users/mithushancj/.bun/bin/bun run test exited (1)
+
+ Tasks:    15 successful, 48 total
+Cached:    2 cached, 48 total
+  Time:    52.395s 
+Failed:    @unifiedcommerce/core#test
+
+ ERROR  run failed: command  exited (1)
+error: script "test" exited with code 1

@@ -1,0 +1,128 @@
+---
+title: Webhooks and Audit
+description: Register webhook endpoints, verify signatures, and query the audit log.
+---
+
+## Register a webhook endpoint
+
+Send a `POST` to `/api/webhooks`. Requires the `webhooks:manage` permission.
+
+```bash
+curl -X POST http://localhost:4000/api/webhooks \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{
+    "url": "https://your-service.example.com/hooks/commerce",
+    "secret": "whsec_your_random_secret_string",
+    "events": ["orders.create", "orders.statusChange", "inventory.afterAdjust"]
+  }'
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `url` | `string` | The HTTPS URL that receives webhook payloads. Must be HTTPS in production. |
+| `secret` | `string` | A shared secret used to sign payloads. Store this securely on your receiving server. |
+| `events` | `string[]` | Event types to subscribe to. |
+
+The response returns the created webhook record including its `id`. Delete a webhook with `DELETE /api/webhooks/:id`. List all webhooks with `GET /api/webhooks`.
+
+## Event types
+
+14 event types are available:
+
+`orders.create`, `orders.statusChange`, `catalog.create`, `catalog.update`, `catalog.delete`, `inventory.afterAdjust`, `customers.create`, `customers.update`, `pricing.create`, `pricing.update`, `promotions.create`, `promotions.update`, `fulfillment.create`, `cart.afterAddItem`
+
+Webhook payloads are delivered asynchronously through the background job queue. Failed deliveries are retried up to 5 times with exponential backoff. The job queue must be running (`jobs.autorun.enabled: true`) for webhooks to be delivered.
+
+## Verify webhook signatures
+
+Every webhook delivery includes an `x-commerce-signature` header containing an HMAC-SHA256 signature of the request body, computed using the shared secret.
+
+```javascript title="webhook-handler.js"
+const crypto = require("crypto");
+
+function verifyWebhookSignature(body, signature, secret) {
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(body, "utf8")
+    .digest("hex");
+  return crypto.timingSafeEqual(
+    Buffer.from(signature, "hex"),
+    Buffer.from(expected, "hex")
+  );
+}
+
+app.post("/hooks/commerce", (req, res) => {
+  const rawBody = req.rawBody;
+  const signature = req.headers["x-commerce-signature"];
+
+  if (!verifyWebhookSignature(rawBody, signature, "whsec_your_secret")) {
+    return res.status(401).send("Invalid signature");
+  }
+
+  const event = JSON.parse(rawBody);
+  // process event...
+  res.status(200).send("OK");
+});
+```
+
+Use `crypto.timingSafeEqual` to prevent timing attacks. Compare raw hex strings — not base64 or other encodings.
+
+### Payload structure
+
+```json
+{
+  "id": "evt_01HQ...",
+  "type": "orders.create",
+  "timestamp": "2026-03-15T10:30:00.000Z",
+  "data": {
+    "id": "order-uuid",
+    "orderNumber": "ORD-2026-000042",
+    "status": "pending",
+    "grandTotal": 4999,
+    "currency": "USD"
+  }
+}
+```
+
+## Audit logging
+
+The engine records an audit entry for every state-changing operation across all modules (orders, catalog, inventory, customers, pricing, promotions, fulfillment, cart, webhooks). Audit logging is enabled by default and requires no configuration.
+
+## Query audit logs
+
+Both audit endpoints require the `audit:read` permission.
+
+### List all audit entries
+
+```bash
+curl "http://localhost:4000/api/audit?entityType=order&from=2026-03-01&limit=50" \
+  -H "x-api-key: dev-staff-key"
+```
+
+Query parameters:
+
+| Parameter | Description |
+|-----------|-------------|
+| `entityType` | Filter by entity type (e.g., `order`, `catalog`, `customer`) |
+| `entityId` | Filter to a specific entity UUID |
+| `event` | Filter by event name (e.g., `orders.create`) |
+| `actorId` | Filter by actor who triggered the event |
+| `from` | Start of time range (ISO 8601) |
+| `to` | End of time range (ISO 8601) |
+| `limit` | Max results (default 50, max 100) |
+
+### Audit history for a specific entity
+
+```bash
+curl "http://localhost:4000/api/audit/order/550e8400-e29b-41d4-a716-446655440000" \
+  -H "x-api-key: dev-staff-key"
+```
+
+Returns all audit entries for the specified entity, ordered by timestamp descending. Accepts the same `from`, `to`, and `limit` parameters.
+
+## Related
+
+- [Database Schema Reference](/reference/database-schema/) — audit entry schema fields
+- [REST API Reference](/reference/rest-api/) — full webhook endpoint details
+- [Authentication guide](/building/authentication/) — `webhooks:manage` and `audit:read` permissions

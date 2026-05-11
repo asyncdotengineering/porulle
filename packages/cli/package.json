@@ -1,0 +1,53 @@
+{
+  "name": "@porulle/cli",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "unifiedcommerce": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 1000",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "postgres": "^3.4.7",
+    "@porulle/import-flat": "workspace:*",
+    "@porulle/import-shopify": "workspace:*",
+    "@porulle/import-woocommerce": "workspace:*",
+    "citty": "^0.1.6",
+    "consola": "^3.4.2",
+    "giget": "^2.0.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.4.5",
+    "@electric-sql/pglite-socket": "^0.1.5",
+    "@porulle/eslint-config": "*",
+    "@porulle/typescript-config": "*",
+    "@types/node": "^24.5.2",
+    "drizzle-kit": "^0.31.9",
+    "eslint": "^9.39.1",
+    "typescript": "5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "description": "The command-line tool. Scaffolds new stores, runs migrations, mints API keys, doctors broken setups.",
+  "homepage": "https://porulle-docs.vercel.app",
+  "bugs": {
+    "url": "https://github.com/asyncdotengineering/porulle/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/asyncdotengineering/porulle.git",
+    "directory": "packages/cli"
+  },
+  "author": "Porulle contributors"
+}

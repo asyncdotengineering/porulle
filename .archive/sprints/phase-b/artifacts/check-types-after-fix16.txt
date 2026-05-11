@@ -1,0 +1,113 @@
+$ turbo run check-types
+• turbo 2.8.20
+
+   • Packages in scope: @repo/eslint-config, @repo/typescript-config, @repo/ui, @unifiedcommerce/adapter-local-storage, @unifiedcommerce/adapter-meilisearch, @unifiedcommerce/adapter-pg-search, @unifiedcommerce/adapter-postgres, @unifiedcommerce/adapter-r2, @unifiedcommerce/adapter-resend, @unifiedcommerce/adapter-s3, @unifiedcommerce/adapter-ses, @unifiedcommerce/adapter-stripe, @unifiedcommerce/adapter-tax-manual, @unifiedcommerce/adapter-taxjar, @unifiedcommerce/cli, @unifiedcommerce/core, @unifiedcommerce/db, @unifiedcommerce/fashion-starter, @unifiedcommerce/import-flat, @unifiedcommerce/import-shopify, @unifiedcommerce/import-woocommerce, @unifiedcommerce/plugin-appointments, @unifiedcommerce/plugin-giftcards, @unifiedcommerce/plugin-loyalty, @unifiedcommerce/plugin-marketplace, @unifiedcommerce/plugin-notifications, @unifiedcommerce/plugin-pos, @unifiedcommerce/plugin-pos-restaurant, @unifiedcommerce/plugin-procurement, @unifiedcommerce/plugin-production, @unifiedcommerce/plugin-reviews, @unifiedcommerce/plugin-scheduled-orders, @unifiedcommerce/plugin-uom, @unifiedcommerce/plugin-warehouse, @unifiedcommerce/plugin-wishlist, @unifiedcommerce/sdk, docs, restaurant-example, saas-example, store-example, tea-avenue, web
+   • Running check-types in 42 packages
+   • Remote caching disabled
+
+@unifiedcommerce/sdk:check-types: cache hit, replaying logs 5d10f4bf7d9dea3d
+@unifiedcommerce/sdk:check-types: $ tsc --noEmit
+@unifiedcommerce/core:check-types: cache hit, replaying logs ff0ae9832ede5633
+@unifiedcommerce/core:check-types: $ bun run generate:plugins && bun run check:store-guard && tsc --noEmit
+@unifiedcommerce/core:check-types: $ node ./scripts/generate-plugin-types.mjs
+@unifiedcommerce/core:check-types: $ node ./scripts/check-store-guard.mjs
+@unifiedcommerce/adapter-resend:check-types: cache hit, replaying logs b1be38cc25205736
+@unifiedcommerce/adapter-resend:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-ses:check-types: cache hit, replaying logs f5dfa52fe9a2d519
+@unifiedcommerce/adapter-ses:check-types: $ tsc --noEmit
+@repo/ui:check-types: cache hit, replaying logs 2db609ae7d56ed1d
+@repo/ui:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-loyalty:check-types: cache hit, replaying logs 78034311fcd2b00d
+@unifiedcommerce/plugin-loyalty:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-scheduled-orders:check-types: cache hit, replaying logs 8d577c2837e80eb6
+@unifiedcommerce/plugin-scheduled-orders:check-types: $ tsc --noEmit
+@unifiedcommerce/import-shopify:check-types: cache hit, replaying logs c6166295b65326b2
+@unifiedcommerce/import-shopify:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-wishlist:check-types: cache hit, replaying logs fd25c73982d5c812
+@unifiedcommerce/plugin-wishlist:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-appointments:check-types: cache hit, replaying logs ede5c9d6e6f6dca2
+@unifiedcommerce/plugin-appointments:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-notifications:check-types: cache hit, replaying logs f6c24e670f118f08
+@unifiedcommerce/plugin-notifications:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-postgres:check-types: cache hit, replaying logs 844701085d3e8981
+@unifiedcommerce/adapter-postgres:check-types: $ tsc --noEmit
+@unifiedcommerce/db:check-types: cache hit, replaying logs f9388c0a935a0167
+@unifiedcommerce/db:check-types: $ tsc --noEmit
+@unifiedcommerce/import-woocommerce:check-types: cache hit, replaying logs f18d94b92f7b6969
+@unifiedcommerce/import-woocommerce:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-tax-manual:check-types: cache hit, replaying logs 02d7127f8f72aa4f
+@unifiedcommerce/adapter-tax-manual:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-r2:check-types: cache hit, replaying logs d775f27d9570e2f5
+@unifiedcommerce/adapter-r2:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-pg-search:check-types: cache hit, replaying logs 05cd0118fc76cfaf
+@unifiedcommerce/adapter-pg-search:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-local-storage:check-types: cache hit, replaying logs 45470069bef17138
+@unifiedcommerce/adapter-local-storage:check-types: $ tsc --noEmit
+@unifiedcommerce/import-flat:check-types: cache hit, replaying logs cc44c2bd651543c6
+@unifiedcommerce/import-flat:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-production:check-types: cache hit, replaying logs 27bb07593dfaa855
+@unifiedcommerce/plugin-production:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-taxjar:check-types: cache hit, replaying logs b5a6a5a882832afa
+@unifiedcommerce/adapter-taxjar:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-s3:check-types: cache hit, replaying logs d63d043bd8b7bad3
+@unifiedcommerce/adapter-s3:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-reviews:check-types: cache hit, replaying logs 16d2c84e9abe4aed
+@unifiedcommerce/plugin-reviews:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-procurement:check-types: cache hit, replaying logs 4adec1cd96f05422
+@unifiedcommerce/plugin-procurement:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-uom:check-types: cache hit, replaying logs 63788da655e94c75
+@unifiedcommerce/plugin-uom:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-giftcards:check-types: cache hit, replaying logs a5f14975863c695c
+@unifiedcommerce/plugin-giftcards:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-warehouse:check-types: cache hit, replaying logs d3199aa790c8334c
+@unifiedcommerce/plugin-warehouse:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-stripe:check-types: cache hit, replaying logs d1613c4286f91448
+@unifiedcommerce/adapter-stripe:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-marketplace:check-types: cache hit, replaying logs 276df4cd79371cb0
+@unifiedcommerce/plugin-marketplace:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-meilisearch:check-types: cache hit, replaying logs 5c00a1b40c7033b3
+@unifiedcommerce/adapter-meilisearch:check-types: $ tsc --noEmit
+web:check-types: cache hit, replaying logs d184046bad62f9ce
+web:check-types: $ next typegen && tsc --noEmit
+web:check-types: Generating route types...
+web:check-types: ✓ Types generated successfully
+docs:check-types: cache hit, replaying logs 35696a7e73d64904
+docs:check-types: $ next typegen && tsc --noEmit
+docs:check-types: Generating route types...
+docs:check-types: ✓ Types generated successfully
+@unifiedcommerce/plugin-pos:check-types: cache hit, replaying logs c9c6169aa1a452f8
+@unifiedcommerce/plugin-pos:check-types: $ tsc --noEmit
+@unifiedcommerce/cli:check-types: cache hit, replaying logs 2a978b6ce02b6258
+@unifiedcommerce/cli:check-types: $ tsc --noEmit
+store-example:check-types: cache miss, executing 4a6496812e90f663
+@unifiedcommerce/plugin-pos-restaurant:check-types: cache hit, replaying logs 585e145a894c8546
+@unifiedcommerce/plugin-pos-restaurant:check-types: $ tsc --noEmit
+tea-avenue:check-types: cache hit, replaying logs 7138740b84909e92
+tea-avenue:check-types: $ tsc --noEmit
+restaurant-example:check-types: cache miss, executing ce9948ed07d1ce2f
+restaurant-example:check-types: $ tsc --noEmit
+store-example:check-types: $ tsc --noEmit
+restaurant-example:check-types: src/scripts/saas-full-isolation.ts(29,7): error TS2419: Types of construct signatures are incompatible.
+restaurant-example:check-types:   Type 'new (db: PluginDb) => ProductionService' is not assignable to type 'new (...args: never[]) => Record<string, unknown>'.
+restaurant-example:check-types:     Type 'ProductionService' is not assignable to type 'Record<string, unknown>'.
+restaurant-example:check-types:       Index signature for type 'string' is missing in type 'ProductionService'.
+restaurant-example:check-types: src/scripts/saas-full-isolation.ts(30,7): error TS2419: Types of construct signatures are incompatible.
+restaurant-example:check-types:   Type 'new (db: PluginDb, adapters?: NotificationAdapters | undefined) => NotificationService' is not assignable to type 'new (...args: never[]) => Record<string, unknown>'.
+restaurant-example:check-types:     Type 'NotificationService' is not assignable to type 'Record<string, unknown>'.
+restaurant-example:check-types:       Index signature for type 'string' is missing in type 'NotificationService'.
+restaurant-example:check-types: src/scripts/saas-full-isolation.ts(31,7): error TS2419: Types of construct signatures are incompatible.
+restaurant-example:check-types:   Type 'new (db: PluginDb) => ScheduledOrderService' is not assignable to type 'new (...args: never[]) => Record<string, unknown>'.
+restaurant-example:check-types:     Type 'ScheduledOrderService' is not assignable to type 'Record<string, unknown>'.
+restaurant-example:check-types:       Index signature for type 'string' is missing in type 'ScheduledOrderService'.
+restaurant-example:check-types: src/scripts/saas-full-isolation.ts(32,7): error TS2419: Types of construct signatures are incompatible.
+restaurant-example:check-types:   Type 'new (db: PluginDb) => ReviewService' is not assignable to type 'new (...args: never[]) => Record<string, unknown>'.
+restaurant-example:check-types:     Type 'ReviewService' is not assignable to type 'Record<string, unknown>'.
+restaurant-example:check-types:       Index signature for type 'string' is missing in type 'ReviewService'.
+ ERROR  restaurant-example#check-types: command (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/apps/restaurant-example) /Users/mithushancj/.bun/bin/bun run check-types exited (2)
+
+ Tasks:    36 successful, 38 total
+Cached:    36 cached, 38 total
+  Time:    1.837s 
+Failed:    restaurant-example#check-types
+
+ ERROR  run failed: command  exited (2)

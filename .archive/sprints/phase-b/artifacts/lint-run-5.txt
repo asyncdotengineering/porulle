@@ -1,0 +1,44 @@
+$ turbo run lint
+• turbo 2.9.12
+
+   • Packages in scope: @repo/eslint-config, @repo/typescript-config, @repo/ui, @unifiedcommerce/adapter-local-storage, @unifiedcommerce/adapter-meilisearch, @unifiedcommerce/adapter-pg-search, @unifiedcommerce/adapter-postgres, @unifiedcommerce/adapter-r2, @unifiedcommerce/adapter-resend, @unifiedcommerce/adapter-s3, @unifiedcommerce/adapter-ses, @unifiedcommerce/adapter-stripe, @unifiedcommerce/adapter-tax-manual, @unifiedcommerce/adapter-taxjar, @unifiedcommerce/cli, @unifiedcommerce/core, @unifiedcommerce/db, @unifiedcommerce/fashion-starter, @unifiedcommerce/import-flat, @unifiedcommerce/import-shopify, @unifiedcommerce/import-woocommerce, @unifiedcommerce/plugin-appointments, @unifiedcommerce/plugin-giftcards, @unifiedcommerce/plugin-loyalty, @unifiedcommerce/plugin-marketplace, @unifiedcommerce/plugin-notifications, @unifiedcommerce/plugin-pos, @unifiedcommerce/plugin-pos-restaurant, @unifiedcommerce/plugin-procurement, @unifiedcommerce/plugin-production, @unifiedcommerce/plugin-reviews, @unifiedcommerce/plugin-scheduled-orders, @unifiedcommerce/plugin-uom, @unifiedcommerce/plugin-warehouse, @unifiedcommerce/plugin-wishlist, @unifiedcommerce/sdk, docs, restaurant-example, saas-example, store-example, tea-avenue, web
+   • Running lint in 42 packages
+   • Remote caching disabled
+
+@unifiedcommerce/adapter-resend:lint: cache miss, executing a2eba7a0818099d8
+@unifiedcommerce/sdk:lint: cache miss, executing 46c6a382af4061b2
+@repo/ui:lint: cache miss, executing b1b520f6ceaddcd2
+@unifiedcommerce/adapter-ses:lint: cache miss, executing 830c43d55132ab78
+@unifiedcommerce/core:lint: cache miss, executing 1a10d70c6f09ce52
+@unifiedcommerce/adapter-resend:lint: $ eslint . --max-warnings 1000
+@repo/ui:lint: $ eslint . --max-warnings 0
+@unifiedcommerce/core:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/sdk:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/adapter-ses:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/sdk:lint: 
+@unifiedcommerce/sdk:lint: Oops! Something went wrong! :(
+@unifiedcommerce/sdk:lint: 
+@unifiedcommerce/sdk:lint: ESLint: 9.39.4
+@unifiedcommerce/sdk:lint: 
+@unifiedcommerce/sdk:lint: file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/sdk/eslint.config.mjs?mtime=1772949446227:1
+@unifiedcommerce/sdk:lint: import config from "@repo/eslint-config/base";
+@unifiedcommerce/sdk:lint:        ^^^^^^
+@unifiedcommerce/sdk:lint: SyntaxError: The requested module '@repo/eslint-config/base' does not provide an export named 'default'
+@unifiedcommerce/sdk:lint:     at ModuleJob._instantiate (node:internal/modules/esm/module_job:226:21)
+@unifiedcommerce/sdk:lint:     at async ModuleJob.run (node:internal/modules/esm/module_job:335:5)
+@unifiedcommerce/sdk:lint:     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+@unifiedcommerce/sdk:lint:     at async dynamicImportConfig (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/.bun/eslint@9.39.4+8a74c61495cb0b0d/node_modules/eslint/lib/config/config-loader.js:186:17)
+@unifiedcommerce/sdk:lint:     at async loadConfigFile (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/.bun/eslint@9.39.4+8a74c61495cb0b0d/node_modules/eslint/lib/config/config-loader.js:276:9)
+@unifiedcommerce/sdk:lint:     at async ConfigLoader.calculateConfigArray (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/.bun/eslint@9.39.4+8a74c61495cb0b0d/node_modules/eslint/lib/config/config-loader.js:589:23)
+@unifiedcommerce/sdk:lint:     at async #calculateConfigArray (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/.bun/eslint@9.39.4+8a74c61495cb0b0d/node_modules/eslint/lib/config/config-loader.js:743:23)
+@unifiedcommerce/sdk:lint:     at async directoryFilter (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/.bun/eslint@9.39.4+8a74c61495cb0b0d/node_modules/eslint/lib/eslint/eslint-helpers.js:309:5)
+@unifiedcommerce/sdk:lint:     at async NodeHfs.<anonymous> (file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/.bun/@humanfs+core@0.19.2/node_modules/@humanfs/core/src/hfs.js:586:29)
+@unifiedcommerce/sdk:lint:     at async NodeHfs.walk (file:///Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/node_modules/.bun/@humanfs+core@0.19.2/node_modules/@humanfs/core/src/hfs.js:614:3)
+ ERROR  @unifiedcommerce/sdk#lint: command (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/sdk) /Users/mithushancj/.bun/bin/bun run lint exited (2)
+
+ Tasks:    0 successful, 5 total
+Cached:    0 cached, 5 total
+  Time:    476ms 
+Failed:    @unifiedcommerce/sdk#lint
+
+ ERROR  run failed: command  exited (2)

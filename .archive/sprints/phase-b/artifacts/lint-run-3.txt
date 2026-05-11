@@ -1,0 +1,57 @@
+$ turbo run lint
+• turbo 2.9.12
+
+   • Packages in scope: @repo/eslint-config, @repo/typescript-config, @repo/ui, @unifiedcommerce/adapter-local-storage, @unifiedcommerce/adapter-meilisearch, @unifiedcommerce/adapter-pg-search, @unifiedcommerce/adapter-postgres, @unifiedcommerce/adapter-r2, @unifiedcommerce/adapter-resend, @unifiedcommerce/adapter-s3, @unifiedcommerce/adapter-ses, @unifiedcommerce/adapter-stripe, @unifiedcommerce/adapter-tax-manual, @unifiedcommerce/adapter-taxjar, @unifiedcommerce/cli, @unifiedcommerce/core, @unifiedcommerce/db, @unifiedcommerce/fashion-starter, @unifiedcommerce/import-flat, @unifiedcommerce/import-shopify, @unifiedcommerce/import-woocommerce, @unifiedcommerce/plugin-appointments, @unifiedcommerce/plugin-giftcards, @unifiedcommerce/plugin-loyalty, @unifiedcommerce/plugin-marketplace, @unifiedcommerce/plugin-notifications, @unifiedcommerce/plugin-pos, @unifiedcommerce/plugin-pos-restaurant, @unifiedcommerce/plugin-procurement, @unifiedcommerce/plugin-production, @unifiedcommerce/plugin-reviews, @unifiedcommerce/plugin-scheduled-orders, @unifiedcommerce/plugin-uom, @unifiedcommerce/plugin-warehouse, @unifiedcommerce/plugin-wishlist, @unifiedcommerce/sdk, docs, restaurant-example, saas-example, store-example, tea-avenue, web
+   • Running lint in 42 packages
+   • Remote caching disabled
+
+@unifiedcommerce/adapter-ses:lint: cache miss, executing a7d2b706a3a933cd
+@repo/ui:lint: cache miss, executing b1b520f6ceaddcd2
+@unifiedcommerce/core:lint: cache miss, executing 1a10d70c6f09ce52
+@unifiedcommerce/sdk:lint: cache miss, executing 46c6a382af4061b2
+@unifiedcommerce/adapter-resend:lint: cache miss, executing 87f00885a921c6f2
+@unifiedcommerce/sdk:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/core:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/adapter-ses:lint: $ eslint . --max-warnings 1000
+@repo/ui:lint: $ eslint . --max-warnings 0
+@unifiedcommerce/adapter-resend:lint: $ eslint . --max-warnings 1000
+@unifiedcommerce/adapter-resend:lint: 
+@unifiedcommerce/adapter-resend:lint: Oops! Something went wrong! :(
+@unifiedcommerce/adapter-resend:lint: 
+@unifiedcommerce/adapter-resend:lint: ESLint: 9.39.4
+@unifiedcommerce/adapter-resend:lint: 
+@unifiedcommerce/adapter-resend:lint: ESLint couldn't find an eslint.config.(js|mjs|cjs) file.
+@unifiedcommerce/adapter-resend:lint: 
+@unifiedcommerce/adapter-resend:lint: From ESLint v9.0.0, the default configuration file is now eslint.config.js.
+@unifiedcommerce/adapter-resend:lint: If you are using a .eslintrc.* file, please follow the migration guide
+@unifiedcommerce/adapter-resend:lint: to update your configuration file to the new format:
+@unifiedcommerce/adapter-resend:lint: 
+@unifiedcommerce/adapter-resend:lint: https://eslint.org/docs/latest/use/configure/migration-guide
+@unifiedcommerce/adapter-resend:lint: 
+@unifiedcommerce/adapter-resend:lint: If you still have problems after following the migration guide, please stop by
+@unifiedcommerce/adapter-resend:lint: https://eslint.org/chat/help to chat with the team.
+@unifiedcommerce/adapter-resend:lint: 
+@unifiedcommerce/adapter-ses:lint: 
+@unifiedcommerce/adapter-ses:lint: Oops! Something went wrong! :(
+@unifiedcommerce/adapter-ses:lint: 
+@unifiedcommerce/adapter-ses:lint: ESLint: 9.39.4
+@unifiedcommerce/adapter-ses:lint: 
+@unifiedcommerce/adapter-ses:lint: ESLint couldn't find an eslint.config.(js|mjs|cjs) file.
+@unifiedcommerce/adapter-ses:lint: 
+@unifiedcommerce/adapter-ses:lint: From ESLint v9.0.0, the default configuration file is now eslint.config.js.
+@unifiedcommerce/adapter-ses:lint: If you are using a .eslintrc.* file, please follow the migration guide
+@unifiedcommerce/adapter-ses:lint: to update your configuration file to the new format:
+@unifiedcommerce/adapter-ses:lint: 
+@unifiedcommerce/adapter-ses:lint: https://eslint.org/docs/latest/use/configure/migration-guide
+@unifiedcommerce/adapter-ses:lint: 
+@unifiedcommerce/adapter-ses:lint: If you still have problems after following the migration guide, please stop by
+@unifiedcommerce/adapter-ses:lint: https://eslint.org/chat/help to chat with the team.
+@unifiedcommerce/adapter-ses:lint: 
+ ERROR  @unifiedcommerce/adapter-resend#lint: command (/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-commerce-engine/packages/adapters/adapter-resend) /Users/mithushancj/.bun/bin/bun run lint exited (2)
+
+ Tasks:    0 successful, 5 total
+Cached:    0 cached, 5 total
+  Time:    598ms 
+Failed:    @unifiedcommerce/adapter-resend#lint
+
+ ERROR  run failed: command  exited (2)

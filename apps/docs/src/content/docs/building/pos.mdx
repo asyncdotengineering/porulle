@@ -1,0 +1,101 @@
+---
+title: Point of Sale
+description: POS terminals, cashier shifts, split payment, and Z-reports.
+---
+
+The POS plugin adds terminals, shifts, transactions, and multi-method payment splitting to any Porulle instance. It does not require a storefront — it's designed for brick-and-mortar retail, pop-up shops, and hybrid online+in-store operations.
+
+For a complete step-by-step walkthrough, see the [Tea Shop POS tutorial](/tutorials/tea-shop-pos/).
+
+## Install
+
+```bash
+bun add @porulle/plugin-pos
+```
+
+## Register
+
+```ts title="commerce.config.ts"
+import { posPlugin } from "@porulle/plugin-pos";
+
+export default defineConfig({
+  plugins: [posPlugin()],
+});
+```
+
+Update `drizzle.config.ts`:
+
+```ts title="drizzle.config.ts"
+schema: [
+  "./node_modules/@porulle/core/src/kernel/database/schema.ts",
+  "./node_modules/@porulle/core/src/auth/auth-schema.ts",
+  "./node_modules/@porulle/plugin-pos/src/schema.ts",
+],
+```
+
+Push the new tables and restart:
+
+```bash
+bunx drizzle-kit push --config drizzle.config.ts
+bun run src/server.ts
+```
+
+This adds six tables: `pos_terminals`, `pos_shifts`, `pos_transactions`, `pos_payments`, `pos_cash_events`, `pos_return_items`.
+
+## Core objects
+
+**Terminal** — represents a physical register or device. Created once and reused across shifts.
+
+**Shift** — a cashier session tied to one terminal. Tracks opening float, cash events, sales totals, and cash variance. Must be opened before transactions can be created.
+
+**Transaction** — a sale linked to a shift. Accumulates payments until completed or voided. Voided transactions do not count toward shift totals.
+
+**Payment** — one payment method entry on a transaction. Multiple payments on a single transaction = split payment.
+
+## Quick reference
+
+| Operation | Endpoint |
+|-----------|----------|
+| Register terminal | `POST /api/pos/terminals` |
+| Open shift | `POST /api/pos/shifts/open` |
+| Create transaction | `POST /api/pos/transactions` |
+| Add payment | `POST /api/pos/transactions/:id/payments` |
+| Complete transaction | `POST /api/pos/transactions/:id/complete` |
+| Void transaction | `POST /api/pos/transactions/:id/void` |
+| Close shift | `POST /api/pos/shifts/:id/close` |
+| Z-report | `GET /api/pos/shifts/:id/report` |
+
+All monetary values are integers in the smallest currency unit (cents for USD).
+
+## Split payment
+
+To split a transaction across multiple payment methods, POST multiple payments before completing:
+
+```bash
+curl -X POST http://localhost:4000/api/pos/transactions/$TXN_ID/payments \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"method": "cash", "amount": 3500}'
+
+curl -X POST http://localhost:4000/api/pos/transactions/$TXN_ID/payments \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"method": "card", "amount": 1500, "reference": "****4321"}'
+
+curl -X POST http://localhost:4000/api/pos/transactions/$TXN_ID/complete \
+  -H "x-api-key: dev-staff-key"
+```
+
+## Cash variance
+
+When closing a shift, pass the cashier's physical count as `closingCount`. The engine calculates:
+
+```
+expected cash = opening float + all cash payments across completed transactions
+cash variance = closing count - expected cash
+```
+
+A negative variance means cash is short. A positive variance means there's more cash than expected.
+
+## Related
+
+- [Tea Shop POS tutorial](/tutorials/tea-shop-pos/) — full 10-step walkthrough
+- [Plugin API Reference](/reference/plugins/) — all POS endpoints and data types

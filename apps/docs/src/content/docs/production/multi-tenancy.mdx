@@ -1,0 +1,161 @@
+---
+title: Multi-Tenancy
+description: Run multiple isolated stores on one Porulle instance using organization-scoped data.
+---
+
+Every Porulle instance starts with one organization. For single-store deployments, you never need to think about organizations beyond the initial seed. For multi-tenant SaaS, organizations are the isolation boundary — each organization is a fully independent store sharing one database and one running process.
+
+For the conceptual design — why organizations map to stores, how shared tables work, and composite unique constraints — see [Identity and Store Resolution](/concepts/identity-model/).
+
+## Single-store setup
+
+Create the organization in your seed script and store the ID in your config:
+
+```ts title="scripts/seed.ts"
+const org = await commerce.auth.api.createOrganization({
+  body: {
+    name: "My Store",
+    slug: "my-store",
+    userId: adminUserId,
+  },
+});
+// Write to .env: PORULLE_ORG_ID=<org.id>
+```
+
+```ts title="commerce.config.ts"
+auth: {
+  defaultOrganizationId: process.env.PORULLE_ORG_ID,
+}
+```
+
+## Create additional organizations
+
+To add more stores, insert organization rows. Better Auth provides a REST endpoint:
+
+```bash
+curl -X POST http://localhost:4000/api/auth/organization/create \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"name": "Alpha Streetwear", "slug": "alpha-streetwear"}'
+```
+
+Or insert directly via SQL:
+
+```ts title="src/scripts/create-orgs.ts"
+import { sql } from "drizzle-orm";
+
+// db = kernel.database.db
+await db.execute(sql`
+  INSERT INTO organization (id, name, slug, created_at)
+  VALUES ('org_alpha', 'Alpha Streetwear', 'alpha-streetwear', NOW())
+  ON CONFLICT (id) DO NOTHING
+`);
+```
+
+## Scope actors to an organization
+
+Every API request carries an actor. The actor's `organizationId` determines which store's data is visible. All service calls resolve the org from the actor internally — you never pass `orgId` as a separate parameter.
+
+```ts
+const alphaAdmin = {
+  type: "user" as const,
+  userId: "alpha-admin",
+  organizationId: "org_alpha",
+  role: "admin",
+  permissions: ["*:*"],
+  email: "admin@alpha.com",
+  name: "Alpha Admin",
+  vendorId: null,
+};
+
+await kernel.services.catalog.create(
+  { type: "product", slug: "summer-tee", metadata: {} },
+  alphaAdmin,
+);
+```
+
+## Composite unique constraints
+
+Unique constraints on slug, code, and email are composite with `organizationId`. Two organizations can have the same product slug or warehouse code:
+
+```ts
+// Both succeed — composite unique (organizationId, slug)
+await kernel.services.catalog.create(
+  { type: "product", slug: "summer-special", metadata: {} },
+  alphaAdmin,
+);
+await kernel.services.catalog.create(
+  { type: "product", slug: "summer-special", metadata: {} },
+  betaAdmin,
+);
+```
+
+## Store resolution for SaaS
+
+For multi-tenant SaaS where each subdomain or header maps to a different store, configure `storeResolver`:
+
+```ts title="commerce.config.ts"
+auth: {
+  strictOrgResolution: true,
+  storeResolver: async (request) => {
+    const storeId = request.headers.get("x-store-id");
+    return storeId ?? null;
+  },
+}
+```
+
+If `strictOrgResolution` is `true` and resolution returns `null`, the request is rejected with HTTP 503. This prevents accidental cross-store data access when the resolver can't determine the store.
+
+## Define plugin tables with `defineTable`
+
+Use `defineTable` from `@porulle/db` for plugin-owned tables that need multi-tenant scoping. It auto-injects `id`, `organizationId`, `createdAt`, `updatedAt`, org index, and composite unique constraints:
+
+```ts title="src/schema.ts"
+import { defineTable, column } from "@porulle/db";
+
+export const giftCards = defineTable("gift_cards", {
+  code: column.text({ unique: true }),
+  balance: column.integer(),
+  currency: column.text(),
+});
+
+export const giftCardTransactions = defineTable("gift_card_transactions", {
+  giftCardId: column.uuid({ references: giftCards }),
+  amount: column.integer(),
+  type: column.text({ enum: ["debit", "credit", "refund"] }),
+});
+```
+
+Child tables whose parent has `organizationId` do not get a second `organizationId` — the FK relationship provides the scoping implicitly.
+
+## Write plugin routes with the scoped DB
+
+Route handlers receive a `db` that auto-stamps `organizationId` on INSERT operations:
+
+```ts
+r.post("/")
+  .permission("my-plugin:admin")
+  .handler(async ({ db, input, actor }) => {
+    const [card] = await db.insert(giftCards)
+      .values({ code: input.code, balance: input.amount })
+      .returning();
+    return card;
+  });
+```
+
+## Verify data isolation
+
+Query the database to confirm products are scoped to their organization:
+
+```sql
+SELECT o.name, COUNT(e.id) AS products
+FROM organization o
+LEFT JOIN sellable_entities e ON e.organization_id = o.id
+GROUP BY o.name;
+```
+
+## Related
+
+- [Identity and Store Resolution](/concepts/identity-model/) — conceptual design of org isolation
+- [Authentication guide](/building/authentication/) — `storeResolver` and `strictOrgResolution` in detail
+- [Plugin API Reference](/reference/plugins/) — `defineTable` API and `@porulle/db` exports

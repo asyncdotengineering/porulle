@@ -1,0 +1,317 @@
+---
+title: Provisioning via the Admin API
+description: Use @porulle/sdk to provision your store — create products, set inventory, publish, manage customers — with end-to-end TypeScript types.
+---
+
+import { Tabs, TabItem, Aside, Steps } from "@astrojs/starlight/components";
+
+The Porulle SDK is a typed wrapper around your server's REST API. You generate types from your live server's OpenAPI spec, so every admin call is type-checked against your exact deployment — including plugin routes you've added.
+
+This guide takes you from "fresh API key" to "first product live and inventoried" in under five minutes.
+
+## Prerequisites
+
+- A running Porulle server (local or production). If you don't have one, follow the [Quickstart](/get-started/quickstart/).
+- An admin API key. Create one with the CLI:
+
+  ```bash
+  porulle api-key create --server https://api.acme.com --name admin-cli --scopes "*:*"
+  ```
+
+  <Aside type="caution">
+  The key is shown once — paste it into your password manager or `.env` immediately.
+  </Aside>
+
+## Step 1 — Install + generate types
+
+<Steps>
+
+1. Install the SDK and the codegen toolchain.
+
+   ```bash
+   bun add @porulle/sdk
+   bun add -d openapi-typescript
+   ```
+
+2. Generate types from your live server. The codegen reads `/api/doc` (which serves your OpenAPI 3.1 spec) and writes a typed `paths` object.
+
+   ```bash
+   bunx @porulle/sdk generate \
+     --url https://api.acme.com/api/doc \
+     --out src/api-types.ts
+   ```
+
+   <Aside type="tip">
+   Re-run codegen any time you ship plugin route changes or add custom admin endpoints. The types should ride with the deployment.
+   </Aside>
+
+3. Create the typed client.
+
+   ```ts title="src/api.ts"
+   import { createPorulleClient } from "@porulle/sdk";
+   import type { paths } from "./api-types";
+
+   export const api = createPorulleClient<paths>({
+     baseUrl: process.env.PORULLE_BASE_URL!,
+     apiKey: process.env.PORULLE_ADMIN_KEY!,
+   });
+   ```
+
+</Steps>
+
+## Step 2 — Create your first product
+
+Every catalog item is a `sellable_entity`. Products, services, gift cards, subscriptions all use the same shape — what differs is the `type` and the typed `fields`.
+
+```ts title="scripts/seed-product.ts"
+import { api } from "../src/api";
+
+const created = await api.POST("/api/admin/entities", {
+  body: {
+    type: "product",
+    name: "Cotton Tee",
+    slug: "cotton-tee",
+    description: "Heavyweight 240gsm cotton, screen-printed.",
+    fields: {
+      weight: 240,    // grams — declared in commerce.config.ts
+      material: "cotton",
+    },
+    variants: [
+      { sku: "TEE-S-BLK", optionValues: { size: "S", color: "black" }, price: 2900 },
+      { sku: "TEE-M-BLK", optionValues: { size: "M", color: "black" }, price: 2900 },
+      { sku: "TEE-L-BLK", optionValues: { size: "L", color: "black" }, price: 2900 },
+      { sku: "TEE-S-WHT", optionValues: { size: "S", color: "white" }, price: 2900 },
+      { sku: "TEE-M-WHT", optionValues: { size: "M", color: "white" }, price: 2900 },
+    ],
+  },
+});
+
+if (created.error) {
+  console.error("Failed:", created.error);
+  process.exit(1);
+}
+
+console.log(`Created entity ${created.data.id} with ${created.data.variants.length} variants`);
+```
+
+Prices are integers in the smallest currency unit (cents for USD, øre for DKK). Currency itself comes from `commerce.config.ts` — never pass it per request.
+
+## Step 3 — Set inventory levels
+
+A product with no inventory shows as out of stock. Set per-variant levels per location.
+
+```ts title="scripts/seed-inventory.ts"
+import { api } from "../src/api";
+
+const entityId = "ent_…";  // from Step 2
+
+await api.POST("/api/admin/inventory/levels", {
+  body: {
+    entityId,
+    locationId: "wh_main",   // create locations via /api/admin/locations
+    levels: [
+      { variantId: "var_s_black", available: 50 },
+      { variantId: "var_m_black", available: 80 },
+      { variantId: "var_l_black", available: 30 },
+    ],
+  },
+});
+```
+
+For multi-warehouse stores, create one call per location. The `inventory.afterChange` hook fires on each call — useful for syncing to external WMS.
+
+## Step 4 — Publish
+
+Entities are created in `draft` status. Move them to `published` to expose on the storefront.
+
+```ts
+await api.PATCH("/api/admin/entities/{id}", {
+  params: { path: { id: entityId } },
+  body: { status: "published" },
+});
+```
+
+The product is now reachable at:
+
+- `GET /api/catalog/entities/cotton-tee` — public catalog read
+- `GET /api/search?q=cotton+tee` — full-text search
+- Whatever storefront you point at the API
+
+## Common admin operations
+
+<Tabs>
+  <TabItem label="Customers">
+
+```ts
+// Create a customer
+const { data: customer } = await api.POST("/api/admin/customers", {
+  body: { email: "kai@acme.com", firstName: "Kai", lastName: "Lin" },
+});
+
+// Find by email
+const { data: existing } = await api.GET("/api/admin/customers", {
+  params: { query: { email: "kai@acme.com" } },
+});
+```
+
+  </TabItem>
+  <TabItem label="Orders">
+
+```ts
+// List orders
+const { data: orders } = await api.GET("/api/admin/orders", {
+  params: { query: { status: "confirmed", limit: 50 } },
+});
+
+// Refund
+await api.POST("/api/admin/orders/{id}/refund", {
+  params: { path: { id: order.id } },
+  body: { amount: 1000, reason: "damaged in transit" },
+});
+```
+
+  </TabItem>
+  <TabItem label="Promotions">
+
+```ts
+await api.POST("/api/admin/promotions", {
+  body: {
+    code: "SUMMER25",
+    type: "percentage",
+    value: 25,
+    validFrom: new Date().toISOString(),
+    validUntil: new Date(Date.now() + 7 * 86400 * 1000).toISOString(),
+    minOrderTotal: 5000,
+  },
+});
+```
+
+  </TabItem>
+  <TabItem label="Media upload">
+
+```ts
+const file = await Bun.file("./tee-front.jpg").arrayBuffer();
+
+const { data: upload } = await api.POST("/api/admin/media", {
+  body: file,
+  headers: { "Content-Type": "image/jpeg" },
+});
+
+await api.POST("/api/admin/entities/{id}/media", {
+  params: { path: { id: entityId } },
+  body: { mediaId: upload.id, role: "primary" },
+});
+```
+
+The kernel validates the upload's magic bytes and rejects spoofed MIME types.
+
+  </TabItem>
+</Tabs>
+
+## Error handling
+
+Every SDK call returns `{ data, error }`. Errors are typed — narrow on `error.code` for behavior.
+
+```ts
+const { data, error } = await api.POST("/api/admin/entities", { body: {...} });
+
+if (error) {
+  switch (error.code) {
+    case "VALIDATION_ERROR":
+      console.error("Bad input:", error.fields);
+      break;
+    case "DUPLICATE_SLUG":
+      console.error("Slug already taken — pick another");
+      break;
+    case "PERMISSION_DENIED":
+      console.error("API key lacks the entities:create scope");
+      break;
+    default:
+      console.error("Unexpected:", error);
+  }
+  return;
+}
+
+// data is fully typed beyond this point
+```
+
+The kernel never throws across module boundaries — see the [Result Types concept](/concepts/result-types/) for the discipline.
+
+## Idempotency
+
+For mutating endpoints, pass an `Idempotency-Key` header. Repeating the same key returns the cached response without re-running the mutation.
+
+```ts
+await api.POST("/api/admin/entities", {
+  body: {...},
+  headers: { "Idempotency-Key": "seed-2026-05-cotton-tee" },
+});
+```
+
+Keys live for 24 hours.
+
+## Putting it together
+
+A complete seed script for a fresh production store:
+
+```ts title="scripts/seed.ts"
+import { api } from "../src/api";
+
+async function main() {
+  // 1. Locations
+  const { data: warehouse } = await api.POST("/api/admin/locations", {
+    body: { name: "Main Warehouse", code: "wh_main", type: "warehouse" },
+  });
+
+  // 2. Products
+  const products = [
+    { name: "Cotton Tee", slug: "cotton-tee", price: 2900 },
+    { name: "Wool Hoodie", slug: "wool-hoodie", price: 8900 },
+    { name: "Canvas Tote", slug: "canvas-tote", price: 1900 },
+  ];
+
+  for (const p of products) {
+    const { data: entity } = await api.POST("/api/admin/entities", {
+      body: {
+        type: "product",
+        name: p.name,
+        slug: p.slug,
+        variants: [{ sku: `${p.slug}-default`, price: p.price }],
+      },
+    });
+
+    await api.POST("/api/admin/inventory/levels", {
+      body: {
+        entityId: entity.id,
+        locationId: warehouse.id,
+        levels: [{ variantId: entity.variants[0].id, available: 100 }],
+      },
+    });
+
+    await api.PATCH("/api/admin/entities/{id}", {
+      params: { path: { id: entity.id } },
+      body: { status: "published" },
+    });
+
+    console.log(`✓ ${p.name} live at /products/${p.slug}`);
+  }
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
+```
+
+```bash
+PORULLE_BASE_URL=https://api.acme.com \
+PORULLE_ADMIN_KEY=pak_live_… \
+bun run scripts/seed.ts
+```
+
+## Where to next
+
+- [Authentication](/building/authentication/) — API key scopes, what each scope allows
+- [Custom Tables](/extending/custom-tables/) — extend the schema for fields the kernel doesn't model
+- [REST API Reference](/reference/rest-api/) — every endpoint, request body, and response shape
+- [Typed SDK Client](/frontend/sdk/) — frontend usage with React Query bindings

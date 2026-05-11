@@ -1,0 +1,29 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.1.4/schema.json",
+  "changelog": [
+    "@changesets/changelog-github",
+    {
+      "repo": "asyncdotengineering/porulle"
+    }
+  ],
+  "commit": false,
+  "fixed": [
+    [
+      "@porulle/*"
+    ]
+  ],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": [
+    "@porulle/eslint-config",
+    "@porulle/typescript-config",
+    "@porulle/docs",
+    "store-example",
+    "restaurant-example",
+    "saas-example",
+    "tea-avenue",
+    "web"
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "name": "store-example",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "seed": "tsx src/scripts/seed.ts",
+    "demo:browse": "tsx src/scripts/browse-catalog.ts",
+    "demo:cart": "tsx src/scripts/cart-and-checkout.ts",
+    "demo:inventory": "tsx src/scripts/inventory-ops.ts",
+    "demo:analytics": "tsx src/scripts/analytics.ts",
+    "demo:all": "tsx src/scripts/full-flow.ts",
+    "demo:admin": "tsx src/scripts/demo-admin.ts",
+    "demo:customer": "tsx src/scripts/demo-customer.ts",
+    "demo:loyalty": "tsx src/scripts/demo-loyalty.ts",
+    "demo:simulate": "tsx src/scripts/demo-simulation.ts",
+    "generate:year": "tsx src/scripts/generate-year.ts",
+    "analytics:validate": "tsx src/scripts/validate-analytics.ts",
+    "db:push": "bunx drizzle-kit push --config drizzle.config.ts",
+    "db:pull": "bunx drizzle-kit introspect --config drizzle.config.ts",
+    "db:generate": "bunx drizzle-kit generate --config drizzle.config.ts",
+    "db:migrate": "bunx drizzle-kit migrate --config drizzle.config.ts",
+    "db:studio": "bunx drizzle-kit studio --config drizzle.config.ts",
+    "db:reset": "psql -h localhost -p 5432 -c 'DROP DATABASE IF EXISTS unified_commerce' postgres && psql -h localhost -p 5432 -c 'CREATE DATABASE unified_commerce' postgres && bun run db:push && echo 'Database reset complete'",
+    "setup": "bun run db:reset && bun run seed && echo 'Setup complete — run: bun run dev'",
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e:wishlist": "vitest run --config vitest.wishlist.config.ts",
+    "test:watch": "vitest",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@faker-js/faker": "^10.3.0",
+    "@hono/node-server": "^1.19.6",
+    "@hono/zod-openapi": "^1.2.2",
+    "hono": "^4.9.8",
+    "@porulle/adapter-local-storage": "workspace:*",
+    "@porulle/adapter-postgres": "workspace:*",
+    "@porulle/core": "workspace:*",
+    "@porulle/plugin-loyalty": "workspace:*",
+    "@porulle/plugin-wishlist": "workspace:*",
+    "@porulle/plugin-reviews": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.0"
+  }
+}

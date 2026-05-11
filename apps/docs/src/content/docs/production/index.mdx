@@ -1,0 +1,26 @@
+---
+title: Running in Production
+description: Deploy, multi-tenancy, security, observability — the operator's guides.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+What an operator needs once the code is written. Porulle is hardened by audit (five-round adversarial security review, all criticals closed) but the wiring depends on you.
+
+<CardGrid>
+  <LinkCard title="Deploy" href="/production/deployment/" description="Bun, Node.js, Cloudflare Workers, Fly.io. Migration strategy, secrets, health checks." />
+  <LinkCard title="Multi-Tenancy" href="/production/multi-tenancy/" description="Org resolution profiles (B2C single-storefront vs B2B multi-tenant), strict mode, store resolver." />
+  <LinkCard title="Webhooks and Audit" href="/production/webhooks-and-audit/" description="Outbound webhook delivery, signature verification, audit log, processed-events idempotency." />
+</CardGrid>
+
+## Security model
+
+Adopter-facing security documentation lives in the [Security Model](/production/security-model/) (mirrored from the canonical [`SECURITY.md`](https://github.com/asyncdotengineering/porulle/blob/main/SECURITY.md) at the repository root) — threat model, what the framework defends against, what it does not, the rate-limit layers, cookie hygiene, CSP recommendations, SSRF guards, audit log scope.
+
+That document is the one to send to a buyer's security review team.
+
+## Where to next
+
+- [**Reference → Configuration**](/reference/configuration/) — every config field
+- [**Reference → Job Queue**](/reference/jobs/) — durable claim-based queue, the substrate behind webhook delivery and async work
+- [**Concepts → Identity Model**](/concepts/identity-model/) — actor, principal, store resolution

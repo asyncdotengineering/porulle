@@ -1,0 +1,55 @@
+{
+  "name": "@porulle/plugin-wishlist",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "types": "./src/index.ts"
+    },
+    "./schema": {
+      "bun": "./src/schema.ts",
+      "import": "./dist/schema.js",
+      "require": "./dist/schema.js",
+      "types": "./src/schema.ts"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/zod-openapi": "^1.2.2",
+    "@porulle/core": "workspace:*",
+    "hono": "^4.12.5"
+  },
+  "devDependencies": {
+    "@porulle/eslint-config": "*",
+    "@porulle/typescript-config": "*",
+    "@types/node": "^24.5.2",
+    "typescript": "5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md"
+  ],
+  "description": "Per-customer saved items for later purchase, with admin listing across users.",
+  "homepage": "https://porulle-docs.vercel.app",
+  "bugs": {
+    "url": "https://github.com/asyncdotengineering/porulle/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/asyncdotengineering/porulle.git",
+    "directory": "packages/plugins/plugin-wishlist"
+  },
+  "author": "Porulle contributors"
+}

@@ -1,0 +1,26 @@
+Note: In this monorepo dev tree, `node packages/cli/dist/index.js` fails to resolve workspace-linked `@unifiedcommerce/import-*` deps; smoke used `bun packages/cli/dist/index.js` from repo root instead. Published CLI on npm resolves normally.
+
+=== S0-06 smoke 2026-05-09T15:11:17Z ===
+init target: /tmp/uc-smoke-1778339477
+✔ Project created at /tmp/uc-smoke-1778339477
+ℹ Next steps:
+ℹ   cd /tmp/uc-smoke-1778339477
+ℹ   bun install
+ℹ   bun run dev
+=== bun install ===
+bun install v1.3.9 (cf6cdbbb)
+Resolving dependencies
+Resolved, downloaded and extracted [222]
+Saved lockfile
+
++ drizzle-kit@0.31.10
++ tsx@4.21.0
++ typescript@5.9.3 (v6.0.3 available)
++ @hono/node-server@1.19.14 (v2.0.2 available)
++ @unifiedcommerce/adapter-local-storage@0.5.14
++ @unifiedcommerce/adapter-postgres@0.5.14
++ @unifiedcommerce/core@0.5.14
+
+162 packages installed [6.77s]
+=== cp .env.example .env ===
+=== smoke complete (install only per brief) ===

@@ -1,0 +1,355 @@
+---
+title: Build a Loyalty Plugin
+description: Learn the plugin system by building a points-and-tiers loyalty program from scratch.
+---
+
+In this tutorial you will build a loyalty plugin that awards points when customers place orders, tracks tier progression (bronze → silver → gold → platinum), and exposes REST endpoints for checking balances and a leaderboard.
+
+By the end you will understand how plugins define schema, register hooks, and add routes using the `router()` builder.
+
+## What you will build
+
+- A `loyalty_points` table tracking each customer's balance and tier
+- A `loyalty_transactions` table logging every earn and redeem event
+- An `orders.afterCreate` hook that awards 1 point per dollar spent
+- REST routes: `GET /api/loyalty/points/:customerId` and `GET /api/loyalty/leaderboard`
+- Plugin permission scopes for read and write access
+- Routes that auto-appear in the OpenAPI spec at `/api/doc`
+
+## Prerequisites
+
+Complete [Your First Store](/tutorials/first-store/) or have a running Porulle instance with PostgreSQL.
+
+## Step 1: Define the schema
+
+Plugins own their own database tables. Create a schema file with Drizzle `pgTable` definitions.
+
+```ts title="src/plugins/loyalty-schema.ts"
+import { pgTable, uuid, integer, text, timestamp } from "drizzle-orm/pg-core";
+import { customers } from "@porulle/core/schema";
+
+export const loyaltyPoints = pgTable("loyalty_points", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  customerId: uuid("customer_id")
+    .notNull()
+    .unique()
+    .references(() => customers.id, { onDelete: "cascade" }),
+  points: integer("points").notNull().default(0),
+  lifetimeSpend: integer("lifetime_spend").notNull().default(0),
+  tier: text("tier", {
+    enum: ["bronze", "silver", "gold", "platinum"],
+  }).notNull().default("bronze"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const loyaltyTransactions = pgTable("loyalty_transactions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  customerId: uuid("customer_id")
+    .notNull()
+    .references(() => customers.id, { onDelete: "cascade" }),
+  orderId: uuid("order_id"),
+  type: text("type", { enum: ["earn", "redeem"] }).notNull(),
+  amount: integer("amount").notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+```
+
+The FK to `customers` comes from `@porulle/core/schema`. This sub-path export gives you access to all core Drizzle tables without importing through the ESM barrel.
+
+## Step 2: Create the plugin
+
+The `router()` builder from `@porulle/core` provides a fluent API for defining routes with built-in authentication, permissions, input validation, and automatic OpenAPI documentation.
+
+```ts title="src/plugins/loyalty-plugin.ts"
+import { defineCommercePlugin, router } from "@porulle/core";
+import { eq, desc, sql } from "drizzle-orm";
+import { z } from "zod";
+import { loyaltyPoints, loyaltyTransactions } from "./loyalty-schema.js";
+
+interface LoyaltyOptions {
+  pointsPerDollar: number;
+  tierThresholds: {
+    silver: number;
+    gold: number;
+    platinum: number;
+  };
+}
+
+function determineTier(
+  lifetimeSpendCents: number,
+  thresholds: LoyaltyOptions["tierThresholds"]
+): "bronze" | "silver" | "gold" | "platinum" {
+  const dollars = lifetimeSpendCents / 100;
+  if (dollars >= thresholds.platinum) return "platinum";
+  if (dollars >= thresholds.gold) return "gold";
+  if (dollars >= thresholds.silver) return "silver";
+  return "bronze";
+}
+
+const redeemSchema = z.object({
+  customerId: z.string().uuid(),
+  amount: z.number().int().positive(),
+  description: z.string().optional(),
+});
+
+export function loyaltyPlugin(options: LoyaltyOptions) {
+  return defineCommercePlugin({
+    id: "loyalty",
+    version: "1.0.0",
+
+    permissions: [
+      { scope: "loyalty:read", description: "View loyalty points and leaderboard" },
+      { scope: "loyalty:write", description: "Redeem loyalty points" },
+    ],
+
+    schema: () => ({ loyaltyPoints, loyaltyTransactions }),
+
+    hooks: () => [
+      {
+        key: "orders.afterCreate",
+        handler: async ({ result, context }) => {
+          const order = result as { customerId?: string; grandTotal: number };
+          if (!order.customerId) return;
+
+          const db = context.services.database.db;
+          const pointsEarned = Math.floor(
+            (order.grandTotal / 100) * options.pointsPerDollar
+          );
+
+          await db.insert(loyaltyTransactions).values({
+            customerId: order.customerId,
+            type: "earn",
+            amount: pointsEarned,
+            description: `Order placed — $${(order.grandTotal / 100).toFixed(2)}`,
+          });
+
+          await db
+            .insert(loyaltyPoints)
+            .values({
+              customerId: order.customerId,
+              points: pointsEarned,
+              lifetimeSpend: order.grandTotal,
+              tier: determineTier(order.grandTotal, options.tierThresholds),
+            })
+            .onConflictDoUpdate({
+              target: loyaltyPoints.customerId,
+              set: {
+                points: sql`${loyaltyPoints.points} + ${pointsEarned}`,
+                lifetimeSpend: sql`${loyaltyPoints.lifetimeSpend} + ${order.grandTotal}`,
+                updatedAt: new Date(),
+              },
+            });
+
+          const [current] = await db
+            .select()
+            .from(loyaltyPoints)
+            .where(eq(loyaltyPoints.customerId, order.customerId));
+
+          if (current) {
+            const newTier = determineTier(current.lifetimeSpend, options.tierThresholds);
+            if (newTier !== current.tier) {
+              await db
+                .update(loyaltyPoints)
+                .set({ tier: newTier, updatedAt: new Date() })
+                .where(eq(loyaltyPoints.customerId, order.customerId));
+            }
+          }
+        },
+      },
+    ],
+
+    routes: (ctx) =>
+      router("loyalty", "/api/loyalty")
+        .get("/points/:customerId", { summary: "Get loyalty points for a customer" })
+          .permission("loyalty:read")
+          .handler(async ({ db, params }) => {
+            const [row] = await db
+              .select()
+              .from(loyaltyPoints)
+              .where(eq(loyaltyPoints.customerId, params.customerId));
+
+            if (!row) {
+              return {
+                data: { customerId: params.customerId, points: 0, tier: "bronze", lifetimeSpend: 0 },
+              };
+            }
+            return { data: row };
+          })
+
+        .get("/leaderboard", { summary: "Get top 20 by points" })
+          .permission("loyalty:read")
+          .handler(async ({ db }) => {
+            const rows = await db
+              .select({
+                customerId: loyaltyPoints.customerId,
+                points: loyaltyPoints.points,
+                tier: loyaltyPoints.tier,
+              })
+              .from(loyaltyPoints)
+              .orderBy(desc(loyaltyPoints.points))
+              .limit(20);
+
+            return { data: rows.map((r, i) => ({ rank: i + 1, ...r })) };
+          })
+
+        .post("/redeem", { summary: "Redeem loyalty points" })
+          .auth()
+          .permission("loyalty:write")
+          .input(redeemSchema)
+          .handler(async ({ input, db }) => {
+            const [current] = await db
+              .select()
+              .from(loyaltyPoints)
+              .where(eq(loyaltyPoints.customerId, input.customerId));
+
+            if (!current || current.points < input.amount) {
+              throw new Error("Insufficient points");
+            }
+
+            await db.insert(loyaltyTransactions).values({
+              customerId: input.customerId,
+              type: "redeem",
+              amount: -input.amount,
+              description: input.description ?? "Points redeemed",
+            });
+
+            const [updated] = await db
+              .update(loyaltyPoints)
+              .set({ points: sql`${loyaltyPoints.points} - ${input.amount}`, updatedAt: new Date() })
+              .where(eq(loyaltyPoints.customerId, input.customerId))
+              .returning();
+
+            return { data: updated };
+          })
+
+        .build(),
+  });
+}
+```
+
+The `router()` builder's `.auth()`, `.permission()`, `.input()`, and `.handler()` chain methods wire up authentication, permission checks, Zod validation, and OpenAPI documentation automatically.
+
+## Step 3: Register the plugin
+
+```ts title="commerce.config.ts"
+import { loyaltyPlugin } from "./src/plugins/loyalty-plugin.js";
+
+export default defineConfig({
+  // ... existing config ...
+  plugins: [
+    loyaltyPlugin({
+      pointsPerDollar: 1,
+      tierThresholds: {
+        silver: 500,   // $500 lifetime spend
+        gold: 1500,    // $1,500
+        platinum: 3000, // $3,000
+      },
+    }),
+  ],
+});
+```
+
+## Step 4: Add the schema to Drizzle
+
+Update `drizzle.config.ts` to include the plugin schema:
+
+```ts title="drizzle.config.ts"
+export default defineConfig({
+  dialect: "postgresql",
+  schema: [
+    "./node_modules/@porulle/core/src/kernel/database/schema.ts",
+    "./node_modules/@porulle/core/src/auth/auth-schema.ts",
+    "./src/plugins/loyalty-schema.ts",
+  ],
+});
+```
+
+Push the new tables:
+
+```bash
+bunx drizzle-kit push --config drizzle.config.ts
+```
+
+## Step 5: Write tests
+
+`createPluginTestApp` boots an in-memory PGlite database, pushes the full schema, and wires routes. One call replaces all test boilerplate.
+
+```ts title="test/loyalty.test.ts"
+import { describe, expect, it, beforeAll } from "vitest";
+import { createPluginTestApp, jsonHeaders, testAdminActor } from "@porulle/core";
+import { loyaltyPlugin } from "../src/plugins/loyalty-plugin";
+
+describe("loyalty plugin", () => {
+  let app: Awaited<ReturnType<typeof createPluginTestApp>>["app"];
+
+  beforeAll(async () => {
+    const result = await createPluginTestApp(
+      loyaltyPlugin({
+        pointsPerDollar: 1,
+        tierThresholds: { silver: 500, gold: 1500, platinum: 3000 },
+      }),
+    );
+    app = result.app;
+  });
+
+  it("returns zero points for unknown customer", async () => {
+    const res = await app.request(
+      "http://localhost/api/loyalty/points/00000000-0000-0000-0000-000000000001",
+      { headers: jsonHeaders(testAdminActor) },
+    );
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.data.points).toBe(0);
+  });
+
+  it("returns 403 without loyalty:read permission", async () => {
+    const res = await app.request(
+      "http://localhost/api/loyalty/points/00000000-0000-0000-0000-000000000001",
+    );
+    expect([401, 403]).toContain(res.status);
+  });
+});
+```
+
+## Step 6: Try it manually
+
+Restart the server, place an order from the first tutorial, then check the loyalty balance:
+
+```bash
+curl -s "http://localhost:4000/api/loyalty/points/$CUSTOMER_ID" \
+  -H "x-api-key: dev-staff-key"
+```
+
+```json
+{
+  "data": {
+    "customerId": "...",
+    "points": 65,
+    "tier": "bronze",
+    "lifetimeSpend": 6497
+  }
+}
+```
+
+Your routes also appear in the OpenAPI spec automatically:
+
+```bash
+curl -s http://localhost:4000/api/doc | python3 -c \
+  "import sys,json; paths = json.load(sys.stdin)['paths']; print([p for p in paths if 'loyalty' in p])"
+```
+
+## What you learned
+
+1. **`defineCommercePlugin`** wraps a manifest with `schema`, `hooks`, `routes`, and `permissions` into a config transform function.
+2. **`router()` builder** defines routes with `.auth()`, `.permission()`, `.input()`, `.handler()` — all auto-documented in the OpenAPI spec.
+3. **Plugin schema** tables are pushed via `drizzle-kit` alongside core tables.
+4. **`createPluginTestApp`** boots PGlite, pushes the merged schema, and wires routes — one call, full integration test.
+
+## Next steps
+
+- [Plugin Architecture explanation](/concepts/plugin-architecture/) — understand why plugins are config transforms
+- [Plugin API Reference](/reference/plugins/) — full manifest spec including the `router()` API
+- [Testing guide](/extending/testing/) — actors, permissions, and live-server patterns
+- [Tea Shop POS tutorial](/tutorials/tea-shop-pos/) — a different kind of plugin: POS terminals and shifts

@@ -1,0 +1,15 @@
+$ turbo run check-types
+• turbo 2.8.20
+package_json_parse_error
+
+  x Unable to parse package.json.
+  `->   x Expected a property but instead found '}'.
+          ,-[/Users/mithushancj/Documents/asyncdot/rnd/venture-sell/unified-
+      commerce-engine/apps/saas-example/package.json:19:3]
+       18 |     "@unifiedcommerce/core": "workspace:*",
+       19 |   },
+          :   ^
+       20 |   "devDependencies": {
+          `----
+
+error: script "check-types" exited with code 1

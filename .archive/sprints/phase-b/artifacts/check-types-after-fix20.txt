@@ -1,0 +1,94 @@
+$ turbo run check-types
+• turbo 2.9.12
+
+   • Packages in scope: @repo/eslint-config, @repo/typescript-config, @repo/ui, @unifiedcommerce/adapter-local-storage, @unifiedcommerce/adapter-meilisearch, @unifiedcommerce/adapter-pg-search, @unifiedcommerce/adapter-postgres, @unifiedcommerce/adapter-r2, @unifiedcommerce/adapter-resend, @unifiedcommerce/adapter-s3, @unifiedcommerce/adapter-ses, @unifiedcommerce/adapter-stripe, @unifiedcommerce/adapter-tax-manual, @unifiedcommerce/adapter-taxjar, @unifiedcommerce/cli, @unifiedcommerce/core, @unifiedcommerce/db, @unifiedcommerce/fashion-starter, @unifiedcommerce/import-flat, @unifiedcommerce/import-shopify, @unifiedcommerce/import-woocommerce, @unifiedcommerce/plugin-appointments, @unifiedcommerce/plugin-giftcards, @unifiedcommerce/plugin-loyalty, @unifiedcommerce/plugin-marketplace, @unifiedcommerce/plugin-notifications, @unifiedcommerce/plugin-pos, @unifiedcommerce/plugin-pos-restaurant, @unifiedcommerce/plugin-procurement, @unifiedcommerce/plugin-production, @unifiedcommerce/plugin-reviews, @unifiedcommerce/plugin-scheduled-orders, @unifiedcommerce/plugin-uom, @unifiedcommerce/plugin-warehouse, @unifiedcommerce/plugin-wishlist, @unifiedcommerce/sdk, docs, restaurant-example, saas-example, store-example, tea-avenue, web
+   • Running check-types in 42 packages
+   • Remote caching disabled
+
+@unifiedcommerce/adapter-ses:check-types: cache hit, replaying logs 44acadd3e9bcdffa
+@unifiedcommerce/adapter-ses:check-types: $ tsc --noEmit
+@unifiedcommerce/sdk:check-types: cache hit, replaying logs cc26df09ed6cdf1f
+@repo/ui:check-types: cache hit, replaying logs 929d88670a050ed2
+@unifiedcommerce/sdk:check-types: $ tsc --noEmit
+@repo/ui:check-types: $ tsc --noEmit
+@unifiedcommerce/core:check-types: cache hit, replaying logs 6703dd1569c97707
+@unifiedcommerce/core:check-types: $ bun run generate:plugins && bun run check:store-guard && tsc --noEmit
+@unifiedcommerce/core:check-types: $ node ./scripts/generate-plugin-types.mjs
+@unifiedcommerce/core:check-types: $ node ./scripts/check-store-guard.mjs
+@unifiedcommerce/adapter-resend:check-types: cache hit, replaying logs 6e67d539214ce51a
+@unifiedcommerce/adapter-resend:check-types: $ tsc --noEmit
+docs:check-types: cache hit, replaying logs 491dbc74a347d212
+docs:check-types: $ next typegen && tsc --noEmit
+docs:check-types: Generating route types...
+docs:check-types: ✓ Types generated successfully
+web:check-types: cache hit, replaying logs 3fba84f7a79c868b
+web:check-types: $ next typegen && tsc --noEmit
+web:check-types: Generating route types...
+web:check-types: ✓ Types generated successfully
+@unifiedcommerce/import-flat:check-types: cache hit, replaying logs 3a96fa9017961ea8
+@unifiedcommerce/import-flat:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-taxjar:check-types: cache hit, replaying logs 6d8de47f3a1b8730
+@unifiedcommerce/adapter-taxjar:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-postgres:check-types: cache hit, replaying logs 41b9b1960b4464a6
+@unifiedcommerce/adapter-postgres:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-notifications:check-types: cache hit, replaying logs 4a93993b6cbcde52
+@unifiedcommerce/plugin-notifications:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-production:check-types: cache hit, replaying logs c5629aef30c5cb87
+@unifiedcommerce/plugin-production:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-uom:check-types: cache hit, replaying logs 49e767a8801a2dbf
+@unifiedcommerce/plugin-uom:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-scheduled-orders:check-types: cache hit, replaying logs 5e2ba3ecbe8088a6
+@unifiedcommerce/plugin-scheduled-orders:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-procurement:check-types: cache hit, replaying logs 62692d3645bd978a
+@unifiedcommerce/plugin-procurement:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-warehouse:check-types: cache hit, replaying logs 5dc89a7ba67aa1bb
+@unifiedcommerce/plugin-warehouse:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-reviews:check-types: cache hit, replaying logs 0825d9cb3a386161
+@unifiedcommerce/plugin-reviews:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-local-storage:check-types: cache hit, replaying logs 544dda1835a659c1
+@unifiedcommerce/adapter-local-storage:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-loyalty:check-types: cache hit, replaying logs 4e377e3d1b920d57
+@unifiedcommerce/plugin-loyalty:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-pg-search:check-types: cache hit, replaying logs 341c50dcf8d8d22e
+@unifiedcommerce/adapter-pg-search:check-types: $ tsc --noEmit
+@unifiedcommerce/db:check-types: cache hit, replaying logs a2d40911516795ee
+@unifiedcommerce/db:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-meilisearch:check-types: cache hit, replaying logs f632c8e35e053427
+@unifiedcommerce/adapter-meilisearch:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-tax-manual:check-types: cache hit, replaying logs 2eab1529f68f53a0
+@unifiedcommerce/adapter-tax-manual:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-wishlist:check-types: cache hit, replaying logs 086f6ec955bdb152
+@unifiedcommerce/plugin-wishlist:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-appointments:check-types: cache hit, replaying logs e909d3fd26f6049b
+@unifiedcommerce/plugin-appointments:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-r2:check-types: cache hit, replaying logs 30f5ee5eabd12157
+@unifiedcommerce/adapter-r2:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-giftcards:check-types: cache hit, replaying logs cccb201f16b0310a
+@unifiedcommerce/plugin-giftcards:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-stripe:check-types: cache hit, replaying logs f2501909b78c1fa6
+@unifiedcommerce/adapter-stripe:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-marketplace:check-types: cache hit, replaying logs 0befd7c98cc2d884
+@unifiedcommerce/plugin-marketplace:check-types: $ tsc --noEmit
+@unifiedcommerce/import-shopify:check-types: cache hit, replaying logs a55ae5a5a18ba606
+@unifiedcommerce/import-shopify:check-types: $ tsc --noEmit
+@unifiedcommerce/adapter-s3:check-types: cache hit, replaying logs 6f3e6d2e6ce93dd5
+@unifiedcommerce/adapter-s3:check-types: $ tsc --noEmit
+@unifiedcommerce/import-woocommerce:check-types: cache hit, replaying logs 4ca26b0be43df6e2
+@unifiedcommerce/import-woocommerce:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-pos:check-types: cache hit, replaying logs 0f8f584e5e576ec7
+@unifiedcommerce/plugin-pos:check-types: $ tsc --noEmit
+store-example:check-types: cache miss, executing 902dff6a88a7c40f
+@unifiedcommerce/cli:check-types: cache hit, replaying logs 4a891cb380362159
+@unifiedcommerce/plugin-pos-restaurant:check-types: cache miss, executing 121d8c6f460c8ff0
+@unifiedcommerce/cli:check-types: $ tsc --noEmit
+store-example:check-types: $ tsc --noEmit
+@unifiedcommerce/plugin-pos-restaurant:check-types: $ tsc --noEmit
+restaurant-example:check-types: cache miss, executing 0ff28cc79ecce9a2
+tea-avenue:check-types: cache miss, executing d520922037bed7f5
+tea-avenue:check-types: $ tsc --noEmit
+restaurant-example:check-types: $ tsc --noEmit
+
+ Tasks:    38 successful, 38 total
+Cached:    34 cached, 38 total
+  Time:    4.334s 
+

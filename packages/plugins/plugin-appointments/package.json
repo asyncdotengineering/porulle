@@ -1,0 +1,60 @@
+{
+  "name": "@porulle/plugin-appointments",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "types": "./src/index.ts"
+    },
+    "./schema": {
+      "bun": "./src/schema.ts",
+      "import": "./dist/schema.js",
+      "require": "./dist/schema.js",
+      "types": "./src/schema.ts"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 1000",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/zod-openapi": "^1.2.2",
+    "@porulle/core": "workspace:*",
+    "hono": "^4.12.5"
+  },
+  "devDependencies": {
+    "@porulle/eslint-config": "*",
+    "@porulle/typescript-config": "*",
+    "@types/node": "^24.5.2",
+    "eslint": "^9.39.1",
+    "typescript": "5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "zod": ">=4.0.0"
+  },
+  "description": "Headless booking for service types, providers, availability, and customer appointments with slot-based scheduling.",
+  "homepage": "https://porulle-docs.vercel.app",
+  "bugs": {
+    "url": "https://github.com/asyncdotengineering/porulle/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/asyncdotengineering/porulle.git",
+    "directory": "packages/plugins/plugin-appointments"
+  },
+  "author": "Porulle contributors"
+}

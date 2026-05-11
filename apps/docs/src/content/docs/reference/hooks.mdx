@@ -1,0 +1,235 @@
+---
+title: Hook System
+description: Hook types, context object, available hook keys, and execution order.
+---
+
+For usage patterns and examples, see the [Use Hooks guide](/extending/hooks/). For checkout pipeline details, see the [Hook Pipeline explanation](/concepts/hook-pipeline/).
+
+## Hook types
+
+### BeforeHook
+
+```ts
+type BeforeHook<TData> = (args: {
+  data: TData;
+  operation: HookOperation;
+  context: HookContext;
+}) => Promise<TData> | TData;
+```
+
+Before hooks receive the incoming data, may mutate or replace it, and return the (possibly modified) data. Throwing aborts the operation.
+
+### AfterHook
+
+```ts
+type AfterHook<TData> = (args: {
+  data: TData | null;
+  result: TData;
+  operation: HookOperation;
+  context: HookContext;
+}) => Promise<void> | void;
+```
+
+After hooks receive both the original input (`data`) and the operation result. They cannot alter the result. Throwing does not roll back the operation unless executed inside a transaction.
+
+### HookOperation
+
+```ts
+type HookOperation =
+  | "create"
+  | "update"
+  | "delete"
+  | "read"
+  | "list"
+  | "statusChange"
+  | "addItem"
+  | "removeItem"
+  | "custom";
+```
+
+### HookOrigin
+
+```ts
+type HookOrigin = "rest" | "local";
+```
+
+---
+
+## HookContext
+
+```ts
+interface HookContext {
+  actor: Actor | null;
+  tx: unknown;
+  logger: Logger;
+  services: ServiceContainer;
+  context: Record<string, unknown>;
+  requestId: string;
+  origin: HookOrigin;
+  jobs: JobsAdapter;
+  db: PluginDb;
+  kernel: unknown;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `actor` | `Actor \| null` | The authenticated user or API key. `null` for anonymous operations. |
+| `tx` | `unknown` | Current database transaction handle. Cast to `TxContext` at usage sites. |
+| `logger` | `Logger` | Scoped Pino logger with `info`, `warn`, `error` methods. |
+| `services` | `ServiceContainer` | All registered service instances (catalog, orders, inventory, etc.). |
+| `context` | `Record<string, unknown>` | Mutable bag for passing data between hooks within the same operation. |
+| `requestId` | `string` | Unique identifier for the current request. Same value across all hooks in one request. |
+| `origin` | `HookOrigin` | `"rest"` (HTTP request) or `"local"` (direct kernel call). |
+| `jobs` | `JobsAdapter` | Adapter for enqueueing background jobs. |
+| `db` | `PluginDb` | Drizzle database instance. Typed — use directly without casting. |
+| `kernel` | `unknown` | The kernel singleton. Cast to `Kernel` to access `kernel.services`, `kernel.database.db`, `kernel.hooks`. |
+
+### Actor
+
+```ts
+interface Actor {
+  type: "user" | "api_key";
+  userId: string;
+  email: string | null;
+  name: string;
+  vendorId: string | null;
+  organizationId: string | null;
+  role: string;
+  permissions: string[];
+}
+```
+
+---
+
+## Available hook keys
+
+### Entity hooks
+
+Registered in `config.entities[slug].hooks`.
+
+| Key | Type | Operation |
+|-----|------|-----------|
+| `beforeCreate` | `BeforeHook` | `create` |
+| `afterCreate` | `AfterHook` | `create` |
+| `beforeUpdate` | `BeforeHook` | `update` |
+| `afterUpdate` | `AfterHook` | `update` |
+| `beforeDelete` | `BeforeHook` | `delete` |
+| `afterDelete` | `AfterHook` | `delete` |
+| `beforeRead` | `BeforeHook` | `read` |
+| `afterRead` | `AfterHook` | `read` |
+| `beforeList` | `BeforeHook` | `list` |
+| `afterList` | `AfterHook` | `list` |
+
+### Cart hooks
+
+Registered in `config.cart.hooks`.
+
+| Key | Type | Operation |
+|-----|------|-----------|
+| `beforeAddItem` | `BeforeHook` | `addItem` |
+| `afterAddItem` | `AfterHook` | `addItem` |
+| `beforeRemoveItem` | `BeforeHook` | `removeItem` |
+| `afterRemoveItem` | `AfterHook` | `removeItem` |
+| `beforeUpdateQuantity` | `BeforeHook` | `update` |
+| `afterUpdateQuantity` | `AfterHook` | `update` |
+
+### Checkout hooks
+
+Registered in `config.checkout.hooks` or via plugin hooks with key prefix `checkout.`.
+
+| Key | Type | Pipeline position |
+|-----|------|-------------------|
+| `beforePayment` | `BeforeHook<CheckoutData>` | After `calculateShipping`, before `validatePaymentMethod`. Apply gift card deductions, loyalty redemptions, or other balance-based reductions here. |
+| `beforeCreate` | `BeforeHook<CheckoutData>` | After `authorizePayment`, before order creation |
+| `afterCreate` | `AfterHook<OrderResult>` | After order creation |
+
+### Order hooks
+
+Registered in `config.orders.hooks`.
+
+| Key | Type | Operation |
+|-----|------|-----------|
+| `beforeCreate` | `BeforeHook` | `create` |
+| `afterCreate` | `AfterHook` | `create` |
+| `beforeStatusChange` | `BeforeHook` | `statusChange` |
+| `afterStatusChange` | `AfterHook` | `statusChange` |
+| `beforeDelete` | `BeforeHook` | `delete` |
+
+### Inventory hooks
+
+Registered in `config.inventory.hooks`.
+
+| Key | Type | Operation |
+|-----|------|-----------|
+| `afterAdjust` | `AfterHook` | `custom` |
+
+### System-registered hooks (read-only)
+
+These are registered by the kernel in the `appended` slot at boot. They always run after user-defined and plugin hooks and cannot be disabled or reordered.
+
+- **Webhook delivery** — fires on 14 after-hooks; enqueues async delivery jobs
+- **Audit logging** — fires on 11 after-hooks; writes to `commerce_audit_log`
+- **Search index sync** — fires on `catalog.afterCreate` and `catalog.afterUpdate`
+- **Order status email** — fires on `orders.afterStatusChange`
+
+---
+
+## Checkout pipeline execution order
+
+### Before hooks (pre-order creation)
+
+Executed sequentially on `CheckoutData`:
+
+| Step | Function | Purpose |
+|------|----------|---------|
+| 1 | `validateCartNotEmpty` | Loads cart, verifies line items, enriches with entity title and type |
+| 2 | `resolveCurrentPrices` | Resolves live prices and computes subtotal |
+| 3 | `checkInventoryAvailability` | Verifies sufficient stock for every line item |
+| 4 | `applyPromotionCodes` | Applies automatic and code-based promotions |
+| 5 | `calculateTax` | Computes tax via the tax adapter |
+| 6 | `calculateShipping` | Computes shipping cost |
+| 7 | *Plugin `checkout.beforePayment` hooks* | Gift cards, loyalty redemptions, balance-based reductions |
+| 8 | `validatePaymentMethod` | Asserts a payment method ID is present |
+| 9 | `authorizePayment` | Authorizes payment. Stores `paymentIntentId` in `context`. |
+
+### After hooks (post-order creation, compensation chain)
+
+| Step | Function | Compensatable | Purpose |
+|------|----------|---------------|---------|
+| 1 | `reserveInventoryStep` | Yes | Reserves inventory. Released if a later step fails. |
+| 2 | `capturePaymentStep` | Yes | Captures the authorized payment. Reversed if a later step fails. |
+| 3 | `initiateFulfillmentStep` | No (best-effort) | Triggers fulfillment |
+| 4 | `sendConfirmationStep` | No (best-effort) | Sends order confirmation email |
+
+If the compensation chain fails, order status is set to `cancelled`.
+
+---
+
+## Three-slot execution order
+
+Every hook key has three execution slots. When a hook fires, all handlers run sequentially:
+
+```
+prepended → configured → appended
+```
+
+| Slot | Written by | Purpose |
+|------|-----------|---------|
+| `prepended` | System internals, plugins | Validation guards, system checks — run before user hooks |
+| `configured` | User config (`commerce.config.ts`) | Your hooks |
+| `appended` | System internals, plugins | Webhook delivery, audit logging, search sync — run after user hooks |
+
+If any handler throws, execution stops and the error propagates.
+
+---
+
+## Registration methods
+
+Three mechanisms register hooks:
+
+1. **Config hooks** — directly in the config object under the relevant module key (e.g., `config.checkout.hooks.beforeCreate`)
+2. **Entity hooks** — per entity type in `config.entities[slug].hooks`
+3. **Plugin hooks** — via `defineCommercePlugin({ hooks: () => [...] })`, merged into `config.hooks`
+
+See the [Use Hooks guide](/extending/hooks/) for code examples of all three methods.
