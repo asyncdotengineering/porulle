@@ -7,7 +7,7 @@ import {
   getCustomerOrdersRoute,
   getCustomerAddressesRoute,
 } from "../schemas/customers.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, parsePagination, requirePerm } from "../utils.js";
+import { type AppEnv, mapErrorToResponse, mapErrorToStatus, parsePagination, parseInclude, requirePerm } from "../utils.js";
 
 export function customerRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -72,13 +72,22 @@ export function customerRoutes(kernel: Kernel) {
     const actor = c.get("actor");
     const { page, limit } = parsePagination(c.req.query());
     const status = c.req.query("status") || undefined;
+    const includeTotals = parseInclude(c.req.query("include")).has("totals");
 
     const result = await kernel.services.orders.listByCustomer(
       id,
-      { page, limit, ...(status ? { status } : {}) },
+      { page, limit, ...(status ? { status } : {}), ...(includeTotals ? { includeTotals: true } : {}) },
       actor,
     );
     if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (includeTotals) {
+      // Wrapped shape: { data: { items, totals } } (+ pagination meta).
+      return c.json({
+        data: { items: result.value.items, totals: result.value.totals },
+        meta: { pagination: result.value.pagination },
+      });
+    }
+    // Default (back-compat): flat array.
     return c.json({ data: result.value.items, meta: { pagination: result.value.pagination } });
   });
 
