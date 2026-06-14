@@ -114,6 +114,14 @@ export const apiKeyCreateCommand = defineCommand({
       type: "string",
       description: "Key name (default: scope name)",
     },
+    ttl: {
+      type: "string",
+      description: "Time-to-live in seconds (Better Auth minExpiresIn is 1 day = 86400)",
+    },
+    user: {
+      type: "string",
+      description: "Bind the key to a specific user id (default: an ops admin user)",
+    },
     "save-env": {
       type: "boolean",
       description: "Save key to .env.local",
@@ -153,8 +161,23 @@ export const apiKeyCreateCommand = defineCommand({
 
     console.log(`Creating ${args.scope} API key...`);
 
-    // Find or create an admin user for key ownership
-    const userId = await findOrCreateAdminUser(app, config);
+    // Optional TTL — Better Auth enforces a 1-day minimum (minExpiresIn).
+    let expiresIn: number | undefined;
+    if (args.ttl) {
+      const ttl = Number(args.ttl);
+      if (!Number.isFinite(ttl) || ttl <= 0) {
+        console.error("--ttl must be a positive number of seconds.");
+        process.exit(1);
+      }
+      if (ttl < 86400) {
+        console.error("--ttl must be at least 86400 seconds (1 day) — Better Auth minExpiresIn.");
+        process.exit(1);
+      }
+      expiresIn = ttl;
+    }
+
+    // Bind to the requested user, or find/create an ops admin for ownership.
+    const userId = args.user ?? (await findOrCreateAdminUser(app, config));
 
     const result = await auth.api.createApiKey({
       body: {
@@ -162,6 +185,7 @@ export const apiKeyCreateCommand = defineCommand({
         userId,
         name: args.name ?? `${args.scope}-key`,
         permissions: scopeDef.permissions,
+        ...(expiresIn ? { expiresIn } : {}),
         ...(scopeDef.rateLimit
           ? {
               rateLimitEnabled: true,
@@ -210,8 +234,22 @@ export const apiKeyCreateCommand = defineCommand({
       console.log(`  Saved to:    .env.local as ${varName}`);
     }
 
+    if (expiresIn) {
+      console.log(`  Expires in:  ${expiresIn}s`);
+    }
+    console.log(`  Owner:       ${userId}`);
+
     console.log("");
-    console.log("This is the only time the full key is shown. Store it securely.");
+    console.log("  ── Use it ──────────────────────────────────────────────");
+    console.log(`  curl -H "x-api-key: ${result.key}" http://localhost:4000/api/health`);
+    console.log("  ── Revoke it ───────────────────────────────────────────");
+    console.log(`  curl -X DELETE -H "x-api-key: ${result.key}" \\`);
+    console.log(`    http://localhost:4000/api/api-keys/${result.id}`);
+    console.log("  ────────────────────────────────────────────────────────");
+
+    console.log("");
+    console.log("This is the only time the full key is shown — Better Auth hashes it");
+    console.log("at rest. Copy it now; if you lose it, mint a new one.");
 
     process.exit(0);
   },
