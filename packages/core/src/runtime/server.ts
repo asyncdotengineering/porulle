@@ -5,6 +5,7 @@ import { csrf } from "hono/csrf";
 import { bodyLimit } from "hono/body-limit";
 import { rateLimiter } from "hono-rate-limiter";
 import { createHash } from "node:crypto";
+import { createClientIpResolver } from "./client-ip.js";
 import type { Actor } from "../auth/types.js";
 import type { AuthInstance } from "../auth/setup.js";
 import type { CommerceConfig } from "../config/types.js";
@@ -207,20 +208,12 @@ export async function createServer(config: CommerceConfig) {
   );
 
   // ─── Rate Limiting (F1) ──────────────────────────────────────────────
-  // Trust X-Forwarded-For ONLY from a known reverse proxy IP.
-  // Set TRUSTED_PROXY_IP env var to the proxy's IP (e.g., "127.0.0.1").
-  const trustedProxyIp = process.env.TRUSTED_PROXY_IP;
+  // Client IP drives the rate-limit key. Defaults to the Node socket address
+  // (trusting X-Forwarded-For only from a known proxy via config.runtime
+  // .trustedProxyIp / TRUSTED_PROXY_IP); edge runtimes inject
+  // config.runtime.getClientIp to read the platform header instead.
   const signInEmailRateKeyCache = new WeakMap<Request, string>();
-  const getClientIp = (c: { req: { raw: unknown; header: (name: string) => string | undefined } }): string => {
-    const raw = c.req.raw as { socket?: { remoteAddress?: string } };
-    const remoteAddress = raw.socket?.remoteAddress;
-    // Only trust X-Forwarded-For when the direct connection is from a trusted proxy
-    if (trustedProxyIp && remoteAddress === trustedProxyIp) {
-      const xff = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
-      if (xff) return xff;
-    }
-    return remoteAddress ?? "unknown";
-  };
+  const getClientIp = createClientIpResolver(config);
   const keyGenerator = getClientIp;
 
   app.use("/api/auth/*", rateLimiter({

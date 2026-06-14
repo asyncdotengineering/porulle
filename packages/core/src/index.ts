@@ -18,6 +18,8 @@ export { router } from "./interfaces/rest/router.js";
 export { webhookRouter, type WebhookRouterResult } from "./interfaces/rest/webhook-router.js";
 export { isPrivateUrl, isPrivateIp } from "./modules/webhooks/ssrf-guard.js";
 export { createServer } from "./runtime/server.js";
+export { createClientIpResolver } from "./runtime/client-ip.js";
+export type { ClientIpResolver, ClientIpContext, RuntimeConfig } from "./runtime/client-ip.js";
 export { createLogger } from "./runtime/logger.js";
 export type { Logger as PinoLogger } from "./runtime/logger.js";
 export { setupGracefulShutdown } from "./runtime/shutdown.js";

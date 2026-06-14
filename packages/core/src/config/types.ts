@@ -306,6 +306,12 @@ export interface CommerceConfig {
   shipping?: ShippingConfig;
   payments?: PaymentAdapter[];
   storage?: StorageAdapter;
+  /**
+   * Runtime/edge overrides. `getClientIp` lets edge deployments (Workers,
+   * Vercel Edge, Fly) resolve the client IP from the platform header instead
+   * of the Node socket. Defaults to Node behavior.
+   */
+  runtime?: import("../runtime/client-ip.js").RuntimeConfig;
   media?: {
     allowedMimeTypes?: string[];
     allowSvg?: boolean;
