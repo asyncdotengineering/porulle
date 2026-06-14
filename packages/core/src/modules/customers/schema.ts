@@ -62,3 +62,22 @@ export const customerGroupMembers = pgTable("customer_group_members", {
   index("idx_group_members_group_id").on(table.groupId),
   uniqueIndex("customer_group_members_customer_group_unique").on(table.customerId, table.groupId),
 ]);
+
+// Non-transactional clienteling interactions: visits, calls, inquiries,
+// fittings, follow-ups, messages. Distinct from the audit log (accountability).
+export const customerInteractions = pgTable("customer_interactions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  customerId: uuid("customer_id")
+    .references(() => customers.id, { onDelete: "cascade" })
+    .notNull(),
+  actorUserId: text("actor_user_id"),
+  kind: text("kind").notNull(),
+  notes: text("notes").notNull(),
+  relatedEntityId: uuid("related_entity_id"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+  at: timestamp("at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("idx_customer_interactions_customer_id").on(table.customerId),
+  index("idx_customer_interactions_org").on(table.organizationId),
+]);

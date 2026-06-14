@@ -181,3 +181,74 @@ export const getCustomerAddressesRoute = createRoute({
     ...errorResponses,
   },
 });
+
+// ─── Customer interactions (#3) ──────────────────────────────────────────────
+
+export const InteractionKindEnum = z.enum([
+  "visit", "call", "inquiry", "fitting", "follow_up", "message",
+]);
+
+export const CreateInteractionBodySchema = z.object({
+  kind: InteractionKindEnum.openapi({ example: "visit" }),
+  notes: z.string().min(1).openapi({ example: "Asked about the navy blazer in M." }),
+  relatedEntityId: z.string().uuid().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).openapi("CreateInteractionBody");
+
+export const UpdateInteractionBodySchema = CreateInteractionBodySchema.partial().openapi("UpdateInteractionBody");
+
+const InteractionDataResponse = z.object({ data: z.record(z.string(), z.unknown()) });
+
+export const listInteractionsRoute = createRoute({
+  method: "get",
+  path: "/{id}/interactions",
+  tags: ["Customers"],
+  summary: "List a customer's interactions",
+  request: { params: z.object({ id: z.string().uuid() }) },
+  responses: {
+    200: { content: { "application/json": { schema: z.object({ data: z.array(z.record(z.string(), z.unknown())) }) } }, description: "Interactions" },
+    ...errorResponses,
+  },
+});
+
+export const createInteractionRoute = createRoute({
+  method: "post",
+  path: "/{id}/interactions",
+  tags: ["Customers"],
+  summary: "Log a customer interaction",
+  request: {
+    params: z.object({ id: z.string().uuid() }),
+    body: { content: { "application/json": { schema: CreateInteractionBodySchema } }, required: true },
+  },
+  responses: {
+    201: { content: { "application/json": { schema: InteractionDataResponse } }, description: "Interaction logged" },
+    ...errorResponses,
+  },
+});
+
+export const updateInteractionRoute = createRoute({
+  method: "patch",
+  path: "/{id}/interactions/{iid}",
+  tags: ["Customers"],
+  summary: "Edit a customer interaction",
+  request: {
+    params: z.object({ id: z.string().uuid(), iid: z.string().uuid() }),
+    body: { content: { "application/json": { schema: UpdateInteractionBodySchema } }, required: true },
+  },
+  responses: {
+    200: { content: { "application/json": { schema: InteractionDataResponse } }, description: "Interaction updated" },
+    ...errorResponses,
+  },
+});
+
+export const deleteInteractionRoute = createRoute({
+  method: "delete",
+  path: "/{id}/interactions/{iid}",
+  tags: ["Customers"],
+  summary: "Delete a customer interaction",
+  request: { params: z.object({ id: z.string().uuid(), iid: z.string().uuid() }) },
+  responses: {
+    200: { content: { "application/json": { schema: z.object({ data: z.object({ deleted: z.literal(true) }) }) } }, description: "Deleted" },
+    ...errorResponses,
+  },
+});

@@ -16,6 +16,7 @@ import type {
   Customer,
   CustomerAddress,
   CustomerAddressInsert,
+  CustomerInteraction,
 } from "./repository/index.js";
 
 interface CustomerServiceDeps {
@@ -100,6 +101,70 @@ export class CustomerService {
     await runAfterHooks(afterHooks, null, customer, "create", hctx);
 
     return Ok(customer);
+  }
+
+  // ─── Customer interactions (clienteling notes / visits / calls) ──────────
+
+  async listInteractions(customerId: string, actor?: Actor | null, ctx?: TxContext): Promise<Result<CustomerInteraction[]>> {
+    try { assertPermission(actor ?? null, "customers:read"); } catch (error) { return Err(toCommerceError(error)); }
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    return Ok(await this.repo.listInteractions(orgId, customerId, ctx));
+  }
+
+  async createInteraction(
+    customerId: string,
+    input: { kind: string; notes: string; relatedEntityId?: string | null | undefined; metadata?: Record<string, unknown> | undefined },
+    actor?: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<CustomerInteraction>> {
+    try { assertPermission(actor ?? null, "customers:update"); } catch (error) { return Err(toCommerceError(error)); }
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const customer = await this.repo.findById(orgId, customerId, ctx);
+    if (!customer) return Err(new CommerceNotFoundError("Customer not found."));
+    const interaction = await this.repo.createInteraction(
+      {
+        organizationId: orgId,
+        customerId,
+        kind: input.kind,
+        notes: input.notes,
+        actorUserId: actor?.userId ?? null,
+        relatedEntityId: input.relatedEntityId ?? null,
+        metadata: input.metadata ?? {},
+      },
+      ctx,
+    );
+    return Ok(interaction);
+  }
+
+  async updateInteraction(
+    customerId: string,
+    interactionId: string,
+    input: { kind?: string | undefined; notes?: string | undefined; relatedEntityId?: string | null | undefined; metadata?: Record<string, unknown> | undefined },
+    actor?: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<CustomerInteraction>> {
+    try { assertPermission(actor ?? null, "customers:update"); } catch (error) { return Err(toCommerceError(error)); }
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const existing = await this.repo.findInteractionById(orgId, interactionId, ctx);
+    if (!existing || existing.customerId !== customerId) return Err(new CommerceNotFoundError("Interaction not found."));
+    const patch = {
+      ...(input.kind !== undefined ? { kind: input.kind } : {}),
+      ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      ...(input.relatedEntityId !== undefined ? { relatedEntityId: input.relatedEntityId } : {}),
+      ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+    };
+    const updated = await this.repo.updateInteraction(orgId, interactionId, patch, ctx);
+    if (!updated) return Err(new CommerceNotFoundError("Interaction not found."));
+    return Ok(updated);
+  }
+
+  async deleteInteraction(customerId: string, interactionId: string, actor?: Actor | null, ctx?: TxContext): Promise<Result<void>> {
+    try { assertPermission(actor ?? null, "customers:update"); } catch (error) { return Err(toCommerceError(error)); }
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const existing = await this.repo.findInteractionById(orgId, interactionId, ctx);
+    if (!existing || existing.customerId !== customerId) return Err(new CommerceNotFoundError("Interaction not found."));
+    await this.repo.deleteInteraction(orgId, interactionId, ctx);
+    return Ok(undefined);
   }
 
   private async getOrCreateByUserId(
