@@ -146,11 +146,28 @@ export function authMiddleware(
       auth.api.verifyApiKey
     ) {
       try {
+        // Resolve the key's configId from its prefix. Better Auth's apiKey
+        // plugin throws "No default api-key configuration found" when named
+        // scopes are configured and none is `default`/unset — and verifyApiKey
+        // only resolves a named scope (and enforces its configId match) when
+        // the configId is forwarded. Match the key's prefix to a configured
+        // scope so named-scope keys authenticate instead of silently 401-ing.
+        let configId: string | undefined;
+        const scopes = config.auth?.apiKeyScopes;
+        if (scopes) {
+          for (const [scopeId, scope] of Object.entries(scopes)) {
+            if (scope.prefix && apiKeyHeader.startsWith(scope.prefix)) {
+              configId = scopeId;
+              break;
+            }
+          }
+        }
+
         // Better Auth server-side calls require { body: { ... } } wrapper.
         // Returns { valid, error, key: Omit<ApiKey,"key"> | null }.
         // See: https://better-auth.com/docs/plugins/api-key/reference
         const result = await auth.api.verifyApiKey({
-          body: { key: apiKeyHeader },
+          body: { key: apiKeyHeader, ...(configId ? { configId } : {}) },
         });
         if (result?.valid && result.key) {
           const apiKey = result.key as Record<string, unknown>;
