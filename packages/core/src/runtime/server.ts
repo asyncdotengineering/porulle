@@ -474,5 +474,18 @@ export async function createServer(config: CommerceConfig) {
     return dispatchFetch(rewritten as Request, env as never, executionCtx as never);
   }) as typeof app.fetch;
 
-  return { app, kernel, logger, commerce };
+  // `runJobs` triggers one job-runner tick. On Cloudflare Workers, call it
+  // from `scheduled()` so cron triggers drive the queue without an in-process
+  // setInterval (which can't outlive a request on Workers):
+  //
+  //   // wrangler.toml
+  //   [triggers]
+  //   crons = ["*/5 * * * *"]
+  //
+  //   // worker.ts
+  //   export default {
+  //     fetch: (req, env, ctx) => server.app.fetch(req, env, ctx),
+  //     scheduled: (_event, env, ctx) => ctx.waitUntil(server.runJobs()),
+  //   };
+  return { app, kernel, logger, commerce, runJobs };
 }
