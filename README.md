@@ -353,6 +353,13 @@ This framework was extracted from a production e-commerce engine after a five-ro
 
 ---
 
+## Guides
+
+- [**Day-one principles**](./docs/best-practices.md) — the five rules that prevent the most common Porulle-app foot-guns (cast-ban + `parseJson`, audit-on-mutation, no silent money clamping, contract-named tests, single field-mappable error envelope), with a copy-pasteable CI guard.
+- [**Deploy on Cloudflare Workers**](./docs/deploy-cloudflare-workers.md) — lazy per-isolate boot, an environment-aware database adapter (TCP local / neon-http deployed), client-IP resolution, and cron via `scheduled()`.
+
+---
+
 ## Contributing
 
 ```bash
