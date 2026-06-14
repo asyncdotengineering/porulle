@@ -2,16 +2,29 @@ import { z } from "@hono/zod-openapi";
 
 // ─── Zod Body Schemas (single source of truth) ─────────────────────────────
 
-export const CreatePromotionBodySchema = z.object({
-  name: z.string().openapi({ example: "Summer Sale" }),
-  type: z.enum([
+/**
+ * The valid promotion `type` values. Single source of truth for the REST
+ * body schema, the OpenAPI enum, the service-layer validation, and the
+ * exported {@link PromotionType} union.
+ */
+export const promotionTypeEnum = z
+  .enum([
     "percentage_off_order",
     "fixed_off_order",
     "percentage_off_item",
     "fixed_off_item",
     "free_shipping",
     "buy_x_get_y",
-  ]).openapi({ example: "percentage_off_order" }),
+  ])
+  .openapi("PromotionType", { example: "percentage_off_order" });
+
+/** Valid promotion type discriminator. @see promotionTypeEnum */
+export type PromotionType = z.infer<typeof promotionTypeEnum>;
+
+export const CreatePromotionBodySchema = z.object({
+  name: z.string().openapi({ example: "Summer Sale" }),
+  /** @see PromotionType for valid values */
+  type: promotionTypeEnum,
   value: z.number().openapi({ example: 10 }),
   code: z.string().optional().openapi({ example: "SUMMER10" }),
   buyQuantity: z.number().int().optional(),
@@ -33,6 +46,10 @@ export const CreatePromotionBodySchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 }).openapi("CreatePromotionRequest");
 
+// Edit any subset of the create body. Validated the same way create is.
+export const UpdatePromotionBodySchema = CreatePromotionBodySchema.partial();
+
 // ─── Derived Input Types ────────────────────────────────────────────────────
 
 export type CreatePromotionInput = z.infer<typeof CreatePromotionBodySchema>;
+export type UpdatePromotionInput = z.infer<typeof UpdatePromotionBodySchema>;

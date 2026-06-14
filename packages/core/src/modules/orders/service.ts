@@ -64,6 +64,14 @@ export interface ListOrdersParams {
   page?: number;
   limit?: number;
   status?: string;
+  /** When true, listByCustomer also returns a lifetime-spend rollup. */
+  includeTotals?: boolean;
+}
+
+export interface CustomerOrderTotals {
+  count: number;
+  lifetimeSpend: number;
+  averageBasket: number;
 }
 
 export interface ChangeStatusInput {
@@ -82,7 +90,11 @@ export interface OrderServiceDeps {
 }
 
 export type HydratedOrder = Order & { lineItems: OrderLineItem[] };
-type OrderListResult = { items: HydratedOrder[]; pagination: Pagination };
+type OrderListResult = {
+  items: HydratedOrder[];
+  pagination: Pagination;
+  totals?: CustomerOrderTotals;
+};
 type BeforeCreateOrderHook = BeforeHook<CreateOrderInput>;
 type AfterCreateOrderHook = AfterHook<HydratedOrder>;
 type StatusChangeHookInput = {
@@ -324,6 +336,23 @@ export class OrderService {
     }
 
     items.sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime());
+
+    // Lifetime rollup over the full (un-paginated) set, computed server-side.
+    // Refunds/voids are excluded from lifetimeSpend.
+    let totals: CustomerOrderTotals | undefined;
+    if (params.includeTotals) {
+      const excluded = new Set(["refunded", "voided"]);
+      const count = items.length;
+      const lifetimeSpend = items
+        .filter((order) => !excluded.has(order.status))
+        .reduce((sum, order) => sum + order.grandTotal, 0);
+      totals = {
+        count,
+        lifetimeSpend,
+        averageBasket: count > 0 ? Math.round(lifetimeSpend / count) : 0,
+      };
+    }
+
     const paged = paginate(items, params.page ?? 1, params.limit ?? 20);
     const hydratedItems = await Promise.all(
       paged.items.map((order) => this.hydrateOrder(order, ctx)),
@@ -332,7 +361,61 @@ export class OrderService {
     return Ok({
       items: hydratedItems,
       pagination: paged.pagination,
+      ...(totals ? { totals } : {}),
     });
+  }
+
+  /**
+   * Fuzzy order lookup for receipt-less returns / support: matches across
+   * order number, customer email/name/phone (digits-normalized), and the
+   * walk-in label. Returns a compact result; <3 chars returns a hint.
+   */
+  async lookup(
+    q: string,
+    opts: { from?: Date; to?: Date },
+    actor?: Actor | null,
+    ctx?: TxContext,
+  ): Promise<
+    Result<{
+      items: Array<{
+        id: string;
+        orderNumber: string;
+        placedAt: Date;
+        status: string;
+        grandTotal: number;
+        customer: { id: string; name: string | null; phone: string | null } | null;
+      }>;
+      hint?: string;
+    }>
+  > {
+    try {
+      assertPermission(actor ?? null, "orders:read");
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+
+    const term = (q ?? "").trim();
+    if (term.length < 3) {
+      return Ok({ items: [], hint: "Enter at least 3 characters to search." });
+    }
+
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const rows = await this.repo.lookup(orgId, term, opts, ctx);
+    const items = rows.map((r) => ({
+      id: r.id,
+      orderNumber: r.orderNumber,
+      placedAt: r.placedAt,
+      status: r.status,
+      grandTotal: r.grandTotal,
+      customer: r.customerId
+        ? {
+            id: r.customerId,
+            name: `${r.firstName ?? ""} ${r.lastName ?? ""}`.trim() || null,
+            phone: r.phone ?? null,
+          }
+        : null,
+    }));
+    return Ok({ items });
   }
 
   async changeStatus(

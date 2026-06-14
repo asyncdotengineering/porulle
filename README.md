@@ -145,6 +145,8 @@ const { app } = await createServer(config);
 export default app;   // works on Bun, Node (@hono/node-server), Cloudflare Workers
 ```
 
+> **Storage is opt-in.** A catalog-only deployment needs no `storage` config — `defineConfig` defaults to a no-op adapter so the server boots without it. Media uploads return `501 storage_not_supported` until you configure a real adapter (`localStorageAdapter`, `s3StorageAdapter`, `r2StorageAdapter`).
+
 ---
 
 ## Your first production store
@@ -241,42 +243,43 @@ const api = createPorulleClient<paths>({
   apiKey: process.env.PORULLE_ADMIN_KEY!,
 });
 
-// Create a product
-const product = await api.POST("/api/admin/entities", {
+// Create a product. The title lives in `attributes.title`; per-type custom
+// fields (declared under entities[type].fields in your config) go in
+// `customFields`. Base price is set inline with `basePrice` + `currency`.
+const product = await api.POST("/api/catalog/entities", {
   body: {
     type: "product",
-    name: "Cotton Tee",
     slug: "cotton-tee",
-    description: "Heavyweight 240gsm cotton.",
-    fields: { weight: 240, material: "cotton" },
-    variants: [
-      { sku: "TEE-S-BLK", optionValues: { size: "S", color: "black" }, price: 2900 },
-      { sku: "TEE-M-BLK", optionValues: { size: "M", color: "black" }, price: 2900 },
-      { sku: "TEE-L-BLK", optionValues: { size: "L", color: "black" }, price: 2900 },
-    ],
+    basePrice: 2900,
+    currency: "USD",
+    attributes: {
+      title: "Cotton Tee",
+      description: "Heavyweight 240gsm cotton.",
+    },
+    customFields: { weight: 240, material: "cotton" },
   },
 });
 
 if (product.error) throw new Error(product.error.message);
 console.log(`✓ Created product ${product.data.id}`);
 
-// Set inventory for the warehouse
-await api.POST("/api/admin/inventory/levels", {
+// Set inventory in the warehouse (signed delta; omit warehouseId for default)
+await api.POST("/api/inventory/adjust", {
   body: {
     entityId: product.data.id,
-    locationId: "wh_main",
-    levels: product.data.variants.map((v) => ({ variantId: v.id, available: 100 })),
+    adjustment: 100,
   },
 });
 
 // Publish to the storefront
-await api.PATCH("/api/admin/entities/{id}", {
+await api.POST("/api/catalog/entities/{id}/publish", {
   params: { path: { id: product.data.id } },
-  body: { status: "published" },
 });
 
 console.log(`✓ Live at https://acme.com/products/${product.data.slug}`);
 ```
+
+> Variants are created with the option/variant routes — `POST /api/catalog/entities/{id}/options`, `POST /api/catalog/options/{optionTypeId}/values`, then `POST /api/catalog/entities/{id}/variants` — not inline on the create body. See the [SDK reference](https://porulle-docs.vercel.app/frontend/sdk/) for the full variant flow.
 
 ```bash
 PORULLE_ADMIN_KEY=pak_live_… bun run scripts/seed.ts
@@ -347,6 +350,13 @@ The kernel is interface-agnostic. The shipped interface is REST. Adopters who wa
 **v0.1.0 alpha.** What's stable: REST API, multi-tenant kernel, plugin contract, adapter contracts, security model. What's not: agent-native primitives (Phase 2 — principal model rework, multi-protocol gateway, conversation layer). See [`SECURITY.md`](./SECURITY.md) for the threat model and the Phase 2 roadmap.
 
 This framework was extracted from a production e-commerce engine after a five-round adversarial security review. Every cross-tenant leak, race condition, IDOR, and information-disclosure surface caught by the audit was fixed and pinned with a regression test before the rename.
+
+---
+
+## Guides
+
+- [**Day-one principles**](./docs/best-practices.md) — the five rules that prevent the most common Porulle-app foot-guns (cast-ban + `parseJson`, audit-on-mutation, no silent money clamping, contract-named tests, single field-mappable error envelope), with a copy-pasteable CI guard.
+- [**Deploy on Cloudflare Workers**](./docs/deploy-cloudflare-workers.md) — lazy per-isolate boot, an environment-aware database adapter (TCP local / neon-http deployed), client-IP resolution, and cron via `scheduled()`.
 
 ---
 

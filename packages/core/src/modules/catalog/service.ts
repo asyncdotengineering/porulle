@@ -167,9 +167,22 @@ export interface CatalogService {
     locale: string,
     ctx?: TxContext,
   ): Promise<Result<SellableAttribute>>;
-  listCategories(ctx?: TxContext): Promise<Result<CategorySummary[]>>;
+  listCategories(
+    ctx?: TxContext,
+    opts?: { includeArchived?: boolean },
+  ): Promise<Result<CategorySummary[]>>;
   createCategory(
     input: CreateCategoryInput,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<CategorySummary>>;
+  archiveCategory(
+    id: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<CategorySummary>>;
+  restoreCategory(
+    id: string,
     actor: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<CategorySummary>>;
@@ -266,6 +279,7 @@ export type CategorySummary = {
   parentId?: string | null;
   slug: string;
   sortOrder: number;
+  status: string;
   metadata: Record<string, unknown>;
 };
 
@@ -326,12 +340,20 @@ export class CatalogServiceImpl implements CatalogService {
     return this.entities.getAttributes(entityId, locale, ctx);
   }
 
-  listCategories(ctx?: TxContext): Promise<Result<CategorySummary[]>> {
-    return this.categories.listCategories(ctx);
+  listCategories(ctx?: TxContext, opts?: { includeArchived?: boolean }): Promise<Result<CategorySummary[]>> {
+    return this.categories.listCategories(ctx, opts);
   }
 
   createCategory(input: CreateCategoryInput, actor: Actor | null, ctx?: TxContext): Promise<Result<CategorySummary>> {
     return this.categories.createCategory(input, actor, ctx);
+  }
+
+  archiveCategory(id: string, actor: Actor | null, ctx?: TxContext): Promise<Result<CategorySummary>> {
+    return this.categories.archiveCategory(id, actor, ctx);
+  }
+
+  restoreCategory(id: string, actor: Actor | null, ctx?: TxContext): Promise<Result<CategorySummary>> {
+    return this.categories.restoreCategory(id, actor, ctx);
   }
 
   updateCategory(id: string, input: UpdateCategoryInput, actor: Actor | null, ctx?: TxContext): Promise<Result<CategorySummary>> {

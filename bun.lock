@@ -317,9 +317,6 @@
         "unifiedcommerce": "./dist/index.js",
       },
       "dependencies": {
-        "@porulle/import-flat": "workspace:*",
-        "@porulle/import-shopify": "workspace:*",
-        "@porulle/import-woocommerce": "workspace:*",
         "citty": "^0.1.6",
         "consola": "^3.4.2",
         "giget": "^2.0.0",
@@ -336,11 +333,17 @@
         "typescript": "5.9.2",
         "vitest": "^3.2.4",
       },
+      "optionalDependencies": {
+        "@porulle/import-flat": "^0.1.0",
+        "@porulle/import-shopify": "^0.1.0",
+        "@porulle/import-woocommerce": "^0.1.0",
+      },
     },
     "packages/core": {
       "name": "@porulle/core",
       "version": "0.1.0",
       "dependencies": {
+        "@better-auth/api-key": "^1.3.8",
         "@better-auth/drizzle-adapter": "^1.3.8",
         "@hono/zod-openapi": "^1.2.2",
         "@scalar/hono-api-reference": "^0.10.5",
@@ -353,7 +356,6 @@
         "zod": "^4.1.11",
       },
       "devDependencies": {
-        "@better-auth/api-key": "^1.5.4",
         "@electric-sql/pglite": "^0.3.15",
         "@porulle/eslint-config": "*",
         "@porulle/typescript-config": "*",

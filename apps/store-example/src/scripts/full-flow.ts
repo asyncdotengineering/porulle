@@ -110,11 +110,11 @@ async function main() {
 
   ok(
     "Add to category",
-    await kernel.services.catalog.addToCategory(product.id, category.id),
+    await kernel.services.catalog.addToCategory(product.id, category.id, staff),
   );
   ok(
     "Add to brand",
-    await kernel.services.catalog.addToBrand(product.id, brand.id),
+    await kernel.services.catalog.addToBrand(product.id, brand.id, staff),
   );
   console.log(`  ✓ Linked to "${category.slug}" + "${brand.displayName}"`);
 

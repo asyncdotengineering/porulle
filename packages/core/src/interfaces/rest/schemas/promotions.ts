@@ -3,8 +3,15 @@ import { ErrorSchema, errorResponses, UuidParamSchema } from "./shared.js";
 
 // ─── Request Schemas ────────────────────────────────────────────────────────
 
-import { CreatePromotionBodySchema } from "../../../modules/promotions/schemas.js";
+import {
+  CreatePromotionBodySchema,
+  UpdatePromotionBodySchema as UpdatePromotionBodySchemaBase,
+} from "../../../modules/promotions/schemas.js";
 export { CreatePromotionBodySchema };
+
+export const UpdatePromotionBodySchema = UpdatePromotionBodySchemaBase.openapi(
+  "UpdatePromotionRequest",
+);
 
 export const ValidatePromotionBodySchema = z.object({
   code: z.string().openapi({ example: "SUMMER10" }),
@@ -93,6 +100,30 @@ export const validatePromotionRoute = createRoute({
     200: {
       content: { "application/json": { schema: PromotionResponseSchema } },
       description: "Promotion validation result.",
+    },
+    ...errorResponses,
+  },
+});
+
+export const updatePromotionRoute = createRoute({
+  method: "patch",
+  path: "/{id}",
+  tags: ["Promotions"],
+  summary: "Edit a promotion",
+  description: "Update any subset of a promotion's fields (name, code, type, value, validity dates, scope, metadata, isActive). Validated the same way create is.",
+  request: {
+    params: PromotionIdParam,
+    body: {
+      content: {
+        "application/json": { schema: UpdatePromotionBodySchema },
+      },
+      required: true,
+    },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: PromotionResponseSchema } },
+      description: "Promotion updated.",
     },
     ...errorResponses,
   },

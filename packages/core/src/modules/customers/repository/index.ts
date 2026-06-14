@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import type { TxContext } from "../../../kernel/database/tx-context.js";
 import type {
   DrizzleDatabase,
@@ -9,11 +9,14 @@ import {
   customerAddresses,
   customerGroups,
   customerGroupMembers,
+  customerInteractions,
 } from "../schema.js";
 
 // Infer types from Drizzle schema
 export type Customer = typeof customers.$inferSelect;
 export type CustomerInsert = typeof customers.$inferInsert;
+export type CustomerInteraction = typeof customerInteractions.$inferSelect;
+export type CustomerInteractionInsert = typeof customerInteractions.$inferInsert;
 export type CustomerAddress = typeof customerAddresses.$inferSelect;
 export type CustomerAddressInsert = typeof customerAddresses.$inferInsert;
 export type CustomerGroup = typeof customerGroups.$inferSelect;
@@ -99,6 +102,57 @@ export class CustomersRepository {
     const db = this.getDb(ctx);
     const rows = await db.insert(customers).values(data).returning();
     return rows[0]!;
+  }
+
+  // ─── Customer interactions ───────────────────────────────────────────────
+
+  async listInteractions(orgId: string, customerId: string, ctx?: TxContext): Promise<CustomerInteraction[]> {
+    const db = this.getDb(ctx);
+    return db
+      .select()
+      .from(customerInteractions)
+      .where(and(eq(customerInteractions.organizationId, orgId), eq(customerInteractions.customerId, customerId)))
+      .orderBy(desc(customerInteractions.at));
+  }
+
+  async findInteractionById(orgId: string, id: string, ctx?: TxContext): Promise<CustomerInteraction | undefined> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .select()
+      .from(customerInteractions)
+      .where(and(eq(customerInteractions.organizationId, orgId), eq(customerInteractions.id, id)))
+      .limit(1);
+    return rows[0];
+  }
+
+  async createInteraction(data: CustomerInteractionInsert, ctx?: TxContext): Promise<CustomerInteraction> {
+    const db = this.getDb(ctx);
+    const rows = await db.insert(customerInteractions).values(data).returning();
+    return rows[0]!;
+  }
+
+  async updateInteraction(
+    orgId: string,
+    id: string,
+    data: Partial<Omit<CustomerInteractionInsert, "id" | "organizationId" | "customerId">>,
+    ctx?: TxContext,
+  ): Promise<CustomerInteraction | undefined> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .update(customerInteractions)
+      .set(data)
+      .where(and(eq(customerInteractions.organizationId, orgId), eq(customerInteractions.id, id)))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteInteraction(orgId: string, id: string, ctx?: TxContext): Promise<boolean> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .delete(customerInteractions)
+      .where(and(eq(customerInteractions.organizationId, orgId), eq(customerInteractions.id, id)))
+      .returning();
+    return rows.length > 0;
   }
 
   async update(

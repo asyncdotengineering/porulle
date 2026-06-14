@@ -5,6 +5,7 @@ import { csrf } from "hono/csrf";
 import { bodyLimit } from "hono/body-limit";
 import { rateLimiter } from "hono-rate-limiter";
 import { createHash } from "node:crypto";
+import { createClientIpResolver } from "./client-ip.js";
 import type { Actor } from "../auth/types.js";
 import type { AuthInstance } from "../auth/setup.js";
 import type { CommerceConfig } from "../config/types.js";
@@ -184,28 +185,35 @@ export async function createServer(config: CommerceConfig) {
   }));
 
   // ─── Body Size Limit (F6) ──────────────────────────────────────────
-  app.use("*", bodyLimit({
+  // Media uploads (phone photos are 3–8MB) get their own larger limit and are
+  // exempt from the global 1MB limit. Everything else stays at 1MB.
+  const mediaMaxUploadSize = config.media?.maxUploadSize ?? 10 * 1024 * 1024;
+  const MEDIA_UPLOAD_PATH = "/api/media/upload";
+
+  app.use(MEDIA_UPLOAD_PATH, bodyLimit({
+    maxSize: mediaMaxUploadSize,
+    onError: (c) => c.json({
+      error: { code: "FILE_TOO_LARGE", message: `Upload exceeds the ${mediaMaxUploadSize}-byte limit.` },
+    }, 413),
+  }));
+
+  const globalBodyLimit = bodyLimit({
     maxSize: 1024 * 1024,  // 1 MB default
     onError: (c) => c.json({
       error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds 1MB limit." },
     }, 413),
-  }));
+  });
+  app.use("*", (c, next) =>
+    c.req.path === MEDIA_UPLOAD_PATH ? next() : globalBodyLimit(c, next),
+  );
 
   // ─── Rate Limiting (F1) ──────────────────────────────────────────────
-  // Trust X-Forwarded-For ONLY from a known reverse proxy IP.
-  // Set TRUSTED_PROXY_IP env var to the proxy's IP (e.g., "127.0.0.1").
-  const trustedProxyIp = process.env.TRUSTED_PROXY_IP;
+  // Client IP drives the rate-limit key. Defaults to the Node socket address
+  // (trusting X-Forwarded-For only from a known proxy via config.runtime
+  // .trustedProxyIp / TRUSTED_PROXY_IP); edge runtimes inject
+  // config.runtime.getClientIp to read the platform header instead.
   const signInEmailRateKeyCache = new WeakMap<Request, string>();
-  const getClientIp = (c: { req: { raw: unknown; header: (name: string) => string | undefined } }): string => {
-    const raw = c.req.raw as { socket?: { remoteAddress?: string } };
-    const remoteAddress = raw.socket?.remoteAddress;
-    // Only trust X-Forwarded-For when the direct connection is from a trusted proxy
-    if (trustedProxyIp && remoteAddress === trustedProxyIp) {
-      const xff = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
-      if (xff) return xff;
-    }
-    return remoteAddress ?? "unknown";
-  };
+  const getClientIp = createClientIpResolver(config);
   const keyGenerator = getClientIp;
 
   app.use("/api/auth/*", rateLimiter({
@@ -466,5 +474,18 @@ export async function createServer(config: CommerceConfig) {
     return dispatchFetch(rewritten as Request, env as never, executionCtx as never);
   }) as typeof app.fetch;
 
-  return { app, kernel, logger, commerce };
+  // `runJobs` triggers one job-runner tick. On Cloudflare Workers, call it
+  // from `scheduled()` so cron triggers drive the queue without an in-process
+  // setInterval (which can't outlive a request on Workers):
+  //
+  //   // wrangler.toml
+  //   [triggers]
+  //   crons = ["*/5 * * * *"]
+  //
+  //   // worker.ts
+  //   export default {
+  //     fetch: (req, env, ctx) => server.app.fetch(req, env, ctx),
+  //     scheduled: (_event, env, ctx) => ctx.waitUntil(server.runJobs()),
+  //   };
+  return { app, kernel, logger, commerce, runJobs };
 }

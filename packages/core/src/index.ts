@@ -18,6 +18,8 @@ export { router } from "./interfaces/rest/router.js";
 export { webhookRouter, type WebhookRouterResult } from "./interfaces/rest/webhook-router.js";
 export { isPrivateUrl, isPrivateIp } from "./modules/webhooks/ssrf-guard.js";
 export { createServer } from "./runtime/server.js";
+export { createClientIpResolver } from "./runtime/client-ip.js";
+export type { ClientIpResolver, ClientIpContext, RuntimeConfig } from "./runtime/client-ip.js";
 export { createLogger } from "./runtime/logger.js";
 export type { Logger as PinoLogger } from "./runtime/logger.js";
 export { setupGracefulShutdown } from "./runtime/shutdown.js";
@@ -125,6 +127,7 @@ export type {
   PaymentWebhookEvent,
 } from "./modules/payments/adapter.js";
 export type { StorageAdapter } from "./modules/media/adapter.js";
+export { noopStorageAdapter } from "./modules/media/noop-adapter.js";
 export type {
   SearchAdapter,
   SearchDocument,
@@ -154,8 +157,22 @@ export type {
   TaxVoidParams,
 } from "./modules/tax/adapter.js";
 
-export { getSchema, buildSchema, getTableNames } from "./kernel/database/migrate.js";
+export {
+  getSchema,
+  buildSchema,
+  getTableNames,
+  getSchemaFiles,
+  pushSchema,
+} from "./kernel/database/migrate.js";
 export { consoleEmailAdapter } from "./adapters/console-email.js";
+
+export { promotionTypeEnum, type PromotionType } from "./modules/promotions/schemas.js";
+
+export { parseJson, err } from "./interfaces/rest/parse-json.js";
+export type { ValidationIssue, ErrorDetails } from "./interfaces/rest/parse-json.js";
+
+export { auditMiddleware } from "./interfaces/rest/audit-middleware.js";
+export type { AuditVars } from "./interfaces/rest/audit-middleware.js";
 
 export { runCompensationChain } from "./kernel/compensation/executor.js";
 export type {

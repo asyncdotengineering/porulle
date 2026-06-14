@@ -2,14 +2,31 @@ import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { defineCommand } from "citty";
 import consola from "consola";
-// @ts-ignore — missing type declarations
-import { importFlat } from "@porulle/import-flat";
-// @ts-ignore — missing type declarations
-import { importShopifyCatalog } from "@porulle/import-shopify";
-// @ts-ignore — missing type declarations
-import { importWooCommerceCatalog } from "@porulle/import-woocommerce";
 
 type JsonRecord = Record<string, unknown>;
+
+/**
+ * The import adapters (`@porulle/import-flat`, `@porulle/import-shopify`,
+ * `@porulle/import-woocommerce`) are optional dependencies, loaded on demand
+ * only when the matching `import` source is invoked. This keeps the CLI
+ * installable and bootable even when the adapters aren't present, instead of
+ * the whole CLI failing to load when a single optional package is missing.
+ */
+async function loadImporter<T>(pkg: string, named: string): Promise<T> {
+  let mod: Record<string, unknown>;
+  try {
+    mod = (await import(pkg)) as Record<string, unknown>;
+  } catch {
+    throw new Error(
+      `The "${pkg}" import adapter is not installed. Install it to use this importer:\n  bun add ${pkg}`,
+    );
+  }
+  const fn = mod[named];
+  if (typeof fn !== "function") {
+    throw new Error(`"${pkg}" did not export "${named}".`);
+  }
+  return fn as T;
+}
 
 function toBaseUrl(raw: string | undefined): string {
   return (raw ?? "http://localhost:3000").replace(/\/$/, "");
@@ -219,6 +236,10 @@ export const importCommand = defineCommand({
         }
       }
 
+      const importShopifyCatalog = await loadImporter<(opts: any) => Promise<any>>(
+        "@porulle/import-shopify",
+        "importShopifyCatalog",
+      );
       const imported = await importShopifyCatalog({
         target,
         ...(args.storeUrl ? { storeUrl: String(args.storeUrl) } : {}),
@@ -256,6 +277,10 @@ export const importCommand = defineCommand({
         }
       }
 
+      const importWooCommerceCatalog = await loadImporter<(opts: any) => Promise<any>>(
+        "@porulle/import-woocommerce",
+        "importWooCommerceCatalog",
+      );
       const imported = await importWooCommerceCatalog({
         target,
         ...(args.storeUrl ? { storeUrl: String(args.storeUrl) } : {}),
@@ -298,6 +323,10 @@ export const importCommand = defineCommand({
       const raw = await readFile(inputPath, "utf8");
       const extension = extname(inputPath).toLowerCase();
 
+      const importFlat = await loadImporter<(opts: any) => Promise<any>>(
+        "@porulle/import-flat",
+        "importFlat",
+      );
       const imported = await importFlat({
         mapping: mappingParsed as any,
         target: {

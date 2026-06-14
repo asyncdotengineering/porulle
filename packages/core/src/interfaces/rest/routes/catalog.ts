@@ -35,6 +35,8 @@ import {
   updateEntityRoute,
   setEntityAttributesRoute,
   createCategoryRoute,
+  archiveCategoryRoute,
+  restoreCategoryRoute,
   updateCategoryRoute,
   createBrandRoute,
   updateBrandRoute,
@@ -280,12 +282,30 @@ export function catalogRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(listCategoriesRoute, async (c) => {
-    const result = await kernel.services.catalog.listCategories({ actor: c.get("actor"), tx: null, requestId: "" });
+    const includeArchived = c.req.query("includeArchived") === "true";
+    const result = await kernel.services.catalog.listCategories(
+      { actor: c.get("actor"), tx: null, requestId: "" },
+      { includeArchived },
+    );
     if (!result.ok)
       return c.json(
         mapErrorToResponse(result.error),
         mapErrorToStatus(result.error),
       );
+    return c.json({ data: result.value });
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(archiveCategoryRoute, async (c) => {
+    const result = await kernel.services.catalog.archiveCategory(c.req.param("categoryId"), c.get("actor"));
+    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    return c.json({ data: result.value });
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(restoreCategoryRoute, async (c) => {
+    const result = await kernel.services.catalog.restoreCategory(c.req.param("categoryId"), c.get("actor"));
+    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 

@@ -1,7 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { rateLimiter } from "hono-rate-limiter";
 import type { Kernel } from "../../../runtime/kernel.js";
-import { createPromotionRoute, validatePromotionRoute, deactivatePromotionRoute, listPromotionsRoute } from "../schemas/promotions.js";
+import { createPromotionRoute, updatePromotionRoute, validatePromotionRoute, deactivatePromotionRoute, listPromotionsRoute } from "../schemas/promotions.js";
 import type { PromotionStatusFilter } from "../../../modules/promotions/service.js";
 import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requirePerm } from "../utils.js";
 import { resolveOrgId } from "../../../auth/org.js";
@@ -74,6 +74,27 @@ export function promotionRoutes(kernel: Kernel) {
       return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
     }
 
+    return c.json({ data: result.value });
+  });
+
+  // Guard inline (not via router.use("/:id")) because a "/:id" middleware
+  // would also match single-segment routes like POST /validate.
+  router.use("/:id", async (c, next) => {
+    if (c.req.method !== "PATCH") return next();
+    return requirePerm("promotions:manage")(c, next);
+  });
+
+  // @ts-expect-error -- openapi() enforces strict response typing but our handler
+  // returns union responses (200 | 400 | 404 | 422). The route definition
+  // documents the contract; the handler returns dynamic status.
+  router.openapi(updatePromotionRoute, async (c) => {
+    const body = c.req.valid("json");
+    const actor = c.get("actor");
+    const orgId = resolveOrgId(actor);
+    const result = await kernel.services.promotions.update(orgId, c.req.param("id"), body, actor);
+    if (!result.ok) {
+      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    }
     return c.json({ data: result.value });
   });
 

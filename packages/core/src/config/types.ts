@@ -306,9 +306,21 @@ export interface CommerceConfig {
   shipping?: ShippingConfig;
   payments?: PaymentAdapter[];
   storage?: StorageAdapter;
+  /**
+   * Runtime/edge overrides. `getClientIp` lets edge deployments (Workers,
+   * Vercel Edge, Fly) resolve the client IP from the platform header instead
+   * of the Node socket. Defaults to Node behavior.
+   */
+  runtime?: import("../runtime/client-ip.js").RuntimeConfig;
   media?: {
     allowedMimeTypes?: string[];
     allowSvg?: boolean;
+    /**
+     * Max request body size (bytes) for `POST /api/media/upload`. Phone photos
+     * are typically 3–8MB, so this path is exempt from the global 1MB body
+     * limit. Defaults to 10MB.
+     */
+    maxUploadSize?: number;
   };
   email?: {
     send(input: {

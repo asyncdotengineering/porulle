@@ -15,20 +15,17 @@ import type {
   PromotionsRepository,
   Promotion,
   PromotionUsage,
+  PromotionInsert,
 } from "./repository/index.js";
 import type { CatalogRepository } from "../catalog/repository/index.js";
 import type { OrdersRepository } from "../orders/repository/index.js";
 import { resolveOrgId } from "../../auth/org.js";
 import type { Actor } from "../../auth/types.js";
 
-// Re-export PromotionType for external use
-export type PromotionType =
-  | "percentage_off_order"
-  | "fixed_off_order"
-  | "percentage_off_item"
-  | "fixed_off_item"
-  | "free_shipping"
-  | "buy_x_get_y";
+// PromotionType is derived from the zod enum (single source of truth) in
+// ./schemas.js; re-export it here for backwards-compatible imports.
+import { promotionTypeEnum, type PromotionType } from "./schemas.js";
+export type { PromotionType };
 
 /** Filter status for listing promotions. Used by the REST API and service layer. */
 export type PromotionStatusFilter = "active" | "inactive" | "expired" | "scheduled";
@@ -88,7 +85,7 @@ export interface PromotionConditions {
 }
 
 export type { CreatePromotionInput } from "./schemas.js";
-import type { CreatePromotionInput } from "./schemas.js";
+import type { CreatePromotionInput, UpdatePromotionInput } from "./schemas.js";
 
 export interface AppliedPromotion {
   promotionId: string;
@@ -182,15 +179,8 @@ export class PromotionService {
       );
     }
 
-    // Validate promotion type
-    const validTypes: PromotionType[] = [
-      "percentage_off_order",
-      "fixed_off_order",
-      "percentage_off_item",
-      "fixed_off_item",
-      "free_shipping",
-      "buy_x_get_y",
-    ];
+    // Validate promotion type against the single-source enum
+    const validTypes = promotionTypeEnum.options;
     if (!validTypes.includes(input.type)) {
       return Err(
         new CommerceValidationError(
@@ -265,6 +255,88 @@ export class PromotionService {
     ) as AfterHook<Promotion>[];
     const hctx = hookContext(null, this.deps.services, this.deps.database, ctx?.tx ?? null);
     await runAfterHooks(afterHooks, promotion, updated, "update", hctx);
+
+    return Ok(updated);
+  }
+
+  /**
+   * Edit any subset of a promotion's fields. Validated the same way create is
+   * (value bounds, type enum, code uniqueness). Only provided keys are written.
+   */
+  async update(
+    orgId: string,
+    id: string,
+    input: UpdatePromotionInput,
+    actor?: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<Promotion>> {
+    const existing = await this.repo.findById(orgId, id, ctx);
+    if (!existing) {
+      return Err(new CommerceNotFoundError("Promotion not found."));
+    }
+
+    if (input.value !== undefined && input.value < 0) {
+      return Err(new CommerceValidationError("Promotion value cannot be negative."));
+    }
+
+    if (input.type !== undefined) {
+      const validTypes = promotionTypeEnum.options;
+      if (!validTypes.includes(input.type)) {
+        return Err(
+          new CommerceValidationError(
+            `Invalid promotion type "${input.type}". Must be one of: ${validTypes.join(", ")}`,
+          ),
+        );
+      }
+    }
+
+    let normalizedCode: string | null | undefined;
+    if (input.code !== undefined) {
+      normalizedCode = input.code ? input.code.trim().toUpperCase() : null;
+      if (normalizedCode) {
+        const other = await this.repo.findByCode(orgId, normalizedCode, ctx);
+        if (other && other.id !== id) {
+          return Err(
+            new CommerceValidationError(`Promotion code ${normalizedCode} already exists.`),
+          );
+        }
+      }
+    }
+
+    const patch: Partial<Omit<PromotionInsert, "id">> = {};
+    if (input.name !== undefined) patch.name = input.name;
+    if (input.type !== undefined) patch.type = input.type;
+    if (input.value !== undefined) patch.value = roundMoney(input.value);
+    if (input.isAutomatic !== undefined) patch.isAutomatic = input.isAutomatic;
+    if (input.isActive !== undefined) patch.isActive = input.isActive;
+    if (input.priority !== undefined) patch.priority = input.priority;
+    if (input.conditions !== undefined) patch.conditions = input.conditions as Record<string, unknown>;
+    if (input.metadata !== undefined) patch.metadata = input.metadata;
+    if (normalizedCode !== undefined) patch.code = normalizedCode;
+    if (input.buyQuantity !== undefined) patch.buyQuantity = input.buyQuantity;
+    if (input.getQuantity !== undefined) patch.getQuantity = input.getQuantity;
+    if (input.usageLimitTotal !== undefined) patch.usageLimitTotal = input.usageLimitTotal;
+    if (input.usageLimitPerCustomer !== undefined) {
+      patch.usageLimitPerCustomer = input.usageLimitPerCustomer;
+    }
+    if (input.validFrom !== undefined) patch.validFrom = input.validFrom;
+    if (input.validUntil !== undefined) patch.validUntil = input.validUntil;
+
+    const updated = await this.repo.update(id, patch, ctx);
+    if (!updated) {
+      return Err(new CommerceNotFoundError("Promotion not found."));
+    }
+
+    const afterHooks = this.deps.hooks.resolve(
+      "promotions.afterUpdate",
+    ) as AfterHook<Promotion>[];
+    const hctx = hookContext(
+      actor ?? ctx?.actor ?? null,
+      this.deps.services,
+      this.deps.database,
+      ctx?.tx ?? null,
+    );
+    await runAfterHooks(afterHooks, existing, updated, "update", hctx);
 
     return Ok(updated);
   }
