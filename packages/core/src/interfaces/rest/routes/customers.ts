@@ -58,7 +58,10 @@ export function customerRoutes(kernel: Kernel) {
     for (const [k, v] of Object.entries(body)) {
       if (v !== undefined) updates[k] = v;
     }
-    const result = await kernel.services.customers.update(id, updates, actor);
+    const replaceMetadata = c.req.query("metadataReplace") === "true";
+    const result = await kernel.services.customers.update(id, updates, actor, undefined, {
+      replaceMetadata,
+    });
     if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });

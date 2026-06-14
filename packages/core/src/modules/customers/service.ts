@@ -119,11 +119,26 @@ export class CustomerService {
     >,
     actor?: Actor | null,
     ctx?: TxContext,
+    options?: { replaceMetadata?: boolean },
   ): Promise<Result<Customer>> {
     const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
     const existing = await this.repo.findById(orgId, id, ctx);
     if (!existing) return Err(new CommerceNotFoundError("Customer not found."));
-    const updated = await this.repo.update(id, updates, ctx);
+
+    // Shallow-merge metadata by default (top-level keys) so a single-key edit
+    // doesn't clobber the rest of the blob. Pass replaceMetadata to overwrite.
+    let finalUpdates = updates;
+    if (updates.metadata !== undefined && !options?.replaceMetadata) {
+      finalUpdates = {
+        ...updates,
+        metadata: {
+          ...((existing.metadata as Record<string, unknown> | null) ?? {}),
+          ...(updates.metadata as Record<string, unknown>),
+        },
+      };
+    }
+
+    const updated = await this.repo.update(id, finalUpdates, ctx);
     if (!updated) return Err(new CommerceNotFoundError("Customer not found."));
 
     const afterHooks = this.deps.hooks.resolve(
