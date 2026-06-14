@@ -19,15 +19,15 @@
     "giget": "^2.0.0"
   },
   "optionalDependencies": {
-    "@porulle/import-flat": "^0.5.0",
-    "@porulle/import-shopify": "^0.5.0",
-    "@porulle/import-woocommerce": "^0.5.0"
+    "@porulle/import-flat": "workspace:*",
+    "@porulle/import-shopify": "workspace:*",
+    "@porulle/import-woocommerce": "workspace:*"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.4.5",
     "@electric-sql/pglite-socket": "^0.1.5",
-    "@porulle/eslint-config": "*",
-    "@porulle/typescript-config": "*",
+    "@porulle/eslint-config": "workspace:*",
+    "@porulle/typescript-config": "workspace:*",
     "@types/node": "^24.5.2",
     "drizzle-kit": "^0.31.9",
     "eslint": "^9.39.1",

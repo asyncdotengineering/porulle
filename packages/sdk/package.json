@@ -29,8 +29,8 @@
     "openapi-typescript-helpers": "^0.1.0"
   },
   "devDependencies": {
-    "@porulle/eslint-config": "*",
-    "@porulle/typescript-config": "*",
+    "@porulle/eslint-config": "workspace:*",
+    "@porulle/typescript-config": "workspace:*",
     "@types/node": "^24.5.2",
     "eslint": "^9.39.1",
     "openapi-react-query": "^0.5.4",

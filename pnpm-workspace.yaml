@@ -1,0 +1,16 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+  - "packages/adapters/*"
+  - "packages/deployment/*"
+  - "packages/plugins/*"
+  - "packages/import/*"
+
+overrides:
+  drizzle-orm: ^0.45.1
+
+# pnpm 10 blocks postinstall scripts by default; these need theirs to build
+# native binaries (esbuild powers vitest/tsup/drizzle-kit; sharp is image I/O).
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
