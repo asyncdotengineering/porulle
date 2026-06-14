@@ -309,6 +309,12 @@ export interface CommerceConfig {
   media?: {
     allowedMimeTypes?: string[];
     allowSvg?: boolean;
+    /**
+     * Max request body size (bytes) for `POST /api/media/upload`. Phone photos
+     * are typically 3–8MB, so this path is exempt from the global 1MB body
+     * limit. Defaults to 10MB.
+     */
+    maxUploadSize?: number;
   };
   email?: {
     send(input: {

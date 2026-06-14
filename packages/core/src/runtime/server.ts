@@ -184,12 +184,27 @@ export async function createServer(config: CommerceConfig) {
   }));
 
   // ─── Body Size Limit (F6) ──────────────────────────────────────────
-  app.use("*", bodyLimit({
+  // Media uploads (phone photos are 3–8MB) get their own larger limit and are
+  // exempt from the global 1MB limit. Everything else stays at 1MB.
+  const mediaMaxUploadSize = config.media?.maxUploadSize ?? 10 * 1024 * 1024;
+  const MEDIA_UPLOAD_PATH = "/api/media/upload";
+
+  app.use(MEDIA_UPLOAD_PATH, bodyLimit({
+    maxSize: mediaMaxUploadSize,
+    onError: (c) => c.json({
+      error: { code: "FILE_TOO_LARGE", message: `Upload exceeds the ${mediaMaxUploadSize}-byte limit.` },
+    }, 413),
+  }));
+
+  const globalBodyLimit = bodyLimit({
     maxSize: 1024 * 1024,  // 1 MB default
     onError: (c) => c.json({
       error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds 1MB limit." },
     }, 413),
-  }));
+  });
+  app.use("*", (c, next) =>
+    c.req.path === MEDIA_UPLOAD_PATH ? next() : globalBodyLimit(c, next),
+  );
 
   // ─── Rate Limiting (F1) ──────────────────────────────────────────────
   // Trust X-Forwarded-For ONLY from a known reverse proxy IP.
