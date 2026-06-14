@@ -3,6 +3,7 @@ import type { CommerceConfig, DefineConfigInput } from "./types.js";
 import type { TaskDefinition } from "../kernel/jobs/types.js";
 import { defaultKernelJobTasks } from "../kernel/jobs/builtin-job-tasks.js";
 import { _resetRegisteredPlugins } from "../kernel/plugin/manifest.js";
+import { noopStorageAdapter } from "../modules/media/noop-adapter.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -76,6 +77,12 @@ export async function defineConfig(
     ...config,
     jobs: mergeBuiltinJobTasks(config.jobs),
   };
+
+  // Storage is opt-in: default to a no-op adapter so catalog-only deployments
+  // boot with zero storage config. A real adapter (local/S3/R2) enables media.
+  if (!config.storage) {
+    config = { ...config, storage: noopStorageAdapter };
+  }
 
   return Object.freeze(config);
 }

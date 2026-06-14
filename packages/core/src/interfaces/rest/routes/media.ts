@@ -11,6 +11,13 @@ export function mediaRoutes(kernel: Kernel) {
   router.use("/upload", requirePerm("media:write"));
 
   router.post("/upload", async (c) => {
+    // No storage configured (the default no-op adapter) → media is disabled.
+    if (kernel.config.storage?.providerId === "noop") {
+      return c.json({
+        error: { code: "storage_not_supported", message: "Media storage is not configured." },
+      }, 501);
+    }
+
     const body = await c.req.parseBody();
     const file = body.file as File;
 

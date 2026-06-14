@@ -125,6 +125,7 @@ export type {
   PaymentWebhookEvent,
 } from "./modules/payments/adapter.js";
 export type { StorageAdapter } from "./modules/media/adapter.js";
+export { noopStorageAdapter } from "./modules/media/noop-adapter.js";
 export type {
   SearchAdapter,
   SearchDocument,

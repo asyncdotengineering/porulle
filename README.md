@@ -145,6 +145,8 @@ const { app } = await createServer(config);
 export default app;   // works on Bun, Node (@hono/node-server), Cloudflare Workers
 ```
 
+> **Storage is opt-in.** A catalog-only deployment needs no `storage` config — `defineConfig` defaults to a no-op adapter so the server boots without it. Media uploads return `501 storage_not_supported` until you configure a real adapter (`localStorageAdapter`, `s3StorageAdapter`, `r2StorageAdapter`).
+
 ---
 
 ## Your first production store
