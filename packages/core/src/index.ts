@@ -168,6 +168,9 @@ export { promotionTypeEnum, type PromotionType } from "./modules/promotions/sche
 export { parseJson, err } from "./interfaces/rest/parse-json.js";
 export type { ValidationIssue, ErrorDetails } from "./interfaces/rest/parse-json.js";
 
+export { auditMiddleware } from "./interfaces/rest/audit-middleware.js";
+export type { AuditVars } from "./interfaces/rest/audit-middleware.js";
+
 export { runCompensationChain } from "./kernel/compensation/executor.js";
 export type {
   CompensationContext,
