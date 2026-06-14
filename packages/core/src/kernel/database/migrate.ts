@@ -23,6 +23,7 @@
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import type { CommerceConfig } from "../../config/types.js";
+import { unwrapDb } from "./adapter.js";
 import * as schema from "./schema.js";
 
 /**
@@ -117,6 +118,7 @@ export async function pushSchema(drizzleInstance: unknown): Promise<void> {
       "pushSchema() requires `drizzle-kit` to be installed. Add it to your project: bun add -d drizzle-kit",
     );
   }
-  const { apply } = await drizzleKit.pushSchema(getSchema(), drizzleInstance);
+  // drizzle-kit needs the native driver result shape; unwrap a normalized db.
+  const { apply } = await drizzleKit.pushSchema(getSchema(), unwrapDb(drizzleInstance));
   await apply();
 }

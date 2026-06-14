@@ -26,6 +26,7 @@ import { createTestConfig } from "./create-test-config.js";
 import { createKernel } from "../runtime/kernel.js";
 import type { Kernel } from "../runtime/kernel.js";
 import { buildSchema } from "../kernel/database/migrate.js";
+import { unwrapDb } from "../kernel/database/adapter.js";
 import { ensureDefaultOrg } from "../auth/org.js";
 import { mapErrorToStatus } from "../kernel/error-mapper.js";
 
@@ -93,7 +94,8 @@ export async function createPluginTestApp(
   };
   const { apply } = await drizzleKit.pushSchema(
     mergedSchema,
-    kernel.database.db as PgDatabase<PgQueryResultHKT>,
+    // drizzle-kit needs the native driver result shape; unwrap the normalized db.
+    unwrapDb(kernel.database.db) as PgDatabase<PgQueryResultHKT>,
   );
   await apply();
 
