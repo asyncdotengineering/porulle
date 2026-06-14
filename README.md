@@ -241,42 +241,43 @@ const api = createPorulleClient<paths>({
   apiKey: process.env.PORULLE_ADMIN_KEY!,
 });
 
-// Create a product
-const product = await api.POST("/api/admin/entities", {
+// Create a product. The title lives in `attributes.title`; per-type custom
+// fields (declared under entities[type].fields in your config) go in
+// `customFields`. Base price is set inline with `basePrice` + `currency`.
+const product = await api.POST("/api/catalog/entities", {
   body: {
     type: "product",
-    name: "Cotton Tee",
     slug: "cotton-tee",
-    description: "Heavyweight 240gsm cotton.",
-    fields: { weight: 240, material: "cotton" },
-    variants: [
-      { sku: "TEE-S-BLK", optionValues: { size: "S", color: "black" }, price: 2900 },
-      { sku: "TEE-M-BLK", optionValues: { size: "M", color: "black" }, price: 2900 },
-      { sku: "TEE-L-BLK", optionValues: { size: "L", color: "black" }, price: 2900 },
-    ],
+    basePrice: 2900,
+    currency: "USD",
+    attributes: {
+      title: "Cotton Tee",
+      description: "Heavyweight 240gsm cotton.",
+    },
+    customFields: { weight: 240, material: "cotton" },
   },
 });
 
 if (product.error) throw new Error(product.error.message);
 console.log(`✓ Created product ${product.data.id}`);
 
-// Set inventory for the warehouse
-await api.POST("/api/admin/inventory/levels", {
+// Set inventory in the warehouse (signed delta; omit warehouseId for default)
+await api.POST("/api/inventory/adjust", {
   body: {
     entityId: product.data.id,
-    locationId: "wh_main",
-    levels: product.data.variants.map((v) => ({ variantId: v.id, available: 100 })),
+    adjustment: 100,
   },
 });
 
 // Publish to the storefront
-await api.PATCH("/api/admin/entities/{id}", {
+await api.POST("/api/catalog/entities/{id}/publish", {
   params: { path: { id: product.data.id } },
-  body: { status: "published" },
 });
 
 console.log(`✓ Live at https://acme.com/products/${product.data.slug}`);
 ```
+
+> Variants are created with the option/variant routes — `POST /api/catalog/entities/{id}/options`, `POST /api/catalog/options/{optionTypeId}/values`, then `POST /api/catalog/entities/{id}/variants` — not inline on the create body. See the [SDK reference](https://porulle-docs.vercel.app/frontend/sdk/) for the full variant flow.
 
 ```bash
 PORULLE_ADMIN_KEY=pak_live_… bun run scripts/seed.ts
