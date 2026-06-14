@@ -1,10 +1,23 @@
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, or, gte, lte, desc, sql } from "drizzle-orm";
 import type { TxContext } from "../../../kernel/database/tx-context.js";
 import type {
   DrizzleDatabase,
   DbOrTx,
 } from "../../../kernel/database/drizzle-db.js";
 import { orders, orderLineItems, orderStatusHistory } from "../schema.js";
+import { customers } from "../../customers/schema.js";
+
+export interface OrderLookupRow {
+  id: string;
+  orderNumber: string;
+  placedAt: Date;
+  status: string;
+  grandTotal: number;
+  customerId: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
+}
 
 // Infer types from Drizzle schema
 export type Order = typeof orders.$inferSelect;
@@ -64,6 +77,55 @@ export class OrdersRepository {
       .from(orders)
       .where(and(eq(orders.organizationId, orgId), eq(orders.customerId, customerId)))
       .orderBy(desc(orders.placedAt));
+  }
+
+  /**
+   * Fuzzy lookup across order number, customer email/name/phone, and the
+   * walk-in label. Phone matches ignore non-digits on both sides. Org-scoped.
+   */
+  async lookup(
+    orgId: string,
+    q: string,
+    opts: { from?: Date; to?: Date },
+    ctx?: TxContext,
+  ): Promise<OrderLookupRow[]> {
+    const db = this.getDb(ctx);
+    const like = `%${q}%`;
+    const qDigits = q.replace(/\D/g, "");
+
+    const matchers = [
+      sql`${orders.orderNumber} ILIKE ${like}`,
+      sql`${customers.email} ILIKE ${like}`,
+      sql`(coalesce(${customers.firstName}, '') || ' ' || coalesce(${customers.lastName}, '')) ILIKE ${like}`,
+      sql`(${orders.metadata} ->> 'customerLabel') ILIKE ${like}`,
+    ];
+    if (qDigits.length >= 3) {
+      matchers.push(
+        sql`regexp_replace(coalesce(${customers.phone}, ''), '[^0-9]', '', 'g') ILIKE ${`%${qDigits}%`}`,
+      );
+    }
+
+    const filters = [eq(orders.organizationId, orgId), or(...matchers)];
+    if (opts.from) filters.push(gte(orders.placedAt, opts.from));
+    if (opts.to) filters.push(lte(orders.placedAt, opts.to));
+
+    return db
+      .select({
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        placedAt: orders.placedAt,
+        status: orders.status,
+        grandTotal: orders.grandTotal,
+        customerId: customers.id,
+        firstName: customers.firstName,
+        lastName: customers.lastName,
+        phone: customers.phone,
+      })
+      .from(orders)
+      .leftJoin(customers, eq(orders.customerId, customers.id))
+      .where(and(...filters))
+      .orderBy(desc(orders.placedAt))
+      .limit(50) as Promise<OrderLookupRow[]>;
   }
 
   async findByStatus(orgId: string, status: string, ctx?: TxContext): Promise<Order[]> {

@@ -44,6 +44,27 @@ export const listOrdersRoute = createRoute({
   },
 });
 
+export const orderLookupRoute = createRoute({
+  method: "get",
+  path: "/lookup",
+  tags: ["Orders"],
+  summary: "Fuzzy order lookup (receipt-less return / support)",
+  description: "Find orders by order number, customer email/name/phone, or walk-in label. Minimum query length is 3 characters.",
+  request: {
+    query: z.object({
+      q: z.string().optional().openapi({ example: "Perera" }),
+      from: z.string().optional().openapi({ example: "2026-01-01" }),
+      to: z.string().optional().openapi({ example: "2026-12-31" }),
+    }),
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: z.object({ data: z.object({ items: z.array(z.record(z.string(), z.unknown())), hint: z.string().optional() }) }) } },
+      description: "Lookup results",
+    },
+  },
+});
+
 export const getOrderRoute = createRoute({
   method: "get",
   path: "/{idOrNumber}",

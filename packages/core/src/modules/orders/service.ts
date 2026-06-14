@@ -365,6 +365,59 @@ export class OrderService {
     });
   }
 
+  /**
+   * Fuzzy order lookup for receipt-less returns / support: matches across
+   * order number, customer email/name/phone (digits-normalized), and the
+   * walk-in label. Returns a compact result; <3 chars returns a hint.
+   */
+  async lookup(
+    q: string,
+    opts: { from?: Date; to?: Date },
+    actor?: Actor | null,
+    ctx?: TxContext,
+  ): Promise<
+    Result<{
+      items: Array<{
+        id: string;
+        orderNumber: string;
+        placedAt: Date;
+        status: string;
+        grandTotal: number;
+        customer: { id: string; name: string | null; phone: string | null } | null;
+      }>;
+      hint?: string;
+    }>
+  > {
+    try {
+      assertPermission(actor ?? null, "orders:read");
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+
+    const term = (q ?? "").trim();
+    if (term.length < 3) {
+      return Ok({ items: [], hint: "Enter at least 3 characters to search." });
+    }
+
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const rows = await this.repo.lookup(orgId, term, opts, ctx);
+    const items = rows.map((r) => ({
+      id: r.id,
+      orderNumber: r.orderNumber,
+      placedAt: r.placedAt,
+      status: r.status,
+      grandTotal: r.grandTotal,
+      customer: r.customerId
+        ? {
+            id: r.customerId,
+            name: `${r.firstName ?? ""} ${r.lastName ?? ""}`.trim() || null,
+            phone: r.phone ?? null,
+          }
+        : null,
+    }));
+    return Ok({ items });
+  }
+
   async changeStatus(
     input: ChangeStatusInput,
     actor: Actor | null,

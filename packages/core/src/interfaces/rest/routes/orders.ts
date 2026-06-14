@@ -1,6 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
-import { changeOrderStatusRoute, listOrdersRoute, getOrderRoute, getOrderFulfillmentsRoute } from "../schemas/orders.js";
+import { changeOrderStatusRoute, listOrdersRoute, orderLookupRoute, getOrderRoute, getOrderFulfillmentsRoute } from "../schemas/orders.js";
 import { type AppEnv, isUUID, mapErrorToResponse, mapErrorToStatus, parsePagination } from "../utils.js";
 
 export function orderRoutes(kernel: Kernel) {
@@ -26,6 +26,26 @@ export function orderRoutes(kernel: Kernel) {
         pagination: result.value.pagination,
       },
     });
+  });
+
+  // Registered before getOrderRoute so "/lookup" isn't matched as an idOrNumber.
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(orderLookupRoute, async (c) => {
+    const q = c.req.query("q") ?? "";
+    const fromRaw = c.req.query("from");
+    const toRaw = c.req.query("to");
+    const opts: { from?: Date; to?: Date } = {};
+    if (fromRaw) {
+      const d = new Date(fromRaw);
+      if (!Number.isNaN(d.getTime())) opts.from = d;
+    }
+    if (toRaw) {
+      const d = new Date(toRaw);
+      if (!Number.isNaN(d.getTime())) opts.to = d;
+    }
+    const result = await kernel.services.orders.lookup(q, opts, c.get("actor"));
+    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    return c.json({ data: result.value });
   });
 
   // @ts-expect-error -- openapi handler union return type
