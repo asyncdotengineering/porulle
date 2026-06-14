@@ -154,7 +154,13 @@ export type {
   TaxVoidParams,
 } from "./modules/tax/adapter.js";
 
-export { getSchema, buildSchema, getTableNames } from "./kernel/database/migrate.js";
+export {
+  getSchema,
+  buildSchema,
+  getTableNames,
+  getSchemaFiles,
+  pushSchema,
+} from "./kernel/database/migrate.js";
 export { consoleEmailAdapter } from "./adapters/console-email.js";
 
 export { runCompensationChain } from "./kernel/compensation/executor.js";
