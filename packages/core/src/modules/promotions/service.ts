@@ -21,14 +21,10 @@ import type { OrdersRepository } from "../orders/repository/index.js";
 import { resolveOrgId } from "../../auth/org.js";
 import type { Actor } from "../../auth/types.js";
 
-// Re-export PromotionType for external use
-export type PromotionType =
-  | "percentage_off_order"
-  | "fixed_off_order"
-  | "percentage_off_item"
-  | "fixed_off_item"
-  | "free_shipping"
-  | "buy_x_get_y";
+// PromotionType is derived from the zod enum (single source of truth) in
+// ./schemas.js; re-export it here for backwards-compatible imports.
+import { promotionTypeEnum, type PromotionType } from "./schemas.js";
+export type { PromotionType };
 
 /** Filter status for listing promotions. Used by the REST API and service layer. */
 export type PromotionStatusFilter = "active" | "inactive" | "expired" | "scheduled";
@@ -182,15 +178,8 @@ export class PromotionService {
       );
     }
 
-    // Validate promotion type
-    const validTypes: PromotionType[] = [
-      "percentage_off_order",
-      "fixed_off_order",
-      "percentage_off_item",
-      "fixed_off_item",
-      "free_shipping",
-      "buy_x_get_y",
-    ];
+    // Validate promotion type against the single-source enum
+    const validTypes = promotionTypeEnum.options;
     if (!validTypes.includes(input.type)) {
       return Err(
         new CommerceValidationError(

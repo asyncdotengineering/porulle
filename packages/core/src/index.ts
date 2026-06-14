@@ -163,6 +163,8 @@ export {
 } from "./kernel/database/migrate.js";
 export { consoleEmailAdapter } from "./adapters/console-email.js";
 
+export { promotionTypeEnum, type PromotionType } from "./modules/promotions/schemas.js";
+
 export { runCompensationChain } from "./kernel/compensation/executor.js";
 export type {
   CompensationContext,
