@@ -2,10 +2,19 @@ import { z } from "@hono/zod-openapi";
 
 // ─── Error Response ──────────────────────────────────────────────────────────
 
+export const ValidationIssueSchema = z.object({
+  path: z.string().openapi({ example: "cartId" }),
+  message: z.string().openapi({ example: "Invalid uuid" }),
+  code: z.string().openapi({ example: "invalid_string" }),
+}).openapi("ValidationIssue");
+
 export const ErrorSchema = z.object({
   error: z.object({
     code: z.string().openapi({ example: "VALIDATION_FAILED" }),
     message: z.string().openapi({ example: "cartId: Invalid uuid" }),
+    details: z.object({
+      issues: z.array(ValidationIssueSchema).optional(),
+    }).optional(),
   }),
 }).openapi("Error");
 

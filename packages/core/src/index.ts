@@ -165,6 +165,9 @@ export { consoleEmailAdapter } from "./adapters/console-email.js";
 
 export { promotionTypeEnum, type PromotionType } from "./modules/promotions/schemas.js";
 
+export { parseJson, err } from "./interfaces/rest/parse-json.js";
+export type { ValidationIssue, ErrorDetails } from "./interfaces/rest/parse-json.js";
+
 export { runCompensationChain } from "./kernel/compensation/executor.js";
 export type {
   CompensationContext,
