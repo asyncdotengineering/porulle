@@ -169,8 +169,8 @@ async function seed() {
     await kernel.services.catalog.publish(entity.value.id, staff);
 
     // Add to category + brand
-    await kernel.services.catalog.addToCategory(entity.value.id, p.category);
-    await kernel.services.catalog.addToBrand(entity.value.id, p.brand);
+    await kernel.services.catalog.addToCategory(entity.value.id, p.category, staff);
+    await kernel.services.catalog.addToBrand(entity.value.id, p.brand, staff);
 
     // Set price
     await kernel.services.pricing.setBasePrice({
