@@ -1,6 +1,35 @@
 # Changelog
 
-All notable changes to the Unified Commerce Engine.
+All notable changes to Porulle.
+
+## [0.5.0] - 2026-06-14
+
+First release out of alpha. Closes all 29 open issues from the 0.1.0 alpha, plus a full-monorepo green sweep. All `@porulle/*` packages move to 0.5.0 together.
+
+### Added
+
+- **`auditMiddleware(kernel)`** — one `commerce_audit_log` row per successful (2xx) state-changing request, with handler overrides (`auditEvent`/`auditEntityId`/`auditSkip`); audit-by-default with no per-route boilerplate.
+- **`parseJson(c, schema)` + `err(c, …, details?)`** — validated body parsing that returns a 422 carrying `details.issues[]`; the error envelope is documented in OpenAPI. Client-side `isApiError` / `mapApiErrorToFields` in `@porulle/sdk` flatten it to form-field errors.
+- **`getSchemaFiles()` / `pushSchema(db)`** exported from `@porulle/core` — the documented programmatic schema-management path for npm consumers.
+- **`noopStorageAdapter` default** — `defineConfig` boots with no `storage` configured (catalog-only deploys); media uploads return `501 storage_not_supported` until a real adapter is set.
+- **`server.runJobs()`** — public job-runner tick for serverless cron (`scheduled()` on Workers).
+- **`runtime.getClientIp`** config seam — resolve the rate-limit key from a platform header on edge runtimes (`cf-connecting-ip`, `x-real-ip`, `fly-client-ip`).
+- **`PromotionType`** union + OpenAPI enum exported; single-sourced from the promotions schema.
+- **REST surface**: `GET /api/orders/lookup` (fuzzy receipt-less lookup), `GET /api/customers/:id/orders?include=totals` (lifetime-spend rollup), `POST /api/customers` walk-in/userId-less creation, `PATCH /api/promotions/:id`, inventory `adjust` `mode=add|remove|set` with `{before, after, delta}`, category `status` + archive/restore, and a `customer_interactions` table with CRUD.
+- **Guides**: `docs/best-practices.md` (day-one principles) and `docs/deploy-cloudflare-workers.md` (lazy per-isolate config, environment-aware DB adapter, cron).
+
+### Fixed
+
+- **Auth**: `verifyApiKey` now forwards the key's `configId`, so API keys minted under named (non-`default`) scopes authenticate instead of silently 401-ing.
+- **Packaging**: `@better-auth/api-key` declared as a runtime dependency of `@porulle/core`; `@porulle/cli` no longer ships `workspace:*` deps (lazy-loaded, `optionalDependencies`); the README quick-start targets the real `/api/catalog/*` surface.
+- **Media**: `POST /api/media/upload` is exempt from the global 1MB body limit (`config.media.maxUploadSize`, default 10MB).
+- **Edge/Workers**: `db.execute()` returns a uniform row array across postgres-js / neon-http / node-postgres / PGlite.
+- **PATCH `/api/customers/:id`** shallow-merges `metadata` by default (`?metadataReplace=true` to overwrite).
+- `store-example` seed/full-flow scripts pass the required `actor` to catalog mutations (were broken at runtime).
+
+### Changed
+
+- **Status: alpha → beta.** All `@porulle/*` packages versioned at 0.5.0.
 
 ## [Unreleased]
 

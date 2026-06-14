@@ -12,9 +12,9 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.19.6",
-    "@porulle/adapter-local-storage": "workspace:*",
-    "@porulle/adapter-postgres": "workspace:*",
-    "@porulle/core": "workspace:*"
+    "@porulle/adapter-local-storage": "^0.5.0",
+    "@porulle/adapter-postgres": "^0.5.0",
+    "@porulle/core": "^0.5.0"
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.5",

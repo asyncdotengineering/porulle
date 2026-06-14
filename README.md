@@ -8,7 +8,7 @@
 
 [![docs](https://img.shields.io/badge/docs-porulle--docs.vercel.app-d4a574?logo=astro&logoColor=white)](https://porulle-docs.vercel.app)
 [![npm](https://img.shields.io/npm/v/@porulle/core?label=%40porulle%2Fcore&color=cb3837&logo=npm)](https://www.npmjs.com/package/@porulle/core)
-[![status: alpha](https://img.shields.io/badge/status-alpha-orange)](#status)
+[![status: beta](https://img.shields.io/badge/status-beta-blue)](#status)
 [![active development](https://img.shields.io/badge/active%20development-yes-2ea44f)](https://github.com/asyncdotengineering/porulle/commits/main)
 [![straight out of the oven](https://img.shields.io/badge/%F0%9F%94%A5-straight%20out%20of%20the%20oven-d4a574)](#status)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
@@ -30,7 +30,7 @@ bunx @porulle/cli init my-store
 
 Porulle gives you the atoms — catalog, cart, checkout, orders, inventory, payments, fulfillment, search, multi-tenancy, plugins, hooks — wired through a single `defineConfig`, exposed as a hardened REST API. Your storefront supplies the presentation layer.
 
-> 🔥 **Straight out of the oven.** Active development, alpha-grade. Things will change. Star the repo and yell at us in [Issues](https://github.com/asyncdotengineering/porulle/issues) when they do.
+> 🔥 **Fresh out of the oven.** Active development, beta-grade. Things may still change. Star the repo and yell at us in [Issues](https://github.com/asyncdotengineering/porulle/issues) when they do.
 
 ---
 
@@ -347,7 +347,7 @@ The kernel is interface-agnostic. The shipped interface is REST. Adopters who wa
 
 ## Status
 
-**v0.1.0 alpha.** What's stable: REST API, multi-tenant kernel, plugin contract, adapter contracts, security model. What's not: agent-native primitives (Phase 2 — principal model rework, multi-protocol gateway, conversation layer). See [`SECURITY.md`](./SECURITY.md) for the threat model and the Phase 2 roadmap.
+**v0.5.0 (beta).** What's stable: REST API, multi-tenant kernel, plugin contract, adapter contracts, security model. What's not: agent-native primitives (Phase 2 — principal model rework, multi-protocol gateway, conversation layer). See [`SECURITY.md`](./SECURITY.md) for the threat model and the Phase 2 roadmap.
 
 This framework was extracted from a production e-commerce engine after a five-round adversarial security review. Every cross-tenant leak, race condition, IDOR, and information-disclosure surface caught by the audit was fixed and pinned with a regression test before the rename.
 

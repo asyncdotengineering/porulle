@@ -1,6 +1,6 @@
 {
   "name": "@porulle/db",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -18,7 +18,7 @@
     "build": "rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@porulle/core": "workspace:*",
+    "@porulle/core": "^0.5.0",
     "drizzle-orm": "^0.45.1",
     "postgres": "^3.4.7"
   },
