@@ -15,10 +15,10 @@ set -euo pipefail
 CONFIG="drizzle.config.ts"
 
 echo "[db-release] running drizzle-kit migrate..."
-if bunx drizzle-kit migrate --config "$CONFIG" --verbose 2>&1; then
+if pnpm exec drizzle-kit migrate --config "$CONFIG" --verbose 2>&1; then
   echo "[db-release] migrate succeeded."
   exit 0
 fi
 
 echo "[db-release] migrate failed — falling back to push for push-managed DB."
-bunx drizzle-kit push --config "$CONFIG" --force --verbose
+pnpm exec drizzle-kit push --config "$CONFIG" --force --verbose

@@ -24,13 +24,13 @@
   },
   "dependencies": {
     "@hono/zod-openapi": "^1.2.2",
-    "@porulle/core": "^0.5.0",
-    "@porulle/plugin-pos": "^0.5.0",
+    "@porulle/core": "workspace:*",
+    "@porulle/plugin-pos": "workspace:*",
     "hono": "^4.12.5"
   },
   "devDependencies": {
-    "@porulle/eslint-config": "*",
-    "@porulle/typescript-config": "*",
+    "@porulle/eslint-config": "workspace:*",
+    "@porulle/typescript-config": "workspace:*",
     "@types/node": "^24.5.2",
     "eslint": "^9.39.1",
     "typescript": "5.9.2",

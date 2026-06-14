@@ -17,7 +17,7 @@ FLY_APP_NAME=unified-commerce-vapt bash scripts/post-deploy-smoke.sh
 
 ## db:check-drift
 
-Detects schema drift between Drizzle schema definitions and generated migrations. Run via `bun run db:check-drift` from the repo root. CI runs this on PRs that touch `**/schema.ts`.
+Detects schema drift between Drizzle schema definitions and generated migrations. Run via `pnpm run db:check-drift` from the repo root. CI runs this on PRs that touch `**/schema.ts`.
 
 ## vapt-probes.sh / ecommerce-vapt.sh
 
