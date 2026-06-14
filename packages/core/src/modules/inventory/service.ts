@@ -310,40 +310,87 @@ export class InventoryService {
     });
   }
 
-  async adjust(
+  /**
+   * Adjust inventory with optional add/remove/set modes, returning before /
+   * after / delta and the movement id. `mode` omitted ⇒ signed-delta (legacy)
+   * behavior using `adjustment`. `remove` clamps at 0; `set` writes an absolute
+   * value. The lock, compute, write, and movement all happen in one transaction
+   * so concurrent adjustments can't lose updates.
+   */
+  async adjustDetailed(
     input: InventoryAdjustInput,
     actor?: Actor | null,
     ctx?: TxContext,
-  ): Promise<Result<InventoryLevel>> {
+  ): Promise<
+    Result<{
+      level: InventoryLevel;
+      before: number;
+      after: number;
+      delta: number;
+      movementId: string;
+    }>
+  > {
     try {
       assertPermission(actor ?? null, "inventory:adjust");
     } catch (error) {
       return Err(toCommerceError(error));
     }
 
+    // Cross-field validation: mode form needs `amount`; legacy form needs `adjustment`.
+    if (input.mode) {
+      if (input.amount === undefined) {
+        return Err(new CommerceValidationError("`amount` is required when `mode` is set."));
+      }
+    } else if (input.adjustment === undefined) {
+      return Err(new CommerceValidationError("`adjustment` is required when `mode` is omitted."));
+    }
+
     const warehouseId = input.warehouseId ?? (await this.pickWarehouse(actor, ctx));
     const variantId = input.variantId ?? null;
     const performedBy = input.performedBy ?? actor?.userId ?? "system";
 
-    const doAdjust = async (txCtx: TxContext): Promise<Result<InventoryLevel>> => {
-      const orgId = resolveOrgId(
-        actor ?? txCtx.actor ?? null,
-        undefined,
-        this.deps.config,
-      );
-      // Row-locked read + atomic SQL increment prevents lost updates
-      const lockResult = await this.repo.adjustWithLock(
+    const doAdjust = async (txCtx: TxContext) => {
+      const orgId = resolveOrgId(actor ?? txCtx.actor ?? null, undefined, this.deps.config);
+
+      // Lock the level first so `before` and the write are atomic.
+      const existing = await this.repo.findLevelForUpdate(
         orgId,
         input.entityId,
         variantId,
         warehouseId,
-        input.adjustment,
         txCtx,
       );
+      const before = existing?.quantityOnHand ?? 0;
+
+      const amount = input.amount ?? 0;
+      let effectiveAdjustment: number;
+      switch (input.mode) {
+        case "add":
+          effectiveAdjustment = amount;
+          break;
+        case "remove":
+          effectiveAdjustment = -amount;
+          break;
+        case "set":
+          effectiveAdjustment = amount - before;
+          break;
+        default:
+          effectiveAdjustment = input.adjustment ?? 0;
+          break;
+      }
 
       let level: InventoryLevel;
-      if (lockResult.ok) {
-        level = lockResult.level;
+      if (existing) {
+        // Row-locked atomic SQL increment (GREATEST(0, qoh + delta)).
+        const lockResult = await this.repo.adjustWithLock(
+          orgId,
+          input.entityId,
+          variantId,
+          warehouseId,
+          effectiveAdjustment,
+          txCtx,
+        );
+        level = lockResult.ok ? lockResult.level : existing;
       } else {
         // No existing level — create is safe; unique index on
         // (entityId, variantId, warehouseId) prevents duplicate inserts.
@@ -352,35 +399,30 @@ export class InventoryService {
             organizationId: orgId,
             entityId: input.entityId,
             warehouseId,
-            quantityOnHand: Math.max(0, input.adjustment),
+            quantityOnHand: Math.max(0, effectiveAdjustment),
             quantityReserved: 0,
             quantityIncoming: 0,
-            ...(input.variantId !== undefined
-              ? { variantId: input.variantId }
-              : {}),
+            ...(input.variantId !== undefined ? { variantId: input.variantId } : {}),
           },
           txCtx,
         );
       }
 
-      await this.repo.createMovement(
+      const after = level.quantityOnHand;
+      const delta = after - before;
+
+      const movement = await this.repo.createMovement(
         {
           organizationId: orgId,
           entityId: input.entityId,
           warehouseId,
           type: "adjustment",
-          quantity: input.adjustment,
+          quantity: delta,
           reason: input.reason,
           performedBy,
-          ...(input.variantId !== undefined
-            ? { variantId: input.variantId }
-            : {}),
-          ...(input.referenceType !== undefined
-            ? { referenceType: input.referenceType }
-            : {}),
-          ...(input.referenceId !== undefined
-            ? { referenceId: input.referenceId }
-            : {}),
+          ...(input.variantId !== undefined ? { variantId: input.variantId } : {}),
+          ...(input.referenceType !== undefined ? { referenceType: input.referenceType } : {}),
+          ...(input.referenceId !== undefined ? { referenceId: input.referenceId } : {}),
         },
         txCtx,
       );
@@ -403,13 +445,26 @@ export class InventoryService {
         hookCtx,
       );
 
-      return Ok(level);
+      return Ok({ level, before, after, delta, movementId: movement.id });
     };
 
     return this.withTransaction(ctx, async (tx) => {
       const txCtx = ctx?.tx ? ctx : createTxContext(tx, { actor: actor ?? null });
       return doAdjust(txCtx);
     });
+  }
+
+  /**
+   * Back-compat wrapper: adjust inventory and return just the level. Existing
+   * callers and the signed-delta `adjustment` form are unchanged.
+   */
+  async adjust(
+    input: InventoryAdjustInput,
+    actor?: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<InventoryLevel>> {
+    const result = await this.adjustDetailed(input, actor, ctx);
+    return result.ok ? Ok(result.value.level) : result;
   }
 
   /**

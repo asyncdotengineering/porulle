@@ -51,9 +51,11 @@ export function inventoryRoutes(kernel: Kernel) {
   // @ts-expect-error -- openapi handler union return type
   router.openapi(inventoryAdjustRoute, async (c) => {
     const body = c.req.valid("json");
-    const result = await kernel.services.inventory.adjust(body, c.get("actor"));
+    const result = await kernel.services.inventory.adjustDetailed(body, c.get("actor"));
     if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
-    return c.json({ data: result.value });
+    const { level, before, after, delta, movementId } = result.value;
+    // Additive: level fields (back-compat) plus before/after/delta/movementId.
+    return c.json({ data: { ...level, before, after, delta, movementId } });
   });
 
   // @ts-expect-error -- openapi handler union return type
