@@ -46,6 +46,10 @@ export const CreatePromotionBodySchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 }).openapi("CreatePromotionRequest");
 
+// Edit any subset of the create body. Validated the same way create is.
+export const UpdatePromotionBodySchema = CreatePromotionBodySchema.partial();
+
 // ─── Derived Input Types ────────────────────────────────────────────────────
 
 export type CreatePromotionInput = z.infer<typeof CreatePromotionBodySchema>;
+export type UpdatePromotionInput = z.infer<typeof UpdatePromotionBodySchema>;
