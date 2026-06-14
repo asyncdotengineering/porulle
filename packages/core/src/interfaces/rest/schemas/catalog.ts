@@ -108,7 +108,12 @@ export const listCategoriesRoute = createRoute({
   method: "get",
   path: "/categories",
   tags: ["Catalog"],
-  summary: "List all categories",
+  summary: "List categories (active by default)",
+  request: {
+    query: z.object({
+      includeArchived: z.string().optional().openapi({ example: "true" }),
+    }),
+  },
   responses: {
     200: { content: { "application/json": { schema: DataResponse } }, description: "Success" },
   },
@@ -338,6 +343,30 @@ export const updateCategoryRoute = createRoute({
   },
   responses: {
     200: { content: { "application/json": { schema: DataResponse } }, description: "Updated" },
+    ...errorResponses,
+  },
+});
+
+export const archiveCategoryRoute = createRoute({
+  method: "post",
+  path: "/categories/{categoryId}/archive",
+  tags: ["Catalog"],
+  summary: "Archive a category (soft delete)",
+  request: { params: CategoryIdParam },
+  responses: {
+    200: { content: { "application/json": { schema: DataResponse } }, description: "Archived" },
+    ...errorResponses,
+  },
+});
+
+export const restoreCategoryRoute = createRoute({
+  method: "post",
+  path: "/categories/{categoryId}/restore",
+  tags: ["Catalog"],
+  summary: "Restore an archived category",
+  request: { params: CategoryIdParam },
+  responses: {
+    200: { content: { "application/json": { schema: DataResponse } }, description: "Restored" },
     ...errorResponses,
   },
 });

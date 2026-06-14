@@ -29,10 +29,31 @@ export class CategoryService {
     }
   }
 
-  async listCategories(ctx?: TxContext): Promise<Result<CategorySummary[]>> {
+  async listCategories(ctx?: TxContext, opts?: { includeArchived?: boolean }): Promise<Result<CategorySummary[]>> {
     const allCategories = await this.repo.findAllCategories(resolveOrgId(ctx?.actor ?? null), ctx);
-    const sorted = allCategories.sort((a, b) => a.sortOrder - b.sortOrder || a.slug.localeCompare(b.slug));
-    return Ok(sorted.map((c) => ({ id: c.id, parentId: c.parentId, slug: c.slug, sortOrder: c.sortOrder, metadata: c.metadata ?? {} })));
+    const visible = opts?.includeArchived
+      ? allCategories
+      : allCategories.filter((c) => (c.status ?? "active") === "active");
+    const sorted = visible.sort((a, b) => a.sortOrder - b.sortOrder || a.slug.localeCompare(b.slug));
+    return Ok(sorted.map((c) => ({ id: c.id, parentId: c.parentId, slug: c.slug, sortOrder: c.sortOrder, status: c.status ?? "active", metadata: c.metadata ?? {} })));
+  }
+
+  private async setStatus(id: string, status: "active" | "archived", actor: Actor | null, ctx?: TxContext): Promise<Result<CategorySummary>> {
+    try { assertPermission(actor, "catalog:update"); } catch (error) { return Err(toCommerceError(error)); }
+    const existing = await this.repo.findCategoryById(id, ctx);
+    if (!existing) return Err(new CommerceNotFoundError("Category not found."));
+    try { this.assertSameOrg(existing, actor); } catch (error) { return Err(toCommerceError(error)); }
+    const updated = await this.repo.updateCategory(id, { status }, ctx);
+    if (!updated) return Err(new CommerceNotFoundError("Category not found."));
+    return Ok({ id: updated.id, parentId: updated.parentId, slug: updated.slug, sortOrder: updated.sortOrder, status: updated.status ?? status, metadata: updated.metadata ?? {} });
+  }
+
+  async archiveCategory(id: string, actor: Actor | null, ctx?: TxContext): Promise<Result<CategorySummary>> {
+    return this.setStatus(id, "archived", actor, ctx);
+  }
+
+  async restoreCategory(id: string, actor: Actor | null, ctx?: TxContext): Promise<Result<CategorySummary>> {
+    return this.setStatus(id, "active", actor, ctx);
   }
 
   async createCategory(input: CreateCategoryInput, actor: Actor | null, ctx?: TxContext): Promise<Result<CategorySummary>> {
@@ -45,7 +66,7 @@ export class CategoryService {
     const existingBySlug = await this.repo.findCategoryBySlug(orgId, input.slug, ctx);
     if (existingBySlug) return Err(new CommerceConflictError(`Category with slug ${input.slug} already exists.`));
     const category = await this.repo.createCategory({ organizationId: orgId, ...(input.id ? { id: input.id } : {}), slug: input.slug, sortOrder: input.sortOrder ?? 0, metadata: input.metadata ?? {}, ...(input.parentId !== undefined ? { parentId: input.parentId } : {}) }, ctx);
-    return Ok({ id: category.id, parentId: category.parentId, slug: category.slug, sortOrder: category.sortOrder, metadata: category.metadata ?? {} });
+    return Ok({ id: category.id, parentId: category.parentId, slug: category.slug, sortOrder: category.sortOrder, status: category.status ?? "active", metadata: category.metadata ?? {} });
   }
 
   async updateCategory(id: string, input: UpdateCategoryInput, actor: Actor | null, ctx?: TxContext): Promise<Result<CategorySummary>> {
@@ -59,7 +80,7 @@ export class CategoryService {
     }
     const updated = await this.repo.updateCategory(id, { ...(input.slug !== undefined ? { slug: input.slug } : {}), ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}), ...(input.metadata !== undefined ? { metadata: input.metadata } : {}), ...(input.parentId !== undefined ? { parentId: input.parentId } : {}) }, ctx);
     if (!updated) return Err(new CommerceNotFoundError("Category not found."));
-    return Ok({ id: updated.id, parentId: updated.parentId, slug: updated.slug, sortOrder: updated.sortOrder, metadata: updated.metadata ?? {} });
+    return Ok({ id: updated.id, parentId: updated.parentId, slug: updated.slug, sortOrder: updated.sortOrder, status: updated.status ?? "active", metadata: updated.metadata ?? {} });
   }
 
   async deleteCategory(id: string, actor: Actor | null, ctx?: TxContext): Promise<Result<void>> {

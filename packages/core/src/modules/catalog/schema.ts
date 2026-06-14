@@ -106,6 +106,8 @@ export const categories = pgTable(
     }),
     slug: text("slug").notNull(),
     sortOrder: integer("sort_order").notNull().default(0),
+    // active | archived. Soft-delete without cascading entity_categories.
+    status: text("status").notNull().default("active"),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
   },
   (table) => ({
