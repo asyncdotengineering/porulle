@@ -10,7 +10,42 @@ const currentDir = fileURLToPath(new URL(".", import.meta.url));
 
 interface PackageJsonShape {
   name?: string;
+  version?: string;
   [key: string]: unknown;
+}
+
+const DEP_SECTIONS = [
+  "dependencies",
+  "devDependencies",
+  "peerDependencies",
+  "optionalDependencies",
+] as const;
+
+// Scaffolded projects must pin @porulle/* to the version of the CLI that
+// created them: the packages are a fixed-version group, so the running CLI's
+// own version is the correct, coherent target. A literal range baked into the
+// template would go stale on every release.
+export function pinPorulleDependencies(
+  pkg: PackageJsonShape,
+  version: string,
+): void {
+  for (const section of DEP_SECTIONS) {
+    const deps = pkg[section];
+    if (!deps || typeof deps !== "object") continue;
+    const record = deps as Record<string, string>;
+    for (const name of Object.keys(record)) {
+      if (name.startsWith("@porulle/")) {
+        record[name] = `^${version}`;
+      }
+    }
+  }
+}
+
+async function readCliVersion(): Promise<string | undefined> {
+  const pkg = await readJson<PackageJsonShape>(
+    resolve(currentDir, "../../package.json"),
+  );
+  return pkg.version;
 }
 
 export const initCommand = defineCommand({
@@ -51,6 +86,10 @@ export const initCommand = defineCommand({
     if (existsSync(packageJsonPath)) {
       const pkg = await readJson<PackageJsonShape>(packageJsonPath);
       pkg.name = projectName;
+      const cliVersion = await readCliVersion();
+      if (cliVersion) {
+        pinPorulleDependencies(pkg, cliVersion);
+      }
       await writeJson(packageJsonPath, pkg);
     }
 
