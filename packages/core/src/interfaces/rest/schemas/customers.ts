@@ -1,6 +1,34 @@
 import { z, createRoute } from "@hono/zod-openapi";
 import { errorResponses } from "./shared.js";
 
+export const CreateCustomerBodySchema = z.object({
+  // Optional: omit for walk-in / POS customers who never log in. A synthetic
+  // anonymous_<uuid> id is generated and metadata.walkIn is set.
+  userId: z.string().optional().openapi({ example: "user_123" }),
+  firstName: z.string().optional().openapi({ example: "Nimali" }),
+  lastName: z.string().optional().openapi({ example: "Perera" }),
+  phone: z.string().optional().openapi({ example: "+94 77 412 6601" }),
+  email: z.string().optional().openapi({ example: "nimali@example.com" }),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).openapi("CreateCustomerBody");
+
+export const createCustomerRoute = createRoute({
+  method: "post",
+  path: "/",
+  tags: ["Customers"],
+  summary: "Create a customer (supports walk-in / userId-less)",
+  request: {
+    body: { content: { "application/json": { schema: CreateCustomerBodySchema } }, required: true },
+  },
+  responses: {
+    201: {
+      content: { "application/json": { schema: z.object({ data: z.record(z.string(), z.unknown()) }) } },
+      description: "Customer created.",
+    },
+    ...errorResponses,
+  },
+});
+
 export const listCustomersRoute = createRoute({
   method: "get",
   path: "/",

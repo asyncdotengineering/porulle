@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
 import {
   listCustomersRoute,
+  createCustomerRoute,
   getCustomerRoute,
   updateCustomerRoute,
   getCustomerOrdersRoute,
@@ -35,6 +36,14 @@ export function customerRoutes(kernel: Kernel) {
         pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
       },
     });
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(createCustomerRoute, async (c) => {
+    const body = c.req.valid("json");
+    const result = await kernel.services.customers.createWalkIn(body, c.get("actor"));
+    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    return c.json({ data: result.value }, 201);
   });
 
   // @ts-expect-error -- openapi handler union return type

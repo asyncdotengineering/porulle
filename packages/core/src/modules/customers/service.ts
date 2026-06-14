@@ -1,6 +1,7 @@
 import { resolveOrgId } from "../../auth/org.js";
+import { assertPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
-import { CommerceNotFoundError } from "../../kernel/errors.js";
+import { CommerceNotFoundError, toCommerceError } from "../../kernel/errors.js";
 import { runAfterHooks } from "../../kernel/hooks/executor.js";
 import { createHookContext } from "../../kernel/hooks/create-context.js";
 import type { HookRegistry } from "../../kernel/hooks/registry.js";
@@ -45,6 +46,60 @@ export class CustomerService {
 
   constructor(private deps: CustomerServiceDeps) {
     this.repo = deps.repository;
+  }
+
+  /**
+   * Create a customer. `userId` is optional: for walk-in / point-of-sale
+   * customers who never log in, omit it and a synthetic `anonymous_<uuid>` id
+   * is generated and the customer is flagged `metadata.walkIn = true`. This
+   * keeps non-account contacts out of the auth users table.
+   */
+  async createWalkIn(
+    input: {
+      userId?: string | undefined;
+      firstName?: string | undefined;
+      lastName?: string | undefined;
+      phone?: string | undefined;
+      email?: string | undefined;
+      metadata?: Record<string, unknown> | undefined;
+    },
+    actor?: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<Customer>> {
+    try {
+      assertPermission(actor ?? null, "customers:create");
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const isWalkIn = input.userId === undefined;
+    const userId = input.userId ?? `anonymous_${crypto.randomUUID()}`;
+    const metadata = {
+      ...(input.metadata ?? {}),
+      ...(isWalkIn ? { walkIn: true } : {}),
+    };
+
+    const customer = await this.repo.create(
+      {
+        organizationId: orgId,
+        userId,
+        metadata,
+        ...(input.firstName !== undefined ? { firstName: input.firstName } : {}),
+        ...(input.lastName !== undefined ? { lastName: input.lastName } : {}),
+        ...(input.phone !== undefined ? { phone: input.phone } : {}),
+        ...(input.email !== undefined ? { email: input.email } : {}),
+      },
+      ctx,
+    );
+
+    const afterHooks = this.deps.hooks.resolve(
+      "customers.afterCreate",
+    ) as AfterHook<Customer>[];
+    const hctx = hookContext(actor ?? null, this.deps.services, this.deps.database, ctx?.tx ?? null);
+    await runAfterHooks(afterHooks, null, customer, "create", hctx);
+
+    return Ok(customer);
   }
 
   private async getOrCreateByUserId(
