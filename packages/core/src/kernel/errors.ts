@@ -43,6 +43,17 @@ export class CommerceForbiddenError extends Error implements CommerceError {
   }
 }
 
+export class CommerceCsrfError extends Error implements CommerceError {
+  code = "CSRF_ORIGIN_REJECTED" as const;
+  constructor(
+    message: string,
+    public details?: unknown,
+  ) {
+    super(message);
+    this.name = "CommerceCsrfError";
+  }
+}
+
 export class CommerceConflictError extends Error implements CommerceError {
   code = "CONFLICT" as const;
   constructor(

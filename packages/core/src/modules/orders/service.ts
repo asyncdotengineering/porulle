@@ -78,6 +78,11 @@ export interface ChangeStatusInput {
   orderId: string;
   newStatus: OrderState;
   reason?: string;
+  /**
+   * Explicit refund amount (minor units) for a `refunded` transition. Clamped
+   * to the captured amount. Omit to refund the full captured amount.
+   */
+  refundAmount?: number;
 }
 
 export interface OrderServiceDeps {
@@ -540,10 +545,14 @@ export class OrderService {
           | undefined;
 
         if (payments?.refund) {
-          const refundAmount = Math.min(
+          const maxRefund = Math.min(
             order.grandTotal,
             order.amountCaptured ?? order.grandTotal,
           );
+          const refundAmount =
+            input.refundAmount != null
+              ? Math.min(input.refundAmount, maxRefund)
+              : maxRefund;
           await payments.refund(
             paymentIntentId,
             refundAmount,
@@ -675,12 +684,86 @@ export class OrderService {
     actor: Actor | null,
     reason = "refunded",
     ctx?: TxContext,
+    opts?: { amount?: number },
   ): Promise<Result<HydratedOrder>> {
     return this.changeStatus(
-      { orderId, newStatus: "refunded", reason },
+      {
+        orderId,
+        newStatus: "refunded",
+        reason,
+        ...(opts?.amount != null ? { refundAmount: opts.amount } : {}),
+      },
       actor,
       ctx,
     );
+  }
+
+  /**
+   * Capture an authorized payment for an order via the payment adapter and
+   * record the captured amount. Does not transition order status — capture is a
+   * payment operation, not a fulfillment one.
+   */
+  async capture(
+    orderId: string,
+    actor: Actor | null,
+    opts?: { amount?: number },
+    ctx?: TxContext,
+  ): Promise<Result<HydratedOrder>> {
+    const orgId = resolveOrgId(actor);
+    const order = await this.repo.findById(orgId, orderId, ctx);
+    if (!order) return Err(new CommerceNotFoundError("Order not found."));
+
+    try {
+      assertPermission(actor, "orders:update");
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+
+    const paymentIntentId =
+      ((order as Record<string, unknown>).paymentIntentId as string | undefined) ??
+      ((order.metadata as Record<string, unknown> | null)?.paymentIntentId as
+        | string
+        | undefined);
+    if (!paymentIntentId) {
+      return Err(
+        new CommerceValidationError("Order has no authorized payment to capture."),
+      );
+    }
+
+    const payments = this.deps.services.payments as
+      | {
+          capture(
+            paymentIntentId: string,
+            amount?: number,
+            paymentMethodId?: string,
+          ): Promise<{ ok: boolean; value?: { amountCaptured?: number }; error?: unknown }>;
+        }
+      | undefined;
+    if (!payments?.capture) {
+      return Err(
+        new CommerceValidationError("No payment adapter configured for capture."),
+      );
+    }
+
+    const paymentMethodId = (order as Record<string, unknown>).paymentMethodId as
+      | string
+      | undefined;
+    const captureResult = await payments.capture(
+      paymentIntentId,
+      opts?.amount,
+      paymentMethodId,
+    );
+    if (!captureResult.ok) {
+      return Err(toCommerceError(captureResult.error));
+    }
+
+    const amountCaptured =
+      captureResult.value?.amountCaptured ?? opts?.amount ?? order.grandTotal;
+    await this.repo.update(orderId, { amountCaptured }, ctx);
+
+    const refreshed = await this.repo.findById(orgId, orderId, ctx);
+    const hydrated = await this.hydrateOrder(refreshed ?? order, ctx);
+    return Ok(hydrated);
   }
 
   async getStatusHistory(

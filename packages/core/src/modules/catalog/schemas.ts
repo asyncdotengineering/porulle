@@ -71,7 +71,21 @@ export const CreateVariantBodySchema = z.object({
   price: z.number().optional().openapi({ example: 34.99 }),
 }).openapi("CreateVariantBody");
 
-export const GenerateVariantsBodySchema = z.object({}).passthrough().openapi("GenerateVariantsBody");
+const VariantMatrixRuleSchema = z.object({
+  include: z.array(z.array(z.string())).optional().openapi({ example: [["red", "small"]] }),
+  exclude: z.array(z.array(z.string())).optional().openapi({ example: [["red", "large"]] }),
+});
+
+export const GenerateVariantsBodySchema = z
+  .discriminatedUnion("mode", [
+    z.object({ mode: z.literal("all") }),
+    z.object({
+      mode: z.literal("manual"),
+      combinations: z.array(z.array(z.string())).openapi({ example: [["red", "small"]] }),
+    }),
+    z.object({ mode: z.literal("matrix"), matrix: VariantMatrixRuleSchema }),
+  ])
+  .openapi("GenerateVariantsBody");
 
 // ─── Derived Input Types ─────────────────────────────────────────────────────
 

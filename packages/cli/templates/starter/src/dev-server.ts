@@ -7,7 +7,13 @@ const PORT = Number(process.env.PORT ?? 4000);
 
 const config = await configPromise;
 const { app, logger } = await createServer(config);
-app.use("/assets/*", serveStatic({ root: "./.data/media" }));
+app.use(
+  "/assets/*",
+  serveStatic({
+    root: "./.data/media",
+    rewriteRequestPath: (path) => path.replace(/^\/assets/, ""),
+  }),
+);
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   logger.info(

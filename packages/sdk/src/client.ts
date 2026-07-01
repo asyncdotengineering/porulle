@@ -97,6 +97,9 @@ export function createSDK(options: SDKOptions) {
     orders: {
       list(query?: Record<string, string>) { return raw.GET("/api/orders" as never, query ? { params: { query } } as never : undefined as never); },
       get(idOrNumber: string) { return raw.GET("/api/orders/{idOrNumber}" as never, { params: { path: { idOrNumber } } } as never); },
+      create(body: Record<string, unknown>) { return raw.POST("/api/orders" as never, { body } as never); },
+      refund(id: string, body?: Record<string, unknown>) { return raw.POST("/api/orders/{id}/refund" as never, { params: { path: { id } }, ...(body ? { body } : {}) } as never); },
+      capture(id: string, body?: Record<string, unknown>) { return raw.POST("/api/orders/{id}/capture" as never, { params: { path: { id } }, ...(body ? { body } : {}) } as never); },
     },
 
     search: {

@@ -129,6 +129,11 @@ function quantityRangeWidth(
   return Number.MAX_SAFE_INTEGER;
 }
 
+function sameNaturalKeyDate(a: Date | null | undefined, b: Date | null | undefined): boolean {
+  if (a == null || b == null) return (a ?? null) === (b ?? null);
+  return a.getTime() === b.getTime();
+}
+
 function compareBasePriceSpecificity(
   a: Price,
   b: Price,
@@ -229,7 +234,30 @@ export class PricingService {
       validUntil: input.validUntil ?? null,
     };
 
-    const record = await this.repo.createPrice(priceData, ctx);
+    // Upsert on the natural key. "Set base price" is idempotent per
+    // (org, entity, variant, currency, customerGroup, qty range, validity):
+    // a repeat call replaces the existing row's amount instead of appending a
+    // shadow row that the resolver would then tie-break on createdAt.
+    const existing = (
+      await this.repo.findPricesByEntityId(orgId, input.entityId, ctx)
+    ).find(
+      (p) =>
+        p.currency === priceData.currency &&
+        p.variantId === (priceData.variantId ?? null) &&
+        p.customerGroupId === (priceData.customerGroupId ?? null) &&
+        p.minQuantity === (priceData.minQuantity ?? null) &&
+        p.maxQuantity === (priceData.maxQuantity ?? null) &&
+        sameNaturalKeyDate(p.validFrom, priceData.validFrom ?? null) &&
+        sameNaturalKeyDate(p.validUntil, priceData.validUntil ?? null),
+    );
+
+    const record = existing
+      ? (await this.repo.updatePrice(
+          existing.id,
+          { amount: priceData.amount, metadata: priceData.metadata },
+          ctx,
+        )) ?? existing
+      : await this.repo.createPrice(priceData, ctx);
 
     const afterHooks = this.deps.hooks.resolve(
       "pricing.afterCreate",
