@@ -1,10 +1,11 @@
-import { eq, and, lt } from "drizzle-orm";
+import { eq, and, lt, desc, isNull, isNotNull } from "drizzle-orm";
 import type { TxContext } from "../../../kernel/database/tx-context.js";
 import type {
   DrizzleDatabase,
   DbOrTx,
 } from "../../../kernel/database/drizzle-db.js";
 import { carts, cartLineItems } from "../schema.js";
+import { customers } from "../../customers/schema.js";
 
 // Infer types from Drizzle schema
 export type Cart = typeof carts.$inferSelect;
@@ -62,6 +63,34 @@ export class CartRepository {
       .from(carts)
       .where(and(eq(carts.organizationId, orgId), eq(carts.customerId, customerId), eq(carts.status, "active")));
     return rows[0];
+  }
+
+  async list(
+    orgId: string,
+    filter?: { status?: string; olderThan?: Date; hasCustomer?: boolean },
+    ctx?: TxContext,
+  ): Promise<Array<Cart & { customerEmail: string | null }>> {
+    const db = this.getDb(ctx);
+    const conditions = [eq(carts.organizationId, orgId)];
+    if (filter?.status) {
+      conditions.push(eq(carts.status, filter.status as Cart["status"]));
+    }
+    if (filter?.olderThan) {
+      conditions.push(lt(carts.updatedAt, filter.olderThan));
+    }
+    if (filter?.hasCustomer === true) {
+      conditions.push(isNotNull(carts.customerId));
+    }
+    if (filter?.hasCustomer === false) {
+      conditions.push(isNull(carts.customerId));
+    }
+    const rows = await db
+      .select({ cart: carts, customerEmail: customers.email })
+      .from(carts)
+      .leftJoin(customers, eq(carts.customerId, customers.id))
+      .where(and(...conditions))
+      .orderBy(desc(carts.updatedAt));
+    return rows.map((r) => ({ ...r.cart, customerEmail: r.customerEmail ?? null }));
   }
 
   async findExpiredCarts(ctx?: TxContext): Promise<Cart[]> {

@@ -333,6 +333,77 @@ export class PricingService {
     return Ok(modifier);
   }
 
+  async listModifiers(
+    filter?: { entityId?: string; active?: boolean; currency?: string },
+    actor?: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<PriceModifier[]>> {
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const rows = await this.repo.findModifiers(
+      orgId,
+      {
+        ...(filter?.entityId !== undefined ? { entityId: filter.entityId } : {}),
+        ...(filter?.currency !== undefined
+          ? { currency: normalizeCurrency(filter.currency) }
+          : {}),
+        ...(filter?.active ? { activeAt: new Date() } : {}),
+      },
+      ctx,
+    );
+    return Ok(rows);
+  }
+
+  async updateModifier(
+    id: string,
+    patch: {
+      name?: string | undefined;
+      value?: number | undefined;
+      priority?: number | undefined;
+      validFrom?: Date | null | undefined;
+      validUntil?: Date | null | undefined;
+      minQuantity?: number | null | undefined;
+      maxQuantity?: number | null | undefined;
+      metadata?: Record<string, unknown> | undefined;
+    },
+    actor?: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<PriceModifier>> {
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const existing = await this.repo.findModifierById(orgId, id, ctx);
+    if (!existing) {
+      return Err(new CommerceNotFoundError("Price modifier not found."));
+    }
+    const updated = await this.repo.updateModifier(
+      id,
+      {
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.value !== undefined ? { value: patch.value } : {}),
+        ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
+        ...(patch.validFrom !== undefined ? { validFrom: patch.validFrom } : {}),
+        ...(patch.validUntil !== undefined ? { validUntil: patch.validUntil } : {}),
+        ...(patch.minQuantity !== undefined ? { minQuantity: patch.minQuantity } : {}),
+        ...(patch.maxQuantity !== undefined ? { maxQuantity: patch.maxQuantity } : {}),
+        ...(patch.metadata !== undefined ? { metadata: patch.metadata } : {}),
+      },
+      ctx,
+    );
+    return Ok(updated!);
+  }
+
+  async deleteModifier(
+    id: string,
+    actor?: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<{ deleted: true }>> {
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const existing = await this.repo.findModifierById(orgId, id, ctx);
+    if (!existing) {
+      return Err(new CommerceNotFoundError("Price modifier not found."));
+    }
+    await this.repo.deleteModifier(id, ctx);
+    return Ok({ deleted: true });
+  }
+
   async listPrices(
     filter?: {
       entityId?: string;

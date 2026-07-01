@@ -43,6 +43,12 @@ export * from "../../modules/webhooks/schema.js";
 // Fulfillment module
 export * from "../../modules/fulfillment/schema.js";
 
+// Shipping module (runtime zones & rates)
+export * from "../../modules/shipping/schema.js";
+
+// Tax module (runtime tax rates)
+export * from "../../modules/tax/schema.js";
+
 // Jobs (kernel)
 export * from "../jobs/schema.js";
 

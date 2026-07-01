@@ -140,6 +140,41 @@ export const getOrderFulfillmentsRoute = createRoute({
   },
 });
 
+export const CreateFulfillmentBodySchema = z.object({
+  lineItems: z.array(z.object({
+    orderLineItemId: z.uuid().openapi({ example: "550e8400-e29b-41d4-a716-446655440000" }),
+    quantity: z.number().int().positive().openapi({ example: 2 }),
+  })).min(1),
+  carrier: z.string().optional().openapi({ example: "DHL" }),
+  trackingNumber: z.string().optional().openapi({ example: "DHL-123456" }),
+  trackingUrl: z.string().optional().openapi({ example: "https://track.dhl.com/DHL-123456" }),
+  type: z.string().optional().openapi({ example: "physical" }),
+  status: z.string().optional().openapi({ example: "shipped" }),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).openapi("CreateFulfillmentRequest");
+
+export const createOrderFulfillmentRoute = createRoute({
+  method: "post",
+  path: "/{id}/fulfillments",
+  tags: ["Orders"],
+  summary: "Record a fulfillment (shipment) for an order",
+  description: "Creates a fulfillment for a subset of the order's line items with optional carrier/tracking details. Supports partial fulfillment (per-line quantities) and multiple fulfillments per order.",
+  request: {
+    params: OrderIdParam,
+    body: {
+      content: { "application/json": { schema: CreateFulfillmentBodySchema } },
+      required: true,
+    },
+  },
+  responses: {
+    201: {
+      content: { "application/json": { schema: OrderDataResponseSchema } },
+      description: "Fulfillment recorded.",
+    },
+    ...errorResponses,
+  },
+});
+
 export const createOrderRoute = createRoute({
   method: "post",
   path: "/",
@@ -200,6 +235,91 @@ export const captureOrderRoute = createRoute({
     200: {
       content: { "application/json": { schema: OrderDataResponseSchema } },
       description: "Payment captured.",
+    },
+    ...errorResponses,
+  },
+});
+
+export const AddOrderLineItemBodySchema = z.object({
+  entityId: z.uuid().openapi({ example: "550e8400-e29b-41d4-a716-446655440000" }),
+  entityType: z.string().min(1).openapi({ example: "product" }),
+  variantId: z.uuid().optional(),
+  sku: z.string().optional(),
+  title: z.string().min(1).openapi({ example: "Ceylon Black Tea 250g" }),
+  quantity: z.number().int().positive().openapi({ example: 1 }),
+  unitPrice: z.number().int().nonnegative().openapi({ example: 1250 }),
+  totalPrice: z.number().int().nonnegative().optional().openapi({ example: 1250 }),
+  taxAmount: z.number().int().nonnegative().optional(),
+  discountAmount: z.number().int().nonnegative().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).openapi("AddOrderLineItemRequest");
+
+export const UpdateOrderLineItemBodySchema = z.object({
+  quantity: z.number().int().positive().openapi({ example: 3 }),
+}).openapi("UpdateOrderLineItemRequest");
+
+const OrderLineItemParams = z.object({
+  id: z.uuid().openapi({ example: "550e8400-e29b-41d4-a716-446655440000" }),
+  lineItemId: z.uuid().openapi({ example: "660e8400-e29b-41d4-a716-446655440001" }),
+});
+
+export const addOrderLineItemRoute = createRoute({
+  method: "post",
+  path: "/{id}/line-items",
+  tags: ["Orders"],
+  summary: "Add a line item to a placed order",
+  description: "Adds a line item to a non-terminal order and recalculates subtotal/tax/grand totals. Records an audit entry.",
+  request: {
+    params: OrderIdParam,
+    body: {
+      content: { "application/json": { schema: AddOrderLineItemBodySchema } },
+      required: true,
+    },
+  },
+  responses: {
+    201: {
+      content: { "application/json": { schema: OrderDataResponseSchema } },
+      description: "Line item added; updated order returned.",
+    },
+    ...errorResponses,
+  },
+});
+
+export const updateOrderLineItemRoute = createRoute({
+  method: "patch",
+  path: "/{id}/line-items/{lineItemId}",
+  tags: ["Orders"],
+  summary: "Adjust a line item's quantity on a placed order",
+  description: "Changes a line item's quantity on a non-terminal order, scaling line totals/tax and recalculating order totals. Records an audit entry.",
+  request: {
+    params: OrderLineItemParams,
+    body: {
+      content: { "application/json": { schema: UpdateOrderLineItemBodySchema } },
+      required: true,
+    },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: OrderDataResponseSchema } },
+      description: "Line item updated; updated order returned.",
+    },
+    ...errorResponses,
+  },
+});
+
+export const removeOrderLineItemRoute = createRoute({
+  method: "delete",
+  path: "/{id}/line-items/{lineItemId}",
+  tags: ["Orders"],
+  summary: "Remove a line item from a placed order",
+  description: "Removes a line item from a non-terminal order (at least one line item must remain) and recalculates order totals. Records an audit entry.",
+  request: {
+    params: OrderLineItemParams,
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: OrderDataResponseSchema } },
+      description: "Line item removed; updated order returned.",
     },
     ...errorResponses,
   },

@@ -4,7 +4,7 @@ import type { Actor } from "../../auth/types.js";
 import type { DatabaseAdapter } from "../../kernel/database/adapter.js";
 import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
-import { CommerceNotFoundError } from "../../kernel/errors.js";
+import { CommerceNotFoundError, CommerceValidationError } from "../../kernel/errors.js";
 import { runAfterHooks } from "../../kernel/hooks/executor.js";
 import { createHookContext } from "../../kernel/hooks/create-context.js";
 import type { HookRegistry } from "../../kernel/hooks/registry.js";
@@ -344,6 +344,144 @@ export class FulfillmentService {
     }
 
     return Ok(undefined);
+  }
+
+  /**
+   * Records a fulfillment (e.g. a shipment) for a subset of an order's line
+   * items, with optional carrier/tracking details. Supports partial
+   * fulfillment (per-line quantities) and multiple fulfillments per order.
+   */
+  async createFulfillment(
+    input: {
+      orderId: string;
+      lineItems: Array<{ orderLineItemId: string; quantity: number }>;
+      carrier?: string;
+      trackingNumber?: string;
+      trackingUrl?: string;
+      type?: string;
+      status?: string;
+      metadata?: Record<string, unknown>;
+    },
+    actor?: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<FulfillmentRecord>> {
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const order = await this.deps.ordersRepository.findById(orgId, input.orderId, ctx);
+    if (!order) return Err(new CommerceNotFoundError("Order not found."));
+
+    const orderLines = await this.deps.ordersRepository.findLineItemsByOrderId(
+      input.orderId,
+      ctx,
+    );
+    const linesById = new Map(orderLines.map((li) => [li.id, li]));
+
+    // Validate every requested line before writing anything: it must belong
+    // to the order, and requested + already-fulfilled must not exceed ordered.
+    const alreadyFulfilled = new Map<string, number>();
+    for (const req of input.lineItems) {
+      const line = linesById.get(req.orderLineItemId);
+      if (!line) {
+        return Err(
+          new CommerceValidationError(
+            `Line item ${req.orderLineItemId} does not belong to this order.`,
+          ),
+        );
+      }
+      const fulfilled = await this.deps.repository.getFulfilledQuantity(
+        req.orderLineItemId,
+        ctx,
+      );
+      alreadyFulfilled.set(req.orderLineItemId, fulfilled);
+      if (fulfilled + req.quantity > line.quantity) {
+        return Err(
+          new CommerceValidationError(
+            `Cannot fulfill ${req.quantity} of "${line.title}" — only ${line.quantity - fulfilled} remaining.`,
+          ),
+        );
+      }
+    }
+
+    const status = input.status ?? "shipped";
+    const created = await this.deps.repository.create(
+      {
+        orderId: order.id,
+        type: input.type ?? "physical",
+        status,
+        carrier: input.carrier ?? null,
+        trackingNumber: input.trackingNumber ?? null,
+        trackingUrl: input.trackingUrl ?? null,
+        ...(status === "shipped" ? { shippedAt: new Date() } : {}),
+        ...(status === "delivered" ? { deliveredAt: new Date() } : {}),
+        ...(order.customerId != null ? { customerId: order.customerId } : {}),
+        metadata: input.metadata ?? {},
+      },
+      ctx,
+    );
+
+    await this.deps.repository.createLineItems(
+      input.lineItems.map((li) => ({
+        fulfillmentId: created.id,
+        orderLineItemId: li.orderLineItemId,
+        quantity: li.quantity,
+      })),
+      ctx,
+    );
+
+    await this.deps.repository.createEvent(
+      {
+        fulfillmentId: created.id,
+        eventType: "created",
+        toStatus: status,
+        ...(actor?.userId !== undefined ? { actorId: actor.userId } : {}),
+        description: input.trackingNumber
+          ? `Shipment recorded (${input.trackingNumber})`
+          : "Fulfillment recorded",
+      },
+      ctx,
+    );
+
+    // Reflect per-line fulfillment progress on the order line items
+    for (const req of input.lineItems) {
+      const line = linesById.get(req.orderLineItemId)!;
+      const total = (alreadyFulfilled.get(req.orderLineItemId) ?? 0) + req.quantity;
+      await this.deps.ordersRepository.updateLineItem(
+        req.orderLineItemId,
+        { fulfillmentStatus: total >= line.quantity ? "fulfilled" : "partial" },
+        ctx,
+      );
+    }
+
+    const record: FulfillmentRecord = {
+      ...toServiceRecord(
+        created,
+        input.lineItems.map((li) => ({
+          id: "",
+          fulfillmentId: created.id,
+          orderLineItemId: li.orderLineItemId,
+          quantity: li.quantity,
+        })),
+      ),
+      lineItems: input.lineItems.map((li) => ({
+        id: li.orderLineItemId,
+        title: linesById.get(li.orderLineItemId)?.title ?? "",
+        quantity: li.quantity,
+      })),
+    };
+
+    const afterHooks = this.deps.hooks.resolve(
+      "fulfillment.afterCreate",
+    ) as AfterHook<FulfillmentRecord>[];
+    const hookCtx: HookContext = createHookContext({
+      actor: actor ?? ctx?.actor ?? null,
+      tx: ctx?.tx ?? null,
+      logger: createLogger("fulfillment"),
+      services: this.deps.services,
+      context: { moduleName: "fulfillment" },
+      database: { db: this.deps.database.db as PluginDb },
+    });
+    await runAfterHooks(afterHooks, null, record, "create", hookCtx);
+
+    return Ok(record);
   }
 
   async getByOrderId(

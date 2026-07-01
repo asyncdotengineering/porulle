@@ -117,6 +117,33 @@ function resolveStrategy(config: CommerceConfig): ShippingStrategy {
   };
 }
 
+/**
+ * Total weight (grams) of the shippable line items — used by both the
+ * code-config strategy and runtime zone rates with weight bands.
+ */
+export async function computeShippableWeightGrams(
+  config: CommerceConfig,
+  catalogRepo: CatalogRepository,
+  lineItems: ShippingLineItem[],
+  ctx?: TxContext,
+): Promise<number> {
+  const flags = await Promise.all(
+    lineItems.map((lineItem) =>
+      isShippableEntity(config, catalogRepo, lineItem.entityId, ctx),
+    ),
+  );
+  const shippable = lineItems.filter((_, i) => flags[i]);
+  const weights = await Promise.all(
+    shippable.map((lineItem) =>
+      resolveWeightGrams(catalogRepo, lineItem.entityId, lineItem.variantId, ctx),
+    ),
+  );
+  return shippable.reduce(
+    (sum, lineItem, i) => sum + (weights[i] ?? 0) * lineItem.quantity,
+    0,
+  );
+}
+
 export async function calculateShippingCost(
   config: CommerceConfig,
   catalogRepo: CatalogRepository,

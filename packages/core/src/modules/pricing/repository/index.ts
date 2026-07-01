@@ -192,6 +192,40 @@ export class PricingRepository {
       );
   }
 
+  async findModifiers(
+    orgId: string,
+    filter?: { entityId?: string; currency?: string; activeAt?: Date },
+    ctx?: TxContext,
+  ): Promise<PriceModifier[]> {
+    const db = this.getDb(ctx);
+    const conditions = [eq(priceModifiers.organizationId, orgId)];
+    if (filter?.entityId) {
+      conditions.push(eq(priceModifiers.entityId, filter.entityId));
+    }
+    if (filter?.currency) {
+      conditions.push(eq(priceModifiers.currency, filter.currency));
+    }
+    if (filter?.activeAt) {
+      conditions.push(
+        or(
+          isNull(priceModifiers.validFrom),
+          lte(priceModifiers.validFrom, filter.activeAt),
+        )!,
+      );
+      conditions.push(
+        or(
+          isNull(priceModifiers.validUntil),
+          gte(priceModifiers.validUntil, filter.activeAt),
+        )!,
+      );
+    }
+    const rows = await db
+      .select()
+      .from(priceModifiers)
+      .where(and(...conditions));
+    return rows.sort((a, b) => a.priority - b.priority);
+  }
+
   async findActiveModifiers(
     orgId: string,
     entityId: string,

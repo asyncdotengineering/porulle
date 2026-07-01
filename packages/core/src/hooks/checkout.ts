@@ -369,7 +369,7 @@ export const calculateTax: BeforeHook<CheckoutData> = async ({
         unitPrice: number;
         discount?: number;
       }>;
-    }): Promise<
+    }, orgId?: string): Promise<
       | { ok: true; value: { amountToCollect: number } }
       | { ok: false; error: Error }
     >;
@@ -392,7 +392,7 @@ export const calculateTax: BeforeHook<CheckoutData> = async ({
     ...(data.shippingAddress !== undefined
       ? { toAddress: data.shippingAddress }
       : {}),
-  });
+  }, resolveOrgId(context.actor ?? null));
 
   if (!calculated.ok) {
     throw new CommerceValidationError(
@@ -421,6 +421,7 @@ export const calculateShipping: BeforeHook<CheckoutData> = async ({
       currency: string;
       address?: ShippingAddress;
       isFreeShipping?: boolean;
+      orgId?: string;
     }): Promise<
       | {
           ok: true;
@@ -441,6 +442,7 @@ export const calculateShipping: BeforeHook<CheckoutData> = async ({
     })),
     subtotalAfterDiscount: Math.max(0, data.subtotal - data.discountTotal),
     currency: data.currency,
+    orgId: resolveOrgId(context.actor ?? null),
     ...(data.shippingAddress !== undefined
       ? { address: data.shippingAddress }
       : {}),

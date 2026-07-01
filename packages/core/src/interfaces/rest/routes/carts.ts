@@ -1,8 +1,8 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
 import type { CreateCartInput, AddCartItemInput } from "../../../modules/cart/schemas.js";
-import { createCartRoute, addCartItemRoute, updateCartItemQuantityRoute, getCartRoute, removeCartItemRoute } from "../schemas/carts.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus } from "../utils.js";
+import { createCartRoute, addCartItemRoute, updateCartItemQuantityRoute, getCartRoute, removeCartItemRoute, listCartsRoute, recoverCartRoute } from "../schemas/carts.js";
+import { type AppEnv, mapErrorToResponse, mapErrorToStatus, parsePagination } from "../utils.js";
 
 export function cartRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -19,6 +19,56 @@ export function cartRoutes(kernel: Kernel) {
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value }, 201);
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(listCartsRoute, async (c) => {
+    const actor = c.get("actor");
+    const pagination = parsePagination(c.req.query());
+    const status = c.req.query("status");
+    const olderThanRaw = c.req.query("olderThan");
+    const hasCustomerRaw = c.req.query("hasCustomer");
+
+    let olderThan: Date | undefined;
+    if (olderThanRaw) {
+      const d = new Date(olderThanRaw);
+      if (Number.isNaN(d.getTime())) {
+        return c.json({ error: { code: "VALIDATION_FAILED", message: "olderThan must be an ISO timestamp." } }, 422);
+      }
+      olderThan = d;
+    }
+
+    const result = await kernel.services.cart.list(
+      {
+        page: pagination.page,
+        limit: pagination.limit,
+        ...(status !== undefined ? { status } : {}),
+        ...(olderThan !== undefined ? { olderThan } : {}),
+        ...(hasCustomerRaw === "true" ? { hasCustomer: true } : {}),
+        ...(hasCustomerRaw === "false" ? { hasCustomer: false } : {}),
+      },
+      actor,
+    );
+    if (!result.ok)
+      return c.json(
+        mapErrorToResponse(result.error),
+        mapErrorToStatus(result.error),
+      );
+    return c.json({
+      data: result.value.items,
+      meta: { pagination: result.value.pagination },
+    });
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(recoverCartRoute, async (c) => {
+    const result = await kernel.services.cart.recover(c.req.param("id"), c.get("actor"));
+    if (!result.ok)
+      return c.json(
+        mapErrorToResponse(result.error),
+        mapErrorToStatus(result.error),
+      );
+    return c.json({ data: result.value });
   });
 
   // @ts-expect-error -- openapi handler union return type

@@ -5,6 +5,7 @@ import { z } from "@hono/zod-openapi";
 export const CreateCartBodySchema = z.object({
   customerId: z.string().optional().openapi({ example: "customer-uuid" }),
   currency: z.string().length(3).optional().openapi({ example: "USD" }),
+  email: z.email().optional().openapi({ example: "shopper@example.com" }),
 }).openapi("CreateCartRequest");
 
 export const AddCartItemBodySchema = z.object({

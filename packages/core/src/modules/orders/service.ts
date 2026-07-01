@@ -784,6 +784,199 @@ export class OrderService {
     return Ok(items);
   }
 
+  /** Line items may not be edited on terminal or fully-captured orders. */
+  private lineItemEditGuard(order: Order): CommerceValidationError | null {
+    if (this.machine.terminal.includes(order.status)) {
+      return new CommerceValidationError(
+        `Order in terminal status "${order.status}" cannot be edited.`,
+      );
+    }
+    if (
+      order.amountCaptured != null &&
+      order.amountCaptured >= order.grandTotal
+    ) {
+      return new CommerceValidationError(
+        "Order payment is fully captured; line items cannot be edited.",
+      );
+    }
+    return null;
+  }
+
+  /**
+   * Recomputes subtotal/taxTotal/grandTotal from the order's line items
+   * (shippingTotal and order-level discountTotal are preserved), persists
+   * them, and records an audit entry in the status history.
+   */
+  private async recalcOrderTotals(
+    order: Order,
+    actor: Actor | null,
+    reason: string,
+    ctx?: TxContext,
+  ): Promise<HydratedOrder> {
+    const lineItems = await this.repo.findLineItemsByOrderId(order.id, ctx);
+    const subtotal = lineItems.reduce((sum, li) => sum + li.totalPrice, 0);
+    const taxTotal = lineItems.reduce((sum, li) => sum + li.taxAmount, 0);
+    const grandTotal =
+      subtotal + taxTotal + order.shippingTotal - order.discountTotal;
+    const updated = await this.repo.update(
+      order.id,
+      { subtotal, taxTotal, grandTotal },
+      ctx,
+    );
+    await this.repo.createStatusHistory(
+      {
+        orderId: order.id,
+        fromStatus: order.status,
+        toStatus: order.status,
+        reason,
+        changedBy: actor?.userId ?? "system",
+      },
+      ctx,
+    );
+    return { ...(updated ?? order), lineItems };
+  }
+
+  async addLineItem(
+    orderId: string,
+    input: {
+      entityId: string;
+      entityType: string;
+      variantId?: string | undefined;
+      sku?: string | undefined;
+      title: string;
+      quantity: number;
+      unitPrice: number;
+      totalPrice?: number | undefined;
+      taxAmount?: number | undefined;
+      discountAmount?: number | undefined;
+      metadata?: Record<string, unknown> | undefined;
+    },
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<HydratedOrder>> {
+    try {
+      assertPermission(actor, "orders:update");
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const order = await this.repo.findById(orgId, orderId, ctx);
+    if (!order) return Err(new CommerceNotFoundError("Order not found."));
+    const guard = this.lineItemEditGuard(order);
+    if (guard) return Err(guard);
+
+    await this.repo.createLineItems(
+      [
+        {
+          orderId: order.id,
+          entityId: input.entityId,
+          entityType: input.entityType,
+          title: input.title,
+          quantity: input.quantity,
+          unitPrice: input.unitPrice,
+          totalPrice: input.totalPrice ?? input.unitPrice * input.quantity,
+          taxAmount: input.taxAmount ?? 0,
+          discountAmount: input.discountAmount ?? 0,
+          fulfillmentStatus: "unfulfilled",
+          metadata: input.metadata ?? {},
+          ...(input.variantId !== undefined ? { variantId: input.variantId } : {}),
+          ...(input.sku !== undefined ? { sku: input.sku } : {}),
+        },
+      ],
+      ctx,
+    );
+
+    return Ok(await this.recalcOrderTotals(order, actor, "line_item_added", ctx));
+  }
+
+  async updateOrderLineItem(
+    orderId: string,
+    lineItemId: string,
+    patch: { quantity: number },
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<HydratedOrder>> {
+    try {
+      assertPermission(actor, "orders:update");
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const order = await this.repo.findById(orgId, orderId, ctx);
+    if (!order) return Err(new CommerceNotFoundError("Order not found."));
+    const guard = this.lineItemEditGuard(order);
+    if (guard) return Err(guard);
+
+    const line = await this.repo.findLineItemById(lineItemId, ctx);
+    if (!line || line.orderId !== order.id) {
+      return Err(new CommerceNotFoundError("Line item not found on this order."));
+    }
+    if (line.fulfillmentStatus !== "unfulfilled") {
+      return Err(
+        new CommerceValidationError(
+          "Line items with fulfillment progress cannot be adjusted.",
+        ),
+      );
+    }
+    if (patch.quantity < 1) {
+      return Err(new CommerceValidationError("Quantity must be at least 1."));
+    }
+
+    // Scale line totals with the quantity change (tax scales per-unit).
+    const perUnitTax = line.quantity > 0 ? line.taxAmount / line.quantity : 0;
+    await this.repo.updateLineItem(
+      lineItemId,
+      {
+        quantity: patch.quantity,
+        totalPrice: line.unitPrice * patch.quantity,
+        taxAmount: Math.round(perUnitTax * patch.quantity),
+      },
+      ctx,
+    );
+
+    return Ok(await this.recalcOrderTotals(order, actor, "line_item_updated", ctx));
+  }
+
+  async removeLineItem(
+    orderId: string,
+    lineItemId: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<HydratedOrder>> {
+    try {
+      assertPermission(actor, "orders:update");
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const order = await this.repo.findById(orgId, orderId, ctx);
+    if (!order) return Err(new CommerceNotFoundError("Order not found."));
+    const guard = this.lineItemEditGuard(order);
+    if (guard) return Err(guard);
+
+    const line = await this.repo.findLineItemById(lineItemId, ctx);
+    if (!line || line.orderId !== order.id) {
+      return Err(new CommerceNotFoundError("Line item not found on this order."));
+    }
+    if (line.fulfillmentStatus !== "unfulfilled") {
+      return Err(
+        new CommerceValidationError(
+          "Line items with fulfillment progress cannot be removed.",
+        ),
+      );
+    }
+    const existing = await this.repo.findLineItemsByOrderId(order.id, ctx);
+    if (existing.length <= 1) {
+      return Err(
+        new CommerceValidationError("An order must keep at least one line item."),
+      );
+    }
+
+    await this.repo.deleteLineItem(lineItemId, ctx);
+
+    return Ok(await this.recalcOrderTotals(order, actor, "line_item_removed", ctx));
+  }
+
   async updateOrder(
     orderId: string,
     data: {

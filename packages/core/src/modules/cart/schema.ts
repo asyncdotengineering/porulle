@@ -12,6 +12,8 @@ export const carts = pgTable("carts", {
     .notNull()
     .default("active"),
   currency: text("currency").notNull().default("USD"),
+  // Shopper contact for guest carts — enables abandoned-checkout recovery
+  email: text("email"),
   secret: text("secret"),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),

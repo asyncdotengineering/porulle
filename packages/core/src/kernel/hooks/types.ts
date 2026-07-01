@@ -11,6 +11,7 @@ export type HookOperation =
   | "statusChange"
   | "addItem"
   | "removeItem"
+  | "recover"
   | "custom";
 
 export interface Logger {

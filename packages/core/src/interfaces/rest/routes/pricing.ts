@@ -4,7 +4,7 @@ import { CommerceValidationError } from "../../../kernel/errors.js";
 import type { DrizzleDatabase } from "../../../kernel/database/drizzle-db.js";
 import { CatalogRepository } from "../../../modules/catalog/repository/index.js";
 import type { Kernel } from "../../../runtime/kernel.js";
-import { setBasePriceRoute, createModifierRoute, listPricesRoute } from "../schemas/pricing.js";
+import { setBasePriceRoute, createModifierRoute, listPricesRoute, listModifiersRoute, updateModifierRoute, deleteModifierRoute } from "../schemas/pricing.js";
 import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requirePerm } from "../utils.js";
 
 export function pricingRoutes(kernel: Kernel) {
@@ -45,6 +45,49 @@ export function pricingRoutes(kernel: Kernel) {
   });
 
   router.use("/modifiers", requirePerm("pricing:manage"));
+  router.use("/modifiers/:id", requirePerm("pricing:manage"));
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(listModifiersRoute, async (c) => {
+    const actor = c.get("actor");
+    const entityId = c.req.query("entityId");
+    const currency = c.req.query("currency");
+    const active = c.req.query("active");
+
+    const result = await kernel.services.pricing.listModifiers({
+      ...(entityId !== undefined ? { entityId } : {}),
+      ...(currency !== undefined ? { currency } : {}),
+      ...(active === "true" ? { active: true } : {}),
+    }, actor);
+    if (!result.ok) {
+      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    }
+    return c.json({ data: result.value });
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(updateModifierRoute, async (c) => {
+    const actor = c.get("actor");
+    const result = await kernel.services.pricing.updateModifier(
+      c.req.param("id"),
+      c.req.valid("json"),
+      actor,
+    );
+    if (!result.ok) {
+      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    }
+    return c.json({ data: result.value });
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(deleteModifierRoute, async (c) => {
+    const actor = c.get("actor");
+    const result = await kernel.services.pricing.deleteModifier(c.req.param("id"), actor);
+    if (!result.ok) {
+      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    }
+    return c.json({ data: result.value });
+  });
 
   // @ts-expect-error -- openapi() enforces strict response typing but our handler
   // returns union responses (201 | 400 | 422). The route definition documents the

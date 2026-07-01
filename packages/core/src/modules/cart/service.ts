@@ -18,6 +18,7 @@ import type {
 import type { HookRegistry } from "../../kernel/hooks/registry.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
 import { createLogger } from "../../utils/logger.js";
+import { paginate, type Pagination } from "../../utils/pagination.js";
 import type { DatabaseAdapter } from "../../kernel/database/adapter.js";
 import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
@@ -152,6 +153,7 @@ export class CartService {
         metadata: input.metadata ?? {},
         expiresAt: new Date(now.getTime() + ttlMinutes * 60 * 1000),
         ...(resolvedCustomerId !== null ? { customerId: resolvedCustomerId } : {}),
+        ...(input.email !== undefined ? { email: input.email } : {}),
       },
       ctx,
     );
@@ -453,6 +455,105 @@ export class CartService {
     await this.repo.updateStatus(sourceCartId, "merged", ctx);
 
     return Ok(undefined);
+  }
+
+  /**
+   * Admin listing of carts with abandoned-checkout recovery filters:
+   * status, olderThan (not touched since), hasCustomer, plus pagination.
+   * Returns shopper identity (cart email + linked customer email).
+   */
+  async list(
+    filter?: {
+      status?: string;
+      olderThan?: Date;
+      hasCustomer?: boolean;
+      page?: number;
+      limit?: number;
+    },
+    actor?: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<{ items: Array<Cart & { customerEmail: string | null }>; pagination: Pagination }>> {
+    try {
+      assertPermission(actor ?? null, "cart:manage");
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const rows = await this.repo.list(
+      orgId,
+      {
+        ...(filter?.status !== undefined ? { status: filter.status } : {}),
+        ...(filter?.olderThan !== undefined ? { olderThan: filter.olderThan } : {}),
+        ...(filter?.hasCustomer !== undefined ? { hasCustomer: filter.hasCustomer } : {}),
+      },
+      ctx,
+    );
+    const paged = paginate(rows, filter?.page ?? 1, filter?.limit ?? 20);
+    return Ok({ items: paged.items, pagination: paged.pagination });
+  }
+
+  /**
+   * Abandoned-checkout recovery primitive: reactivates the cart, extends its
+   * expiry, and returns a resume secret that gates guest access to the cart —
+   * enough to build a recovery email with a resume/checkout link.
+   * Fires the `cart.afterRecover` hook so plugins/webhooks can react.
+   */
+  async recover(
+    cartId: string,
+    actor?: Actor | null,
+    ctx?: TxContext,
+  ): Promise<
+    Result<{
+      cartId: string;
+      secret: string;
+      status: string;
+      expiresAt: string;
+      email: string | null;
+      customerId: string | null;
+    }>
+  > {
+    try {
+      assertPermission(actor ?? null, "cart:manage");
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const cart = await this.repo.findById(orgId, cartId, ctx);
+    if (!cart) return Err(new CommerceNotFoundError("Cart not found."));
+    if (cart.status === "checked_out" || cart.status === "merged" || cart.status === "checking_out") {
+      return Err(
+        new CommerceValidationError(
+          `Cart with status "${cart.status}" cannot be recovered.`,
+        ),
+      );
+    }
+
+    const secret = cart.secret ?? crypto.randomUUID();
+    const ttlMinutes = this.deps.config.cart?.ttlMinutes ?? 60 * 24 * 7;
+    const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
+    const updated = await this.repo.update(
+      cart.id,
+      { status: "active", secret, expiresAt },
+      ctx,
+    );
+
+    const afterHooks = this.deps.hooks.resolve("cart.afterRecover") as AfterHook<Cart>[];
+    await runAfterHooks(
+      afterHooks,
+      null,
+      updated ?? cart,
+      "recover",
+      makeContext(actor ?? null, this.deps.services, this.deps.database, ctx?.tx ?? null),
+    );
+
+    return Ok({
+      cartId: cart.id,
+      secret,
+      status: "active",
+      expiresAt: expiresAt.toISOString(),
+      email: cart.email ?? null,
+      customerId: cart.customerId ?? null,
+    });
   }
 
   async abandon(cartId: string, actor?: Actor | null, ctx?: TxContext): Promise<Result<void>> {

@@ -39,6 +39,22 @@ Persists gift cards and append-only transactions; supports partial redemption, c
 - **`/gift-cards`** — Admin: `POST/GET /`, `GET /{id}`, `POST /{id}/disable`, `POST /{id}/adjust`. Public: `POST /check-balance`.
 - **`/me/gift-cards`** — Customer: `GET /` (authenticated).
 
+### Permissions
+
+All admin routes require the **`gift-cards:admin`** scope (`gift-cards:*` and `*:*` wildcards also pass). Grant it to a role in `commerce.config.ts` (`auth.roles`), or to a server-to-server API key via `auth.apiKeyScopes`:
+
+```typescript
+auth: {
+  apiKeyScopes: {
+    giftcards_admin: {
+      prefix: "uc_gcadm_",
+      description: "Issue, list, disable, and adjust gift cards",
+      permissions: { "gift-cards": ["admin"] },
+    },
+  },
+},
+```
+
 ## Hooks
 
 Only **`giftCardPluginWithHooks`** registers hooks:

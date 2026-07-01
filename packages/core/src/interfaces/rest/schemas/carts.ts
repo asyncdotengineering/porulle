@@ -26,6 +26,46 @@ const CartItemParams = z.object({
 
 // ─── Route Definitions ──────────────────────────────────────────────────────
 
+export const listCartsRoute = createRoute({
+  method: "get",
+  path: "/",
+  tags: ["Carts"],
+  summary: "List carts (admin) — abandoned-checkout recovery filters",
+  description: "Lists carts with status/olderThan/hasCustomer filters and pagination. Includes shopper identity (cart email + linked customer email). Requires cart:manage.",
+  request: {
+    query: z.object({
+      status: z.enum(["active", "checking_out", "merged", "checked_out", "abandoned"]).optional(),
+      olderThan: z.string().optional().openapi({ example: "2026-06-30T00:00:00Z", description: "Only carts not updated since this ISO timestamp" }),
+      hasCustomer: z.string().optional().openapi({ example: "true" }),
+      page: z.string().optional(),
+      limit: z.string().optional(),
+    }),
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: CartResponse } },
+      description: "Carts",
+    },
+    ...errorResponses,
+  },
+});
+
+export const recoverCartRoute = createRoute({
+  method: "post",
+  path: "/{id}/recover",
+  tags: ["Carts"],
+  summary: "Recover an abandoned cart (admin)",
+  description: "Reactivates the cart, extends its expiry, and returns a resume secret suitable for a recovery email's resume/checkout link. Fires the cart.afterRecover hook. Requires cart:manage.",
+  request: { params: CartIdParam },
+  responses: {
+    200: {
+      content: { "application/json": { schema: CartResponse } },
+      description: "Recovery payload (cartId, secret, expiresAt, shopper identity).",
+    },
+    ...errorResponses,
+  },
+});
+
 export const getCartRoute = createRoute({
   method: "get",
   path: "/{id}",

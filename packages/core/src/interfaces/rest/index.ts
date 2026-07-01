@@ -19,7 +19,10 @@ import { auditRoutes } from "./routes/audit.js";
 import { adminJobRoutes } from "./routes/admin-jobs.js";
 import { compensationFailureAdminRoutes } from "./routes/admin/compensation-failures.js";
 import { adminPermissionsRoutes } from "./routes/admin/permissions.js";
+import { adminStaffRoutes } from "./routes/admin/staff.js";
 import { customerRoutes } from "./routes/customers.js";
+import { shippingRoutes } from "./routes/shipping.js";
+import { taxRoutes } from "./routes/tax.js";
 export function createRestRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>({
     // Standardize Zod validation error responses across all routes
@@ -75,6 +78,8 @@ export function createRestRoutes(kernel: Kernel) {
   router.route("/payments", paymentRoutes(kernel));
   router.route("/webhooks", webhookRoutes(kernel));
   router.route("/pricing", pricingRoutes(kernel));
+  router.route("/shipping", shippingRoutes(kernel));
+  router.route("/tax", taxRoutes(kernel));
   router.route("/promotions", promotionRoutes(kernel));
   router.route("/search", searchRoutes(kernel));
   router.route("/customers", customerRoutes(kernel));
@@ -82,6 +87,7 @@ export function createRestRoutes(kernel: Kernel) {
   router.route("/admin", adminJobRoutes(kernel));
   router.route("/admin", compensationFailureAdminRoutes(kernel));
   router.route("/admin", adminPermissionsRoutes(kernel));
+  router.route("/admin", adminStaffRoutes(kernel));
 
   // API Reference (Scalar) — disabled in production unless config.exposeOpenApiSpec is true
   const exposeSpec = kernel.config.exposeOpenApiSpec ?? (process.env.NODE_ENV !== "production");
