@@ -181,13 +181,22 @@ export class EntityService {
     }
     if (options?.includeCategories) hydrated.categories = await this.repo.findEntityCategories(entity.id, ctx);
     if (options?.includeBrands) hydrated.brands = await this.repo.findEntityBrands(entity.id, ctx);
-    if (options?.includeMedia) hydrated.media = [];
+    if (options?.includeMedia) {
+      const mediaService = this.deps.services.media as {
+        listEntityMedia?: (
+          entityId: string,
+          opts?: { orgId?: string },
+        ) => Promise<{ ok: boolean; value?: CatalogEntityHydrated["media"] }>;
+      } | undefined;
+      const mediaResult = await mediaService?.listEntityMedia?.(entity.id, { orgId: entity.organizationId });
+      hydrated.media = mediaResult?.ok && mediaResult.value ? mediaResult.value : [];
+    }
     if (options?.includePricing) {
       try {
-        const pricingService = this.deps.services.pricing as { listPrices: (filter: { entityId: string }) => Promise<{ ok: boolean; value?: { prices: Array<{ currency: string; amount: number; compareAtAmount?: number | null }> } }> };
+        const pricingService = this.deps.services.pricing as { listPrices: (filter: { entityId: string }) => Promise<{ ok: boolean; value?: { prices: Array<{ id: string; currency: string; amount: number; compareAtAmount?: number | null; createdAt: Date }> } }> };
         const priceResult = await pricingService.listPrices({ entityId: entity.id });
         if (priceResult.ok && priceResult.value) {
-          hydrated.pricing = priceResult.value.prices.map((p) => ({ currency: p.currency, amount: p.amount, compareAtAmount: p.compareAtAmount ?? null }));
+          hydrated.pricing = priceResult.value.prices.map((p) => ({ id: p.id, currency: p.currency, amount: p.amount, compareAtAmount: p.compareAtAmount ?? null, createdAt: p.createdAt }));
         }
       } catch {}
     }
@@ -435,6 +444,21 @@ export class EntityService {
 
   async generateVariants(entityId: string, strategy: VariantGenerationStrategy, actor: Actor | null, ctx?: TxContext): Promise<Result<Variant[]>> {
     assertPermission(actor, "catalog:update");
+    // Guard the strategy: a missing/malformed body (e.g. a bodyless SDK call that
+    // skips JSON validation) must be a 422, not a 500 from dereferencing an
+    // undefined strategy.
+    const mode = (strategy as { mode?: unknown } | null | undefined)?.mode;
+    if (mode !== "all" && mode !== "manual" && mode !== "matrix") {
+      return Err(new CommerceValidationError(
+        'A variant generation strategy is required: { "mode": "all" } | { "mode": "manual", "combinations": [...] } | { "mode": "matrix", "matrix": { "include"?, "exclude"? } }.',
+      ));
+    }
+    if (strategy.mode === "manual" && !Array.isArray(strategy.combinations)) {
+      return Err(new CommerceValidationError('strategy.combinations (string[][]) is required for mode "manual".'));
+    }
+    if (strategy.mode === "matrix" && (!strategy.matrix || typeof strategy.matrix !== "object")) {
+      return Err(new CommerceValidationError('strategy.matrix is required for mode "matrix".'));
+    }
     const entity = await this.repo.findEntityById(entityId, ctx);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
     const entityOptionTypes = await this.repo.findOptionTypesByEntityId(entityId, ctx);

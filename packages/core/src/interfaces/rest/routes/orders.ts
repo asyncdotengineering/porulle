@@ -1,7 +1,8 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
-import { changeOrderStatusRoute, listOrdersRoute, orderLookupRoute, getOrderRoute, getOrderFulfillmentsRoute } from "../schemas/orders.js";
+import { changeOrderStatusRoute, listOrdersRoute, orderLookupRoute, getOrderRoute, getOrderFulfillmentsRoute, createOrderRoute, refundOrderRoute, captureOrderRoute } from "../schemas/orders.js";
 import { type AppEnv, isUUID, mapErrorToResponse, mapErrorToStatus, parsePagination } from "../utils.js";
+import type { CreateOrderInput } from "../../../modules/orders/service.js";
 
 export function orderRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -55,6 +56,40 @@ export function orderRoutes(kernel: Kernel) {
       ? await kernel.services.orders.getById(idOrNumber, c.get("actor"))
       : await kernel.services.orders.getByNumber(idOrNumber, c.get("actor"));
 
+    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    return c.json({ data: result.value });
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(createOrderRoute, async (c) => {
+    const body = c.req.valid("json") as CreateOrderInput;
+    const result = await kernel.services.orders.create(body, c.get("actor"));
+    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    return c.json({ data: result.value }, 201);
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(refundOrderRoute, async (c) => {
+    const body = c.req.valid("json") as { amount?: number; reason?: string } | undefined;
+    const result = await kernel.services.orders.refund(
+      c.req.param("id"),
+      c.get("actor"),
+      body?.reason ?? "refunded",
+      undefined,
+      body?.amount !== undefined ? { amount: body.amount } : undefined,
+    );
+    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    return c.json({ data: result.value });
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(captureOrderRoute, async (c) => {
+    const body = c.req.valid("json") as { amount?: number } | undefined;
+    const result = await kernel.services.orders.capture(
+      c.req.param("id"),
+      c.get("actor"),
+      body?.amount !== undefined ? { amount: body.amount } : undefined,
+    );
     if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });

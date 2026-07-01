@@ -17,7 +17,19 @@ export default defineConfig({
 });
 ```
 
-Then serve the `basePath` directory at `baseUrl` (the example apps mount Hono's `serveStatic` for `/assets/*`).
+Then serve the `basePath` directory at `baseUrl`. The adapter generates URLs as `${baseUrl}/${key}`, so a mount for `/assets/*` must strip the `/assets` prefix before resolving against `basePath` — otherwise Hono looks the file up at `basePath/assets/<key>` and every asset 404s:
+
+```ts
+import { serveStatic } from "@hono/node-server/serve-static";
+
+app.use(
+  "/assets/*",
+  serveStatic({
+    root: "./.data/media",
+    rewriteRequestPath: (path) => path.replace(/^\/assets/, ""),
+  }),
+);
+```
 
 ## Path-traversal protection
 

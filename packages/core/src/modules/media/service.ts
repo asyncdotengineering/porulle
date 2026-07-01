@@ -28,6 +28,16 @@ export interface AttachMediaInput {
   sortOrder?: number;
 }
 
+export interface AttachedMedia {
+  mediaAssetId: string;
+  role: string;
+  sortOrder: number;
+  variantId: string | null;
+  url: string;
+  alt: string | null;
+  contentType: string;
+}
+
 interface MediaServiceDeps {
   repository: MediaRepository;
   catalogRepository: CatalogRepository;
@@ -233,5 +243,35 @@ export class MediaService {
     );
 
     return Ok(undefined);
+  }
+
+  /**
+   * Media attached to an entity, resolved to public URLs and ordered by
+   * sortOrder. Powers catalog `?include=media` hydration. Returns entity-level
+   * links only unless a specific variantId is requested.
+   */
+  async listEntityMedia(
+    entityId: string,
+    opts?: { variantId?: string; orgId?: string },
+    ctx?: TxContext,
+  ): Promise<Result<AttachedMedia[]>> {
+    const links = await this.repo.findEntityMedia(entityId, opts?.variantId, ctx);
+    const out: AttachedMedia[] = [];
+    for (const link of links) {
+      const asset = await this.repo.findAssetById(link.mediaAssetId, ctx, opts?.orgId);
+      if (!asset) continue;
+      const urlResult = await this.deps.storage.getUrl(asset.storageKey);
+      out.push({
+        mediaAssetId: link.mediaAssetId,
+        role: link.role,
+        sortOrder: link.sortOrder,
+        variantId: link.variantId ?? null,
+        url: urlResult.ok ? urlResult.value : "",
+        alt: asset.alt ?? null,
+        contentType: asset.contentType,
+      });
+    }
+    out.sort((a, b) => a.sortOrder - b.sortOrder);
+    return Ok(out);
   }
 }

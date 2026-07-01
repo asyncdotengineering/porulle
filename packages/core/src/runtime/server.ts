@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { cors } from "hono/cors";
 import { csrf } from "hono/csrf";
+import { HTTPException } from "hono/http-exception";
 import { bodyLimit } from "hono/body-limit";
 import { rateLimiter } from "hono-rate-limiter";
 import { createHash } from "node:crypto";
@@ -10,6 +11,7 @@ import type { Actor } from "../auth/types.js";
 import type { AuthInstance } from "../auth/setup.js";
 import type { CommerceConfig } from "../config/types.js";
 import { authMiddleware } from "../auth/middleware.js";
+import { CommerceCsrfError } from "../kernel/errors.js";
 import { createRestRoutes } from "../interfaces/rest/index.js";
 import { createCustomerPortalRoutes } from "../interfaces/rest/customer-portal.js";
 import { createKernel } from "./kernel.js";
@@ -178,11 +180,42 @@ export async function createServer(config: CommerceConfig) {
   }));
 
   // ─── CSRF Protection (F14) ──────────────────────────────────────────
-  app.use("/api/*", csrf({
+  // CSRF defends cookie/session auth, where the browser attaches the credential
+  // ambiently. API-key (x-api-key) and bearer-token requests carry an explicit,
+  // non-ambient credential and are not CSRF-attackable, so the guard is skipped
+  // for them — otherwise a bodyless server-to-server POST (no Origin, no JSON
+  // content-type, e.g. /publish or /archive from the SDK) trips CSRF and 403s
+  // for no security benefit.
+  const csrfGuard = csrf({
     origin: trustedOrigins.length > 0
       ? trustedOrigins
       : (process.env.NODE_ENV === "production" ? [] : ["http://localhost:*"]),
-  }));
+  });
+  app.use("/api/*", async (c, next) => {
+    const authenticatedByKey =
+      !!c.req.header("x-api-key") ||
+      /^Bearer\s+/i.test(c.req.header("authorization") ?? "");
+    if (authenticatedByKey) return next();
+
+    // Run only the CSRF origin check here; invoke the real downstream afterwards
+    // so a genuine 403 from a route handler can't be misattributed to CSRF.
+    let passedCsrf = false;
+    try {
+      await csrfGuard(c, async () => {
+        passedCsrf = true;
+      });
+    } catch (err) {
+      if (err instanceof HTTPException && err.status === 403) {
+        throw new CommerceCsrfError(
+          "Origin check failed: the request Origin is not in the trusted origins allowlist. " +
+            "Browser clients must send a trusted Origin; server-to-server callers should authenticate with an API key (x-api-key).",
+        );
+      }
+      throw err;
+    }
+    if (!passedCsrf) return;
+    return next();
+  });
 
   // ─── Body Size Limit (F6) ──────────────────────────────────────────
   // Media uploads (phone photos are 3–8MB) get their own larger limit and are

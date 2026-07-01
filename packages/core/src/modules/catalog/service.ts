@@ -105,8 +105,8 @@ export interface CatalogEntityHydrated extends SellableEntity {
   optionTypes?: Array<OptionType & { values: OptionValue[] }>;
   categories?: EntityCategory[];
   brands?: EntityBrand[];
-  media?: Array<{ mediaAssetId: string; role: string; variantId?: string }>;
-  pricing?: Array<{ currency: string; amount: number; compareAtAmount?: number | null }>;
+  media?: Array<{ mediaAssetId: string; role: string; sortOrder: number; variantId: string | null; url: string; alt: string | null; contentType: string }>;
+  pricing?: Array<{ id: string; currency: string; amount: number; compareAtAmount?: number | null; createdAt: Date }>;
 }
 
 export interface CatalogService {

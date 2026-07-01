@@ -9,7 +9,13 @@ const config = await configPromise;
 const { app, logger } = await createServer(config);
 
 // ─── Serve uploaded media files ────────────────────────────────────
-app.use("/assets/*", serveStatic({ root: "./.data/media" }));
+app.use(
+  "/assets/*",
+  serveStatic({
+    root: "./.data/media",
+    rewriteRequestPath: (path) => path.replace(/^\/assets/, ""),
+  }),
+);
 
 // ─── Health check ────────────────────────────────────────────────────
 app.get("/health", (c) => c.json({ status: "ok", store: config.storeName }));
