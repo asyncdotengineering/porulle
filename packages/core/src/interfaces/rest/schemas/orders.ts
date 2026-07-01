@@ -39,6 +39,10 @@ const CreateOrderLineItemSchema = z.object({
 
 export const CreateOrderBodySchema = z.object({
   customerId: z.uuid().optional(),
+  idempotencyKey: z.string().min(8).max(255).optional().openapi({
+    example: "pos-sale-8f14e45f-1738312200",
+    description: "Client-supplied retry key. Re-submitting a create with the same key returns the original order instead of creating a duplicate (safe offline-queue replay).",
+  }),
   currency: z.string().min(3).max(3).openapi({ example: "USD" }),
   subtotal: z.number().int().nonnegative().openapi({ example: 2500 }),
   taxTotal: z.number().int().nonnegative().openapi({ example: 200 }),

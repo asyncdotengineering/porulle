@@ -159,6 +159,24 @@ export class OrdersRepository {
     return query;
   }
 
+  async findByIdempotencyKey(
+    orgId: string,
+    idempotencyKey: string,
+    ctx?: TxContext,
+  ): Promise<Order | undefined> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .select()
+      .from(orders)
+      .where(
+        and(
+          eq(orders.organizationId, orgId),
+          eq(orders.idempotencyKey, idempotencyKey),
+        ),
+      );
+    return rows[0];
+  }
+
   async create(data: OrderInsert, ctx?: TxContext): Promise<Order> {
     const db = this.getDb(ctx);
     const rows = await db.insert(orders).values(data).returning();

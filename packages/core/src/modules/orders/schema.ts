@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { organization } from "../../auth/auth-schema.js";
 import { sellableEntities, variants } from "../catalog/schema.js";
@@ -17,6 +18,9 @@ export const orders = pgTable("orders", {
   amountCaptured: integer("amount_captured"),
   paymentIntentId: text("payment_intent_id"),
   paymentMethodId: text("payment_method_id"),
+  // Client-supplied key making order creation safely retryable (offline POS
+  // queues, network retries) — replays return the original order.
+  idempotencyKey: text("idempotency_key"),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
   placedAt: timestamp("placed_at", { withTimezone: true }).defaultNow().notNull(),
   fulfilledAt: timestamp("fulfilled_at", { withTimezone: true }),
@@ -28,6 +32,9 @@ export const orders = pgTable("orders", {
   customerIdIdx: index("idx_orders_customer_id").on(table.customerId),
   placedAtIdx: index("idx_orders_placed_at").on(table.placedAt),
   paymentIntentIdx: index("idx_orders_payment_intent").on(table.paymentIntentId),
+  orgIdempotencyKeyUnique: uniqueIndex("orders_org_idempotency_key_unique")
+    .on(table.organizationId, table.idempotencyKey)
+    .where(sql`idempotency_key IS NOT NULL`),
 }));
 
 export const orderLineItems = pgTable("order_line_items", {

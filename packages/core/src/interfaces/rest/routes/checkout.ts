@@ -34,6 +34,20 @@ export function checkoutRoutes(kernel: Kernel) {
     const body = c.req.valid("json");
 
     const actor = c.get("actor");
+
+    // Idempotent replay: a re-submitted checkout (offline POS queue, network
+    // retry) returns the already-created order BEFORE the pipeline runs — no
+    // double payment authorization, no duplicate order.
+    if (body.idempotencyKey) {
+      const replay = await kernel.services.orders.getByIdempotencyKey(
+        body.idempotencyKey,
+        actor,
+      );
+      if (replay.ok && replay.value) {
+        return c.json({ data: replay.value }, 201);
+      }
+    }
+
     const checkoutData: CheckoutData = {
       checkoutId: makeId(),
       cartId: body.cartId,
@@ -149,6 +163,9 @@ export function checkoutRoutes(kernel: Kernel) {
       }
 
       const orderPayload = {
+        ...(body.idempotencyKey !== undefined
+          ? { idempotencyKey: body.idempotencyKey }
+          : {}),
         currency: processed.currency,
         subtotal: processed.subtotal,
         taxTotal: processed.taxTotal,

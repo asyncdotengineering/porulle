@@ -6,6 +6,10 @@ import { ErrorSchema, errorResponses } from "./shared.js";
 export const CheckoutBodySchema = z.object({
   cartId: z.uuid().openapi({ example: "550e8400-e29b-41d4-a716-446655440000" }),
   paymentMethodId: z.string().openapi({ example: "pm_card_visa" }),
+  idempotencyKey: z.string().min(8).max(255).optional().openapi({
+    example: "checkout-8f14e45f-1738312200",
+    description: "Client-supplied retry key. A re-submitted checkout with the same key returns the already-created order without re-authorizing payment (safe offline-queue replay).",
+  }),
   customerId: z.string().optional().openapi({ example: "customer-uuid-or-user-id" }),
   customerGroupIds: z.array(z.string()).optional(),
   currency: z.string().length(3).optional().openapi({ example: "USD" }),

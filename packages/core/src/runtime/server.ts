@@ -341,7 +341,7 @@ export async function createServer(config: CommerceConfig) {
   app.route("/api/me", createCustomerPortalRoutes(kernel));
 
   if (config.routes) {
-    config.routes(app, kernel);
+    config.routes(app, kernel, auth);
   }
 
   // OpenAPI spec — disabled in production unless explicitly enabled

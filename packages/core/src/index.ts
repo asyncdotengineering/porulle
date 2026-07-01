@@ -15,6 +15,7 @@ export type {
 } from "./kernel/plugin/manifest.js";
 
 export { router } from "./interfaces/rest/router.js";
+export { requirePerm } from "./interfaces/rest/utils.js";
 export { webhookRouter, type WebhookRouterResult } from "./interfaces/rest/webhook-router.js";
 export { isPrivateUrl, isPrivateIp } from "./modules/webhooks/ssrf-guard.js";
 export { createServer } from "./runtime/server.js";

@@ -36,6 +36,8 @@ import {
 
 export interface CreateOrderInput {
   customerId?: string;
+  /** Client-supplied retry key — a repeat create with the same key returns the original order. */
+  idempotencyKey?: string | undefined;
   currency: string;
   subtotal: number;
   taxTotal: number;
@@ -176,30 +178,59 @@ export class OrderService {
       hookCtx,
     );
 
-    const orderNumber = await this.repo.getNextOrderNumber(ctx);
     const orgId = resolveOrgId(actor);
 
-    const order = await this.repo.create(
-      {
-        organizationId: orgId,
-        orderNumber,
-        status: "pending",
-        currency: processed.currency,
-        subtotal: processed.subtotal,
-        taxTotal: processed.taxTotal,
-        shippingTotal: processed.shippingTotal,
-        discountTotal: processed.discountTotal ?? 0,
-        grandTotal: processed.grandTotal,
-        ...(processed.paymentIntentId != null ? { paymentIntentId: processed.paymentIntentId } : {}),
-        ...(processed.paymentMethodId != null ? { paymentMethodId: processed.paymentMethodId } : {}),
-        metadata: processed.metadata ?? {},
-        placedAt: new Date(),
-        ...(processed.customerId !== undefined
-          ? { customerId: processed.customerId }
-          : {}),
-      },
-      ctx,
-    );
+    // Idempotent replay: offline POS queues and network retries re-submit the
+    // same create — return the original order instead of double-creating.
+    if (processed.idempotencyKey) {
+      const existing = await this.repo.findByIdempotencyKey(
+        orgId,
+        processed.idempotencyKey,
+        ctx,
+      );
+      if (existing) {
+        return Ok(await this.hydrateOrder(existing, ctx));
+      }
+    }
+
+    const orderNumber = await this.repo.getNextOrderNumber(ctx);
+
+    let order: Order;
+    try {
+      order = await this.repo.create(
+        {
+          organizationId: orgId,
+          orderNumber,
+          status: "pending",
+          currency: processed.currency,
+          subtotal: processed.subtotal,
+          taxTotal: processed.taxTotal,
+          shippingTotal: processed.shippingTotal,
+          discountTotal: processed.discountTotal ?? 0,
+          grandTotal: processed.grandTotal,
+          ...(processed.paymentIntentId != null ? { paymentIntentId: processed.paymentIntentId } : {}),
+          ...(processed.paymentMethodId != null ? { paymentMethodId: processed.paymentMethodId } : {}),
+          ...(processed.idempotencyKey != null ? { idempotencyKey: processed.idempotencyKey } : {}),
+          metadata: processed.metadata ?? {},
+          placedAt: new Date(),
+          ...(processed.customerId !== undefined
+            ? { customerId: processed.customerId }
+            : {}),
+        },
+        ctx,
+      );
+    } catch (error) {
+      // Concurrent replay lost the unique-index race — return the winner.
+      if (processed.idempotencyKey) {
+        const winner = await this.repo.findByIdempotencyKey(
+          orgId,
+          processed.idempotencyKey,
+          ctx,
+        );
+        if (winner) return Ok(await this.hydrateOrder(winner, ctx));
+      }
+      throw error;
+    }
 
     const lineItemsData = processed.lineItems.map((item) => ({
       orderId: order.id,
@@ -292,6 +323,18 @@ export class OrderService {
     const order = await this.repo.findByOrderNumber(orgId, orderNumber, ctx);
     if (!order) return Err(new CommerceNotFoundError("Order not found."));
     return this.getById(order.id, actor, ctx);
+  }
+
+  /** Returns the order previously created with this idempotency key, or null. */
+  async getByIdempotencyKey(
+    idempotencyKey: string,
+    actor?: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<HydratedOrder | null>> {
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const order = await this.repo.findByIdempotencyKey(orgId, idempotencyKey, ctx);
+    if (!order) return Ok(null);
+    return Ok(await this.hydrateOrder(order, ctx));
   }
 
   async list(
