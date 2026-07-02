@@ -4,7 +4,7 @@ import type {
   DrizzleDatabase,
   DbOrTx,
 } from "../../../kernel/database/drizzle-db.js";
-import { orders, orderLineItems, orderStatusHistory } from "../schema.js";
+import { orders, orderLineItems, orderRefunds, orderStatusHistory } from "../schema.js";
 import { customers } from "../../customers/schema.js";
 
 export interface OrderLookupRow {
@@ -26,6 +26,8 @@ export type OrderLineItem = typeof orderLineItems.$inferSelect;
 export type OrderLineItemInsert = typeof orderLineItems.$inferInsert;
 export type OrderStatusHistory = typeof orderStatusHistory.$inferSelect;
 export type OrderStatusHistoryInsert = typeof orderStatusHistory.$inferInsert;
+export type OrderRefund = typeof orderRefunds.$inferSelect;
+export type OrderRefundInsert = typeof orderRefunds.$inferInsert;
 
 /**
  * OrdersRepository provides type-safe database operations for orders.
@@ -344,6 +346,78 @@ export class OrdersRepository {
     if (!order) return undefined;
     const lineItems = await this.findLineItemsByOrderId(id, ctx);
     return { order, lineItems };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Line-level refunds (issue #52)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  async createRefund(data: OrderRefundInsert, ctx?: TxContext): Promise<OrderRefund> {
+    const db = this.getDb(ctx);
+    const rows = await db.insert(orderRefunds).values(data).returning();
+    return rows[0]!;
+  }
+
+  async findRefundById(
+    orgId: string,
+    id: string,
+    ctx?: TxContext,
+  ): Promise<OrderRefund | undefined> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .select()
+      .from(orderRefunds)
+      .where(and(eq(orderRefunds.organizationId, orgId), eq(orderRefunds.id, id)));
+    return rows[0];
+  }
+
+  async findRefundsByOrderId(orderId: string, ctx?: TxContext): Promise<OrderRefund[]> {
+    const db = this.getDb(ctx);
+    return db
+      .select()
+      .from(orderRefunds)
+      .where(eq(orderRefunds.orderId, orderId))
+      .orderBy(desc(orderRefunds.createdAt));
+  }
+
+  async markRefundUndone(
+    id: string,
+    undoneBy: string,
+    ctx?: TxContext,
+  ): Promise<OrderRefund | undefined> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .update(orderRefunds)
+      .set({ status: "undone", undoneAt: new Date(), undoneBy })
+      .where(and(eq(orderRefunds.id, id), eq(orderRefunds.status, "completed")))
+      .returning();
+    return rows[0];
+  }
+
+  /**
+   * Sum of completed refunds performed by an operator for the local calendar
+   * day in the given timezone — the daily-cap accounting query.
+   */
+  async sumRefundsByOperatorToday(
+    orgId: string,
+    performedBy: string,
+    timezone: string,
+    ctx?: TxContext,
+  ): Promise<number> {
+    const db = this.getDb(ctx);
+    const result = await db.execute(sql`
+      SELECT COALESCE(sum(amount), 0)::int AS "total"
+      FROM order_refunds
+      WHERE organization_id = ${orgId}
+        AND performed_by = ${performedBy}
+        AND status = 'completed'
+        AND (created_at AT TIME ZONE ${timezone})::date = (now() AT TIME ZONE ${timezone})::date
+    `);
+    const rows = Array.isArray(result)
+      ? (result as Record<string, unknown>[])
+      : ((result as { rows?: Record<string, unknown>[] }).rows ?? []);
+    const total = rows[0]?.total;
+    return typeof total === "bigint" ? Number(total) : ((total as number) ?? 0);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

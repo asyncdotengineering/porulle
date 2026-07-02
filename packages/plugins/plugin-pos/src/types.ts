@@ -6,6 +6,7 @@ import type {
   posTransactions,
   posPayments,
   posReturnItems,
+  posOperatorPins,
 } from "./schema.js";
 
 export type Terminal = typeof posTerminals.$inferSelect;
@@ -26,6 +27,9 @@ export type PaymentInsert = typeof posPayments.$inferInsert;
 export type ReturnItem = typeof posReturnItems.$inferSelect;
 export type ReturnItemInsert = typeof posReturnItems.$inferInsert;
 
+export type OperatorPin = typeof posOperatorPins.$inferSelect;
+export type OperatorPinInsert = typeof posOperatorPins.$inferInsert;
+
 export type TransactionStatus = "open" | "held" | "completed" | "voided";
 export type TransactionType = "sale" | "return" | "exchange";
 export type PaymentMethod = "cash" | "card" | "gift_card" | "store_credit" | "other";
@@ -40,10 +44,18 @@ export interface POSPluginOptions {
   maxHoldHours?: number;
   /** Require manager override for discounts above this percentage. Default: 20 */
   discountOverrideThreshold?: number;
+  /** PIN auth runtime (issue #51). */
+  pinAuth?: {
+    /** Named auth.apiKeyScopes config used to mint per-shift keys. */
+    apiKeyScope?: string;
+    /** Shift-credential lifetime in seconds. Default: 43200 (12h). */
+    credentialTtlSeconds?: number;
+  };
 }
 
 export const DEFAULT_POS_OPTIONS: Required<POSPluginOptions> = {
   defaultCurrency: "USD",
   maxHoldHours: 24,
   discountOverrideThreshold: 20,
+  pinAuth: {},
 };

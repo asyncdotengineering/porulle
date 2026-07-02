@@ -52,11 +52,38 @@ export const orderLineItems = pgTable("order_line_items", {
   totalPrice: integer("total_price").notNull(),
   taxAmount: integer("tax_amount").notNull().default(0),
   discountAmount: integer("discount_amount").notNull().default(0),
+  // Units already refunded on this line (issue #52) — line-level refund REST
+  // rejects refunds beyond `quantity - refundedQuantity`.
+  refundedQuantity: integer("refunded_quantity").notNull().default(0),
   fulfillmentStatus: text("fulfillment_status").notNull().default("unfulfilled"),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
 }, (table) => [
   index("idx_order_line_items_order_id").on(table.orderId),
   index("idx_order_line_items_entity_id").on(table.entityId),
+]);
+
+/**
+ * Line-level refunds (issue #52). One row per refund operation — the ledger
+ * behind the daily refund cap and the undo window. `lines` records which
+ * line items and quantities the refund covered so undo can restore them.
+ */
+export const orderRefunds = pgTable("order_refunds", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  orderId: uuid("order_id")
+    .references(() => orders.id, { onDelete: "cascade" })
+    .notNull(),
+  amount: integer("amount").notNull(),
+  reason: text("reason"),
+  lines: jsonb("lines").$type<Array<{ lineItemId: string; quantity: number; amount: number }>>().notNull(),
+  performedBy: text("performed_by").notNull(),
+  status: text("status", { enum: ["completed", "undone"] }).notNull().default("completed"),
+  undoneAt: timestamp("undone_at", { withTimezone: true }),
+  undoneBy: text("undone_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("idx_order_refunds_order_id").on(table.orderId),
+  index("idx_order_refunds_org_performed_by").on(table.organizationId, table.performedBy, table.createdAt),
 ]);
 
 export const orderStatusHistory = pgTable("order_status_history", {

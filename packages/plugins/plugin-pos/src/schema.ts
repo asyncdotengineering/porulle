@@ -118,6 +118,22 @@ export const posPayments = pgTable("pos_payments", {
   transactionIdx: index("idx_pos_payments_transaction").on(table.transactionId),
 }));
 
+// ─── Operator PINs (issue #51) ──────────────────────────────────────────
+
+export const posOperatorPins = pgTable("pos_operator_pins", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  operatorId: text("operator_id").notNull(),
+  // PBKDF2-SHA256, encoded as pbkdf2$<iterations>$<saltB64>$<hashB64>
+  pinHash: text("pin_hash").notNull(),
+  // Manager override capability — checked by POST /pos/auth/override.
+  canOverride: boolean("can_override").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  orgOperatorUnique: uniqueIndex("pos_operator_pins_org_operator_unique").on(table.organizationId, table.operatorId),
+}));
+
 // ─── Return Items ───────────────────────────────────────────────────────
 
 export const posReturnItems = pgTable("pos_return_items", {

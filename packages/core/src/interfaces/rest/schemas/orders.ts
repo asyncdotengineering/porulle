@@ -351,3 +351,71 @@ export const changeOrderStatusRoute = createRoute({
     ...errorResponses,
   },
 });
+
+// ── Line-level refund policy primitives (issue #52) ─────────────────────────
+
+export const RefundLinesBodySchema = z.object({
+  lines: z.array(z.object({
+    lineItemId: z.uuid(),
+    quantity: z.number().int().min(1),
+  })).min(1),
+  reason: z.string().max(500).optional(),
+}).openapi("RefundLinesRequest");
+
+const RefundParam = z.object({
+  id: z.uuid(),
+  refundId: z.uuid(),
+});
+
+const RefundDataResponse = z.object({ data: z.any() }).openapi("RefundResponse");
+
+export const refundOrderLinesRoute = createRoute({
+  method: "post",
+  path: "/{id}/refunds",
+  tags: ["Orders"],
+  summary: "Refund specific line-item quantities",
+  description: "Enforces per-line refundable quantity and the operator's daily refund cap (policies.refundDailyCap). Records an auditable refund ledger row supporting undo.",
+  request: {
+    params: OrderIdParam,
+    body: { content: { "application/json": { schema: RefundLinesBodySchema } }, required: true },
+  },
+  responses: {
+    201: { content: { "application/json": { schema: RefundDataResponse } }, description: "Refund recorded." },
+    ...errorResponses,
+  },
+});
+
+export const undoOrderRefundRoute = createRoute({
+  method: "post",
+  path: "/{id}/refunds/{refundId}/undo",
+  tags: ["Orders"],
+  summary: "Undo a refund within the policy window",
+  request: { params: RefundParam },
+  responses: {
+    200: { content: { "application/json": { schema: RefundDataResponse } }, description: "Refund undone." },
+    ...errorResponses,
+  },
+});
+
+export const listOrderRefundsRoute = createRoute({
+  method: "get",
+  path: "/{id}/refunds",
+  tags: ["Orders"],
+  summary: "List an order's refunds",
+  request: { params: OrderIdParam },
+  responses: {
+    200: { content: { "application/json": { schema: RefundDataResponse } }, description: "Refund ledger rows." },
+    ...errorResponses,
+  },
+});
+
+export const refundCapStatusRoute = createRoute({
+  method: "get",
+  path: "/refunds/cap",
+  tags: ["Orders"],
+  summary: "The acting operator's daily refund-cap status",
+  responses: {
+    200: { content: { "application/json": { schema: RefundDataResponse } }, description: "Cap, used-today, and remaining." },
+    ...errorResponses,
+  },
+});

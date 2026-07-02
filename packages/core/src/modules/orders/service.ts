@@ -2,6 +2,7 @@ import { resolveOrgId } from "../../auth/org.js";
 import { assertOwnership, assertPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
 import {
+  CommerceForbiddenError,
   CommerceInvalidTransitionError,
   CommerceNotFoundError,
   CommerceValidationError,
@@ -31,6 +32,7 @@ import {
   OrdersRepository,
   type Order,
   type OrderLineItem,
+  type OrderRefund,
   type OrderStatusHistory,
 } from "./repository/index.js";
 
@@ -739,6 +741,260 @@ export class OrderService {
       actor,
       ctx,
     );
+  }
+
+  // ── Line-level refund policy primitives (issue #52) ─────────────────────
+
+  private async refundPolicies(orgId: string, ctx?: TxContext): Promise<{
+    cap: number | null;
+    undoWindowMinutes: number;
+    timezone: string;
+  }> {
+    const settings = this.deps.services.settings as
+      | { read(orgId: string, group: string, ctx?: TxContext): Promise<Record<string, unknown>> }
+      | undefined;
+    const policies = (await settings?.read(orgId, "policies", ctx)) ?? {};
+    const general = (await settings?.read(orgId, "general", ctx)) ?? {};
+    return {
+      cap: typeof policies.refundDailyCap === "number" ? policies.refundDailyCap : null,
+      undoWindowMinutes:
+        typeof policies.refundUndoWindowMinutes === "number"
+          ? policies.refundUndoWindowMinutes
+          : 15,
+      timezone: typeof general.timezone === "string" ? general.timezone : "UTC",
+    };
+  }
+
+  /**
+   * Refunds specific line-item quantities (issue #52). Enforces per-line
+   * refundable quantity (`quantity - refundedQuantity`), the operator's daily
+   * refund cap (`policies.refundDailyCap`, 403 with the cap surfaced), moves
+   * money through the payment adapter when the order has a captured payment,
+   * and records an auditable `order_refunds` ledger row.
+   */
+  async refundLines(
+    orderId: string,
+    input: { lines: Array<{ lineItemId: string; quantity: number }>; reason?: string | undefined },
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<{ order: HydratedOrder; refund: OrderRefund }>> {
+    try {
+      assertPermission(actor, "orders:update");
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+    const orgId = resolveOrgId(actor);
+    const found = await this.repo.findWithLineItems(orgId, orderId, ctx);
+    if (!found) return Err(new CommerceNotFoundError("Order not found."));
+    if (input.lines.length === 0) {
+      return Err(new CommerceValidationError("At least one line is required."));
+    }
+
+    const byId = new Map(found.lineItems.map((li) => [li.id, li]));
+    const refundLines: Array<{ lineItemId: string; quantity: number; amount: number }> = [];
+    for (const line of input.lines) {
+      const lineItem = byId.get(line.lineItemId);
+      if (!lineItem) {
+        return Err(new CommerceNotFoundError(`Line item ${line.lineItemId} not found on this order.`));
+      }
+      if (!Number.isInteger(line.quantity) || line.quantity < 1) {
+        return Err(new CommerceValidationError("Refund quantity must be a positive integer."));
+      }
+      const refundable = lineItem.quantity - lineItem.refundedQuantity;
+      if (line.quantity > refundable) {
+        return Err(
+          new CommerceValidationError(
+            `Line "${lineItem.title}" has ${refundable} refundable unit(s); requested ${line.quantity}.`,
+          ),
+        );
+      }
+      // Effective paid per unit: line total + tax − discount, split evenly.
+      const lineValue = lineItem.totalPrice + lineItem.taxAmount - lineItem.discountAmount;
+      const amount = Math.round((lineValue * line.quantity) / lineItem.quantity);
+      refundLines.push({ lineItemId: lineItem.id, quantity: line.quantity, amount });
+    }
+    const totalAmount = refundLines.reduce((sum, l) => sum + l.amount, 0);
+
+    const performedBy = actor?.userId ?? "system";
+    const policies = await this.refundPolicies(orgId, ctx);
+    if (policies.cap != null) {
+      const usedToday = await this.repo.sumRefundsByOperatorToday(
+        orgId,
+        performedBy,
+        policies.timezone,
+        ctx,
+      );
+      if (usedToday + totalAmount > policies.cap) {
+        return Err(
+          new CommerceForbiddenError(
+            `Daily refund cap exceeded: cap ${policies.cap}, used ${usedToday} today, requested ${totalAmount}.`,
+          ),
+        );
+      }
+    }
+
+    // Move money if a captured payment exists — clamped to what remains.
+    if (found.order.paymentIntentId && (found.order.amountCaptured ?? 0) > 0) {
+      const payments = this.deps.services.payments as
+        | { refund(paymentId: string, amount: number, reason?: string): Promise<unknown> }
+        | undefined;
+      if (payments?.refund) {
+        const priorRefunds = await this.repo.findRefundsByOrderId(orderId, ctx);
+        const alreadyRefunded = priorRefunds
+          .filter((r) => r.status === "completed")
+          .reduce((sum, r) => sum + r.amount, 0);
+        const refundable = Math.max(0, (found.order.amountCaptured ?? 0) - alreadyRefunded);
+        await payments.refund(
+          found.order.paymentIntentId,
+          Math.min(totalAmount, refundable),
+          input.reason ?? "line_refund",
+        );
+      }
+    }
+
+    for (const line of refundLines) {
+      const lineItem = byId.get(line.lineItemId)!;
+      await this.repo.updateLineItem(
+        line.lineItemId,
+        { refundedQuantity: lineItem.refundedQuantity + line.quantity },
+        ctx,
+      );
+    }
+    const refund = await this.repo.createRefund(
+      {
+        organizationId: orgId,
+        orderId,
+        amount: totalAmount,
+        reason: input.reason ?? null,
+        lines: refundLines,
+        performedBy,
+      },
+      ctx,
+    );
+    await this.repo.createStatusHistory(
+      {
+        orderId,
+        fromStatus: found.order.status,
+        toStatus: found.order.status,
+        reason: `refund ${refund.id}: ${totalAmount} (${input.reason ?? "line refund"})`,
+        changedBy: performedBy,
+      },
+      ctx,
+    );
+
+    const hydrated = await this.hydrateOrder(
+      (await this.repo.findById(orgId, orderId, ctx))!,
+      ctx,
+    );
+    return Ok({ order: hydrated, refund });
+  }
+
+  /**
+   * Undoes a refund within the configured window
+   * (`policies.refundUndoWindowMinutes`, default 15). Restores line
+   * refundedQuantity and marks the ledger row `undone` — an audited,
+   * compensating ledger operation; re-collecting the money (cash back into
+   * the drawer) is the operator's side of the exchange.
+   */
+  async undoRefund(
+    orderId: string,
+    refundId: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<{ order: HydratedOrder; refund: OrderRefund }>> {
+    try {
+      assertPermission(actor, "orders:update");
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+    const orgId = resolveOrgId(actor);
+    const refund = await this.repo.findRefundById(orgId, refundId, ctx);
+    if (!refund || refund.orderId !== orderId) {
+      return Err(new CommerceNotFoundError("Refund not found."));
+    }
+    if (refund.status !== "completed") {
+      return Err(new CommerceValidationError("Refund has already been undone."));
+    }
+    const policies = await this.refundPolicies(orgId, ctx);
+    const ageMs = Date.now() - refund.createdAt.getTime();
+    if (ageMs > policies.undoWindowMinutes * 60_000) {
+      return Err(
+        new CommerceValidationError(
+          `Refund undo window (${policies.undoWindowMinutes} minutes) has passed.`,
+        ),
+      );
+    }
+
+    const performedBy = actor?.userId ?? "system";
+    const undone = await this.repo.markRefundUndone(refundId, performedBy, ctx);
+    if (!undone) {
+      return Err(new CommerceValidationError("Refund has already been undone."));
+    }
+    for (const line of refund.lines) {
+      const lineItem = await this.repo.findLineItemById(line.lineItemId, ctx);
+      if (lineItem) {
+        await this.repo.updateLineItem(
+          line.lineItemId,
+          { refundedQuantity: Math.max(0, lineItem.refundedQuantity - line.quantity) },
+          ctx,
+        );
+      }
+    }
+    await this.repo.createStatusHistory(
+      {
+        orderId,
+        fromStatus: "refund_completed",
+        toStatus: "refund_undone",
+        reason: `refund ${refundId} undone (${refund.amount})`,
+        changedBy: performedBy,
+      },
+      ctx,
+    );
+
+    const order = await this.repo.findById(orgId, orderId, ctx);
+    const hydrated = await this.hydrateOrder(order!, ctx);
+    return Ok({ order: hydrated, refund: undone });
+  }
+
+  async listRefunds(
+    orderId: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<OrderRefund[]>> {
+    try {
+      assertPermission(actor, "orders:read");
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+    const orgId = resolveOrgId(actor);
+    const order = await this.repo.findById(orgId, orderId, ctx);
+    if (!order) return Err(new CommerceNotFoundError("Order not found."));
+    return Ok(await this.repo.findRefundsByOrderId(orderId, ctx));
+  }
+
+  /** The acting operator's daily refund-cap status (issue #52). */
+  async refundCapStatus(
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<{ cap: number | null; usedToday: number; remaining: number | null }>> {
+    try {
+      assertPermission(actor, "orders:read");
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+    const orgId = resolveOrgId(actor);
+    const policies = await this.refundPolicies(orgId, ctx);
+    const usedToday = await this.repo.sumRefundsByOperatorToday(
+      orgId,
+      actor?.userId ?? "system",
+      policies.timezone,
+      ctx,
+    );
+    return Ok({
+      cap: policies.cap,
+      usedToday,
+      remaining: policies.cap != null ? Math.max(0, policies.cap - usedToday) : null,
+    });
   }
 
   /**

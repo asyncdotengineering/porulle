@@ -59,6 +59,14 @@ export interface PluginContext {
     transaction<T>(fn: (tx: PluginDb) => Promise<T>): Promise<T>;
   };
   logger: PluginLogger;
+  /**
+   * The Better Auth instance (issue #51) — lets plugins mint/revoke
+   * credentials (e.g. per-shift API keys from a POS PIN login). Present when
+   * routes are mounted by createServer; may be absent in bare-kernel setups,
+   * so plugins must degrade gracefully. Typed loosely to avoid coupling every
+   * plugin to Better Auth's generics — cast to the narrow surface you use.
+   */
+  auth?: unknown;
 }
 
 const UNSCOPED_WARN_COOLDOWN_MS = 60_000;
@@ -139,6 +147,18 @@ export interface CommercePluginManifest {
   hooks?: () => PluginHookRegistration[];
   routes?: (ctx: PluginContext) => PluginRouteRegistration[];
   analyticsModels?: () => unknown[];
+  /**
+   * Named API-key scopes this plugin mints credentials under (issue #51),
+   * merged into `config.auth.apiKeyScopes`. User-defined scopes with the
+   * same name win.
+   */
+  apiKeyScopes?: () => Record<string, {
+    prefix?: string;
+    description?: string;
+    permissions?: Record<string, string[]>;
+    /** Expiry bounds in DAYS (fractions allowed — 1/24 = one hour). */
+    keyExpiration?: { minExpiresIn?: number; maxExpiresIn?: number };
+  }>;
 }
 
 // ─── Plugin Dependency Tracking ──────────────────────────────────────
@@ -193,6 +213,21 @@ export function defineCommercePlugin(
       };
     }
 
+    // 0. API-key scopes — merge into auth.apiKeyScopes (user config wins)
+    if (manifest.apiKeyScopes) {
+      const scopes = manifest.apiKeyScopes();
+      result = {
+        ...result,
+        auth: {
+          ...(result.auth ?? {}),
+          apiKeyScopes: {
+            ...scopes,
+            ...(result.auth?.apiKeyScopes ?? {}),
+          },
+        },
+      } as CommerceConfig;
+    }
+
     // 1. Schema — push into customSchemas for kernel to register
     if (manifest.schema) {
       const schemas = manifest.schema();
@@ -220,8 +255,8 @@ export function defineCommercePlugin(
       const pluginRoutes = manifest.routes;
       result = {
         ...result,
-        routes: (app: Hono, kernel: Kernel) => {
-          existingRoutes?.(app, kernel);
+        routes: (app: Hono, kernel: Kernel, auth?: unknown) => {
+          existingRoutes?.(app, kernel, auth as never);
           const k = kernel as {
             config: CommerceConfig;
             services: Record<string, unknown>;
@@ -240,6 +275,7 @@ export function defineCommercePlugin(
               k.logger,
             ),
             logger: k.logger,
+            ...(auth !== undefined ? { auth } : {}),
           });
           for (const route of regs) {
             // ── Error boundary: wrap handler with plugin context ──

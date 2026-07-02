@@ -103,6 +103,16 @@ export interface ApiKeyScopeDefinition {
     /** Time window in milliseconds. */
     timeWindow: number;
   };
+  /**
+   * Expiry bounds for keys minted under this scope, in DAYS (Better Auth
+   * semantics; fractions allowed — 1/24 = one hour). Better Auth defaults
+   * minExpiresIn to 1 day, which blocks short-lived credentials like
+   * per-shift POS keys (issue #51).
+   */
+  keyExpiration?: {
+    minExpiresIn?: number;
+    maxExpiresIn?: number;
+  };
 }
 
 export interface AuthConfig {

@@ -29,6 +29,8 @@ import { buildSchema } from "../kernel/database/migrate.js";
 import { unwrapDb } from "../kernel/database/adapter.js";
 import { ensureDefaultOrg } from "../auth/org.js";
 import { mapErrorToStatus } from "../kernel/error-mapper.js";
+import { createAuth, type AuthInstance } from "../auth/setup.js";
+import { authMiddleware } from "../auth/middleware.js";
 
 // drizzle-kit/api uses CJS internally; createRequire provides ESM compat.
 const require = createRequire(import.meta.url);
@@ -58,6 +60,8 @@ export interface PluginTestApp {
   kernel: Kernel;
   /** Drizzle database instance for direct queries in test assertions. */
   db: PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
+  /** The Better Auth instance passed to plugin routes (mint/verify API keys in tests). */
+  auth: AuthInstance;
 }
 
 /**
@@ -105,8 +109,11 @@ export async function createPluginTestApp(
   // 5. Create OpenAPIHono --- matching production server.ts
   //    Plugin routes register via manifest.ts which calls app.openapi().
   const app = new OpenAPIHono<TestAppEnv>();
+  const auth = createAuth(kernel.database, config);
 
-  // 6. Test actor middleware: parse x-test-actor header -> set on context
+  // 6. Test actor middleware: parse x-test-actor header -> set on context.
+  //    Requests without the header fall through to the real auth middleware,
+  //    so API keys minted by plugins (issue #51) authenticate like production.
   app.use("*", async (c, next) => {
     const header = c.req.header("x-test-actor");
     if (header) {
@@ -116,12 +123,17 @@ export async function createPluginTestApp(
     }
     await next();
   });
+  app.use("*", async (c, next) => {
+    if (c.get("actor")) return next();
+    return authMiddleware(auth, config)(c as never, next);
+  });
 
-  // 7. Register plugin routes (deferred via config.routes)
+  // 7. Register plugin routes (deferred via config.routes) — with the auth
+  //    instance, matching server.ts's config.routes(app, kernel, auth).
   const routes = config.routes as
-    | ((app: unknown, kernel: unknown) => void)
+    | ((app: unknown, kernel: unknown, auth?: unknown) => void)
     | undefined;
-  routes?.(app, kernel);
+  routes?.(app, kernel, auth);
 
   // 8. Error handler matching production server.ts — maps CommerceError
   //    subclasses (CommerceForbiddenError, CommerceNotFoundError, etc.)
@@ -149,5 +161,6 @@ export async function createPluginTestApp(
     app,
     kernel,
     db: kernel.database.db as PgDatabase<PgQueryResultHKT, Record<string, unknown>>,
+    auth,
   };
 }

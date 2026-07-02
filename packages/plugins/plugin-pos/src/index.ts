@@ -6,6 +6,7 @@ import {
   posTransactions,
   posPayments,
   posReturnItems,
+  posOperatorPins,
 } from "./schema.js";
 import { TerminalService } from "./services/terminal-service.js";
 import { ShiftService } from "./services/shift-service.js";
@@ -14,6 +15,8 @@ import { PaymentService } from "./services/payment-service.js";
 import { ReturnService } from "./services/return-service.js";
 import { LookupService } from "./services/lookup-service.js";
 import { ReceiptService } from "./services/receipt-service.js";
+import { PinService } from "./services/pin-service.js";
+import { ExchangeService } from "./services/exchange-service.js";
 import { buildTerminalRoutes } from "./routes/terminals.js";
 import { buildShiftRoutes } from "./routes/shifts.js";
 import { buildTransactionRoutes } from "./routes/transactions.js";
@@ -21,6 +24,8 @@ import { buildPaymentRoutes } from "./routes/payments.js";
 import { buildReturnRoutes } from "./routes/returns.js";
 import { buildLookupRoutes } from "./routes/lookup.js";
 import { buildReceiptRoutes } from "./routes/receipts.js";
+import { buildPinAuthRoutes } from "./routes/auth.js";
+import { buildExchangeRoutes } from "./routes/exchanges.js";
 import { buildPOSShippingHook, buildPOSFinalizationHook } from "./hooks/checkout-pos.js";
 import type { POSPluginOptions, Db } from "./types.js";
 import { DEFAULT_POS_OPTIONS } from "./types.js";
@@ -33,6 +38,8 @@ export { PaymentService } from "./services/payment-service.js";
 export { ReturnService } from "./services/return-service.js";
 export { LookupService } from "./services/lookup-service.js";
 export { ReceiptService } from "./services/receipt-service.js";
+export { PinService, hashPin, verifyPinHash } from "./services/pin-service.js";
+export { ExchangeService } from "./services/exchange-service.js";
 export { createPOSPaymentAdapter } from "./payment-adapter.js";
 
 /**
@@ -84,6 +91,19 @@ export function posPlugin(userOptions: POSPluginOptions = {}) {
       posTransactions,
       posPayments,
       posReturnItems,
+      posOperatorPins,
+    }),
+
+    // Scope used by PIN login to mint per-shift credentials (issue #51).
+    apiKeyScopes: () => ({
+      [options.pinAuth.apiKeyScope ?? "pos"]: {
+        prefix: "pos_shift_",
+        description: "Short-lived per-shift POS credentials minted by PIN login.",
+        permissions: { pos: ["operate"] },
+        // Allow credentials as short as 15 minutes (Better Auth default
+        // minimum is 1 day — too long for per-shift keys).
+        keyExpiration: { minExpiresIn: 1 / 96 },
+      },
     }),
 
     hooks: () => [
@@ -111,6 +131,14 @@ export function posPlugin(userOptions: POSPluginOptions = {}) {
       const returnService = new ReturnService(db);
       const lookupService = new LookupService(db, ctx.services);
       const receiptService = new ReceiptService(db, ctx.services);
+      const pinService = new PinService(db, options.pinAuth);
+      const exchangeService = new ExchangeService(
+        db,
+        ctx.services,
+        transactionFn as <T>(fn: (tx: typeof db) => Promise<T>) => Promise<T>,
+        transactionService,
+        returnService,
+      );
 
       // Cart service from core (for creating POS transaction carts)
       const cartService = ctx.services.cart as {
@@ -125,6 +153,8 @@ export function posPlugin(userOptions: POSPluginOptions = {}) {
         ...buildReturnRoutes(returnService, transactionService, paymentService, cartService, ctx),
         ...buildLookupRoutes(lookupService, ctx),
         ...buildReceiptRoutes(receiptService, ctx),
+        ...buildPinAuthRoutes(pinService, ctx),
+        ...buildExchangeRoutes(exchangeService, ctx),
       ];
     },
   });

@@ -90,6 +90,7 @@ export function createAuth(
             },
           }
         : {}),
+      ...(scope.keyExpiration ? { keyExpiration: scope.keyExpiration } : {}),
     }));
     plugins.push(apiKey(apiKeyConfigs));
   } else if (config.auth?.apiKeys?.enabled) {
