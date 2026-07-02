@@ -1,0 +1,152 @@
+---
+title: Layaway
+description: Partial-payment plans — deposit, installments, auto-complete on full payment, and forfeit.
+---
+
+The layaway plugin lets a customer reserve items with a deposit and pay the balance in installments. Stock is held while the plan is active; when the balance is fully paid the plan auto-completes into a core order, and if the customer walks away the plan is forfeited and the hold released.
+
+## Install
+
+```bash
+bun add @porulle/plugin-layaway
+```
+
+## Register
+
+```ts title="commerce.config.ts"
+import { layawayPlugin } from "@porulle/plugin-layaway";
+
+export default defineConfig({
+  plugins: [
+    layawayPlugin({
+      defaultDepositPercent: 25,
+      onForfeit: async (layaway) => {
+        // Policy hook — deposit retention, customer notification, etc.
+        await notifyCustomer(layaway.customerId, "layaway-forfeited");
+      },
+    }),
+  ],
+});
+```
+
+`defaultDepositPercent` (default `20`) applies when a create request supplies neither `depositAmount` nor `depositPercent`. `onForfeit` runs **after** a plan is forfeited; if it throws, the error surfaces to the caller.
+
+Update `drizzle.config.ts`:
+
+```ts title="drizzle.config.ts"
+schema: [
+  "./node_modules/@porulle/core/src/kernel/database/schema.ts",
+  "./node_modules/@porulle/core/src/auth/auth-schema.ts",
+  "./node_modules/@porulle/plugin-layaway/src/schema.ts",
+],
+```
+
+Push the new tables and restart:
+
+```bash
+bunx drizzle-kit push --config drizzle.config.ts
+bun run src/server.ts
+```
+
+This adds two tables: `layaways`, `layaway_payments`.
+
+## Lifecycle
+
+A plan starts `active`. Stock for its items is reserved on create, keyed by the layaway id. From there it moves to one of two terminal states:
+
+- **`completed`** — cumulative payments reach the plan total. A core order is created (cross-linked via `metadata.layawayId`) and the stock hold is released.
+- **`forfeited`** — the plan is forfeited via the manage endpoint. The stock hold is released and the `onForfeit` hook runs.
+
+On create, if the stock reservation fails the plan is rolled back.
+
+## Quick reference
+
+| Operation | Endpoint | Permission |
+|-----------|----------|------------|
+| Create plan | `POST /api/layaways` | `layaway:operate` |
+| List plans | `GET /api/layaways` | `layaway:operate` |
+| Get plan | `GET /api/layaways/:id` | `layaway:operate` |
+| Record payment | `POST /api/layaways/:id/payments` | `layaway:operate` |
+| Forfeit plan | `POST /api/layaways/:id/forfeit` | `layaway:manage` |
+
+All monetary values are integers in the smallest currency unit (cents for USD).
+
+## Create a plan
+
+A plan lists the items to reserve and sets a deposit. Supply `depositAmount` (minor units) or `depositPercent` (0–100); if neither is given, `defaultDepositPercent` applies. `depositAmount` cannot exceed the plan total. An optional `initialPayment` is recorded immediately.
+
+```bash
+curl -X POST http://localhost:4000/api/layaways \
+  -H "x-api-key: dev-staff-key" \
+  -d '{
+    "currency": "USD",
+    "customerId": "cust_123",
+    "items": [
+      { "entityId": "ent_sofa", "variantId": "var_grey", "title": "Grey Sofa", "quantity": 1, "unitPrice": 120000 }
+    ],
+    "depositPercent": 25,
+    "initialPayment": { "amount": 30000, "method": "card", "reference": "****4321" }
+  }'
+```
+
+Returns `{ data: { layaway, payments } }`. The plan total here is `120000` (1,200.00 USD) and the initial payment of `30000` covers the 25% deposit.
+
+## Record an installment
+
+The plan must be `active`. A payment that exceeds the remaining balance is rejected.
+
+```bash
+curl -X POST http://localhost:4000/api/layaways/$LAYAWAY_ID/payments \
+  -H "x-api-key: dev-staff-key" \
+  -d '{ "amount": 45000, "method": "cash" }'
+```
+
+Returns `{ data: { layaway, payment, completed } }`. With `30000` already paid, this brings the total to `75000` — still short of `120000`, so `completed` is `false`.
+
+## Final payment auto-completes
+
+When cumulative paid reaches the plan total, the plan auto-completes: a core order is created and the stock hold is released.
+
+```bash
+curl -X POST http://localhost:4000/api/layaways/$LAYAWAY_ID/payments \
+  -H "x-api-key: dev-staff-key" \
+  -d '{ "amount": 45000, "method": "cash" }'
+```
+
+```json
+{
+  "data": {
+    "layaway": { "id": "lay_abc", "status": "completed", "orderId": "ord_789" },
+    "payment": { "amount": 45000, "method": "cash" },
+    "completed": true
+  }
+}
+```
+
+The created order carries `metadata.layawayId` pointing back at the plan.
+
+## Forfeit
+
+Forfeiting releases the stock hold, marks the plan `forfeited`, and runs the `onForfeit` hook.
+
+```bash
+curl -X POST http://localhost:4000/api/layaways/$LAYAWAY_ID/forfeit \
+  -H "x-api-key: dev-staff-key" \
+  -d '{ "reason": "customer cancelled" }'
+```
+
+Returns `{ data: <layaway> }`. Deposit money is **not** auto-refunded or retained by the plugin — that policy lives in your `onForfeit` hook.
+
+## Permissions
+
+- `layaway:operate` — create plans and record payments.
+- `layaway:manage` — forfeit plans.
+
+Because completing a plan creates a core order, the actor recording the final payment also needs the core `orders:create` scope. Grant it alongside `layaway:operate` for any actor who records installments.
+
+## Related
+
+- [Plugin API Reference](/reference/plugins/) — manifest, PluginContext, and router() builder
+- [REST API Reference](/reference/rest-api/) — full endpoint catalog
+- [Database Schema](/reference/database-schema/) — table definitions
+- [Point of Sale](/building/pos/) — in-store terminals and shifts

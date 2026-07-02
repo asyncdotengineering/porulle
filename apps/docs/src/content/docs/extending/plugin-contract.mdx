@@ -183,3 +183,11 @@ async submit(orgId: string, input: {
 ```
 
 This is the canonical pattern. Apply it to every plugin service method that accepts an identity field.
+
+## Contributing API-key scopes
+
+A plugin that mints its own credentials must register an API-key scope through the manifest `apiKeyScopes` slot — never reach into `config.auth` directly. The slot is how a plugin declares a short-lived, narrowly-scoped key configuration that the framework merges into `config.auth.apiKeyScopes` at boot (user config of the same name wins). Reaching around it bypasses that merge and the guarantees that come with it.
+
+Minting and verifying at runtime goes through `PluginContext.auth`, the Better Auth instance. It may be `undefined` in bare-kernel setups that do not run `createServer`, so every mint path must fail gracefully with a clear error rather than dereferencing `undefined`.
+
+plugin-pos is the worked example: it registers a `pos` scope with `keyExpiration.minExpiresIn = 1/96` (15 minutes, in days) and mints a per-shift key at PIN login. The scope caps what the key can do (`permissions: { pos: ["operate"] }`) and how long it lives, so a leaked shift key expires on its own and can never exceed the operate scope.

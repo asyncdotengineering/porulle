@@ -1,0 +1,99 @@
+---
+title: Store Settings
+description: Org-scoped, typed settings groups that other modules and plugins read at runtime.
+---
+
+Store Settings are org-scoped key/value settings stored as typed groups. Each group is a flat JSON object under a name like `general`, `branding`, or `policies`. Other modules and plugins read them at runtime — reports read the timezone, documents read branding, refunds read policies — so a single change to a group updates behavior everywhere that group is consumed.
+
+All settings endpoints require the `settings:manage` permission scope.
+
+## Settings groups
+
+A group is addressed by name. The `group` path parameter must match `/^[a-z][a-z0-9_-]*$/`.
+
+Three groups are validated. Unknown groups accept any object; setting an invalid value on a validated group fails with HTTP 422.
+
+**`general`** — locale and formatting defaults.
+
+| Field | Rule |
+|-------|------|
+| `currency` | ISO 4217 code, `/^[A-Z]{3}$/` |
+| `timezone` | valid IANA timezone |
+| `locale` | string, minimum 2 characters |
+
+All three are optional and nullable.
+
+**`branding`** — store identity used on receipts and invoices. All fields are optional strings: `storeName`, `receiptHeader`, `receiptFooter`, `logoUrl`, `address`, `phone`, `email`, `taxId`.
+
+**`policies`** — a free-form record of string, number, boolean, or null values. Two well-known keys are read by the refunds feature:
+
+| Key | Meaning |
+|-----|---------|
+| `refundDailyCap` | number — per-operator daily refund cap in the smallest currency unit (cents) |
+| `refundUndoWindowMinutes` | number — minutes a refund can be undone (default 15) |
+
+## Read and write settings
+
+Get all groups at once:
+
+```bash
+curl "http://localhost:4000/api/settings" \
+  -H "x-api-key: dev-staff-key"
+```
+
+```json
+{ "data": { "general": { "currency": "USD" }, "branding": { "storeName": "Acme" } } }
+```
+
+Get a single group. An unset group returns `{}`:
+
+```bash
+curl "http://localhost:4000/api/settings/general" \
+  -H "x-api-key: dev-staff-key"
+```
+
+```json
+{ "data": { "currency": "USD", "timezone": "America/New_York" } }
+```
+
+Update a group with `PATCH`. The body is a flat JSON object and is **shallow-merged** into the current value. The response returns the merged value:
+
+```bash
+curl -X PATCH "http://localhost:4000/api/settings/general" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"currency": "USD", "timezone": "America/New_York"}'
+```
+
+To remove a key, set it to `null`. A `null` value **deletes** that key rather than storing it:
+
+```bash
+curl -X PATCH "http://localhost:4000/api/settings/general" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"locale": null}'
+```
+
+## Reading settings at runtime
+
+Modules, hooks, and plugins read settings through `kernel.services.settings.read(orgId, group)`. It is org-keyed and needs no actor. An unset group returns `{}`.
+
+```typescript
+const general = await kernel.services.settings.read(orgId, "general");
+const timezone = (general.timezone as string) ?? "UTC";
+```
+
+## Storage
+
+Settings live in the `store_settings` table — one row per `(organization_id, group)`, with the group's JSON in a `value` column. See the [Database Schema](/reference/database-schema/) for the full column list.
+
+## Permissions
+
+Reading and writing settings requires the `settings:manage` scope. It is granted to the owner and admin roles and to the manager role.
+
+## Related
+
+- [Receipts & Invoices](/building/receipts-and-invoices/) — reads the `branding` and `documents` groups
+- [Refunds & Exchanges](/building/refunds-and-exchanges/) — reads the `policies` group
+- [REST API Reference](/reference/rest-api/)
+- [Database Schema](/reference/database-schema/)

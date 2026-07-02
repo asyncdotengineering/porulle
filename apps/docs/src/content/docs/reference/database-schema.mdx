@@ -18,6 +18,7 @@ All tables use PostgreSQL via Drizzle ORM. Integer monetary amounts are stored i
 | `slug` | `text` | NOT NULL, UNIQUE |
 | `status` | `text` | NOT NULL, default `'draft'`. Enum: `draft`, `active`, `archived`, `discontinued` |
 | `is_visible` | `boolean` | NOT NULL, default `false` |
+| `tax_class` | `text` | — Maps to `tax_classes.name` at checkout. Null = the org's default class |
 | `metadata` | `jsonb` | default `{}` |
 | `created_at` | `timestamptz` | NOT NULL, default `now()` |
 | `updated_at` | `timestamptz` | NOT NULL, default `now()` |
@@ -51,6 +52,7 @@ Index: `(entity_id, locale)`.
 | `barcode` | `text` | — |
 | `status` | `text` | NOT NULL, default `'active'`. Enum: `active`, `discontinued` |
 | `sort_order` | `integer` | NOT NULL, default `0` |
+| `tax_class` | `text` | — Overrides the entity's `tax_class` when set |
 | `metadata` | `jsonb` | default `{}` |
 
 ### categories
@@ -181,8 +183,9 @@ Index: `(entity_id, variant_id, warehouse_id)`.
 | `quantity` | `integer` | NOT NULL |
 | `unit_price` | `integer` | NOT NULL |
 | `total_price` | `integer` | NOT NULL |
-| `tax_amount` | `integer` | NOT NULL, default `0` |
+| `tax_amount` | `integer` | NOT NULL, default `0`. Per-line tax written by checkout (tax classes) |
 | `discount_amount` | `integer` | NOT NULL, default `0` |
+| `refunded_quantity` | `integer` | NOT NULL, default `0`. Units already refunded on this line |
 | `fulfillment_status` | `text` | NOT NULL, default `'unfulfilled'` |
 
 ### order_status_history
@@ -196,6 +199,42 @@ Index: `(entity_id, variant_id, warehouse_id)`.
 | `reason` | `text` | — |
 | `changed_by` | `text` | NOT NULL |
 | `changed_at` | `timestamptz` | NOT NULL |
+
+### order_refunds
+
+Line-level refund ledger. See [Refunds & Exchanges](/building/refunds-and-exchanges/).
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `uuid` | PK |
+| `organization_id` | `text` | NOT NULL, FK `organization.id` ON DELETE CASCADE |
+| `order_id` | `uuid` | NOT NULL, FK `orders.id` ON DELETE CASCADE |
+| `amount` | `integer` | NOT NULL. Refund total in minor units |
+| `reason` | `text` | — |
+| `lines` | `jsonb` | NOT NULL. `[{ lineItemId, quantity, amount }]` |
+| `performed_by` | `text` | NOT NULL. Operator who issued the refund |
+| `status` | `text` | NOT NULL, default `'completed'`. Enum: `completed`, `undone` |
+| `undone_at` | `timestamptz` | — |
+| `undone_by` | `text` | — |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` |
+
+Indexes: `(order_id)`, `(organization_id, performed_by, created_at)` — the second backs the per-operator daily cap.
+
+### order_notes
+
+Free-text notes on an order; surfaced in the order timeline. See [order notes and timeline](/building/pos/).
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `uuid` | PK |
+| `organization_id` | `text` | NOT NULL, FK `organization.id` ON DELETE CASCADE |
+| `order_id` | `uuid` | NOT NULL, FK `orders.id` ON DELETE CASCADE |
+| `author` | `text` | NOT NULL. Set server-side to the acting user |
+| `body` | `text` | NOT NULL |
+| `pinned` | `boolean` | NOT NULL, default `false` |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` |
+
+Index: `(order_id)`. Listing is pinned-first, then newest-first.
 
 ---
 
@@ -271,6 +310,75 @@ Indexes: `(entity_id, variant_id, currency)`, `(valid_from, valid_until)`.
 | `usage_limit_per_customer` | `integer` | — |
 | `valid_from` | `timestamptz` | — |
 | `valid_until` | `timestamptz` | — |
+
+---
+
+## Tax
+
+### tax_classes
+
+Named product tax rates. See [Tax Classes](/building/tax/).
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `uuid` | PK |
+| `organization_id` | `text` | NOT NULL, FK `organization.id` ON DELETE CASCADE |
+| `name` | `text` | NOT NULL. Lowercase slug; UNIQUE per org |
+| `rate_bps` | `integer` | NOT NULL. Basis points (`1800` = 18%) |
+| `is_default` | `boolean` | NOT NULL, default `false`. Applied to lines with no class |
+| `is_active` | `boolean` | NOT NULL, default `true` |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` |
+
+Unique: `(organization_id, name)`.
+
+---
+
+## Settings & Documents
+
+### store_settings
+
+Org-scoped typed settings groups. See [Store Settings](/building/settings/).
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `uuid` | PK |
+| `organization_id` | `text` | NOT NULL, FK `organization.id` ON DELETE CASCADE |
+| `group` | `text` | NOT NULL. e.g. `general`, `branding`, `policies` |
+| `value` | `jsonb` | NOT NULL, default `{}` |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` |
+
+Unique: `(organization_id, group)` — one row per group.
+
+### invoice_sequences
+
+Per-org fiscal counter for invoice numbers. See [Receipts & Invoices](/building/receipts-and-invoices/).
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `uuid` | PK |
+| `organization_id` | `text` | NOT NULL, FK `organization.id` ON DELETE CASCADE |
+| `series` | `text` | NOT NULL, default `'default'` |
+| `next_value` | `integer` | NOT NULL, default `1`. Next number to allocate |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` |
+
+Unique: `(organization_id, series)`. Allocation is a single atomic upsert-returning.
+
+### order_documents
+
+One issued document per (org, order, type) — the idempotency key for fiscal numbers.
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `uuid` | PK |
+| `organization_id` | `text` | NOT NULL, FK `organization.id` ON DELETE CASCADE |
+| `order_id` | `uuid` | NOT NULL, FK `orders.id` ON DELETE CASCADE |
+| `type` | `text` | NOT NULL. `invoice` \| `receipt` |
+| `document_number` | `text` | NOT NULL |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` |
+
+Unique: `(organization_id, order_id, type)`.
 
 ---
 
@@ -424,3 +532,63 @@ Unique: `(organization_id, code)`.
 | `change_given` | `integer` | NOT NULL, default `0` |
 | `reference` | `text` | Card last 4, gift card code, auth code |
 | `status` | `text` | Enum: `collected`, `refunded` |
+
+### pos_operator_pins
+
+Cashier PINs for terminal login. See [PIN authentication](/building/pos/).
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `uuid` | PK |
+| `organization_id` | `text` | NOT NULL |
+| `operator_id` | `text` | NOT NULL. UNIQUE per org |
+| `pin_hash` | `text` | NOT NULL. PBKDF2-SHA256 — never plaintext |
+| `can_override` | `boolean` | NOT NULL, default `false` |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` |
+
+Unique: `(organization_id, operator_id)`.
+
+---
+
+## Layaway Plugin
+
+From `@porulle/plugin-layaway`. See [Layaway](/building/layaway/).
+
+### layaways
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `uuid` | PK |
+| `organization_id` | `text` | NOT NULL |
+| `customer_id` | `uuid` | — |
+| `status` | `text` | NOT NULL, default `'active'`. Enum: `active`, `completed`, `forfeited`, `cancelled` |
+| `currency` | `text` | NOT NULL |
+| `items` | `jsonb` | NOT NULL. `[{ entityId, variantId?, sku?, title, quantity, unitPrice }]` |
+| `total` | `integer` | NOT NULL |
+| `deposit_amount` | `integer` | NOT NULL, default `0` |
+| `paid_total` | `integer` | NOT NULL, default `0` |
+| `order_id` | `uuid` | — Core order created at completion |
+| `expires_at` | `timestamptz` | — |
+| `forfeited_at` | `timestamptz` | — |
+| `forfeit_reason` | `text` | — |
+| `created_by` | `text` | NOT NULL |
+| `metadata` | `jsonb` | default `{}` |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` |
+
+Indexes: `(organization_id)`, `(status)`, `(customer_id)`.
+
+### layaway_payments
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `uuid` | PK |
+| `layaway_id` | `uuid` | NOT NULL, FK `layaways.id` ON DELETE CASCADE |
+| `amount` | `integer` | NOT NULL |
+| `method` | `text` | NOT NULL |
+| `reference` | `text` | — |
+| `performed_by` | `text` | NOT NULL |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` |
+
+Index: `(layaway_id)`.

@@ -1,0 +1,89 @@
+---
+title: Receipts & Invoices
+description: Render receipts and invoices, produce dependency-free PDF invoices, and allocate fiscal invoice numbers.
+---
+
+The documents module renders an order as an HTML receipt, an HTML invoice, or a dependency-free PDF invoice (A4), and can email the invoice. Fiscal invoice numbers are allocated atomically per organization and issued idempotently per order — the same order always gets the same number.
+
+Access rides on the order's read permission. The caller needs `orders:read`, or `orders:read:own` if they are the order's own customer. There is no separate documents permission.
+
+## Set your store branding first
+
+Receipts and invoices pull store identity from the `branding` settings group: `storeName`, `receiptHeader`, `receiptFooter`, `logoUrl`, `address`, `phone`, `email`, `taxId`. Set them before rendering:
+
+```bash
+curl -X PATCH "http://localhost:4000/api/settings/branding" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"storeName": "Acme Tea Co.", "address": "12 High St", "email": "hi@acme.test"}'
+```
+
+See [Store Settings](/building/settings/) for the full list of branding fields.
+
+## Render a receipt or invoice
+
+Render the HTML receipt:
+
+```bash
+curl "http://localhost:4000/api/orders/$ORDER_ID/receipt.html" \
+  -H "x-api-key: dev-staff-key"
+```
+
+Render the HTML invoice:
+
+```bash
+curl "http://localhost:4000/api/orders/$ORDER_ID/invoice.html" \
+  -H "x-api-key: dev-staff-key"
+```
+
+Render the PDF invoice and save it to a file. The response is `application/pdf` with header `content-disposition: inline; filename="invoice-<number>.pdf"`:
+
+```bash
+curl "http://localhost:4000/api/orders/$ORDER_ID/invoice.pdf" \
+  -H "x-api-key: dev-staff-key" \
+  -o invoice.pdf
+```
+
+The PDF writer is dependency-free — no native dependencies — so it runs on serverless and Workers.
+
+Monetary values on the rendered documents are integers in the smallest currency unit (cents).
+
+## Fiscal invoice numbers
+
+Invoice numbers look like `INV-000001`: a prefix followed by a 6-digit, zero-padded sequence allocated atomically per organization. The prefix comes from the `documents` settings group key `invoicePrefix` (default `"INV-"`).
+
+The fiscal number is issued on the first invoice render for an order — the first `invoice.pdf` or `invoice.html` call. Numbering is idempotent: rendering the same order's invoice again returns the same number. It is unique on `(org, order, type)`.
+
+Set the prefix through settings:
+
+```bash
+curl -X PATCH "http://localhost:4000/api/settings/documents" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"invoicePrefix": "INV-"}'
+```
+
+## Email an invoice
+
+Email the invoice to a recipient. This requires an email adapter to be configured — otherwise the call fails with HTTP 422 and the message "No email adapter is configured.":
+
+```bash
+curl -X POST "http://localhost:4000/api/orders/$ORDER_ID/invoice/email" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"to": "customer@acme.test"}'
+```
+
+```json
+{ "data": { "sent": true, "invoiceNumber": "INV-000001", "to": "customer@acme.test" } }
+```
+
+## Storage
+
+Two tables back this module: `invoice_sequences` holds a per-`(org, series)` counter, and `order_documents` holds one row per `(org, order, type)` where `type` is `"invoice"` or `"receipt"`. See the [Database Schema](/reference/database-schema/) for the full column list.
+
+## Related
+
+- [Store Settings](/building/settings/) — set `branding` and the `documents` invoice prefix
+- [REST API Reference](/reference/rest-api/)
+- [Database Schema](/reference/database-schema/)

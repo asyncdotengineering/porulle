@@ -84,6 +84,47 @@ curl -X POST http://localhost:4000/api/pos/transactions/$TXN_ID/complete \
   -H "x-api-key: dev-staff-key"
 ```
 
+## PIN authentication
+
+Cashiers share a terminal but authenticate individually with a numeric PIN. A successful PIN login mints a short-lived, per-shift API key scoped to `pos:operate` that the terminal then sends as `x-api-key` for that operator's session. PINs live in the `pos_operator_pins` table, hashed with PBKDF2-SHA256 via Web Crypto (Workers-safe) — never stored in plaintext.
+
+Set or rotate an operator's PIN with `PUT /api/pos/auth/pin` (permission `pos:admin`). `pin` is 4–8 digits (`/^\d{4,8}$/`); set `canOverride` to allow this operator to approve manager overrides:
+
+```bash
+curl -X PUT http://localhost:4000/api/pos/auth/pin \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"operatorId": "'$OPERATOR_ID'", "pin": "4821", "canOverride": true}'
+```
+
+Returns `{ data: { operatorId, canOverride } }`.
+
+The operator logs in with `POST /api/pos/auth/pin-login` (permission `pos:operate` — the terminal's device credential authorizes the login). The operator must have an open shift:
+
+```bash
+curl -X POST http://localhost:4000/api/pos/auth/pin-login \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"operatorId": "'$OPERATOR_ID'", "pin": "4821"}'
+```
+
+Returns `{ data: { operatorId, shiftId, terminalId, apiKey, expiresAt } }`. `apiKey` is the raw minted key — scoped to `pos:operate`, prefixed `pos_shift_`, with a short TTL (default 12h, minimum 15 min). The terminal sends it as `x-api-key` for the rest of the session:
+
+```bash
+curl -X POST http://localhost:4000/api/pos/transactions \
+  -H "x-api-key: pos_shift_..."
+```
+
+Approve a restricted action with `POST /api/pos/auth/override` (permission `pos:operate`). `action` is a short string describing what's being approved (max 200). Only operators whose PIN was set with `canOverride: true` may approve:
+
+```bash
+curl -X POST http://localhost:4000/api/pos/auth/override \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"operatorId": "'$MANAGER_ID'", "pin": "9930", "action": "void completed transaction"}'
+```
+
+Returns `{ data: { approved: true, operatorId, action, approvedAt } }`.
+
+Service failures here — a bad PIN or no open shift — surface as `500` with the message, not `401`/`422`; handle them on the `500` path.
+
 ## Cash variance
 
 When closing a shift, pass the cashier's physical count as `closingCount`. The engine calculates:
@@ -95,7 +136,36 @@ cash variance = closing count - expected cash
 
 A negative variance means cash is short. A positive variance means there's more cash than expected.
 
+## Order notes & timeline
+
+Every core order carries free-text notes and a merged activity timeline — useful at the counter for flagging a held order or reviewing what happened to a return. These are core endpoints (permission `orders:read` to read, `orders:update` to write), not POS-specific.
+
+Add a note (optionally pinned to the top) and list them (pinned-first, then newest-first):
+
+```bash
+curl -X POST http://localhost:4000/api/orders/$ORDER_ID/notes \
+  -H "x-api-key: dev-staff-key" \
+  -d '{ "body": "Customer to collect Saturday", "pinned": true }'
+
+curl http://localhost:4000/api/orders/$ORDER_ID/notes \
+  -H "x-api-key: dev-staff-key"
+```
+
+The timeline merges status changes, notes, and refund events (including undos) newest-first:
+
+```bash
+curl http://localhost:4000/api/orders/$ORDER_ID/timeline \
+  -H "x-api-key: dev-staff-key"
+```
+
+```json
+{ "data": [{ "type": "refund", "at": "2026-07-02T10:15:00Z", "actor": "user_9", "summary": "Refund of 1800", "data": {} }] }
+```
+
+Delete a note with `DELETE /api/orders/{id}/notes/{noteId}`.
+
 ## Related
 
 - [Tea Shop POS tutorial](/tutorials/tea-shop-pos/) — full 10-step walkthrough
 - [Plugin API Reference](/reference/plugins/) — all POS endpoints and data types
+- [Refunds & Exchanges](/building/refunds-and-exchanges/) — line-level refunds, policy caps, and POS exchanges

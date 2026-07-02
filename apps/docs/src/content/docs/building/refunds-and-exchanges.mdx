@@ -1,0 +1,101 @@
+---
+title: Refunds & Exchanges
+description: Line-level refunds with per-operator policy caps and undo, plus atomic POS exchanges.
+---
+
+Refunds are built into core orders — no plugin needed. You refund specific line quantities, and each order line carries a `refundedQuantity` (the units already refunded). A per-operator daily cap and a time-boxed undo window keep the till honest. POS exchanges (return + replacement in one shot) live in the POS plugin.
+
+All monetary values are integers in the smallest currency unit (cents for USD).
+
+## Refund order lines
+
+Refund one or more line quantities with `POST /api/orders/{id}/refunds` (permission `orders:update`). Each line names a `lineItemId` and a positive integer `quantity`; `reason` is optional (max 500 characters).
+
+```bash
+curl -X POST http://localhost:4000/api/orders/$ORDER_ID/refunds \
+  -H "x-api-key: dev-staff-key" \
+  -d '{
+    "lines": [{ "lineItemId": "'$LINE_ID'", "quantity": 1 }],
+    "reason": "Damaged in transit"
+  }'
+```
+
+Returns `201 { data: { order, refund } }`. Per-unit refund amount is derived from the line's price plus tax minus discount. Refunding more than `quantity - refundedQuantity` on a line is rejected with `422`. If the order has a captured payment, the money is refunded through the payment adapter, clamped to the remaining captured amount.
+
+Each refund is written to the `order_refunds` ledger table and records an order status-history audit entry, so it appears on the [order timeline](/building/pos/).
+
+List an order's refunds newest-first with `GET /api/orders/{id}/refunds` (permission `orders:read`):
+
+```bash
+curl http://localhost:4000/api/orders/$ORDER_ID/refunds \
+  -H "x-api-key: dev-staff-key"
+```
+
+Returns `200 { data: <refund[]> }`.
+
+## Daily refund cap
+
+Set an optional per-operator daily refund cap in the `policies` [settings group](/building/settings/). `refundDailyCap` is a number in minor units. When set, a refund that would push the operator's same-day refunded total over the cap is rejected with `403` and a message stating the cap, the used-today total, and the requested amount. The daily total is accounted in the store's timezone (settings `general.timezone`).
+
+```bash
+curl -X PATCH http://localhost:4000/api/settings/policies \
+  -H "x-api-key: dev-staff-key" \
+  -d '{ "refundDailyCap": 50000 }'
+```
+
+Check the acting operator's remaining headroom for today with `GET /api/orders/refunds/cap` (permission `orders:read`):
+
+```bash
+curl http://localhost:4000/api/orders/refunds/cap \
+  -H "x-api-key: dev-staff-key"
+```
+
+Returns `200 { data: { cap, usedToday, remaining } }`. `cap` and `remaining` are `null` when no cap is set.
+
+## Undo a refund
+
+Reverse a refund within the undo window with `POST /api/orders/{id}/refunds/{refundId}/undo` (permission `orders:update`). This restores the refunded quantities and returns `200 { data: { order, refund } }`.
+
+```bash
+curl -X POST http://localhost:4000/api/orders/$ORDER_ID/refunds/$REFUND_ID/undo \
+  -H "x-api-key: dev-staff-key"
+```
+
+The window is `refundUndoWindowMinutes` in the `policies` settings group (default 15). After that many minutes, undo is rejected with `422`.
+
+Undo is a compensating ledger op only — it reverses the ledger and restores quantities, but re-collecting the cash you already handed back is the operator's manual step.
+
+## POS exchanges
+
+An exchange takes items back and issues replacements in a single operation. `POST /api/pos/exchanges` (permission `pos:manage`) requires the actor to also hold core `orders:update` (for the return refund) and `orders:create` (for the replacement order).
+
+```bash
+curl -X POST http://localhost:4000/api/pos/exchanges \
+  -H "x-api-key: dev-staff-key" \
+  -d '{
+    "shiftId": "'$SHIFT_ID'",
+    "terminalId": "'$TERMINAL_ID'",
+    "originalOrderId": "'$ORDER_ID'",
+    "returnItems": [
+      { "originalLineItemId": "'$LINE_ID'", "quantity": 1, "reason": "defective" }
+    ],
+    "replacementItems": [
+      { "entityId": "'$PRODUCT_ID'", "title": "Green Tea 250g", "quantity": 1, "unitPrice": 1800 }
+    ]
+  }'
+```
+
+Returns `201 { data: { transaction, refundId, returnTotal, replacementOrderId, replacementTotal, netDelta } }`. `reason` is one of `"defective"`, `"wrong_item"`, `"changed_mind"`, or `"other"`.
+
+**Atomicity.** The return refund and the replacement order are created in one database transaction — if either fails, nothing is committed: no money moves and no order is created. POS bookkeeping rows are written after commit.
+
+**Even vs uneven.** `netDelta = replacementTotal - returnTotal`. An even exchange (`netDelta` 0) auto-completes immediately. An uneven exchange stays open so the operator settles the difference through normal tendering: `netDelta > 0` means the customer owes more; `netDelta < 0` means the store owes the customer.
+
+**Error shape.** POS plugin route and service failures surface as `500` with the service's message (they are thrown as plain errors), not as `4xx`. Handle exchange errors on the `500` path.
+
+## Related
+
+- [Settings](/building/settings/) — the `policies` group, `refundDailyCap`, and `refundUndoWindowMinutes`
+- [Point of Sale](/building/pos/) — shifts, terminals, and the order timeline
+- [REST API Reference](/reference/rest-api/) — all refund and exchange endpoints
+- [Database Schema](/reference/database-schema/) — the `order_refunds` ledger table

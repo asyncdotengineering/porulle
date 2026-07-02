@@ -3,6 +3,42 @@ title: Changelog
 description: Release history for Porulle.
 ---
 
+## v0.8.0 (2026-07-02)
+
+Retail-operations release, driven by the ordereka-fashion-pos field study. The whole `@porulle/*` family is versioned in lockstep — the jump from v0.1.0 reflects intermediate releases whose notes live in each package's `CHANGELOG.md`.
+
+### Core
+
+- **Store settings** — org-scoped typed setting groups (`general`, `branding`, `policies`) at `GET/PATCH /api/settings` behind `settings:manage`, plus a `kernel.services.settings.read(orgId, group)` runtime API that plugins and modules read from. New `store_settings` table. See [Store Settings](/building/settings/).
+- **Receipts & invoices** — render an order as an HTML receipt, HTML invoice, or dependency-free PDF invoice (`GET /api/orders/:id/{invoice.pdf,invoice.html,receipt.html}`), plus `POST .../invoice/email`. Fiscal invoice numbers are allocated atomically per org and issued idempotently per order. New `invoice_sequences`, `order_documents` tables. See [Receipts & Invoices](/building/receipts-and-invoices/).
+- **Retail reports** — a canned report pack at `GET /api/analytics/reports/*` (`daily-journal`, `tax-summary`, `inventory-aging`, `sell-through`, `reorder-needed`, `staff-sales`) with store-timezone calendar math and prior-period deltas, behind `analytics:read`. See [Retail reports](/building/analytics/#retail-reports).
+- **One-call variants** — `POST /api/catalog/entities/:id/variants/quick` and `/bulk` upsert option axes inline and seed a zero-stock inventory level so variants are sellable immediately.
+- **Refund policy** — line-level refunds (`refunded_quantity` column, `order_refunds` ledger) with an optional per-operator daily cap (`policies.refundDailyCap`, `403` when exceeded) and an audited undo window (`policies.refundUndoWindowMinutes`, default 15). Endpoints under `/api/orders/:id/refunds`. See [Refunds & Exchanges](/building/refunds-and-exchanges/).
+- **Order notes & timeline** — `POST/GET/DELETE /api/orders/:id/notes` (pinned-first) and `GET /api/orders/:id/timeline` merging status history, notes, and refund events newest-first. New `order_notes` table.
+- **Product tax classes** — first-class `taxClass` on entities and variants, `/api/tax/classes` CRUD behind `tax:manage`, and per-line checkout tax by class with order-level discounts pro-rated across lines. New `tax_classes` table; classes take precedence over region rates when defined. See [Tax Classes](/building/tax/).
+- **Integrator quick wins** — `config.routes(app, kernel, auth)` now receives the Better Auth instance; `requirePerm` is a public export; orders and checkout accept an `idempotencyKey` (unique per org) so offline queues and retries replay exactly once.
+- **Admin/operator API gaps** — fulfillments with tracking, pricing-modifier CRUD, order line-item editing, cart listing + abandoned-checkout recovery, runtime shipping zones/rates + tax rates, and staff/RBAC admin REST. New scopes: `cart:manage`, `shipping:manage`, `tax:manage`, `staff:manage`.
+
+### Plugin system
+
+- **`PluginContext.auth`** — plugins now receive the Better Auth instance (when mounted by `createServer`) to mint/verify credentials.
+- **Manifest `apiKeyScopes`** — plugins register named API-key scopes (with `keyExpiration` bounds, in days) merged into `config.auth.apiKeyScopes`. See [Plugin Contract](/extending/plugin-contract/#contributing-api-key-scopes).
+
+### Plugins
+
+- **`@porulle/plugin-pos`** — PIN authentication (`PUT/POST /api/pos/auth/*`: set PIN, PIN login minting a short-lived per-shift API key, manager override; PBKDF2 via Web Crypto) and exchanges (`POST /api/pos/exchanges` running the return refund and replacement order in one transaction; even exchanges self-settle). See [Point of Sale](/building/pos/).
+- **`@porulle/plugin-layaway`** *(new)* — partial-payment plans: reserve stock with a deposit, record installments, auto-complete to a cross-linked core order at full payment, forfeit policy hook. See [Layaway](/building/layaway/).
+
+### Adapters
+
+- **`@porulle/adapter-neon`** *(new)* — Workers-grade Neon `DatabaseAdapter`: HTTP driver for queries, a fresh WebSocket pool per transaction, Hyperdrive-aware.
+
+### SDK
+
+- **`OfflineQueue`** — offline-first operation queue in `@porulle/sdk` with pluggable persistence, idempotency-key stamping (pairs with core replay for exactly-once), FIFO drain with exponential backoff, and observable state. See [Offline queue](/frontend/sdk/#offline-queue).
+
+---
+
 ## v0.1.0 — Alpha (2025-05-11)
 
 Initial public release.

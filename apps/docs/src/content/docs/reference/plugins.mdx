@@ -34,6 +34,7 @@ function defineCommercePlugin(manifest: CommercePluginManifest): CommercePlugin;
 | `hooks` | `() => PluginHookRegistration[]` | No | Returns hook registrations |
 | `routes` | `(ctx: PluginContext) => PluginRouteRegistration[]` | No | Returns HTTP route registrations |
 | `analyticsModels` | `() => AnalyticsModel[]` | No | Returns analytics model definitions |
+| `apiKeyScopes` | `() => Record<string, ApiKeyScopeDefinition>` | No | Registers named API-key scopes merged into `config.auth.apiKeyScopes` |
 
 ### PluginPermission
 
@@ -68,10 +69,41 @@ interface PluginContext {
     transaction<T>(fn: (tx: PluginDb) => Promise<T>): Promise<T>;
   };
   logger: PluginLogger;
+  auth?: unknown;
 }
 ```
 
 `database.db` is typed as `PluginDb`. Use it directly for Drizzle queries without casting.
+
+`auth` is the Better Auth instance. It is present when routes are mounted by `createServer` and absent in bare-kernel setups, so plugins must handle it being `undefined`. Plugins use it to mint or verify credentials at runtime — for example, plugin-pos PIN login.
+
+---
+
+## apiKeyScopes
+
+Registers named API-key scopes that get merged into `config.auth.apiKeyScopes`. A user config entry of the same name wins over the plugin's.
+
+```ts
+apiKeyScopes?: () => Record<string, {
+  prefix?: string;
+  description?: string;
+  permissions?: Record<string, string[]>;
+  keyExpiration?: { minExpiresIn?: number; maxExpiresIn?: number };
+}>;
+```
+
+`keyExpiration` bounds are in **days** and accept fractions (`1/24` = one hour, `1/96` = 15 minutes). This is how plugin-pos mints short-lived per-shift keys:
+
+```ts
+apiKeyScopes: () => ({
+  pos: {
+    prefix: "pos_shift_",
+    description: "Per-shift POS key",
+    permissions: { pos: ["operate"] },
+    keyExpiration: { minExpiresIn: 1 / 96 },
+  },
+}),
+```
 
 ---
 

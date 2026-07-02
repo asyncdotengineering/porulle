@@ -150,6 +150,8 @@ Base path: `/api/catalog`
 | `POST` | `/catalog/options/:optionTypeId/values` | Create an option value |
 | `POST` | `/catalog/entities/:id/variants` | Create a single variant |
 | `POST` | `/catalog/entities/:id/variants/generate` | Generate variants from an option matrix |
+| `POST` | `/catalog/entities/:id/variants/quick` | One-call variant: upsert option axes inline + seed zero-stock (`201` created / `200` existing) |
+| `POST` | `/catalog/entities/:id/variants/bulk` | Create the full cartesian matrix from `axes`, skipping existing combos |
 
 ---
 
@@ -235,6 +237,18 @@ Base path: `/api/orders`
 | `GET` | `/orders/:idOrNumber` | Get order by UUID or order number (`ORD-YYYY-NNNNNN`) |
 | `PATCH` | `/orders/:id/status` | Change order status |
 | `GET` | `/orders/:id/fulfillments` | List fulfillments for an order |
+| `POST` | `/orders/:id/refunds` | Refund specific line quantities (`orders:update`) |
+| `POST` | `/orders/:id/refunds/:refundId/undo` | Undo a refund within the window (`orders:update`) |
+| `GET` | `/orders/:id/refunds` | List an order's refunds (`orders:read`) |
+| `GET` | `/orders/refunds/cap` | Acting operator's daily refund-cap status (`orders:read`) |
+| `POST` | `/orders/:id/notes` | Add a note (`orders:update`) |
+| `GET` | `/orders/:id/notes` | List notes, pinned-first (`orders:read`) |
+| `DELETE` | `/orders/:id/notes/:noteId` | Delete a note (`orders:update`) |
+| `GET` | `/orders/:id/timeline` | Merged activity timeline (`orders:read`) |
+| `GET` | `/orders/:id/invoice.pdf` | Fiscal PDF invoice (`orders:read`) |
+| `GET` | `/orders/:id/invoice.html` | HTML invoice (`orders:read`) |
+| `GET` | `/orders/:id/receipt.html` | HTML receipt (`orders:read`) |
+| `POST` | `/orders/:id/invoice/email` | Email the invoice (`orders:read`) |
 
 **`GET /orders` query parameters:**
 
@@ -254,6 +268,29 @@ Base path: `/api/orders`
 ```
 
 Valid transitions: `pending → confirmed → processing → partially_fulfilled | fulfilled → refunded`. Cancel is allowed from `pending`, `confirmed`, `processing`, `partially_fulfilled`.
+
+**`POST /orders/:id/refunds` body:**
+
+```json
+{
+  "lines": [{ "lineItemId": "uuid", "quantity": 1 }],
+  "reason": "optional, max 500 chars"
+}
+```
+
+Rejects refunding more than `quantity - refundedQuantity` on a line (`422`). A per-operator daily cap (`policies.refundDailyCap`, minor units) returns `403` when exceeded. Undo is blocked past `policies.refundUndoWindowMinutes` (default 15). See [Refunds & Exchanges](/building/refunds-and-exchanges/).
+
+**`POST /orders/:id/notes` body:**
+
+```json
+{ "body": "note text (1–2000 chars)", "pinned": false }
+```
+
+**`GET /orders/:id/timeline`** returns newest-first entries merging status changes, notes, and refunds (with undo events):
+
+```json
+{ "data": [{ "type": "status | note | refund", "at": "ISO", "actor": "...", "summary": "...", "data": {} }] }
+```
 
 ---
 
@@ -502,8 +539,41 @@ Base path: `/api/analytics`
 |--------|------|-------------|
 | `GET` | `/analytics/meta` | List available models, measures, and dimensions |
 | `POST` | `/analytics/query` | Execute an analytics query |
+| `GET` | `/analytics/reports` | List canned retail reports (`analytics:read`) |
+| `GET` | `/analytics/reports/:name` | Run a retail report (`analytics:read`) |
 
 **`POST /analytics/query` body:** See [Analytics reference](/reference/analytics/) for the full query format.
+
+**Retail reports** (`:name`): `daily-journal`, `tax-summary`, `inventory-aging`, `sell-through`, `reorder-needed`, `staff-sales`. Query params (all `YYYY-MM-DD`, optional): `date` for single-day reports; `from` + `to` for ranges. Calendar math uses the store's `settings.general.timezone`. See [Retail reports](/building/analytics/#retail-reports).
+
+---
+
+## Settings
+
+Base path: `/api/settings`. All routes require `settings:manage`. See [Store Settings](/building/settings/).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/settings` | All groups |
+| `GET` | `/settings/:group` | One group's value (`{}` when unset) |
+| `PATCH` | `/settings/:group` | Shallow-merge a group; a `null` value deletes that key |
+
+Known groups are validated (`422` on bad input): `general` (`currency`, `timezone`, `locale`), `branding` (store identity for receipts), `policies` (e.g. `refundDailyCap`, `refundUndoWindowMinutes`). Unknown groups accept any object.
+
+---
+
+## Tax
+
+Base path: `/api/tax`. Class routes require `tax:manage`. See [Tax Classes](/building/tax/).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/tax/classes` | List tax classes |
+| `POST` | `/tax/classes` | Create a class (`name` slug, `rateBps`, `isDefault?`, `isActive?`) |
+| `PATCH` | `/tax/classes/:id` | Update a class |
+| `DELETE` | `/tax/classes/:id` | Delete a class |
+
+Per-line tax resolves variant `taxClass` → entity `taxClass` → the org's default class → `0`. When an org defines active classes they take precedence over runtime region rates.
 
 ---
 
@@ -648,6 +718,33 @@ Scoped automatically to `actor.vendorId`.
 
 ---
 
+## POS plugin (auth & exchanges)
+
+Added by `@porulle/plugin-pos`. See [Point of Sale](/building/pos/) and [Refunds & Exchanges](/building/refunds-and-exchanges/). Service-level failures on these routes surface as `500` with the message.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `PUT` | `/api/pos/auth/pin` | Set/rotate an operator PIN (`pos:admin`) |
+| `POST` | `/api/pos/auth/pin-login` | PIN login → mints a short-lived per-shift API key (`pos:operate`) |
+| `POST` | `/api/pos/auth/override` | Manager override by PIN (`pos:operate`) |
+| `POST` | `/api/pos/exchanges` | Return + replacement order in one transaction (`pos:manage` + `orders:update` + `orders:create`) |
+
+---
+
+## Layaway plugin
+
+Added by `@porulle/plugin-layaway`. All paths under `/api/layaways`. See [Layaway](/building/layaway/).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/layaways` | Create a plan; reserves stock (`layaway:operate`) |
+| `GET` | `/layaways` | List plans, optional `?status` (`layaway:operate`) |
+| `GET` | `/layaways/:id` | Plan with its payment ledger (`layaway:operate`) |
+| `POST` | `/layaways/:id/payments` | Record an installment; auto-completes at full payment (`layaway:operate` + `orders:create`) |
+| `POST` | `/layaways/:id/forfeit` | Forfeit a plan; releases stock (`layaway:manage`) |
+
+---
+
 ## Permission requirements
 
 | Endpoint group | Required permission |
@@ -660,6 +757,15 @@ Scoped automatically to `actor.vendorId`.
 | `PATCH /promotions/:id`, `POST /promotions/:id/deactivate` | `promotions:update` |
 | `POST /marketplace/vendors/:id/approve`, `.../suspend` | `marketplace:admin` |
 | `GET /admin/jobs/failed`, `POST /admin/jobs/:id/retry` | `jobs:admin` |
+| `GET /settings`, `PATCH /settings/:group` | `settings:manage` |
+| `GET /analytics/reports`, `GET /analytics/reports/:name` | `analytics:read` |
+| `GET/POST/PATCH/DELETE /tax/classes` | `tax:manage` |
+| `POST /orders/:id/refunds`, `.../undo`, notes write | `orders:update` |
+| `POST /pos/auth/pin` | `pos:admin` |
+| `POST /pos/auth/pin-login`, `.../override` | `pos:operate` |
+| `POST /pos/exchanges` | `pos:manage` (+ `orders:update`, `orders:create`) |
+| `POST /layaways`, `.../payments` | `layaway:operate` |
+| `POST /layaways/:id/forfeit` | `layaway:manage` |
 
 ---
 

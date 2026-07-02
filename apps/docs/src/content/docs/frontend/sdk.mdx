@@ -221,8 +221,52 @@ Add a `sdk:generate` script to `package.json` to make this repeatable:
 }
 ```
 
+## Offline queue
+
+POS and field clients often lose connectivity mid-shift. `OfflineQueue` is an offline-first operation queue: you enqueue write operations (like a sale) while offline, and they replay FIFO on reconnect. Each op is stamped with an idempotency key that pairs with core's order/checkout replay, so a queued sale lands exactly once — even if it was partially sent before the connection dropped.
+
+### Create a queue
+
+```typescript
+import { OfflineQueue, webStorage } from "@porulle/sdk";
+
+const queue = new OfflineQueue({
+  baseUrl: "http://localhost:4000",
+  headers: { "x-api-key": "dev-staff-key" },
+  storage: webStorage(localStorage),
+});
+```
+
+`storage` defaults to `memoryStorage()` (volatile); pass `webStorage(localStorage)` to persist queued ops across restarts. Other options: `maxAttempts` (default 5), `backoffMs` (default 1000), `autoFlush` (default true — flushes on the window `online` event when `addEventListener` exists), and `idempotencyField` (default `"idempotencyKey"`, the body field the op id is stamped into).
+
+### Enqueue while offline, flush on reconnect
+
+`enqueue` persists the op — it does not send. Delivery happens on `flush()`, the `online` event, or the backoff timer:
+
+```typescript
+// Persist a sale while offline
+await queue.enqueue("/api/checkout", { cartId, paymentMethodId, currency });
+
+// Watch queue changes (pending count, failures)
+const unsubscribe = queue.onChange((s) => {
+  console.log(`${s.pending} pending, ${s.failed} failed`);
+});
+
+// Drain pending ops FIFO when back online
+await queue.flush();
+```
+
+The op id (your `idempotencyKey` or an auto-generated one) is written into the body under `idempotencyField`, so a replay never double-charges. `enqueue` accepts an optional `{ method, idempotencyKey }` — `method` defaults to `"POST"`.
+
+### Retry, backoff, and failures
+
+On a 2xx the op is removed from the queue. A network throw stops the drain and schedules a backoff retry — `min(backoffMs * 2 ** (attempts-1), 60000)`. Retryable HTTP statuses (>=500, 408, 429) retry with exponential backoff up to `maxAttempts`, then mark the op `failed`; all other 4xx go straight to `failed` with the server error body captured in `lastError`. There are only two states — `pending` and `failed` — since successful ops are deleted, not marked done. Use `retry(id)` to re-queue a failed op (resets attempts and triggers a flush) or `drop(id)` to remove it. Call `dispose()` to clear timers and detach the online listener.
+
+Queued ops only survive a restart when you pass `webStorage` — `memoryStorage()` is volatile and clears on reload.
+
 ## Related
 
+- [Point of Sale](/building/pos/) — the in-store surface the queue backs
 - [Next.js guide](/frontend/nextjs/) — in-process mounting and SDK setup
 - [TanStack Start guide](/frontend/tanstack-start/) — same pattern for TanStack Start
 - [REST API Reference](/reference/rest-api/) — all endpoints and response shapes

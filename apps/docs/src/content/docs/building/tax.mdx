@@ -1,0 +1,95 @@
+---
+title: Tax Classes
+description: Tag products with named tax rates and compute per-line, class-based tax at checkout.
+---
+
+Tax classes let you tag products and variants with a named rate. At checkout, per-line tax is computed by class, and any order-level discount is pro-rated across lines before tax is applied.
+
+Rates are stored as integer basis points (`rateBps`): `1800` means 18%. The order persists a per-line `taxAmount` (and `discountAmount`) computed at checkout — monetary amounts are integers in the smallest currency unit (cents for USD).
+
+## Create tax classes
+
+All tax class endpoints live under `/api/tax/classes` and require the `tax:manage` permission scope — including listing.
+
+A class `name` is a lowercase slug matching `/^[a-z][a-z0-9_-]*$/` (for example `standard` or `zero`). Set `isDefault` to mark the class used for lines with no class of their own; only one default exists per org, so setting a new default clears the old one. `isActive` defaults to `true`.
+
+```bash
+# Create a default standard class at 18%
+curl -X POST "http://localhost:4000/api/tax/classes" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{
+    "name": "standard",
+    "rateBps": 1800,
+    "isDefault": true
+  }'
+
+# Create a zero-rated class
+curl -X POST "http://localhost:4000/api/tax/classes" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{
+    "name": "zero",
+    "rateBps": 0
+  }'
+```
+
+Each call returns `201` with `{ "data": <class> }`.
+
+## Assign a class to a product
+
+`taxClass` is a first-class field on catalog entities and variants — a string holding the class name. Set it through catalog create or update:
+
+```bash
+# Assign the "standard" class when creating an entity
+curl -X POST "http://localhost:4000/api/catalog/entities" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{
+    "name": "Ceylon Black Tea",
+    "taxClass": "standard"
+  }'
+```
+
+`POST /api/catalog/entities` and `PATCH /api/catalog/entities/{id}` both accept `taxClass`; passing `null` on update clears it. Variant create (`POST .../variants`) also accepts `taxClass`, and a variant's class **overrides** its entity's class.
+
+## How checkout resolves the rate
+
+For each line, the rate is resolved in this order, highest priority first:
+
+1. The variant's `taxClass`.
+2. The entity's `taxClass`.
+3. The org's default class.
+4. Otherwise `0` — the line is untaxed.
+
+Only **active** classes count. When an org has defined active classes, they take precedence over runtime region rates and the tax adapter.
+
+Order-level discounts are pro-rated before tax. A cart-level discount that is not attributed to specific lines is split across lines by each line's value share; the rounding remainder is absorbed by the last line so the totals stay exact. Tax is then computed on the discounted base.
+
+## List / update / delete
+
+```bash
+# List all classes (ordered by name)
+curl "http://localhost:4000/api/tax/classes" \
+  -H "x-api-key: dev-staff-key"
+
+# Update a class — any subset of name, rateBps, isDefault, isActive
+curl -X PATCH "http://localhost:4000/api/tax/classes/$CLASS_ID" \
+  -H "content-type: application/json" \
+  -H "x-api-key: dev-staff-key" \
+  -d '{"rateBps": 1500}'
+
+# Delete a class
+curl -X DELETE "http://localhost:4000/api/tax/classes/$CLASS_ID" \
+  -H "x-api-key: dev-staff-key"
+```
+
+List returns `200` with `{ "data": <class[]> }`, update returns `200` with `{ "data": <class> }`, and delete returns `200` with `{ "data": { "deleted": true } }`.
+
+Tax classes are stored in the `tax_classes` table (with `name` unique per org, `rate_bps`, `is_default`, `is_active`). The assigned class lives in a nullable `tax_class` column on both `sellable_entities` and `variants`. See the schema reference for the full column list.
+
+## Related
+
+- [REST API Reference](/reference/rest-api/) — all tax and catalog endpoints
+- [Database Schema](/reference/database-schema/) — `tax_classes` and the `tax_class` columns
+- [Store Settings](/building/settings/) — org-level configuration

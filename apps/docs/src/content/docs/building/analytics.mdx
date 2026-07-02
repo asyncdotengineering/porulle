@@ -101,8 +101,44 @@ curl -X POST "http://localhost:4000/api/analytics/query" \
   }'
 ```
 
+## Retail reports
+
+Alongside the semantic query engine above, Porulle ships a pack of canned, parameterized retail reports. The query engine composes arbitrary measures and dimensions across models; these reports are fixed, purpose-built views — a daily journal, a tax summary, inventory aging — that you fetch by name and narrow with date parameters. Both require the `analytics:read` permission scope (granted to owner, admin, and manager).
+
+There are no new tables — each report runs parameterized SQL over the existing orders, line-item, inventory, and entity data.
+
+| Report | What it returns |
+|--------|-----------------|
+| `daily-journal` | Per-day sales journal: order rows plus a summary with prior-day deltas |
+| `tax-summary` | Tax collected over a range, bucketed per local day, with prior-period deltas |
+| `inventory-aging` | On-hand stock bucketed by days since last restock (0-30 / 31-60 / 61-90 / 90+) |
+| `sell-through` | Units sold in the range vs current on-hand, per entity |
+| `reorder-needed` | Inventory rows at or below their reorder threshold |
+| `staff-sales` | Orders and revenue grouped by `orders.metadata.staffId` |
+
+List the available reports, then fetch one by name. Single-day reports take an optional `date`; range reports take optional `from` and `to` (inclusive). All dates use `YYYY-MM-DD`. When a range is omitted it defaults to the first of the current month through today.
+
+```bash
+# List available reports
+curl "http://localhost:4000/api/analytics/reports" \
+  -H "x-api-key: dev-staff-key"
+
+# A single day's sales journal
+curl "http://localhost:4000/api/analytics/reports/daily-journal?date=2026-07-01" \
+  -H "x-api-key: dev-staff-key"
+
+# Tax collected over a range
+curl "http://localhost:4000/api/analytics/reports/tax-summary?from=2026-06-01&to=2026-06-30" \
+  -H "x-api-key: dev-staff-key"
+```
+
+`GET /api/analytics/reports` returns `{ data: [{ name, description }, ...] }`; `GET /api/analytics/reports/{name}` returns `{ data: <report result> }`.
+
+Calendar math uses the store's timezone, read from the `general.timezone` [settings group](/building/settings/) (default UTC), so every day boundary and range default is computed in local time. Financial reports exclude `cancelled` and `voided` orders.
+
 ## Related
 
 - [Analytics Reference](/reference/analytics/) — all models, measures, dimensions, filter operators, and scope rules
+- [Store Settings](/building/settings/) — the timezone reports bucket by
 - [Build a Loyalty Plugin](/tutorials/build-a-plugin/) — example of contributing a plugin with hooks and routes
 - [Plugin Architecture](/concepts/plugin-architecture/) — `analyticsModels` manifest slot

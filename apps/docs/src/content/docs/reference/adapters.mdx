@@ -31,6 +31,8 @@ interface DatabaseAdapter<TDatabase = unknown, TTransaction = unknown> {
 | `db` | `TDatabase` | The underlying Drizzle database instance |
 | `transaction` | `<T>(fn: (tx: TTransaction) => Promise<T>) => Promise<T>` | Executes `fn` within a database transaction |
 
+**Implementations:** `@porulle/adapter-postgres` (Drizzle on postgres-js) for long-lived Node servers, and `@porulle/adapter-neon` for serverless/Workers. `neonAdapter({ connectionString, hyperdrive? })` uses the Neon HTTP driver for plain queries and opens a fresh WebSocket pool per `transaction()` (ended after each), sidestepping isolate-shared-pool flakiness; pass a Cloudflare `hyperdrive` binding to route the transaction pool through it.
+
 ---
 
 ## PaymentAdapter

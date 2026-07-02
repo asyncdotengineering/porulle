@@ -11,7 +11,7 @@ Every package below ships from this monorepo, lives under the `@porulle/*` scope
 bun add @porulle/core @porulle/adapter-postgres @porulle/adapter-stripe
 ```
 
-<Badge text="32 packages" variant="tip" /> &nbsp; <Badge text="v0.1.0 alpha" variant="caution" />
+<Badge text="34 packages" variant="tip" /> &nbsp; <Badge text="v0.8.0 alpha" variant="caution" />
 
 ---
 
@@ -35,7 +35,8 @@ Pluggable infrastructure — pick a database, payment processor, storage backend
 ### Database
 
 <CardGrid>
-  <LinkCard title="@porulle/adapter-postgres" href="https://www.npmjs.com/package/@porulle/adapter-postgres" description="The PostgreSQL DatabaseAdapter for @porulle/core. Drizzle on postgres-js. The only database backend Porulle ships today." />
+  <LinkCard title="@porulle/adapter-postgres" href="https://www.npmjs.com/package/@porulle/adapter-postgres" description="The PostgreSQL DatabaseAdapter for @porulle/core. Drizzle on postgres-js. The default backend for long-lived Node servers." />
+  <LinkCard title="@porulle/adapter-neon" href="https://www.npmjs.com/package/@porulle/adapter-neon" description="Serverless/Workers-grade DatabaseAdapter for Neon. HTTP driver for queries, a fresh WebSocket pool per transaction, Hyperdrive-aware." />
 </CardGrid>
 
 ### Payment
@@ -84,6 +85,7 @@ Optional commerce capabilities — each one extends the kernel through hooks, ro
 <CardGrid>
   <LinkCard title="@porulle/plugin-pos" href="https://www.npmjs.com/package/@porulle/plugin-pos" description="In-store POS: terminals, shifts with cash events, transactions (sale/return/exchange), payments, barcode lookup, returns, receipts." />
   <LinkCard title="@porulle/plugin-pos-restaurant" href="https://www.npmjs.com/package/@porulle/plugin-pos-restaurant" description="Restaurant layer on plugin-pos: tables, floor zones, modifiers, KDS, checklists, alerts, recipes (food BOM), analytics." />
+  <LinkCard title="@porulle/plugin-layaway" href="https://www.npmjs.com/package/@porulle/plugin-layaway" description="Partial-payment plans: reserve stock with a deposit, pay in installments, auto-complete to a cross-linked order at full payment, forfeit policy hook." />
 </CardGrid>
 
 ### Customer engagement
