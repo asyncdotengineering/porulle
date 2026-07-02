@@ -33,9 +33,9 @@ describe("kernel module wiring (S4-06)", () => {
       await cleanup();
     });
 
-    it("instantiates all 17 module registry services", () => {
+    it("instantiates all 19 module registry services", () => {
       const ids = Object.keys(KERNEL_ALL_MODULES);
-      expect(ids).toHaveLength(17);
+      expect(ids).toHaveLength(19);
       for (const id of ids) {
         expect(
           (kernel.services as Record<string, unknown>)[id],

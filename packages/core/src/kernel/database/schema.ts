@@ -49,6 +49,12 @@ export * from "../../modules/shipping/schema.js";
 // Tax module (runtime tax rates)
 export * from "../../modules/tax/schema.js";
 
+// Settings module (org-scoped runtime settings)
+export * from "../../modules/settings/schema.js";
+
+// Documents module (fiscal sequences + issued documents)
+export * from "../../modules/documents/schema.js";
+
 // Jobs (kernel)
 export * from "../jobs/schema.js";
 

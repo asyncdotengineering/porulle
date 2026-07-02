@@ -490,4 +490,169 @@ export class EntityService {
     }
     return Ok(created);
   }
+
+  // ── One-call variant creation (issue #50) ────────────────────────────────
+  // Upserts option axes inline, creates variants, and seeds a zero-stock
+  // inventory level per variant so it is sellable immediately. Retry-safe:
+  // axes upsert by name/value and existing combinations are skipped.
+
+  private async upsertAxes(
+    entityId: string,
+    axes: Array<{ name: string; values: string[] }>,
+    ctx?: TxContext,
+  ): Promise<Map<string, Map<string, string>>> {
+    const existingTypes = await this.repo.findOptionTypesByEntityId(entityId, ctx);
+    const result = new Map<string, Map<string, string>>();
+    for (const axis of axes) {
+      let optionType = existingTypes.find((t) => t.name === axis.name);
+      if (!optionType) {
+        optionType = await this.repo.createOptionType(
+          { entityId, name: axis.name, displayName: axis.name, sortOrder: existingTypes.length },
+          ctx,
+        );
+        existingTypes.push(optionType);
+      }
+      const existingValues = await this.repo.findOptionValuesByTypeId(optionType.id, ctx);
+      const valueIds = new Map<string, string>();
+      for (const value of axis.values) {
+        let optionValue = existingValues.find((v) => v.value === value);
+        if (!optionValue) {
+          optionValue = await this.repo.createOptionValue(
+            { optionTypeId: optionType.id, value, displayValue: value, sortOrder: existingValues.length, metadata: {} },
+            ctx,
+          );
+          existingValues.push(optionValue);
+        }
+        valueIds.set(value, optionValue.id);
+      }
+      result.set(axis.name, valueIds);
+    }
+    return result;
+  }
+
+  private async existingComboKeys(entityId: string, ctx?: TxContext): Promise<Map<string, string>> {
+    const existing = new Map<string, string>();
+    for (const variant of await this.repo.findVariantsByEntityId(entityId, ctx)) {
+      const rows = await this.repo.findVariantOptionValues(variant.id, ctx);
+      const key = rows.map((r) => r.optionValueId).sort().join("|");
+      existing.set(key, variant.id);
+    }
+    return existing;
+  }
+
+  private async seedInventoryLevel(
+    entityId: string,
+    variantId: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<unknown>> {
+    const inventory = this.deps.services.inventory as {
+      adjustDetailed: (
+        input: { entityId: string; variantId?: string; adjustment: number; reason: string },
+        actor?: Actor | null,
+        ctx?: TxContext,
+      ) => Promise<Result<unknown>>;
+    };
+    return inventory.adjustDetailed(
+      { entityId, variantId, adjustment: 0, reason: "Variant created — seed zero-stock level" },
+      actor,
+      ctx,
+    );
+  }
+
+  async quickCreateVariant(
+    entityId: string,
+    input: { options: Record<string, string>; sku?: string | undefined; barcode?: string | undefined },
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<{ variant: Variant; created: boolean }>> {
+    try { assertPermission(actor, "catalog:update"); } catch (error) { return Err(toCommerceError(error)); }
+    const entity = await this.repo.findEntityById(entityId, ctx);
+    if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
+    try { this.assertSameOrg(entity, actor); } catch (error) { return Err(toCommerceError(error)); }
+
+    const axes = Object.entries(input.options).map(([name, value]) => ({ name, values: [value] }));
+    const axisValueIds = await this.upsertAxes(entityId, axes, ctx);
+    const optionValueIds = Object.entries(input.options)
+      .map(([name, value]) => axisValueIds.get(name)!.get(value)!);
+
+    const key = [...optionValueIds].sort().join("|");
+    const existing = await this.existingComboKeys(entityId, ctx);
+    const existingVariantId = existing.get(key);
+    if (existingVariantId !== undefined) {
+      const variant = await this.repo.findVariantById(existingVariantId, ctx);
+      return Ok({ variant: variant!, created: false });
+    }
+
+    const variant = await this.repo.createVariant(
+      {
+        entityId,
+        status: "active",
+        sortOrder: 0,
+        metadata: { generatedBy: "quick" },
+        ...(input.sku !== undefined ? { sku: input.sku } : {}),
+        ...(input.barcode !== undefined ? { barcode: input.barcode } : {}),
+      },
+      ctx,
+    );
+    await this.repo.createVariantOptionValues(
+      optionValueIds.map((optionValueId) => ({ variantId: variant.id, optionValueId })),
+      ctx,
+    );
+    const seeded = await this.seedInventoryLevel(entityId, variant.id, actor, ctx);
+    if (!seeded.ok) return seeded;
+    return Ok({ variant, created: true });
+  }
+
+  async bulkCreateVariants(
+    entityId: string,
+    input: { axes: Array<{ name: string; values: string[] }>; skuPrefix?: string | undefined },
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<{ created: Variant[]; skipped: number }>> {
+    try { assertPermission(actor, "catalog:update"); } catch (error) { return Err(toCommerceError(error)); }
+    const entity = await this.repo.findEntityById(entityId, ctx);
+    if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
+    try { this.assertSameOrg(entity, actor); } catch (error) { return Err(toCommerceError(error)); }
+
+    const axisValueIds = await this.upsertAxes(entityId, input.axes, ctx);
+    // Empty axis list → one option-less variant.
+    const groups = input.axes.map((axis) =>
+      axis.values.map((value) => ({ value, id: axisValueIds.get(axis.name)!.get(value)! })),
+    );
+    const combinations = cartesian(groups);
+
+    const existing = await this.existingComboKeys(entityId, ctx);
+    const created: Variant[] = [];
+    let skipped = 0;
+    for (const combo of combinations) {
+      const key = combo.map((c) => c.id).sort().join("|");
+      if (existing.has(key)) {
+        skipped += 1;
+        continue;
+      }
+      const sku = input.skuPrefix !== undefined
+        ? [input.skuPrefix, ...combo.map((c) => c.value)].join("-").toUpperCase().replace(/\s+/g, "-")
+        : undefined;
+      const variant = await this.repo.createVariant(
+        {
+          entityId,
+          status: "active",
+          sortOrder: 0,
+          metadata: { generatedBy: "bulk" },
+          ...(sku !== undefined ? { sku } : {}),
+        },
+        ctx,
+      );
+      await this.repo.createVariantOptionValues(
+        combo.map((c) => ({ variantId: variant.id, optionValueId: c.id })),
+        ctx,
+      );
+      const seeded = await this.seedInventoryLevel(entityId, variant.id, actor, ctx);
+      if (!seeded.ok) return seeded;
+      existing.set(key, variant.id);
+      created.push(variant);
+    }
+    return Ok({ created, skipped });
+  }
 }

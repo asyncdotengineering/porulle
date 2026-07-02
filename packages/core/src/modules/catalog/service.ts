@@ -259,6 +259,18 @@ export interface CatalogService {
     actor: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<Variant[]>>;
+  quickCreateVariant(
+    entityId: string,
+    input: { options: Record<string, string>; sku?: string | undefined; barcode?: string | undefined },
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<{ variant: Variant; created: boolean }>>;
+  bulkCreateVariants(
+    entityId: string,
+    input: { axes: Array<{ name: string; values: string[] }>; skuPrefix?: string | undefined },
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<{ created: Variant[]; skipped: number }>>;
 }
 
 export interface CatalogServiceDeps {
@@ -410,5 +422,23 @@ export class CatalogServiceImpl implements CatalogService {
 
   generateVariants(entityId: string, strategy: VariantGenerationStrategy, actor: Actor | null, ctx?: TxContext): Promise<Result<Variant[]>> {
     return this.entities.generateVariants(entityId, strategy, actor, ctx);
+  }
+
+  quickCreateVariant(
+    entityId: string,
+    input: { options: Record<string, string>; sku?: string | undefined; barcode?: string | undefined },
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<{ variant: Variant; created: boolean }>> {
+    return this.entities.quickCreateVariant(entityId, input, actor, ctx);
+  }
+
+  bulkCreateVariants(
+    entityId: string,
+    input: { axes: Array<{ name: string; values: string[] }>; skuPrefix?: string | undefined },
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<{ created: Variant[]; skipped: number }>> {
+    return this.entities.bulkCreateVariants(entityId, input, actor, ctx);
   }
 }

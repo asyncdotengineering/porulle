@@ -33,6 +33,8 @@ export const defaultConfig: Partial<CommerceConfig> = {
           "cart:manage",
           "shipping:manage",
           "tax:manage",
+          "settings:manage",
+          "analytics:read",
           "customers:read:self",
           "customers:update:self",
         ],

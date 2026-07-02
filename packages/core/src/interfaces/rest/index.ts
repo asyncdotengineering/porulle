@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import type { Kernel } from "../../runtime/kernel.js";
 import type { AppEnv } from "./utils.js";
 import { mapErrorToResponse } from "../../kernel/error-mapper.js";
+import { analyticsRoutes } from "./routes/analytics.js";
 import { catalogRoutes } from "./routes/catalog.js";
 import { inventoryRoutes } from "./routes/inventory.js";
 import { mediaRoutes } from "./routes/media.js";
@@ -21,6 +22,8 @@ import { compensationFailureAdminRoutes } from "./routes/admin/compensation-fail
 import { adminPermissionsRoutes } from "./routes/admin/permissions.js";
 import { adminStaffRoutes } from "./routes/admin/staff.js";
 import { customerRoutes } from "./routes/customers.js";
+import { documentRoutes } from "./routes/documents.js";
+import { settingsRoutes } from "./routes/settings.js";
 import { shippingRoutes } from "./routes/shipping.js";
 import { taxRoutes } from "./routes/tax.js";
 export function createRestRoutes(kernel: Kernel) {
@@ -75,11 +78,14 @@ export function createRestRoutes(kernel: Kernel) {
   router.route("/carts", cartRoutes(kernel));
   router.route("/checkout", checkoutRoutes(kernel));
   router.route("/orders", orderRoutes(kernel));
+  router.route("/orders", documentRoutes(kernel));
   router.route("/payments", paymentRoutes(kernel));
   router.route("/webhooks", webhookRoutes(kernel));
   router.route("/pricing", pricingRoutes(kernel));
   router.route("/shipping", shippingRoutes(kernel));
   router.route("/tax", taxRoutes(kernel));
+  router.route("/settings", settingsRoutes(kernel));
+  router.route("/analytics", analyticsRoutes(kernel));
   router.route("/promotions", promotionRoutes(kernel));
   router.route("/search", searchRoutes(kernel));
   router.route("/customers", customerRoutes(kernel));

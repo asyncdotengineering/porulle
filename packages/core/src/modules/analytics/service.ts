@@ -9,6 +9,10 @@
 import type { CommerceConfig } from "../../config/types.js";
 import { CommerceValidationError } from "../../kernel/errors.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
+import { resolveOrgId } from "../../auth/org.js";
+import type { Actor } from "../../auth/types.js";
+import type { ReportParams, RetailReportsEngine } from "./reports.js";
+import { RETAIL_REPORTS } from "./reports.js";
 import type {
   AnalyticsAdapter,
   AnalyticsMeta,
@@ -31,6 +35,7 @@ export type {
 export interface AnalyticsServiceDeps {
   adapter: AnalyticsAdapter;
   config: CommerceConfig;
+  reports?: RetailReportsEngine;
 }
 
 export class AnalyticsService {
@@ -114,6 +119,24 @@ export class AnalyticsService {
     return Err(
       new CommerceValidationError(`Unknown analytics dashboard: ${name}`),
     );
+  }
+
+  /** The canned retail reports pack (issue #48). */
+  listReports(): Array<{ name: string; description: string }> {
+    return RETAIL_REPORTS.map((r) => ({ name: r.name, description: r.description }));
+  }
+
+  /** Runs a canned retail report (issue #48), org-scoped to the actor. */
+  async getReport(
+    name: string,
+    params: ReportParams,
+    actor?: Actor | null,
+  ): Promise<Result<Record<string, unknown>>> {
+    if (!this.deps.reports) {
+      return Err(new CommerceValidationError("Retail reports are not available."));
+    }
+    const orgId = resolveOrgId(actor ?? null);
+    return this.deps.reports.run(name, params, orgId);
   }
 
   async getMeta(): Promise<Result<AnalyticsMeta>> {

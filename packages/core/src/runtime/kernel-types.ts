@@ -19,6 +19,8 @@ import { PromotionService } from "../modules/promotions/service.js";
 import { TaxService } from "../modules/tax/service.js";
 import { ShippingService } from "../modules/shipping/service.js";
 import { SearchService } from "../modules/search/service.js";
+import { SettingsService } from "../modules/settings/service.js";
+import { DocumentsService } from "../modules/documents/service.js";
 import type { AuditService } from "../modules/audit/service.js";
 import { OrganizationService } from "../modules/organization/service.js";
 import { createLogger } from "../utils/logger.js";
@@ -52,6 +54,8 @@ export interface Kernel {
     tax: TaxService;
     shipping: ShippingService;
     search: SearchService;
+    settings: SettingsService;
+    documents: DocumentsService;
     audit: AuditService;
     compensationFailures: CompensationFailuresRepository;
     email: CommerceConfig["email"];
@@ -77,6 +81,8 @@ export const KERNEL_REQUIRED_SERVICE_KEYS = [
   "tax",
   "shipping",
   "search",
+  "settings",
+  "documents",
   "audit",
   "compensationFailures",
 ] as const satisfies Array<keyof Kernel["services"]>;

@@ -172,6 +172,8 @@ export const testActor: Actor = {
     "pricing:manage",
     "shipping:manage",
     "tax:manage",
+    "settings:manage",
+    "analytics:read",
     "staff:manage",
     "promotions:manage",
     "promotions:read",

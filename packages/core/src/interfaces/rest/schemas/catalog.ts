@@ -477,3 +477,56 @@ export const generateVariantsRoute = createRoute({
     ...errorResponses,
   },
 });
+
+// ── One-call variant creation (issue #50) ───────────────────────────────────
+
+export const QuickVariantBodySchema = z.object({
+  options: z.record(z.string().min(1), z.string().min(1)).openapi({
+    example: { color: "Red", size: "M" },
+    description: "Axis name → value. Option types/values are upserted inline.",
+  }),
+  sku: z.string().min(1).optional(),
+  barcode: z.string().min(1).optional(),
+}).openapi("QuickVariantRequest");
+
+export const BulkVariantsBodySchema = z.object({
+  axes: z.array(z.object({
+    name: z.string().min(1),
+    values: z.array(z.string().min(1)).min(1),
+  })).openapi({
+    example: [{ name: "color", values: ["Red", "Blue"] }, { name: "size", values: ["S", "M"] }],
+    description: "Matrix axes; an empty array creates one option-less variant.",
+  }),
+  skuPrefix: z.string().min(1).optional(),
+}).openapi("BulkVariantsRequest");
+
+export const quickVariantRoute = createRoute({
+  method: "post",
+  path: "/entities/{id}/variants/quick",
+  tags: ["Catalog"],
+  summary: "Create one sellable variant in a single call (upserts axes, seeds inventory)",
+  request: {
+    params: EntityIdParam,
+    body: { content: { "application/json": { schema: QuickVariantBodySchema } }, required: true },
+  },
+  responses: {
+    201: { content: { "application/json": { schema: DataResponse } }, description: "Variant created and inventory seeded." },
+    200: { content: { "application/json": { schema: DataResponse } }, description: "The combination already existed; the existing variant is returned." },
+    ...errorResponses,
+  },
+});
+
+export const bulkVariantsRoute = createRoute({
+  method: "post",
+  path: "/entities/{id}/variants/bulk",
+  tags: ["Catalog"],
+  summary: "Create a variant matrix in a single call (upserts axes, seeds inventory, skips existing)",
+  request: {
+    params: EntityIdParam,
+    body: { content: { "application/json": { schema: BulkVariantsBodySchema } }, required: true },
+  },
+  responses: {
+    201: { content: { "application/json": { schema: DataResponse } }, description: "Variants created (existing combinations skipped)." },
+    ...errorResponses,
+  },
+});

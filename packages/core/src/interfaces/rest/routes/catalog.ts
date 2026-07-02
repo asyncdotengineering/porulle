@@ -44,6 +44,8 @@ import {
   createOptionValueRoute,
   createVariantRoute,
   generateVariantsRoute,
+  quickVariantRoute,
+  bulkVariantsRoute,
 } from "../schemas/catalog.js";
 import {
   type AppEnv,
@@ -498,6 +500,38 @@ export function catalogRoutes(kernel: Kernel) {
   router.openapi(createVariantRoute, async (c) => {
     const result = await kernel.services.catalog.createVariant(
       { ...(c.req.valid("json") as Record<string, unknown>), entityId: c.req.param("id") } as CreateVariantInput,
+      c.get("actor"),
+    );
+    if (!result.ok)
+      return c.json(
+        mapErrorToResponse(result.error),
+        mapErrorToStatus(result.error),
+      );
+    return c.json({ data: result.value }, 201);
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(quickVariantRoute, async (c) => {
+    const body = c.req.valid("json") as { options: Record<string, string>; sku?: string; barcode?: string };
+    const result = await kernel.services.catalog.quickCreateVariant(
+      c.req.param("id"),
+      body,
+      c.get("actor"),
+    );
+    if (!result.ok)
+      return c.json(
+        mapErrorToResponse(result.error),
+        mapErrorToStatus(result.error),
+      );
+    return c.json({ data: result.value }, result.value.created ? 201 : 200);
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(bulkVariantsRoute, async (c) => {
+    const body = c.req.valid("json") as { axes: Array<{ name: string; values: string[] }>; skuPrefix?: string };
+    const result = await kernel.services.catalog.bulkCreateVariants(
+      c.req.param("id"),
+      body,
       c.get("actor"),
     );
     if (!result.ok)
