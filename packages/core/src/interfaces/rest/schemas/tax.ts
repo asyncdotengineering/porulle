@@ -78,3 +78,71 @@ export const deleteTaxRateRoute = createRoute({
     ...errorResponses,
   },
 });
+
+// ── Product tax classes (issue #57) ─────────────────────────────────────────
+
+export const CreateTaxClassBodySchema = z.object({
+  name: z.string().min(1).regex(/^[a-z][a-z0-9_-]*$/, "lowercase slug (e.g. standard, zero)"),
+  rateBps: z.number().int().nonnegative().openapi({ example: 1800, description: "Basis points: 1800 = 18%" }),
+  isDefault: z.boolean().optional().openapi({ description: "Lines with no taxClass use the default class." }),
+  isActive: z.boolean().optional(),
+}).openapi("CreateTaxClassRequest");
+
+export const UpdateTaxClassBodySchema = z.object({
+  name: z.string().min(1).regex(/^[a-z][a-z0-9_-]*$/).optional(),
+  rateBps: z.number().int().nonnegative().optional(),
+  isDefault: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+}).openapi("UpdateTaxClassRequest");
+
+const ClassIdParam = z.object({ id: z.uuid() });
+
+export const createTaxClassRoute = createRoute({
+  method: "post",
+  path: "/classes",
+  tags: ["Tax"],
+  summary: "Create a product tax class",
+  request: { body: { content: { "application/json": { schema: CreateTaxClassBodySchema } }, required: true } },
+  responses: {
+    201: { content: { "application/json": { schema: DataResponse } }, description: "Tax class created." },
+    ...errorResponses,
+  },
+});
+
+export const listTaxClassesRoute = createRoute({
+  method: "get",
+  path: "/classes",
+  tags: ["Tax"],
+  summary: "List product tax classes",
+  responses: {
+    200: { content: { "application/json": { schema: DataResponse } }, description: "Tax classes." },
+    ...errorResponses,
+  },
+});
+
+export const updateTaxClassRoute = createRoute({
+  method: "patch",
+  path: "/classes/{id}",
+  tags: ["Tax"],
+  summary: "Update a product tax class",
+  request: {
+    params: ClassIdParam,
+    body: { content: { "application/json": { schema: UpdateTaxClassBodySchema } }, required: true },
+  },
+  responses: {
+    200: { content: { "application/json": { schema: DataResponse } }, description: "Tax class updated." },
+    ...errorResponses,
+  },
+});
+
+export const deleteTaxClassRoute = createRoute({
+  method: "delete",
+  path: "/classes/{id}",
+  tags: ["Tax"],
+  summary: "Delete a product tax class",
+  request: { params: ClassIdParam },
+  responses: {
+    200: { content: { "application/json": { schema: DataResponse } }, description: "Tax class deleted." },
+    ...errorResponses,
+  },
+});

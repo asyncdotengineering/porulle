@@ -25,6 +25,9 @@ export const sellableEntities = pgTable(
       .notNull()
       .default("draft"),
     isVisible: boolean("is_visible").notNull().default(false),
+    // Tax class name (issue #57) — maps to tax_classes.name at checkout;
+    // a variant-level taxClass overrides this. Null = the org's default class.
+    taxClass: text("tax_class"),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -183,6 +186,8 @@ export const variants = pgTable("variants", {
     .notNull(),
   sku: text("sku").unique(),
   barcode: text("barcode"),
+  // Overrides the entity's taxClass when set (issue #57).
+  taxClass: text("tax_class"),
   status: text("status", { enum: ["active", "discontinued"] })
     .notNull()
     .default("active"),

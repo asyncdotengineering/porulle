@@ -4,6 +4,7 @@
 export interface PluginRepositoryRegistryShape {
   "appointments": Record<string, unknown>;
   "gift-cards": Record<string, unknown>;
+  "layaway": Record<string, unknown>;
   "loyalty": Record<string, unknown>;
   "marketplace": Record<string, unknown>;
   "notifications": Record<string, unknown>;

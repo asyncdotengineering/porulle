@@ -4,7 +4,7 @@ import type {
   DrizzleDatabase,
   DbOrTx,
 } from "../../../kernel/database/drizzle-db.js";
-import { orders, orderLineItems, orderRefunds, orderStatusHistory } from "../schema.js";
+import { orders, orderLineItems, orderNotes, orderRefunds, orderStatusHistory } from "../schema.js";
 import { customers } from "../../customers/schema.js";
 
 export interface OrderLookupRow {
@@ -28,6 +28,8 @@ export type OrderStatusHistory = typeof orderStatusHistory.$inferSelect;
 export type OrderStatusHistoryInsert = typeof orderStatusHistory.$inferInsert;
 export type OrderRefund = typeof orderRefunds.$inferSelect;
 export type OrderRefundInsert = typeof orderRefunds.$inferInsert;
+export type OrderNote = typeof orderNotes.$inferSelect;
+export type OrderNoteInsert = typeof orderNotes.$inferInsert;
 
 /**
  * OrdersRepository provides type-safe database operations for orders.
@@ -418,6 +420,38 @@ export class OrdersRepository {
       : ((result as { rows?: Record<string, unknown>[] }).rows ?? []);
     const total = rows[0]?.total;
     return typeof total === "bigint" ? Number(total) : ((total as number) ?? 0);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Order notes (issue #56)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  async createNote(data: OrderNoteInsert, ctx?: TxContext): Promise<OrderNote> {
+    const db = this.getDb(ctx);
+    const rows = await db.insert(orderNotes).values(data).returning();
+    return rows[0]!;
+  }
+
+  async findNotesByOrderId(orderId: string, ctx?: TxContext): Promise<OrderNote[]> {
+    const db = this.getDb(ctx);
+    return db
+      .select()
+      .from(orderNotes)
+      .where(eq(orderNotes.orderId, orderId))
+      .orderBy(desc(orderNotes.pinned), desc(orderNotes.createdAt));
+  }
+
+  async deleteNote(orgId: string, orderId: string, noteId: string, ctx?: TxContext): Promise<boolean> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .delete(orderNotes)
+      .where(and(
+        eq(orderNotes.id, noteId),
+        eq(orderNotes.orderId, orderId),
+        eq(orderNotes.organizationId, orgId),
+      ))
+      .returning();
+    return rows.length > 0;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

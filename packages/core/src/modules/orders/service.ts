@@ -32,6 +32,7 @@ import {
   OrdersRepository,
   type Order,
   type OrderLineItem,
+  type OrderNote,
   type OrderRefund,
   type OrderStatusHistory,
 } from "./repository/index.js";
@@ -995,6 +996,145 @@ export class OrderService {
       usedToday,
       remaining: policies.cap != null ? Math.max(0, policies.cap - usedToday) : null,
     });
+  }
+
+  // ── Order notes + activity timeline (issue #56) ─────────────────────────
+
+  private async requireOrderAccess(
+    orderId: string,
+    actor: Actor | null,
+    perm: "orders:read" | "orders:update",
+    ctx?: TxContext,
+  ): Promise<Result<Order>> {
+    try {
+      assertPermission(actor, perm);
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+    const orgId = resolveOrgId(actor);
+    const order = await this.repo.findById(orgId, orderId, ctx);
+    if (!order) return Err(new CommerceNotFoundError("Order not found."));
+    return Ok(order);
+  }
+
+  async addNote(
+    orderId: string,
+    input: { body: string; pinned?: boolean | undefined },
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<OrderNote>> {
+    const order = await this.requireOrderAccess(orderId, actor, "orders:update", ctx);
+    if (!order.ok) return order;
+    if (!input.body.trim()) {
+      return Err(new CommerceValidationError("Note body must not be empty."));
+    }
+    const note = await this.repo.createNote(
+      {
+        organizationId: order.value.organizationId,
+        orderId,
+        author: actor?.userId ?? "system",
+        body: input.body,
+        pinned: input.pinned ?? false,
+      },
+      ctx,
+    );
+    return Ok(note);
+  }
+
+  async listNotes(
+    orderId: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<OrderNote[]>> {
+    const order = await this.requireOrderAccess(orderId, actor, "orders:read", ctx);
+    if (!order.ok) return order;
+    return Ok(await this.repo.findNotesByOrderId(orderId, ctx));
+  }
+
+  async deleteNote(
+    orderId: string,
+    noteId: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<{ deleted: true }>> {
+    const order = await this.requireOrderAccess(orderId, actor, "orders:update", ctx);
+    if (!order.ok) return order;
+    const deleted = await this.repo.deleteNote(order.value.organizationId, orderId, noteId, ctx);
+    if (!deleted) return Err(new CommerceNotFoundError("Note not found."));
+    return Ok({ deleted: true });
+  }
+
+  /**
+   * One merged per-order activity view (issue #56): status history + operator
+   * notes + refund ledger events (both directions), newest first.
+   */
+  async timeline(
+    orderId: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<Array<{
+    type: "status" | "note" | "refund";
+    at: Date;
+    actor: string;
+    summary: string;
+    data: Record<string, unknown>;
+  }>>> {
+    const order = await this.requireOrderAccess(orderId, actor, "orders:read", ctx);
+    if (!order.ok) return order;
+
+    const [history, notes, refunds] = await Promise.all([
+      this.repo.findStatusHistoryByOrderId(orderId, ctx),
+      this.repo.findNotesByOrderId(orderId, ctx),
+      this.repo.findRefundsByOrderId(orderId, ctx),
+    ]);
+
+    const events: Array<{
+      type: "status" | "note" | "refund";
+      at: Date;
+      actor: string;
+      summary: string;
+      data: Record<string, unknown>;
+    }> = [];
+
+    for (const entry of history) {
+      events.push({
+        type: "status",
+        at: entry.changedAt,
+        actor: entry.changedBy,
+        summary: `Status ${entry.fromStatus} → ${entry.toStatus}${entry.reason ? ` (${entry.reason})` : ""}`,
+        data: { fromStatus: entry.fromStatus, toStatus: entry.toStatus, reason: entry.reason },
+      });
+    }
+    for (const note of notes) {
+      events.push({
+        type: "note",
+        at: note.createdAt,
+        actor: note.author,
+        summary: note.body,
+        data: { noteId: note.id, pinned: note.pinned },
+      });
+    }
+    for (const refund of refunds) {
+      events.push({
+        type: "refund",
+        at: refund.createdAt,
+        actor: refund.performedBy,
+        summary: `Refund of ${refund.amount}${refund.reason ? ` (${refund.reason})` : ""}`,
+        data: { refundId: refund.id, amount: refund.amount, lines: refund.lines, status: refund.status },
+      });
+      if (refund.status === "undone" && refund.undoneAt) {
+        events.push({
+          type: "refund",
+          at: refund.undoneAt,
+          actor: refund.undoneBy ?? "system",
+          summary: `Refund of ${refund.amount} undone`,
+          data: { refundId: refund.id, amount: refund.amount, undone: true },
+        });
+      }
+    }
+
+    events.sort((a, b) => b.at.getTime() - a.at.getTime());
+    return Ok(events);
   }
 
   /**

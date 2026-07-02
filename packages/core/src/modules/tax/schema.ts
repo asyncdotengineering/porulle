@@ -1,5 +1,29 @@
-import { boolean, index, integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, integer, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { organization } from "../../auth/auth-schema.js";
+
+/**
+ * Product tax classes (issue #57) — standard / reduced / zero-rated etc.
+ * Sellable entities and variants reference a class by name (`taxClass`
+ * column); checkout computes per-line tax from the class rate, with cart
+ * discounts pro-rated across lines first. Lines with no class use the org's
+ * default class (isDefault). When classes exist for an org they take
+ * precedence over region rates and the adapter for line taxation.
+ */
+export const taxClasses = pgTable("tax_classes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  // Basis points: 1000 = 10%
+  rateBps: integer("rate_bps").notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  orgNameUnique: uniqueIndex("tax_classes_org_name_unique").on(table.organizationId, table.name),
+}));
 
 /**
  * Runtime tax rates (issue #45).

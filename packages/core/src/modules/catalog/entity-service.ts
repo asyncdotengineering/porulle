@@ -212,7 +212,7 @@ export class EntityService {
     const afterHooks = this.deps.hooks.resolve("catalog.afterCreate") as CatalogCreateAfterHook[];
     const context: HookContext = createHookContext({ actor, tx: ctx?.tx ?? null, logger: createLogger("catalog.create"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database) });
     const processedInput = await runBeforeHooks(beforeHooks, input, "create", context);
-    const entity = await this.repo.createEntity({ organizationId: orgId, type: processedInput.type, slug: processedInput.slug, status: "draft", isVisible: false, metadata: processedInput.metadata ?? {} }, ctx);
+    const entity = await this.repo.createEntity({ organizationId: orgId, type: processedInput.type, slug: processedInput.slug, status: "draft", isVisible: false, ...(processedInput.taxClass !== undefined ? { taxClass: processedInput.taxClass } : {}), metadata: processedInput.metadata ?? {} }, ctx);
     if (processedInput.attributes) {
       await this.repo.createAttribute({ entityId: entity.id, locale: processedInput.attributes.locale ?? "en", title: processedInput.attributes.title, subtitle: processedInput.attributes.subtitle, description: processedInput.attributes.description, richDescription: processedInput.attributes.richDescription, seoTitle: processedInput.attributes.seoTitle, seoDescription: processedInput.attributes.seoDescription }, ctx);
     }
@@ -232,7 +232,7 @@ export class EntityService {
     const afterHooks = this.deps.hooks.resolve("catalog.afterUpdate") as CatalogUpdateAfterHook[];
     const context: HookContext = createHookContext({ actor, tx: ctx?.tx ?? null, logger: createLogger("catalog.update"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database) });
     const processed = await runBeforeHooks(beforeHooks, input, "update", context);
-    const updated = await this.repo.updateEntity(id, { ...(processed.slug !== undefined ? { slug: processed.slug } : {}), ...(processed.status !== undefined ? { status: processed.status as SellableEntity["status"] } : {}), ...(processed.metadata !== undefined ? { metadata: processed.metadata } : {}), ...(processed.isVisible !== undefined ? { isVisible: processed.isVisible } : {}) }, ctx);
+    const updated = await this.repo.updateEntity(id, { ...(processed.slug !== undefined ? { slug: processed.slug } : {}), ...(processed.status !== undefined ? { status: processed.status as SellableEntity["status"] } : {}), ...(processed.taxClass !== undefined ? { taxClass: processed.taxClass } : {}), ...(processed.metadata !== undefined ? { metadata: processed.metadata } : {}), ...(processed.isVisible !== undefined ? { isVisible: processed.isVisible } : {}) }, ctx);
     if (!updated) return Err(new CommerceNotFoundError("Entity not found."));
     const hookReport = await runAfterHooks(afterHooks, existing, updated, "update", context);
     const hydrated = await this.hydrateEntity(updated, undefined, ctx);
@@ -437,7 +437,7 @@ export class EntityService {
       if (!ov) return Err(new CommerceValidationError(`Option value "${optVal}" does not exist for option type "${optName}".`));
       optionValueIds.push(ov.id);
     }
-    const variant = await this.repo.createVariant({ entityId: input.entityId, status: "active", sortOrder: 0, metadata: {}, ...(input.sku !== undefined ? { sku: input.sku } : {}) }, ctx);
+    const variant = await this.repo.createVariant({ entityId: input.entityId, status: "active", sortOrder: 0, metadata: {}, ...(input.sku !== undefined ? { sku: input.sku } : {}), ...(input.taxClass !== undefined ? { taxClass: input.taxClass } : {}) }, ctx);
     await this.repo.createVariantOptionValues(optionValueIds.map((optionValueId) => ({ variantId: variant.id, optionValueId })), ctx);
     return Ok(variant);
   }

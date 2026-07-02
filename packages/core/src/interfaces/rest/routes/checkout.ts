@@ -194,6 +194,11 @@ export function checkoutRoutes(kernel: Kernel) {
             quantity: lineItem.quantity,
             unitPrice: lineItem.resolvedUnitPrice ?? 0,
             totalPrice: lineItem.resolvedTotal ?? 0,
+            // Per-line tax from product tax classes (issue #57)
+            taxAmount: lineItem.taxAmount ?? 0,
+            ...(lineItem.discountAmount !== undefined
+              ? { discountAmount: lineItem.discountAmount }
+              : {}),
           };
           return lineItem.variantId !== undefined
             ? { ...payload, variantId: lineItem.variantId }

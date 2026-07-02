@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { organization } from "../../auth/auth-schema.js";
 import { sellableEntities, variants } from "../catalog/schema.js";
 
@@ -84,6 +84,25 @@ export const orderRefunds = pgTable("order_refunds", {
 }, (table) => [
   index("idx_order_refunds_order_id").on(table.orderId),
   index("idx_order_refunds_org_performed_by").on(table.organizationId, table.performedBy, table.createdAt),
+]);
+
+/**
+ * Operator annotations on orders (issue #56) — "customer will pick up
+ * Thursday". Merged into GET /orders/{id}/timeline alongside status history
+ * and refund ledger events.
+ */
+export const orderNotes = pgTable("order_notes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  orderId: uuid("order_id")
+    .references(() => orders.id, { onDelete: "cascade" })
+    .notNull(),
+  author: text("author").notNull(),
+  body: text("body").notNull(),
+  pinned: boolean("pinned").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("idx_order_notes_order_id").on(table.orderId),
 ]);
 
 export const orderStatusHistory = pgTable("order_status_history", {

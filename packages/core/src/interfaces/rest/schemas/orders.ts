@@ -419,3 +419,68 @@ export const refundCapStatusRoute = createRoute({
     ...errorResponses,
   },
 });
+
+// ── Order notes + activity timeline (issue #56) ─────────────────────────────
+
+export const CreateOrderNoteBodySchema = z.object({
+  body: z.string().min(1).max(2000),
+  pinned: z.boolean().optional(),
+}).openapi("CreateOrderNoteRequest");
+
+const NoteParam = z.object({
+  id: z.uuid(),
+  noteId: z.uuid(),
+});
+
+const NoteDataResponse = z.object({ data: z.any() }).openapi("OrderNoteResponse");
+
+export const createOrderNoteRoute = createRoute({
+  method: "post",
+  path: "/{id}/notes",
+  tags: ["Orders"],
+  summary: "Add an operator note to an order",
+  request: {
+    params: OrderIdParam,
+    body: { content: { "application/json": { schema: CreateOrderNoteBodySchema } }, required: true },
+  },
+  responses: {
+    201: { content: { "application/json": { schema: NoteDataResponse } }, description: "Note created." },
+    ...errorResponses,
+  },
+});
+
+export const listOrderNotesRoute = createRoute({
+  method: "get",
+  path: "/{id}/notes",
+  tags: ["Orders"],
+  summary: "List an order's notes (pinned first)",
+  request: { params: OrderIdParam },
+  responses: {
+    200: { content: { "application/json": { schema: NoteDataResponse } }, description: "Notes." },
+    ...errorResponses,
+  },
+});
+
+export const deleteOrderNoteRoute = createRoute({
+  method: "delete",
+  path: "/{id}/notes/{noteId}",
+  tags: ["Orders"],
+  summary: "Delete an order note",
+  request: { params: NoteParam },
+  responses: {
+    200: { content: { "application/json": { schema: NoteDataResponse } }, description: "Note deleted." },
+    ...errorResponses,
+  },
+});
+
+export const orderTimelineRoute = createRoute({
+  method: "get",
+  path: "/{id}/timeline",
+  tags: ["Orders"],
+  summary: "Merged activity timeline: status changes + notes + refunds, newest first",
+  request: { params: OrderIdParam },
+  responses: {
+    200: { content: { "application/json": { schema: NoteDataResponse } }, description: "Timeline events." },
+    ...errorResponses,
+  },
+});

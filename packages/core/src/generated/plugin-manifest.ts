@@ -5,6 +5,7 @@
 export const resolvedPluginManifest = [
   { id: "appointments", directory: "plugin-appointments" },
   { id: "gift-cards", directory: "plugin-gift-cards" },
+  { id: "layaway", directory: "plugin-layaway" },
   { id: "loyalty", directory: "plugin-loyalty" },
   { id: "marketplace", directory: "plugin-marketplace" },
   { id: "notifications", directory: "plugin-notifications" },

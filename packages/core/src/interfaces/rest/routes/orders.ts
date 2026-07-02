@@ -1,6 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
-import { changeOrderStatusRoute, listOrdersRoute, orderLookupRoute, getOrderRoute, getOrderFulfillmentsRoute, createOrderRoute, refundOrderRoute, captureOrderRoute, createOrderFulfillmentRoute, addOrderLineItemRoute, updateOrderLineItemRoute, removeOrderLineItemRoute, refundOrderLinesRoute, undoOrderRefundRoute, listOrderRefundsRoute, refundCapStatusRoute } from "../schemas/orders.js";
+import { changeOrderStatusRoute, listOrdersRoute, orderLookupRoute, getOrderRoute, getOrderFulfillmentsRoute, createOrderRoute, refundOrderRoute, captureOrderRoute, createOrderFulfillmentRoute, addOrderLineItemRoute, updateOrderLineItemRoute, removeOrderLineItemRoute, refundOrderLinesRoute, undoOrderRefundRoute, listOrderRefundsRoute, refundCapStatusRoute, createOrderNoteRoute, listOrderNotesRoute, deleteOrderNoteRoute, orderTimelineRoute } from "../schemas/orders.js";
 import { type AppEnv, isUUID, mapErrorToResponse, mapErrorToStatus, parsePagination } from "../utils.js";
 import type { CreateOrderInput } from "../../../modules/orders/service.js";
 
@@ -78,6 +78,41 @@ export function orderRoutes(kernel: Kernel) {
       undefined,
       body?.amount !== undefined ? { amount: body.amount } : undefined,
     );
+    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    return c.json({ data: result.value });
+  });
+
+  // ── Notes + activity timeline (issue #56) ──────────────────────────
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(createOrderNoteRoute, async (c) => {
+    const body = c.req.valid("json") as { body: string; pinned?: boolean };
+    const result = await kernel.services.orders.addNote(c.req.param("id"), body, c.get("actor"));
+    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    return c.json({ data: result.value }, 201);
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(listOrderNotesRoute, async (c) => {
+    const result = await kernel.services.orders.listNotes(c.req.param("id"), c.get("actor"));
+    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    return c.json({ data: result.value });
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(deleteOrderNoteRoute, async (c) => {
+    const result = await kernel.services.orders.deleteNote(
+      c.req.param("id"),
+      c.req.param("noteId"),
+      c.get("actor"),
+    );
+    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    return c.json({ data: result.value });
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(orderTimelineRoute, async (c) => {
+    const result = await kernel.services.orders.timeline(c.req.param("id"), c.get("actor"));
     if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });

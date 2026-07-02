@@ -2,16 +2,16 @@ import type { CommerceConfig } from "../../config/types.js";
 import type { DrizzleDatabase } from "../../kernel/database/drizzle-db.js";
 import { defineModule } from "../../kernel/module/index.js";
 import { TaxRatesRepository } from "./repository/index.js";
-import { taxRates } from "./schema.js";
+import { taxClasses, taxRates } from "./schema.js";
 import { TaxService } from "./service.js";
 
 export const taxModule = defineModule<
-  { taxRates: typeof taxRates },
+  { taxRates: typeof taxRates; taxClasses: typeof taxClasses },
   TaxService,
   Record<string, never>
 >({
   id: "tax",
-  schema: () => ({ taxRates }),
+  schema: () => ({ taxRates, taxClasses }),
   service: (deps) =>
     new TaxService({
       adapter: (deps.config as CommerceConfig).tax?.adapter,

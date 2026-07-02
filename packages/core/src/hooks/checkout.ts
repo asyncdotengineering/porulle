@@ -359,28 +359,40 @@ export const calculateTax: BeforeHook<CheckoutData> = async ({
       currency: string;
       customerId?: string;
       shippingAmount: number;
+      orderDiscount?: number;
       fromAddress?: ShippingAddress;
       toAddress?: ShippingAddress;
       lineItems: Array<{
         id: string;
         entityId: string;
+        variantId?: string;
         description: string;
         quantity: number;
         unitPrice: number;
         discount?: number;
       }>;
     }, orgId?: string): Promise<
-      | { ok: true; value: { amountToCollect: number } }
+      | { ok: true; value: { amountToCollect: number; lines?: Array<{ id: string; taxClass: string | null; taxAmount: number }> } }
       | { ok: false; error: Error }
     >;
   };
 
+  // Cart-level discount not already attributed to lines — pro-rated across
+  // lines before class-based tax (issue #57).
+  const lineDiscounts = data.lineItems.reduce(
+    (sum, lineItem) => sum + (lineItem.discountAmount ?? 0),
+    0,
+  );
+  const orderDiscount = Math.max(0, data.discountTotal - lineDiscounts);
+
   const calculated = await tax.calculate({
     currency: data.currency,
     shippingAmount: data.shippingTotal,
+    orderDiscount,
     lineItems: data.lineItems.map((lineItem) => ({
       id: lineItem.id ?? `${lineItem.entityId}:${lineItem.variantId ?? "_"}`,
       entityId: lineItem.entityId,
+      ...(lineItem.variantId !== undefined ? { variantId: lineItem.variantId } : {}),
       description: lineItem.title ?? lineItem.entityId,
       quantity: lineItem.quantity,
       unitPrice: lineItem.resolvedUnitPrice ?? 0,
@@ -398,6 +410,14 @@ export const calculateTax: BeforeHook<CheckoutData> = async ({
     throw new CommerceValidationError(
       `Tax calculation failed: ${calculated.error.message}`,
     );
+  }
+
+  // Product tax classes return per-line results — store them so the order's
+  // line items carry taxAmount (issue #57). Lines arrive in request order.
+  if (calculated.value.lines) {
+    for (const [i, line] of calculated.value.lines.entries()) {
+      if (data.lineItems[i]) data.lineItems[i]!.taxAmount = line.taxAmount;
+    }
   }
 
   data.taxTotal = Math.max(0, Math.round(calculated.value.amountToCollect));

@@ -11,6 +11,8 @@ export interface TaxAddress {
 export interface TaxLineItem {
   id: string;
   entityId: string;
+  /** Variant reference — a variant-level taxClass overrides the entity's (issue #57). */
+  variantId?: string;
   description: string;
   quantity: number;
   unitPrice: number;
@@ -25,6 +27,11 @@ export interface TaxCalculationParams {
   fromAddress?: TaxAddress;
   toAddress?: TaxAddress;
   shippingAmount: number;
+  /**
+   * Cart-level discount not already reflected in per-line `discount` —
+   * pro-rated across lines before class-based tax (issue #57).
+   */
+  orderDiscount?: number;
   lineItems: TaxLineItem[];
 }
 
@@ -33,6 +40,8 @@ export interface TaxCalculationResult {
   taxableAmount: number;
   rate: number;
   breakdown?: Record<string, unknown>;
+  /** Per-line results when product tax classes computed the tax (issue #57). */
+  lines?: Array<{ id: string; taxClass: string | null; taxAmount: number }>;
 }
 
 export interface TaxReportParams {

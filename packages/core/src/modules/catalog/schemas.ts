@@ -6,6 +6,7 @@ export const CreateEntityBodySchema = z.object({
   type: z.string().openapi({ example: "physicalGood" }),
   slug: z.string().openapi({ example: "my-product" }),
   status: z.string().optional().openapi({ example: "draft" }),
+  taxClass: z.string().optional().openapi({ example: "standard", description: "Product tax class name (issue #57)." }),
   basePrice: z.number().optional().openapi({ example: 29.99 }),
   currency: z.string().optional().openapi({ example: "USD" }),
   metadata: z.record(z.string(), z.unknown()).optional().openapi({ example: { title: "My Product" } }),
@@ -24,6 +25,7 @@ export const CreateEntityBodySchema = z.object({
 export const UpdateEntityBodySchema = z.object({
   slug: z.string().optional(),
   status: z.string().optional(),
+  taxClass: z.string().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   isVisible: z.boolean().optional(),
 }).openapi("UpdateEntityBody");
@@ -69,6 +71,7 @@ export const CreateVariantBodySchema = z.object({
   sku: z.string().optional().openapi({ example: "SKU-001" }),
   options: z.record(z.string(), z.string()).openapi({ example: { Color: "Red" } }),
   price: z.number().optional().openapi({ example: 34.99 }),
+  taxClass: z.string().optional().openapi({ example: "zero", description: "Overrides the entity's tax class (issue #57)." }),
 }).openapi("CreateVariantBody");
 
 const VariantMatrixRuleSchema = z.object({
