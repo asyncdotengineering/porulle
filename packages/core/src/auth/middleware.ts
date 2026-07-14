@@ -172,29 +172,29 @@ export function authMiddleware(
         if (result?.valid && result.key) {
           const apiKey = result.key as Record<string, unknown>;
 
-          const scopeDef = configId && scopes ? scopes[configId] : undefined;
-          const orgOwnedKey = scopeDef?.references === "organization";
           const name = (apiKey.name ?? "API Key") as string;
-          const orgId = (orgOwnedKey
-            ? apiKey.referenceId
-            : (apiKey.organizationId ?? defaultOrgId)) as string;
-          let userId = (apiKey.referenceId ?? "") as string;
-          if (orgOwnedKey) {
-            const rawMeta = apiKey.metadata;
-            const meta =
-              rawMeta && typeof rawMeta === "object"
-                ? (rawMeta as Record<string, unknown>)
-                : typeof rawMeta === "string"
-                  ? (() => {
-                      try {
-                        return JSON.parse(rawMeta) as Record<string, unknown>;
-                      } catch {
-                        return null;
-                      }
-                    })()
-                  : null;
-            if (typeof meta?.operatorId === "string") userId = meta.operatorId;
-          }
+          // Read the org (and operator identity) from key metadata when present.
+          // POS shift keys carry { organizationId, operatorId } in metadata so the
+          // operator is scoped to their store WITHOUT any org membership/role
+          // (SEC-16 / R-01). Other keys fall back to the key's organizationId.
+          const rawMeta = apiKey.metadata;
+          const meta =
+            rawMeta && typeof rawMeta === "object"
+              ? (rawMeta as Record<string, unknown>)
+              : typeof rawMeta === "string"
+                ? (() => {
+                    try {
+                      return JSON.parse(rawMeta) as Record<string, unknown>;
+                    } catch {
+                      return null;
+                    }
+                  })()
+                : null;
+          const metaOrg = typeof meta?.organizationId === "string" ? meta.organizationId : undefined;
+          const orgId = (metaOrg ?? apiKey.organizationId ?? defaultOrgId) as string;
+          const userId = ((typeof meta?.operatorId === "string" ? meta.operatorId : undefined)
+            ?? apiKey.referenceId
+            ?? "") as string;
 
           // Better Auth stores permissions as Record<string, string[]>
           // (e.g. {"catalog":["read","create"]}).  Flatten to the

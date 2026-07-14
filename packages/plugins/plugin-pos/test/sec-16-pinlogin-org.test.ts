@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { eq } from "@porulle/core/drizzle";
-import { apikey, organization } from "@porulle/core/auth-schema";
+import { apikey, member, organization } from "@porulle/core/auth-schema";
 import type { PluginTestApp } from "@porulle/core/testing";
 import type { Actor } from "@porulle/core/testing";
 import {
@@ -93,9 +93,21 @@ describe("SEC-16 — pin-login API key carries operator organization", () => {
       .from(apikey)
       .where(eq(apikey.id, apiKeyId!));
     expect(keyRows).toHaveLength(1);
-    expect(keyRows[0]!.referenceId).toBe(STORE_ORG_ID);
-    expect(keyRows[0]!.referenceId).not.toBe(storeOperator.userId);
-    expect(keyRows[0]!.referenceId).not.toBe(DEFAULT_ORG_ID);
+    // SEC-16/R-01: user-referenced key (no org membership granted); the store
+    // org is carried on metadata and resolves at auth time (verified below).
+    const keyMeta = typeof keyRows[0]!.metadata === "string"
+      ? (JSON.parse(keyRows[0]!.metadata as string) as Record<string, unknown>)
+      : (keyRows[0]!.metadata as Record<string, unknown> | null);
+    expect(keyMeta?.organizationId).toBe(STORE_ORG_ID);
+    expect(keyMeta?.organizationId).not.toBe(DEFAULT_ORG_ID);
+    expect(keyRows[0]!.referenceId).toBe(storeOperator.userId);
+
+    // R-01: PIN login must NOT create any org membership / owner grant.
+    const memberRows = await db
+      .select()
+      .from(member)
+      .where(eq(member.userId, storeOperator.userId));
+    expect(memberRows).toHaveLength(0);
 
     const current = await app.request("http://localhost/api/pos/shifts/current", {
       method: "GET",

@@ -1,7 +1,7 @@
 import { eq, and } from "@porulle/core/drizzle";
 import { Ok, Err } from "@porulle/core";
 import type { PluginResult } from "@porulle/core";
-import { member, user } from "@porulle/core/auth-schema";
+import { user } from "@porulle/core/auth-schema";
 import { posOperatorPins, posPinAttempts, posShifts } from "../schema.js";
 import type { Db, OperatorPin, PinAttempt, Shift } from "../types.js";
 
@@ -79,11 +79,12 @@ export async function verifyPinHash(pin: string, encoded: string): Promise<boole
   return diff === 0;
 }
 
-async function ensureOperatorOrgMembership(
-  db: Db,
-  orgId: string,
-  operatorId: string,
-): Promise<void> {
+async function ensureOperatorUser(db: Db, operatorId: string): Promise<void> {
+  // SEC-16/R-01: ensure ONLY a user row exists so a user-referenced API key can
+  // be minted. We create NO org membership and grant NO role — better-auth's
+  // org-referenced keys require owner/admin (a cashier->owner escalation), so
+  // the key is user-referenced and carries the operator's store in metadata,
+  // read back by authMiddleware.
   const users = await db.select().from(user).where(eq(user.id, operatorId));
   if (users.length === 0) {
     await db.insert(user).values({
@@ -91,20 +92,6 @@ async function ensureOperatorOrgMembership(
       name: operatorId,
       email: `${operatorId}@pos.local`,
       emailVerified: true,
-    });
-  }
-
-  const members = await db
-    .select()
-    .from(member)
-    .where(and(eq(member.organizationId, orgId), eq(member.userId, operatorId)));
-  if (members.length === 0) {
-    await db.insert(member).values({
-      id: crypto.randomUUID(),
-      organizationId: orgId,
-      userId: operatorId,
-      role: "owner",
-      createdAt: new Date(),
     });
   }
 }
@@ -291,7 +278,7 @@ export class PinService {
       return Err("PIN login requires the Better Auth instance (plugin ctx.auth) — are routes mounted by createServer?");
     }
 
-    await ensureOperatorOrgMembership(this.db, orgId, input.operatorId);
+    await ensureOperatorUser(this.db, input.operatorId);
 
     const ttlSeconds = this.options.credentialTtlSeconds ?? 12 * 3600;
     let created: { key?: string; id?: string };
@@ -305,7 +292,7 @@ export class PinService {
           organizationId: orgId,
           expiresIn: ttlSeconds,
           permissions: { pos: ["operate"] },
-          metadata: { operatorId: input.operatorId },
+          metadata: { operatorId: input.operatorId, organizationId: orgId },
           // Shift/terminal binding is recorded on the shift row; the key name
           // carries the shift id for traceability.
           // The plugin registers this scope via its apiKeyScopes manifest.

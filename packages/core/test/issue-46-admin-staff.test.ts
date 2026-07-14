@@ -6,11 +6,18 @@ import {
   testActor,
   parseJsonResponse,
 } from "../src/test-utils/rest-api-test-utils.js";
-import { user } from "../src/auth/auth-schema.js";
+import { member, user } from "../src/auth/auth-schema.js";
+import { eq } from "drizzle-orm";
 
 const ownerActor: Actor = {
   ...testActor,
   role: "owner",
+  permissions: ["*:*"],
+};
+
+const adminActor: Actor = {
+  ...testActor,
+  role: "admin",
   permissions: ["*:*"],
 };
 
@@ -121,6 +128,43 @@ describe("Issue #46 — admin staff / RBAC REST", () => {
       actor: testActor,
     });
     expect(res.status).toBe(403);
+  });
+
+  it("SEC-18/R-02: an admin cannot demote or revoke an owner", async () => {
+    await kernel.database.db.insert(user).values({
+      id: "r02-owner",
+      name: "R02 Owner",
+      email: "r02-owner@example.com",
+      emailVerified: true,
+    });
+    const create = await makeRequest(server, {
+      method: "POST",
+      url: "http://localhost/api/admin/staff",
+      body: { userId: "r02-owner", role: "owner" },
+      actor: ownerActor,
+    });
+    expect(create.status).toBe(201);
+    const owner = (await parseJsonResponse<{ data: any }>(create)).data;
+
+    // admin (rank < owner) is rejected on rank BEFORE the last-owner guard.
+    const demote = await makeRequest(server, {
+      method: "PATCH",
+      url: `http://localhost/api/admin/staff/${owner.id}`,
+      body: { role: "admin" },
+      actor: adminActor,
+    });
+    expect(demote.status).toBe(403);
+
+    const revoke = await makeRequest(server, {
+      method: "DELETE",
+      url: `http://localhost/api/admin/staff/${owner.id}`,
+      actor: adminActor,
+    });
+    expect(revoke.status).toBe(403);
+
+    // Clean up the created owner directly (route revoke is blocked by the
+    // last-owner guard) so shared state doesn't affect the last-owner test.
+    await kernel.database.db.delete(member).where(eq(member.userId, "r02-owner"));
   });
 
   it("guards against removing or demoting the last owner", async () => {

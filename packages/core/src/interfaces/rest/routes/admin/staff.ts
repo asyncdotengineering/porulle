@@ -207,6 +207,10 @@ export function adminStaffRoutes(kernel: Kernel) {
       return c.json({ error: { code: "NOT_FOUND", message: "Staff member not found." } }, 404);
     }
 
+    // SEC-18/R-02: the actor must also outrank (or equal) the target's CURRENT
+    // role, else an admin could demote an owner they do not outrank.
+    if (!canGrantRole(actor!.role, target.role)) return insufficientPrivilege(c, target.role);
+
     if (target.role === "owner" && body.role !== "owner" && (await countOwners(orgId)) <= 1) {
       return c.json(
         { error: { code: "VALIDATION_FAILED", message: "Cannot demote the organization's last owner." } },
@@ -224,7 +228,8 @@ export function adminStaffRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(revokeStaffRoute, async (c) => {
-    const orgId = resolveOrgId(c.get("actor"));
+    const actor = c.get("actor");
+    const orgId = resolveOrgId(actor);
     const id = c.req.param("id");
 
     const rows = await db
@@ -235,6 +240,10 @@ export function adminStaffRoutes(kernel: Kernel) {
     if (!target) {
       return c.json({ error: { code: "NOT_FOUND", message: "Staff member not found." } }, 404);
     }
+
+    // SEC-18/R-02: the actor must outrank (or equal) the target's current role
+    // to revoke it — an admin cannot revoke an owner.
+    if (!canGrantRole(actor!.role, target.role)) return insufficientPrivilege(c, target.role);
 
     if (target.role === "owner" && (await countOwners(orgId)) <= 1) {
       return c.json(
