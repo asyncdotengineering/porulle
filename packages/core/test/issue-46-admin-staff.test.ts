@@ -1,4 +1,5 @@
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
+import type { Actor } from "../src/auth/types.js";
 import {
   createTestServer,
   makeRequest,
@@ -6,6 +7,12 @@ import {
   parseJsonResponse,
 } from "../src/test-utils/rest-api-test-utils.js";
 import { user } from "../src/auth/auth-schema.js";
+
+const ownerActor: Actor = {
+  ...testActor,
+  role: "owner",
+  permissions: ["*:*"],
+};
 
 // Issue #46 — the Better Auth member table existed but wasn't surfaced:
 // no admin REST to list staff, invite a teammate, assign a role, or revoke.
@@ -57,11 +64,11 @@ describe("Issue #46 — admin staff / RBAC REST", () => {
     const patch = await makeRequest(server, {
       method: "PATCH",
       url: `http://localhost/api/admin/staff/${memberRec.id}`,
-      body: { role: "admin" },
+      body: { role: "staff" },
       actor: testActor,
     });
     expect(patch.status).toBe(200);
-    expect((await parseJsonResponse<{ data: any }>(patch)).data.role).toBe("admin");
+    expect((await parseJsonResponse<{ data: any }>(patch)).data.role).toBe("staff");
 
     const del = await makeRequest(server, {
       method: "DELETE",
@@ -106,12 +113,22 @@ describe("Issue #46 — admin staff / RBAC REST", () => {
     expect(list.data.map((i: any) => i.email)).toContain("newhire@example.com");
   });
 
+  it("SEC-18: non-owner with staff:manage cannot promote to owner", async () => {
+    const res = await makeRequest(server, {
+      method: "POST",
+      url: "http://localhost/api/admin/staff",
+      body: { userId: "teammate-2", role: "owner" },
+      actor: testActor,
+    });
+    expect(res.status).toBe(403);
+  });
+
   it("guards against removing or demoting the last owner", async () => {
     const create = await makeRequest(server, {
       method: "POST",
       url: "http://localhost/api/admin/staff",
       body: { userId: "teammate-2", role: "owner" },
-      actor: testActor,
+      actor: ownerActor,
     });
     expect(create.status).toBe(201);
     const owner = (await parseJsonResponse<{ data: any }>(create)).data;
@@ -120,14 +137,14 @@ describe("Issue #46 — admin staff / RBAC REST", () => {
       method: "PATCH",
       url: `http://localhost/api/admin/staff/${owner.id}`,
       body: { role: "manager" },
-      actor: testActor,
+      actor: ownerActor,
     });
     expect(demote.status).toBe(422);
 
     const revoke = await makeRequest(server, {
       method: "DELETE",
       url: `http://localhost/api/admin/staff/${owner.id}`,
-      actor: testActor,
+      actor: ownerActor,
     });
     expect(revoke.status).toBe(422);
   });

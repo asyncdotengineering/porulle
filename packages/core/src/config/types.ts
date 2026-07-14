@@ -218,6 +218,11 @@ export interface AuthConfig {
    * Appended to the core plugin list (organization, bearer, jwt, etc.).
    */
   extraAuthPlugins?: unknown[];
+  /**
+   * When true (and NODE_ENV === "test"), the `x-test-actor` header may inject
+   * a trusted actor for integration tests. Default false.
+   */
+  allowTestActor?: boolean;
 }
 
 export interface CartConfig {

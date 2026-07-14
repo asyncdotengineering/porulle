@@ -64,6 +64,7 @@ export async function createTestConfig(
       provider: "postgresql",
     },
     auth: {
+      allowTestActor: true,
       defaultOrganizationId: "org_default",
       requireEmailVerification: false,
       apiKeys: { enabled: true, defaultPermissions: ["catalog:read"] },

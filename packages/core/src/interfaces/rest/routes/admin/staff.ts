@@ -55,6 +55,35 @@ export function adminStaffRoutes(kernel: Kernel) {
     );
   }
 
+  const BUILTIN_ROLE_RANK: Record<string, number> = {
+    owner: 3,
+    admin: 2,
+  };
+  const CUSTOM_ROLE_RANK = 1;
+
+  function roleRank(role: string): number {
+    return BUILTIN_ROLE_RANK[role] ?? CUSTOM_ROLE_RANK;
+  }
+
+  function canGrantRole(actorRole: string, targetRole: string): boolean {
+    return roleRank(actorRole) >= roleRank(targetRole);
+  }
+
+  function insufficientPrivilege(
+    c: { json: (d: unknown, s: number) => unknown },
+    targetRole: string,
+  ) {
+    return c.json(
+      {
+        error: {
+          code: "FORBIDDEN",
+          message: `Cannot assign role "${targetRole}": your role does not have sufficient privilege.`,
+        },
+      },
+      403,
+    );
+  }
+
   async function countOwners(orgId: string): Promise<number> {
     const rows = await db
       .select({ id: member.id })
@@ -83,9 +112,11 @@ export function adminStaffRoutes(kernel: Kernel) {
   // @ts-expect-error -- openapi handler union return type
   router.openapi(createStaffRoute, async (c) => {
     const body = c.req.valid("json") as { userId: string; role: string };
-    const orgId = resolveOrgId(c.get("actor"));
+    const actor = c.get("actor");
+    const orgId = resolveOrgId(actor);
 
     if (!validRoles().has(body.role)) return invalidRole(c, body.role);
+    if (!canGrantRole(actor!.role, body.role)) return insufficientPrivilege(c, body.role);
 
     const users = await db.select().from(user).where(eq(user.id, body.userId));
     if (users.length === 0) {
@@ -160,10 +191,12 @@ export function adminStaffRoutes(kernel: Kernel) {
   // @ts-expect-error -- openapi handler union return type
   router.openapi(updateStaffRoleRoute, async (c) => {
     const body = c.req.valid("json") as { role: string };
-    const orgId = resolveOrgId(c.get("actor"));
+    const actor = c.get("actor");
+    const orgId = resolveOrgId(actor);
     const id = c.req.param("id");
 
     if (!validRoles().has(body.role)) return invalidRole(c, body.role);
+    if (!canGrantRole(actor!.role, body.role)) return insufficientPrivilege(c, body.role);
 
     const rows = await db
       .select()

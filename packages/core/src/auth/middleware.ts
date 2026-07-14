@@ -43,10 +43,10 @@ export function authMiddleware(
     // Resolve the default org from config, falling back to deprecated constant
     const defaultOrgId = config.auth?.defaultOrganizationId ?? DEFAULT_ORG_ID;
 
-    // Test-only actor injection: NODE_ENV === "test" honors x-test-actor for
-    // route-level integration tests that bypass the Better Auth session
-    // round-trip. Production/non-test environments ignore this header entirely.
-    if (process.env.NODE_ENV === "test") {
+    // Test-only actor injection: requires NODE_ENV === "test" AND an explicit
+    // config opt-in so staging/preview deployments left as NODE_ENV=test do not
+    // silently become a full auth bypass.
+    if (process.env.NODE_ENV === "test" && config.auth?.allowTestActor) {
       const testActorHeader = c.req.header("x-test-actor");
       if (testActorHeader) {
         try {

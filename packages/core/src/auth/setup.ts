@@ -7,13 +7,13 @@ import type { CommerceConfig } from "../config/types.js";
 import type { DatabaseAdapter } from "../kernel/database/adapter.js";
 import * as authSchema from "./auth-schema.js";
 
-type BetterAuthDbProvider = "pg" | "mysql" | "sqlite";
+type BetterAuthDbProvider = "pg";
 
 function resolveAuthDbProvider(provider: string): BetterAuthDbProvider {
   if (provider === "postgres" || provider === "postgresql" || provider === "pg") return "pg";
-  if (provider === "mysql") return "mysql";
-  if (provider === "sqlite") return "sqlite";
-  throw new Error(`Unsupported auth database provider "${provider}".`);
+  throw new Error(
+    `Unsupported auth database provider "${provider}". Only PostgreSQL is supported.`,
+  );
 }
 
 interface AuthEmailPayload {
