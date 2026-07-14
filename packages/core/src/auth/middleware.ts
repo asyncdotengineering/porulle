@@ -172,10 +172,29 @@ export function authMiddleware(
         if (result?.valid && result.key) {
           const apiKey = result.key as Record<string, unknown>;
 
-          // v1.5+ renamed userId → referenceId on the apikey table.
-          const userId = (apiKey.referenceId ?? "") as string;
+          const scopeDef = configId && scopes ? scopes[configId] : undefined;
+          const orgOwnedKey = scopeDef?.references === "organization";
           const name = (apiKey.name ?? "API Key") as string;
-          const orgId = (apiKey.organizationId ?? defaultOrgId) as string;
+          const orgId = (orgOwnedKey
+            ? apiKey.referenceId
+            : (apiKey.organizationId ?? defaultOrgId)) as string;
+          let userId = (apiKey.referenceId ?? "") as string;
+          if (orgOwnedKey) {
+            const rawMeta = apiKey.metadata;
+            const meta =
+              rawMeta && typeof rawMeta === "object"
+                ? (rawMeta as Record<string, unknown>)
+                : typeof rawMeta === "string"
+                  ? (() => {
+                      try {
+                        return JSON.parse(rawMeta) as Record<string, unknown>;
+                      } catch {
+                        return null;
+                      }
+                    })()
+                  : null;
+            if (typeof meta?.operatorId === "string") userId = meta.operatorId;
+          }
 
           // Better Auth stores permissions as Record<string, string[]>
           // (e.g. {"catalog":["read","create"]}).  Flatten to the

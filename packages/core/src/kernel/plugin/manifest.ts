@@ -158,6 +158,9 @@ export interface CommercePluginManifest {
     permissions?: Record<string, string[]>;
     /** Expiry bounds in DAYS (fractions allowed — 1/24 = one hour). */
     keyExpiration?: { minExpiresIn?: number; maxExpiresIn?: number };
+    /** Better Auth ownership model for keys minted under this scope. */
+    references?: "user" | "organization";
+    enableMetadata?: boolean;
   }>;
 }
 

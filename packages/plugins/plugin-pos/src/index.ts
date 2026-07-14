@@ -100,6 +100,8 @@ export function posPlugin(userOptions: POSPluginOptions = {}) {
         prefix: "pos_shift_",
         description: "Short-lived per-shift POS credentials minted by PIN login.",
         permissions: { pos: ["operate"] },
+        references: "organization",
+        enableMetadata: true,
         // Allow credentials as short as 15 minutes (Better Auth default
         // minimum is 1 day — too long for per-shift keys).
         keyExpiration: { minExpiresIn: 1 / 96 },

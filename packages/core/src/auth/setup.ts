@@ -91,6 +91,12 @@ export function createAuth(
           }
         : {}),
       ...(scope.keyExpiration ? { keyExpiration: scope.keyExpiration } : {}),
+      ...("references" in scope && scope.references
+        ? { references: scope.references as "user" | "organization" }
+        : {}),
+      ...(scope.enableMetadata || scope.references === "organization"
+        ? { enableMetadata: true }
+        : {}),
     }));
     plugins.push(apiKey(apiKeyConfigs));
   } else if (config.auth?.apiKeys?.enabled) {

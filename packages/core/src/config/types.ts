@@ -113,6 +113,10 @@ export interface ApiKeyScopeDefinition {
     minExpiresIn?: number;
     maxExpiresIn?: number;
   };
+  /** Better Auth ownership model — POS shift keys bind to an organization. */
+  references?: "user" | "organization";
+  /** Allow metadata on keys minted under this scope (e.g. operatorId on POS shift keys). */
+  enableMetadata?: boolean;
 }
 
 export interface AuthConfig {

@@ -1,6 +1,7 @@
 import { eq, and } from "@porulle/core/drizzle";
 import { Ok, Err } from "@porulle/core";
 import type { PluginResult } from "@porulle/core";
+import { member, user } from "@porulle/core/auth-schema";
 import { posOperatorPins, posShifts } from "../schema.js";
 import type { Db, OperatorPin, Shift } from "../types.js";
 
@@ -68,6 +69,36 @@ export async function verifyPinHash(pin: string, encoded: string): Promise<boole
   let diff = 0;
   for (let i = 0; i < actual.length; i++) diff |= actual[i]! ^ expected[i]!;
   return diff === 0;
+}
+
+async function ensureOperatorOrgMembership(
+  db: Db,
+  orgId: string,
+  operatorId: string,
+): Promise<void> {
+  const users = await db.select().from(user).where(eq(user.id, operatorId));
+  if (users.length === 0) {
+    await db.insert(user).values({
+      id: operatorId,
+      name: operatorId,
+      email: `${operatorId}@pos.local`,
+      emailVerified: true,
+    });
+  }
+
+  const members = await db
+    .select()
+    .from(member)
+    .where(and(eq(member.organizationId, orgId), eq(member.userId, operatorId)));
+  if (members.length === 0) {
+    await db.insert(member).values({
+      id: crypto.randomUUID(),
+      organizationId: orgId,
+      userId: operatorId,
+      role: "owner",
+      createdAt: new Date(),
+    });
+  }
 }
 
 export class PinService {
@@ -166,22 +197,31 @@ export class PinService {
       return Err("PIN login requires the Better Auth instance (plugin ctx.auth) — are routes mounted by createServer?");
     }
 
+    await ensureOperatorOrgMembership(this.db, orgId, input.operatorId);
+
     const ttlSeconds = this.options.credentialTtlSeconds ?? 12 * 3600;
-    const created = (await auth.api.createApiKey({
-      body: {
-        // Better Auth caps name length at 32; the full shift id lives on the
-        // shift row (metadata.pinLoginApiKeyId links back).
-        name: `pos-shift-${shift.id.slice(0, 8)}`,
-        userId: input.operatorId,
-        expiresIn: ttlSeconds,
-        permissions: { pos: ["operate"] },
-        // Shift/terminal binding is recorded on the shift row (metadata is
-        // disabled by default in Better Auth's apiKey plugin); the key name
-        // carries the shift id for traceability.
-        // The plugin registers this scope via its apiKeyScopes manifest.
-        configId: this.options.apiKeyScope ?? "pos",
-      },
-    })) as { key?: string; id?: string };
+    let created: { key?: string; id?: string };
+    try {
+      created = (await auth.api.createApiKey({
+        body: {
+          // Better Auth caps name length at 32; the full shift id lives on the
+          // shift row (metadata.pinLoginApiKeyId links back).
+          name: `pos-shift-${shift.id.slice(0, 8)}`,
+          userId: input.operatorId,
+          organizationId: orgId,
+          expiresIn: ttlSeconds,
+          permissions: { pos: ["operate"] },
+          metadata: { operatorId: input.operatorId },
+          // Shift/terminal binding is recorded on the shift row; the key name
+          // carries the shift id for traceability.
+          // The plugin registers this scope via its apiKeyScopes manifest.
+          configId: this.options.apiKeyScope ?? "pos",
+        },
+      })) as { key?: string; id?: string };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to mint shift credential";
+      return Err(message);
+    }
     if (!created?.key) return Err("Failed to mint shift credential");
 
     // Record the credential on the shift so admins can trace/revoke it.
