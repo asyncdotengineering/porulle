@@ -20,6 +20,7 @@ describe("POS exchanges (issue #53)", () => {
   let terminalId: string;
   let shiftId: string;
   let entityId: string;
+  let premiumEntityId: string;
 
   // Exchange touches core orders, so the actor carries order scopes too.
   const exchangeActor: Actor = {
@@ -30,6 +31,7 @@ describe("POS exchanges (issue #53)", () => {
       "orders:read",
       "orders:update",
       "catalog:create",
+      "pricing:manage",
     ],
   };
 
@@ -62,6 +64,21 @@ describe("POS exchanges (issue #53)", () => {
     );
     expect(entity.ok).toBe(true);
     entityId = entity.value.id;
+
+    const premium = await (kernel.services as any).catalog.create(
+      { type: "product", slug: `e53-premium-${Date.now()}`, metadata: { title: "Saree Premium" } },
+      exchangeActor,
+    );
+    expect(premium.ok).toBe(true);
+    premiumEntityId = premium.value.id;
+
+    for (const [id, amount] of [[entityId, 1000], [premiumEntityId, 1500]] as const) {
+      const price = await (kernel.services as any).pricing.setBasePrice(
+        { entityId: id, currency: "USD", amount },
+        exchangeActor,
+      );
+      expect(price.ok).toBe(true);
+    }
 
     const t = await app.request("http://localhost/api/pos/terminals", {
       method: "POST",
@@ -143,7 +160,7 @@ describe("POS exchanges (issue #53)", () => {
         ],
         // More expensive replacement: 1500 vs 1100 returned → customer owes 400
         replacementItems: [
-          { entityId, title: "Saree XL Premium", quantity: 1, unitPrice: 1500 },
+          { entityId: premiumEntityId, title: "Saree XL Premium", quantity: 1, unitPrice: 1 },
         ],
       }),
     });

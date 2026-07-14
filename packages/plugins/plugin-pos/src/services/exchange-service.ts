@@ -40,6 +40,19 @@ export interface ExchangeInput {
   }>;
 }
 
+interface PricingService {
+  resolve(
+    input: {
+      entityId: string;
+      variantId?: string | undefined;
+      currency: string;
+      quantity: number;
+    },
+    actor: unknown,
+    ctx?: unknown,
+  ): Promise<{ ok: boolean; value?: { finalAmount: number }; error?: { message?: string } }>;
+}
+
 interface CoreOrdersService {
   refundLines(
     orderId: string,
@@ -79,15 +92,37 @@ export class ExchangeService {
     if (input.replacementItems.length === 0) return Err("At least one replacement item is required");
 
     const orders = this.services.orders as CoreOrdersService;
+    const pricing = this.services.pricing as PricingService;
     const currency = input.currency ?? "USD";
-
-    const subtotal = input.replacementItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
-    const taxTotal = input.replacementItems.reduce((sum, i) => sum + (i.taxAmount ?? 0), 0);
-    const replacementTotal = subtotal + taxTotal;
 
     // Atomic core half: refund the returned lines + create the replacement.
     const core = await this.transaction(async (tx) => {
       const txCtx = { tx, actor };
+
+      const pricedReplacements: Array<ExchangeInput["replacementItems"][number] & { unitPrice: number }> = [];
+      for (const item of input.replacementItems) {
+        const resolved = await pricing.resolve(
+          {
+            entityId: item.entityId,
+            currency,
+            quantity: item.quantity,
+            ...(item.variantId ? { variantId: item.variantId } : {}),
+          },
+          actor,
+          txCtx,
+        );
+        if (!resolved.ok || !resolved.value) {
+          throw new Error(
+            resolved.error?.message ?? `Cannot resolve price for replacement item ${item.entityId}`,
+          );
+        }
+        pricedReplacements.push({ ...item, unitPrice: resolved.value.finalAmount });
+      }
+
+      const subtotal = pricedReplacements.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
+      const taxTotal = pricedReplacements.reduce((sum, i) => sum + (i.taxAmount ?? 0), 0);
+      const replacementTotal = subtotal + taxTotal;
+
       const refund = await orders.refundLines(
         input.originalOrderId,
         {
@@ -118,7 +153,7 @@ export class ExchangeService {
               refundId: refund.value.refund.id,
             },
           },
-          lineItems: input.replacementItems.map((item) => ({
+          lineItems: pricedReplacements.map((item) => ({
             entityId: item.entityId,
             entityType: "product",
             ...(item.variantId ? { variantId: item.variantId } : {}),
@@ -136,13 +171,19 @@ export class ExchangeService {
       if (!replacement.ok || !replacement.value) {
         throw new Error(replacement.error?.message ?? "Replacement order creation failed");
       }
-      return { refund: refund.value.refund, replacementOrder: replacement.value };
+      return {
+        refund: refund.value.refund,
+        replacementOrder: replacement.value,
+        subtotal,
+        taxTotal,
+        replacementTotal,
+      };
     }).catch((error: unknown) => error as Error);
 
     if (core instanceof Error) return Err(core.message);
 
     const returnTotal = core.refund.amount;
-    const netDelta = replacementTotal - returnTotal;
+    const netDelta = core.replacementTotal - returnTotal;
 
     // POS bookkeeping (post-commit): cart + exchange transaction + return rows.
     const cart = this.services.cart as {
@@ -178,8 +219,8 @@ export class ExchangeService {
     );
 
     await this.transactionService.updateTotals(txn.id, {
-      subtotal,
-      taxTotal,
+      subtotal: core.subtotal,
+      taxTotal: core.taxTotal,
       total: netDelta,
       discountTotal: 0,
     });
@@ -194,7 +235,7 @@ export class ExchangeService {
             refundId: core.refund.id,
             replacementOrderId: core.replacementOrder.id,
             returnTotal,
-            replacementTotal,
+            replacementTotal: core.replacementTotal,
             netDelta,
           },
         },
@@ -220,7 +261,7 @@ export class ExchangeService {
       refundId: core.refund.id,
       returnTotal,
       replacementOrderId: core.replacementOrder.id,
-      replacementTotal,
+      replacementTotal: core.replacementTotal,
       netDelta,
     });
   }
