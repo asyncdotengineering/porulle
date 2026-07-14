@@ -5,7 +5,7 @@
  * checkout.afterCreate: Updates POS transaction with orderId, increments shift counters.
  */
 
-import { eq, sql } from "@porulle/core/drizzle";
+import { eq, and, sql } from "@porulle/core/drizzle";
 import { posTransactions, posShifts } from "../schema.js";
 import type { Db } from "../types.js";
 
@@ -79,6 +79,13 @@ export function buildPOSFinalizationHook(getDb: () => Db) {
       // Increment shift sales counters
       const posShiftId = metadata?.posShiftId as string | undefined;
       if (posShiftId) {
+        const txnRows = await db
+          .select({ organizationId: posTransactions.organizationId })
+          .from(posTransactions)
+          .where(eq(posTransactions.id, posTransactionId));
+        const orgId = txnRows[0]?.organizationId;
+        if (!orgId) return;
+
         await db
           .update(posShifts)
           .set({
@@ -86,7 +93,7 @@ export function buildPOSFinalizationHook(getDb: () => Db) {
             salesTotal: sql`${posShifts.salesTotal} + ${result.grandTotal ?? 0}`,
             updatedAt: new Date(),
           })
-          .where(eq(posShifts.id, posShiftId));
+          .where(and(eq(posShifts.id, posShiftId), eq(posShifts.organizationId, orgId)));
       }
     },
   };

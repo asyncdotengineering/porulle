@@ -16,7 +16,7 @@
  */
 
 import { eq, and, sql } from "@porulle/core/drizzle";
-import { Ok } from "@porulle/core";
+import { Ok, Err } from "@porulle/core";
 import type { PluginResult } from "@porulle/core";
 import { posRecipes, posRecipeIngredients } from "../schema.js";
 import type { Db } from "../types.js";
@@ -117,12 +117,34 @@ export class RecipeDeductionService {
     referenceType: string,
     referenceId: string,
     performedBy: string,
+    orgId?: string,
   ): Promise<PluginResult<number>> {
     if (this.inventorySvc) {
       return this.applyViaService(deductions, warehouseId, performedBy);
     }
 
-    return this.applyViaRawSQL(tx, deductions, warehouseId, referenceType, referenceId, performedBy);
+    const resolvedOrgId = orgId ?? await this.resolveOrgIdFromWarehouse(tx, warehouseId);
+    if (!resolvedOrgId) return Err("Warehouse not found");
+
+    return this.applyViaRawSQL(
+      tx,
+      deductions,
+      warehouseId,
+      referenceType,
+      referenceId,
+      performedBy,
+      resolvedOrgId,
+    );
+  }
+
+  private async resolveOrgIdFromWarehouse(tx: Db, warehouseId: string): Promise<string | null> {
+    const result = await tx.execute(
+      sql`SELECT organization_id FROM warehouses WHERE id = ${warehouseId} LIMIT 1`,
+    );
+    const rows = Array.isArray(result)
+      ? result as Array<{ organization_id: string }>
+      : (result as { rows: Array<{ organization_id: string }> }).rows;
+    return rows[0]?.organization_id ?? null;
   }
 
   /**
@@ -180,6 +202,7 @@ export class RecipeDeductionService {
     referenceType: string,
     referenceId: string,
     performedBy: string,
+    orgId: string,
   ): Promise<PluginResult<number>> {
     let applied = 0;
     // PluginDb (PgDatabase) has .execute() — no cast needed
@@ -195,6 +218,7 @@ export class RecipeDeductionService {
         sql`UPDATE inventory_levels
             SET quantity_on_hand = quantity_on_hand - ${d.quantity}, updated_at = NOW()
             WHERE entity_id = ${d.entityId} AND warehouse_id = ${warehouseId} AND ${variantClause}
+              AND organization_id = ${orgId}
               AND quantity_on_hand >= ${d.quantity}
             RETURNING quantity_on_hand`,
       );
@@ -202,15 +226,15 @@ export class RecipeDeductionService {
       const rows = Array.isArray(updateResult) ? updateResult : (updateResult as { rows: unknown[] }).rows;
       if (rows.length === 0) {
         await exec.execute(
-          sql`INSERT INTO inventory_movements (entity_id, variant_id, warehouse_id, type, quantity, reference_type, reference_id, reason, performed_by)
-              VALUES (${d.entityId}, ${d.variantId}, ${warehouseId}, 'sale', ${0}, ${referenceType}, ${referenceId}, ${"SKIPPED: insufficient stock for " + d.reason}, ${performedBy})`,
+          sql`INSERT INTO inventory_movements (entity_id, variant_id, warehouse_id, organization_id, type, quantity, reference_type, reference_id, reason, performed_by)
+              VALUES (${d.entityId}, ${d.variantId}, ${warehouseId}, ${orgId}, 'sale', ${0}, ${referenceType}, ${referenceId}, ${"SKIPPED: insufficient stock for " + d.reason}, ${performedBy})`,
         );
         continue;
       }
 
       await exec.execute(
-        sql`INSERT INTO inventory_movements (entity_id, variant_id, warehouse_id, type, quantity, reference_type, reference_id, reason, performed_by)
-            VALUES (${d.entityId}, ${d.variantId}, ${warehouseId}, 'sale', ${-d.quantity}, ${referenceType}, ${referenceId}, ${d.reason}, ${performedBy})`,
+        sql`INSERT INTO inventory_movements (entity_id, variant_id, warehouse_id, organization_id, type, quantity, reference_type, reference_id, reason, performed_by)
+            VALUES (${d.entityId}, ${d.variantId}, ${warehouseId}, ${orgId}, 'sale', ${-d.quantity}, ${referenceType}, ${referenceId}, ${d.reason}, ${performedBy})`,
       );
 
       applied++;

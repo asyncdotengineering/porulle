@@ -123,7 +123,7 @@ export class LoyaltyService {
 
     await this.db.update(loyaltyRedemptionOffers)
       .set({ timesRedeemed: sql`${loyaltyRedemptionOffers.timesRedeemed} + 1`, updatedAt: new Date() })
-      .where(eq(loyaltyRedemptionOffers.id, offerId));
+      .where(and(eq(loyaltyRedemptionOffers.id, offerId), eq(loyaltyRedemptionOffers.organizationId, orgId)));
 
     return Ok({ offer, remainingPoints: redeemResult.value.points });
   }

@@ -175,7 +175,7 @@ export class KDSService {
         ));
 
       const ticketType = existingTickets.length > 0 ? "modified" : "new_order";
-      const ticketNumber = await this.generateTicketNumber(station.id);
+      const ticketNumber = await this.generateTicketNumber(orgId, station.id);
 
       const ticketRows = await this.db
         .insert(kdsTickets)
@@ -321,7 +321,7 @@ export class KDSService {
 
   // ─── Helpers ───────────────────────────────────────────────────────
 
-  private async generateTicketNumber(stationId: string): Promise<string> {
+  private async generateTicketNumber(orgId: string, stationId: string): Promise<string> {
     const today = new Date();
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const startOfDayISO = startOfDay.toISOString();
@@ -330,6 +330,7 @@ export class KDSService {
       .select({ count: sql<number>`COUNT(*)`.as("count") })
       .from(kdsTickets)
       .where(and(
+        eq(kdsTickets.organizationId, orgId),
         eq(kdsTickets.stationId, stationId),
         sql`${kdsTickets.createdAt} >= ${startOfDayISO}::timestamptz`,
       ));

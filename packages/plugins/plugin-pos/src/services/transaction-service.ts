@@ -25,7 +25,7 @@ export class TransactionService {
       .where(and(eq(posShifts.id, input.shiftId), eq(posShifts.status, "open")));
     if (shifts.length === 0) return Err("Shift is not open");
 
-    const receiptNumber = await this.generateReceiptNumber(input.terminalId);
+    const receiptNumber = await this.generateReceiptNumber(orgId, input.terminalId);
 
     const rows = await this.db
       .insert(posTransactions)
@@ -121,7 +121,7 @@ export class TransactionService {
       await tx
         .update(posShifts)
         .set({ voidsCount: sql`${posShifts.voidsCount} + 1`, updatedAt: new Date() })
-        .where(eq(posShifts.id, txn.shiftId));
+        .where(and(eq(posShifts.id, txn.shiftId), eq(posShifts.organizationId, orgId)));
 
       return Ok(updated[0]!);
     });
@@ -207,7 +207,7 @@ export class TransactionService {
             salesTotal: sql`${posShifts.salesTotal} + ${paymentTotal}`,
             updatedAt: new Date(),
           })
-          .where(eq(posShifts.id, txn.shiftId));
+          .where(and(eq(posShifts.id, txn.shiftId), eq(posShifts.organizationId, txn.organizationId)));
       }
 
       return Ok(txn);
@@ -219,7 +219,7 @@ export class TransactionService {
   // ─── Receipt Number Generation ─────────────────────────────────────
   // Sequential per terminal per day: {terminal_code}-{sequence}
 
-  private async generateReceiptNumber(terminalId: string): Promise<string> {
+  private async generateReceiptNumber(orgId: string, terminalId: string): Promise<string> {
     const today = new Date();
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const startOfDayISO = startOfDay.toISOString();
@@ -238,6 +238,7 @@ export class TransactionService {
       .select({ count: sql<number>`COUNT(*)`.as("count") })
       .from(posTransactions)
       .where(and(
+        eq(posTransactions.organizationId, orgId),
         eq(posTransactions.terminalId, terminalId),
         sql`${posTransactions.createdAt} >= ${startOfDayISO}::timestamptz`,
       ));
