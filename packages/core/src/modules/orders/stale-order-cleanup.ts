@@ -1,6 +1,20 @@
-import { eq, and, lt, sql } from "drizzle-orm";
+import { eq, and, lt } from "drizzle-orm";
+import type { Actor } from "../../auth/types.js";
 import { orders } from "./schema.js";
-import type { TaskDefinition, TaskContext } from "../../kernel/jobs/types.js";
+import type { TaskDefinition } from "../../kernel/jobs/types.js";
+
+function systemActorForOrg(organizationId: string): Actor {
+  return {
+    type: "user",
+    userId: "system",
+    email: null,
+    name: "System",
+    vendorId: null,
+    organizationId,
+    role: "admin",
+    permissions: ["*:*"],
+  };
+}
 
 /**
  * Stale Order Cleanup Task
@@ -46,14 +60,14 @@ export const staleOrderCleanupTask: TaskDefinition<
 
     // Cancel each stale order via the service (triggers inventory release + payment refund)
     const orderService = ctx.services.orders as {
-      cancel(orderId: string, actor: null, reason: string): Promise<unknown>;
+      cancel(orderId: string, actor: Actor | null, reason: string): Promise<unknown>;
     };
 
     for (const order of staleOrders) {
       try {
         await orderService.cancel(
           order.id,
-          null,
+          systemActorForOrg(order.organizationId),
           `Auto-cancelled: pending for >${thresholdHours}h`,
         );
         cancelledIds.push(order.id);

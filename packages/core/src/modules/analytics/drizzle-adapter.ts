@@ -216,6 +216,17 @@ export class DrizzleAnalyticsAdapter implements AnalyticsAdapter {
       }
     }
 
+    // Validate that requested time dimensions exist in the cube
+    for (const td of params.timeDimensions ?? []) {
+      const shortName = td.dimension.split(".")[1];
+      if (shortName && !cube.dimensions[shortName]) {
+        const available = Object.keys(cube.dimensions).map((d) => `${cubeName}.${d}`).join(", ");
+        return Err(new CommerceValidationError(
+          `Unknown time dimension: "${td.dimension}". Available dimensions for ${cubeName}: ${available}`,
+        ));
+      }
+    }
+
     try {
       const rows = await this.executeQuery(cube, params, scope);
       return Ok({
@@ -330,14 +341,17 @@ export class DrizzleAnalyticsAdapter implements AnalyticsAdapter {
       const shortName = dim.split(".")[1]!;
       const dimDef = cube.dimensions[shortName];
       if (!dimDef) continue;
-      selectParts.push(sql.raw(`${dimDef.sql} AS "${dim}"`));
+      const alias = `${cube.name}.${shortName}`;
+      selectParts.push(sql.raw(`${dimDef.sql} AS "${alias}"`));
       groupByParts.push(sql.raw(dimDef.sql));
     }
 
     // Time dimensions → SELECT + GROUP BY + WHERE (dateRange)
     for (const td of params.timeDimensions ?? []) {
+      const shortName = td.dimension.split(".")[1]!;
       const selectExpr = compileTimeDimensionSelect(cube, td);
-      selectParts.push(sql`${selectExpr} AS ${sql.raw(`"${td.dimension}"`)}`);
+      const alias = `${cube.name}.${shortName}`;
+      selectParts.push(sql`${selectExpr} AS ${sql.raw(`"${alias}"`)}`);
       groupByParts.push(selectExpr);
 
       // Date range filter
@@ -357,7 +371,9 @@ export class DrizzleAnalyticsAdapter implements AnalyticsAdapter {
 
     // Measures → SELECT
     for (const measure of params.measures) {
-      selectParts.push(sql`${compileMeasure(cube, measure)} AS ${sql.raw(`"${measure}"`)}`);
+      const shortName = measure.split(".")[1]!;
+      const alias = `${cube.name}.${shortName}`;
+      selectParts.push(sql`${compileMeasure(cube, measure)} AS ${sql.raw(`"${alias}"`)}`);
     }
 
     // If no select parts (shouldn't happen with validation), bail
