@@ -241,6 +241,12 @@ export class CustomerService {
     ctx?: TxContext,
     options?: { replaceMetadata?: boolean },
   ): Promise<Result<Customer>> {
+    try {
+      assertPermission(actor ?? null, "customers:update");
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+
     const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
     const existing = await this.repo.findById(orgId, id, ctx);
     if (!existing) return Err(new CommerceNotFoundError("Customer not found."));
