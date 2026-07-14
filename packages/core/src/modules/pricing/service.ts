@@ -211,14 +211,13 @@ export class PricingService {
       );
     }
 
-    const entity = await this.catalogRepo.findEntityById(input.entityId, ctx);
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const entity = await this.catalogRepo.findEntityById(input.entityId, ctx, orgId);
     if (!entity) {
       return Err(
         new CommerceNotFoundError("Entity not found for price assignment."),
       );
     }
-
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
 
     const priceData: PriceInsert = {
       organizationId: orgId,
@@ -473,7 +472,8 @@ export class PricingService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<ResolvedPrice>> {
-    const entity = await this.catalogRepo.findEntityById(input.entityId, ctx);
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const entity = await this.catalogRepo.findEntityById(input.entityId, ctx, orgId);
     if (!entity) {
       return Err(
         new CommerceNotFoundError(`Entity ${input.entityId} not found.`),
@@ -492,8 +492,7 @@ export class PricingService {
     const currency = normalizeCurrency(input.currency);
     const groupSet = toGroupSet(input);
 
-    // Get matching prices from repository
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    // Get matching prices from repository (orgId resolved above)
     const allPrices = await this.repo.findPricesByEntityId(
       orgId,
       input.entityId,

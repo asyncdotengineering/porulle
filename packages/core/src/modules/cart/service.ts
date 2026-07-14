@@ -227,8 +227,9 @@ export class CartService {
       );
     }
 
-    // Validate entity exists
-    const entity = await this.catalogRepo.findEntityById(input.entityId, ctx);
+    // Validate entity exists AND belongs to the actor's org (org-scoped lookup
+    // so another tenant's entity id cannot be added to this cart).
+    const entity = await this.catalogRepo.findEntityById(input.entityId, ctx, orgId);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
 
     // Check if entity has variants
