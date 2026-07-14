@@ -16,6 +16,19 @@ export class GRNService {
       expiryDate?: string; unitCost: number;
     }>;
   }): Promise<PluginResult<GoodsReceivedNote>> {
+    const poRows = await this.db.select().from(purchaseOrders)
+      .where(and(eq(purchaseOrders.id, input.poId), eq(purchaseOrders.organizationId, orgId)));
+    if (poRows.length === 0) return Err("Purchase order not found");
+
+    const poItemRows = await this.db.select().from(purchaseOrderItems)
+      .where(eq(purchaseOrderItems.poId, input.poId));
+    const poItemIds = new Set(poItemRows.map((row) => row.id));
+    for (const item of input.items) {
+      if (!poItemIds.has(item.poItemId)) {
+        return Err("Purchase order item not found");
+      }
+    }
+
     const grnNumber = await this.generateGRNNumber(orgId);
 
     const rows = await this.db.insert(goodsReceivedNotes).values({
