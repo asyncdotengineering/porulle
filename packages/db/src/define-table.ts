@@ -13,9 +13,15 @@
  *   import { defineTable, column } from "@porulle/db";
  *
  *   export const giftCards = defineTable("gift_cards", {
+ *     // Per-org unique (default): UNIQUE (organization_id, code)
  *     code: column.text({ unique: true }),
+ *     // Globally unique: UNIQUE (public_code)
+ *     publicCode: column.text({ unique: "global" }),
  *     balance: column.integer(),
  *   });
+ *
+ * Child tables (FK to org-scoped parent) have no organizationId; unique: true
+ * creates UNIQUE (col) on the child column.
  */
 
 import {
@@ -115,12 +121,16 @@ export function defineTable(
   // Map user columns to Drizzle builders
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cols: Record<string, any> = {};
-  const uniqueCols: string[] = [];
+  const perOrgUniqueCols: string[] = [];
+  const globalUniqueCols: string[] = [];
 
   for (const [colName, def] of Object.entries(columnDefs)) {
     cols[colName] = mapColumn(colName, def);
-    if ("unique" in def && def.unique) {
-      uniqueCols.push(colName);
+    if (!("unique" in def) || !def.unique) continue;
+    if (def.unique === "global" || isChild) {
+      globalUniqueCols.push(colName);
+    } else {
+      perOrgUniqueCols.push(colName);
     }
   }
 
@@ -155,11 +165,16 @@ export function defineTable(
     if (!isChild) {
       indexes.orgIdx = index(`idx_${name}_org`).on(t.organizationId);
 
-      for (const colName of uniqueCols) {
+      for (const colName of perOrgUniqueCols) {
         const sn = toSnake(colName);
         indexes[`${colName}Unique`] = uniqueIndex(`${name}_org_${sn}_unique`)
           .on(t.organizationId, t[colName]);
       }
+    }
+
+    for (const colName of globalUniqueCols) {
+      const sn = toSnake(colName);
+      indexes[`${colName}Unique`] = uniqueIndex(`${name}_${sn}_unique`).on(t[colName]);
     }
 
     if (extraConfig) Object.assign(indexes, extraConfig(t));

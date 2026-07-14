@@ -1,7 +1,24 @@
 import { describe, it, expect } from "vitest";
 import { getTableColumns } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/pg-core";
+import type { PgTable } from "drizzle-orm/pg-core";
 import { defineTable } from "./define-table.js";
 import { column } from "./column.js";
+
+function uniqueIndexColumnNames(table: PgTable) {
+  const { indexes } = getTableConfig(table);
+  return indexes
+    .filter((idx) => idx.config.unique)
+    .map((idx) => ({
+      name: idx.config.name,
+      columns: idx.config.columns.map((col) => {
+        if (col && typeof col === "object" && "name" in col && col.name) {
+          return col.name as string;
+        }
+        return null;
+      }),
+    }));
+}
 
 describe("defineTable", () => {
   it("auto-injects id, organizationId, createdAt, updatedAt on top-level tables", () => {
@@ -75,5 +92,41 @@ describe("defineTable", () => {
 
     const cols = getTableColumns(table);
     expect(cols).toHaveProperty("status");
+  });
+
+  it("SEC-03: honors unique on child tables via UNIQUE (col)", () => {
+    const parent = defineTable("sec03_parent", {
+      slug: column.text({ unique: true }),
+    });
+
+    const child = defineTable("sec03_child", {
+      parentId: column.uuid({ references: parent }),
+      code: column.text({ unique: true }),
+    });
+
+    const uniqueIndexes = uniqueIndexColumnNames(child);
+    expect(uniqueIndexes).toHaveLength(1);
+    expect(uniqueIndexes[0]?.columns).toEqual(["code"]);
+    expect(uniqueIndexes[0]?.name).toBe("sec03_child_code_unique");
+  });
+
+  it("SEC-04: unique true is per-org composite; unique global is single-column", () => {
+    const perOrg = defineTable("sec04_per_org", {
+      sku: column.text({ unique: true }),
+    });
+
+    const perOrgIndexes = uniqueIndexColumnNames(perOrg);
+    expect(perOrgIndexes).toHaveLength(1);
+    expect(perOrgIndexes[0]?.columns).toEqual(["organization_id", "sku"]);
+    expect(perOrgIndexes[0]?.name).toBe("sec04_per_org_org_sku_unique");
+
+    const global = defineTable("sec04_global", {
+      publicCode: column.text({ unique: "global" }),
+    });
+
+    const globalIndexes = uniqueIndexColumnNames(global);
+    expect(globalIndexes).toHaveLength(1);
+    expect(globalIndexes[0]?.columns).toEqual(["public_code"]);
+    expect(globalIndexes[0]?.name).toBe("sec04_global_public_code_unique");
   });
 });

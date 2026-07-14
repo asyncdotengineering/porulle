@@ -7,15 +7,23 @@
  *   import { defineTable, column } from "@porulle/db";
  *
  *   export const giftCards = defineTable("gift_cards", {
+ *     // Per-org unique (default): UNIQUE (organization_id, code)
  *     code: column.text({ unique: true }),
+ *     // Globally unique across all tenants: UNIQUE (public_code)
+ *     publicCode: column.text({ unique: "global" }),
  *     balance: column.integer(),
  *     status: column.text({ enum: ["active", "disabled"], default: "active" }),
  *   });
+ *
+ * Child tables (FK to org-scoped parent) have no organizationId; unique: true
+ * creates UNIQUE (col) on the child column.
  */
+
+export type ColumnUnique = boolean | "global";
 
 export interface TextColumnDef {
   readonly _type: "text";
-  unique?: boolean;
+  unique?: ColumnUnique;
   optional?: boolean;
   enum?: readonly string[];
   default?: string;
@@ -23,7 +31,7 @@ export interface TextColumnDef {
 
 export interface IntegerColumnDef {
   readonly _type: "integer";
-  unique?: boolean;
+  unique?: ColumnUnique;
   optional?: boolean;
   default?: number;
 }
