@@ -26,7 +26,8 @@ export function buildReturnRoutes(
         quantity: z.number().int().positive(),
         reason: z.enum(["defective", "wrong_item", "changed_mind", "other"]),
         restockingFee: z.number().int().min(0).optional(),
-        refundAmount: z.number().int().positive(),
+        // refundAmount is NOT accepted from the client — it is computed
+        // server-side from the original order (SEC-08).
       })).min(1),
     }))
     .handler(async ({ input, actor, orgId }) => {
@@ -39,7 +40,6 @@ export function buildReturnRoutes(
           quantity: number;
           reason: "defective" | "wrong_item" | "changed_mind" | "other";
           restockingFee?: number;
-          refundAmount: number;
         }>;
       };
 
@@ -62,18 +62,60 @@ export function buildReturnRoutes(
       });
       if (!txnResult.ok) throw new Error(txnResult.error);
 
-      // Record return items
+      // SEC-08: derive the refund server-side via orders.refundLines (the same
+      // primitive the exchange flow uses). It validates the order + line items
+      // belong to this org, enforces the per-line refundable quantity
+      // (quantity - refundedQuantity) and updates that ledger — so a fabricated
+      // or foreign order, an over-refund, or a repeat refund of the same units
+      // is rejected — and computes the amount from the recorded sale price. The
+      // client can no longer set the refund amount.
+      const orders = ctx.services?.orders as
+        | {
+            refundLines(
+              orderId: string,
+              refundInput: { lines: Array<{ lineItemId: string; quantity: number }>; reason?: string },
+              actor: unknown,
+            ): Promise<{
+              ok: boolean;
+              value?: { refund: { amount: number; lines: Array<{ lineItemId: string; quantity: number; amount: number }> } };
+              error?: { message?: string };
+            }>;
+          }
+        | undefined;
+      if (!orders?.refundLines) {
+        throw new Error("Orders service unavailable for return refund");
+      }
+
+      const refundResult = await orders.refundLines(
+        body.originalOrderId,
+        {
+          lines: body.items.map((i) => ({ lineItemId: i.originalLineItemId, quantity: i.quantity })),
+          reason: "pos_return",
+        },
+        actor,
+      );
+      if (!refundResult.ok || !refundResult.value) {
+        throw new Error(
+          refundResult.error?.message ??
+            "Return could not be validated against the original order.",
+        );
+      }
+      const serverAmountByLine = new Map(
+        refundResult.value.refund.lines.map((l) => [l.lineItemId, l.amount]),
+      );
+      const refundTotal = refundResult.value.refund.amount;
+
+      // Record return items with the SERVER-computed refund amounts
       const itemsResult = await returnService.addReturnItems(
         txnResult.value.id,
         body.items.map((item) => ({
           ...item,
           originalOrderId: body.originalOrderId,
+          refundAmount: serverAmountByLine.get(item.originalLineItemId) ?? 0,
         })),
       );
       if (!itemsResult.ok) throw new Error(itemsResult.error);
 
-      // Update transaction totals
-      const refundTotal = body.items.reduce((sum, i) => sum + i.refundAmount, 0);
       await transactionService.updateTotals(txnResult.value.id, {
         subtotal: refundTotal,
         taxTotal: 0,
