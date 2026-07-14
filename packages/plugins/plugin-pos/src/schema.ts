@@ -134,6 +134,19 @@ export const posOperatorPins = pgTable("pos_operator_pins", {
   orgOperatorUnique: uniqueIndex("pos_operator_pins_org_operator_unique").on(table.organizationId, table.operatorId),
 }));
 
+// ─── PIN attempt lockout (SEC-15) ───────────────────────────────────────
+
+export const posPinAttempts = pgTable("pos_pin_attempts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  operatorId: text("operator_id").notNull(),
+  failedCount: integer("failed_count").notNull().default(0),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  orgOperatorUnique: uniqueIndex("pos_pin_attempts_org_operator_unique").on(table.organizationId, table.operatorId),
+}));
+
 // ─── Return Items ───────────────────────────────────────────────────────
 
 export const posReturnItems = pgTable("pos_return_items", {

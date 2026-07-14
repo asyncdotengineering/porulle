@@ -7,6 +7,7 @@ import {
   posPayments,
   posReturnItems,
   posOperatorPins,
+  posPinAttempts,
 } from "./schema.js";
 import { TerminalService } from "./services/terminal-service.js";
 import { ShiftService } from "./services/shift-service.js";
@@ -92,6 +93,7 @@ export function posPlugin(userOptions: POSPluginOptions = {}) {
       posPayments,
       posReturnItems,
       posOperatorPins,
+      posPinAttempts,
     }),
 
     // Scope used by PIN login to mint per-shift credentials (issue #51).

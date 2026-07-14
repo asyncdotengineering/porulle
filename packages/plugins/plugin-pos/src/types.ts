@@ -7,6 +7,7 @@ import type {
   posPayments,
   posReturnItems,
   posOperatorPins,
+  posPinAttempts,
 } from "./schema.js";
 
 export type Terminal = typeof posTerminals.$inferSelect;
@@ -30,6 +31,9 @@ export type ReturnItemInsert = typeof posReturnItems.$inferInsert;
 export type OperatorPin = typeof posOperatorPins.$inferSelect;
 export type OperatorPinInsert = typeof posOperatorPins.$inferInsert;
 
+export type PinAttempt = typeof posPinAttempts.$inferSelect;
+export type PinAttemptInsert = typeof posPinAttempts.$inferInsert;
+
 export type TransactionStatus = "open" | "held" | "completed" | "voided";
 export type TransactionType = "sale" | "return" | "exchange";
 export type PaymentMethod = "cash" | "card" | "gift_card" | "store_credit" | "other";
@@ -50,6 +54,10 @@ export interface POSPluginOptions {
     apiKeyScope?: string;
     /** Shift-credential lifetime in seconds. Default: 43200 (12h). */
     credentialTtlSeconds?: number;
+    /** Failed PIN attempts before lockout. Default: 5 (SEC-15). */
+    lockoutMaxAttempts?: number;
+    /** Failure counting window and lockout duration in minutes. Default: 15 (SEC-15). */
+    lockoutWindowMinutes?: number;
   };
 }
 

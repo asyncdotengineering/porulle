@@ -1,7 +1,12 @@
-import { router } from "@porulle/core";
+import { router, CommerceValidationError } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
-import type { PinService, PinAuthApi } from "../services/pin-service.js";
+import { PIN_LOCKOUT_ERROR, type PinService, type PinAuthApi } from "../services/pin-service.js";
 import type { PluginRouteRegistration } from "@porulle/core";
+
+function throwPinRouteError(message: string): never {
+  if (message === PIN_LOCKOUT_ERROR) throw new CommerceValidationError(message);
+  throw new Error(message);
+}
 
 /**
  * PIN auth runtime (issue #51).
@@ -29,7 +34,7 @@ export function buildPinAuthRoutes(
     .handler(async ({ input, orgId }) => {
       const body = input as { operatorId: string; pin: string; canOverride?: boolean };
       const result = await service.setPin(orgId, body);
-      if (!result.ok) throw new Error(result.error);
+      if (!result.ok) throwPinRouteError(result.error);
       return result.value;
     });
 
@@ -44,7 +49,7 @@ export function buildPinAuthRoutes(
     .handler(async ({ input, orgId }) => {
       const body = input as { operatorId: string; pin: string; shiftId?: string };
       const result = await service.pinLogin(orgId, body, ctx.auth as PinAuthApi | undefined);
-      if (!result.ok) throw new Error(result.error);
+      if (!result.ok) throwPinRouteError(result.error);
       return result.value;
     });
 
@@ -59,7 +64,7 @@ export function buildPinAuthRoutes(
     .handler(async ({ input, orgId }) => {
       const body = input as { operatorId: string; pin: string; action: string };
       const result = await service.override(orgId, body);
-      if (!result.ok) throw new Error(result.error);
+      if (!result.ok) throwPinRouteError(result.error);
       return result.value;
     });
 

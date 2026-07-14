@@ -2,8 +2,8 @@ import { eq, and } from "@porulle/core/drizzle";
 import { Ok, Err } from "@porulle/core";
 import type { PluginResult } from "@porulle/core";
 import { member, user } from "@porulle/core/auth-schema";
-import { posOperatorPins, posShifts } from "../schema.js";
-import type { Db, OperatorPin, Shift } from "../types.js";
+import { posOperatorPins, posPinAttempts, posShifts } from "../schema.js";
+import type { Db, OperatorPin, PinAttempt, Shift } from "../types.js";
 
 /**
  * PIN auth runtime (issue #51).
@@ -17,6 +17,14 @@ import type { Db, OperatorPin, Shift } from "../types.js";
  */
 
 const PBKDF2_ITERATIONS = 100_000;
+const DEFAULT_LOCKOUT_MAX_ATTEMPTS = 5;
+const DEFAULT_LOCKOUT_WINDOW_MINUTES = 15;
+export const PIN_LOCKOUT_ERROR = "Too many failed PIN attempts; try again later";
+
+type PinVerifyOutcome =
+  | { status: "ok"; record: OperatorPin }
+  | { status: "locked" }
+  | { status: "invalid" };
 
 /** Narrow Better Auth surface the PIN runtime uses. */
 export interface PinAuthApi {
@@ -109,8 +117,79 @@ export class PinService {
       apiKeyScope?: string | undefined;
       /** Shift-credential lifetime in seconds. Default: 12h. */
       credentialTtlSeconds?: number | undefined;
+      /** Failed PIN attempts before lockout (SEC-15). Default: 5. */
+      lockoutMaxAttempts?: number | undefined;
+      /** Failure window and lockout duration in minutes (SEC-15). Default: 15. */
+      lockoutWindowMinutes?: number | undefined;
     } = {},
   ) {}
+
+  private lockoutMaxAttempts(): number {
+    return this.options.lockoutMaxAttempts ?? DEFAULT_LOCKOUT_MAX_ATTEMPTS;
+  }
+
+  private lockoutWindowMs(): number {
+    const minutes = this.options.lockoutWindowMinutes ?? DEFAULT_LOCKOUT_WINDOW_MINUTES;
+    return minutes * 60 * 1000;
+  }
+
+  private async getPinAttempt(
+    orgId: string,
+    operatorId: string,
+  ): Promise<PinAttempt | undefined> {
+    const rows = await this.db
+      .select()
+      .from(posPinAttempts)
+      .where(and(
+        eq(posPinAttempts.organizationId, orgId),
+        eq(posPinAttempts.operatorId, operatorId),
+      ));
+    return rows[0] as PinAttempt | undefined;
+  }
+
+  private isLockedOut(attempt: PinAttempt | undefined, now: Date): boolean {
+    return attempt?.lockedUntil != null && attempt.lockedUntil > now;
+  }
+
+  private async recordFailedPinAttempt(orgId: string, operatorId: string): Promise<void> {
+    const now = new Date();
+    const windowMs = this.lockoutWindowMs();
+    const maxAttempts = this.lockoutMaxAttempts();
+    const existing = await this.getPinAttempt(orgId, operatorId);
+
+    let failedCount = 1;
+    if (existing) {
+      const windowExpired = now.getTime() - existing.updatedAt.getTime() > windowMs;
+      failedCount = windowExpired ? 1 : existing.failedCount + 1;
+    }
+
+    const lockedUntil = failedCount >= maxAttempts
+      ? new Date(now.getTime() + windowMs)
+      : null;
+
+    if (existing) {
+      await this.db
+        .update(posPinAttempts)
+        .set({ failedCount, lockedUntil, updatedAt: now })
+        .where(eq(posPinAttempts.id, existing.id));
+    } else {
+      await this.db.insert(posPinAttempts).values({
+        organizationId: orgId,
+        operatorId,
+        failedCount,
+        lockedUntil,
+      });
+    }
+  }
+
+  private async clearPinAttempts(orgId: string, operatorId: string): Promise<void> {
+    const existing = await this.getPinAttempt(orgId, operatorId);
+    if (!existing) return;
+    await this.db
+      .update(posPinAttempts)
+      .set({ failedCount: 0, lockedUntil: null, updatedAt: new Date() })
+      .where(eq(posPinAttempts.id, existing.id));
+  }
 
   async setPin(
     orgId: string,
@@ -151,7 +230,11 @@ export class PinService {
     orgId: string,
     operatorId: string,
     pin: string,
-  ): Promise<OperatorPin | null> {
+  ): Promise<PinVerifyOutcome> {
+    const now = new Date();
+    const attempt = await this.getPinAttempt(orgId, operatorId);
+    if (this.isLockedOut(attempt, now)) return { status: "locked" };
+
     const rows = await this.db
       .select()
       .from(posOperatorPins)
@@ -160,8 +243,18 @@ export class PinService {
         eq(posOperatorPins.operatorId, operatorId),
       ));
     const record = rows[0] as OperatorPin | undefined;
-    if (!record) return null;
-    return (await verifyPinHash(pin, record.pinHash)) ? record : null;
+    if (!record) {
+      await this.recordFailedPinAttempt(orgId, operatorId);
+      return { status: "invalid" };
+    }
+
+    if (!(await verifyPinHash(pin, record.pinHash))) {
+      await this.recordFailedPinAttempt(orgId, operatorId);
+      return { status: "invalid" };
+    }
+
+    await this.clearPinAttempts(orgId, operatorId);
+    return { status: "ok", record };
   }
 
   /**
@@ -180,8 +273,9 @@ export class PinService {
     apiKey: string;
     expiresAt: string;
   }>> {
-    const record = await this.verifyOperatorPin(orgId, input.operatorId, input.pin);
-    if (!record) return Err("Invalid operator or PIN");
+    const verified = await this.verifyOperatorPin(orgId, input.operatorId, input.pin);
+    if (verified.status === "locked") return Err(PIN_LOCKOUT_ERROR);
+    if (verified.status !== "ok") return Err("Invalid operator or PIN");
 
     const conditions = [
       eq(posShifts.organizationId, orgId),
@@ -255,9 +349,10 @@ export class PinService {
     action: string;
     approvedAt: string;
   }>> {
-    const record = await this.verifyOperatorPin(orgId, input.operatorId, input.pin);
-    if (!record) return Err("Invalid operator or PIN");
-    if (!record.canOverride) return Err("This operator cannot approve overrides");
+    const verified = await this.verifyOperatorPin(orgId, input.operatorId, input.pin);
+    if (verified.status === "locked") return Err(PIN_LOCKOUT_ERROR);
+    if (verified.status !== "ok") return Err("Invalid operator or PIN");
+    if (!verified.record.canOverride) return Err("This operator cannot approve overrides");
     return Ok({
       approved: true,
       operatorId: input.operatorId,
