@@ -545,13 +545,17 @@ export class OrderService {
       // 1. Release inventory reservations
       const inventory = this.deps.services.inventory as
         | {
-            release(input: {
-              entityId: string;
-              variantId?: string;
-              quantity: number;
-              orderId: string;
-              performedBy?: string;
-            }): Promise<unknown>;
+            release(
+              input: {
+                entityId: string;
+                variantId?: string;
+                quantity: number;
+                orderId: string;
+                performedBy?: string;
+              },
+              actor?: Actor | null,
+              ctx?: TxContext,
+            ): Promise<Result<void>>;
           }
         | undefined;
 
@@ -561,15 +565,30 @@ export class OrderService {
           // Fulfilled items had their reservation released during the
           // fulfilled transition — releasing again would double-release.
           if (lineItem.fulfillmentStatus === "unfulfilled") {
-            await inventory.release({
-              entityId: lineItem.entityId,
-              quantity: lineItem.quantity,
-              orderId: order.id,
-              performedBy: actor?.userId ?? "system",
-              ...(lineItem.variantId != null
-                ? { variantId: lineItem.variantId }
-                : {}),
-            });
+            const releaseResult = await inventory.release(
+              {
+                entityId: lineItem.entityId,
+                quantity: lineItem.quantity,
+                orderId: order.id,
+                performedBy: actor?.userId ?? "system",
+                ...(lineItem.variantId != null
+                  ? { variantId: lineItem.variantId }
+                  : {}),
+              },
+              actor,
+              ctx,
+            );
+            if (!releaseResult.ok) {
+              const err = toCommerceError(releaseResult.error);
+              if (
+                !(
+                  err instanceof CommerceValidationError &&
+                  err.message === "No inventory record found for this entity."
+                )
+              ) {
+                return Err(err);
+              }
+            }
           }
         }
       }
@@ -636,13 +655,17 @@ export class OrderService {
               orderId: string;
               orgId?: string;
             }): Promise<unknown>;
-            release(input: {
-              entityId: string;
-              variantId?: string;
-              quantity: number;
-              orderId: string;
-              performedBy?: string;
-            }): Promise<unknown>;
+            release(
+              input: {
+                entityId: string;
+                variantId?: string;
+                quantity: number;
+                orderId: string;
+                performedBy?: string;
+              },
+              actor?: Actor | null,
+              ctx?: TxContext,
+            ): Promise<Result<void>>;
           }
         | undefined;
 
@@ -661,15 +684,30 @@ export class OrderService {
             });
 
             // Release reservation (no longer needed)
-            await inventory.release({
-              entityId: lineItem.entityId,
-              quantity: lineItem.quantity,
-              orderId: order.id,
-              performedBy: actor?.userId ?? "system",
-              ...(lineItem.variantId != null
-                ? { variantId: lineItem.variantId }
-                : {}),
-            });
+            const releaseResult = await inventory.release(
+              {
+                entityId: lineItem.entityId,
+                quantity: lineItem.quantity,
+                orderId: order.id,
+                performedBy: actor?.userId ?? "system",
+                ...(lineItem.variantId != null
+                  ? { variantId: lineItem.variantId }
+                  : {}),
+              },
+              actor,
+              ctx,
+            );
+            if (!releaseResult.ok) {
+              const err = toCommerceError(releaseResult.error);
+              if (
+                !(
+                  err instanceof CommerceValidationError &&
+                  err.message === "No inventory record found for this entity."
+                )
+              ) {
+                return Err(err);
+              }
+            }
 
             // Mark line item as fulfilled
             await this.repo.updateLineItem(
