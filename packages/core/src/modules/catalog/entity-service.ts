@@ -271,7 +271,12 @@ export class EntityService {
         entity = refetched;
       }
     }
-    if (actor && entity.organizationId && entity.organizationId !== resolveOrgId(actor)) return Err(new CommerceNotFoundError("Entity not found."));
+    const resolvedActor = actor ?? ctx?.actor ?? null;
+    try {
+      this.assertSameOrg(entity, resolvedActor);
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
     const result = await this.hydrateEntity(entity, processed.options ?? options, ctx);
     const entityAfterHooks = this.deps.hooks.resolve(`catalog.${entity.type}.afterRead`) as CatalogReadAfterHook[];
     const report = mergeHookReports(await runAfterHooks(globalAfterHooks, null, result, "read", context), await runAfterHooks(entityAfterHooks, null, result, "read", context));
@@ -407,6 +412,11 @@ export class EntityService {
     assertPermission(actor, "catalog:update");
     const entity = await this.repo.findEntityById(input.entityId, ctx);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
+    try {
+      this.assertSameOrg(entity, actor);
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
     const optionType = await this.repo.createOptionType({ entityId: input.entityId, name: input.name, displayName: input.name, sortOrder: 0 }, ctx);
     if (input.values) {
       for (const value of input.values) {
@@ -420,6 +430,13 @@ export class EntityService {
     assertPermission(actor, "catalog:update");
     const optionType = await this.repo.findOptionTypeById(input.optionTypeId, ctx);
     if (!optionType) return Err(new CommerceNotFoundError("Option type not found."));
+    const entity = await this.repo.findEntityById(optionType.entityId, ctx);
+    if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
+    try {
+      this.assertSameOrg(entity, actor);
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
     return Ok(await this.repo.createOptionValue({ optionTypeId: input.optionTypeId, value: input.value, displayValue: input.value, sortOrder: 0, metadata: {} }, ctx));
   }
 
@@ -427,6 +444,11 @@ export class EntityService {
     assertPermission(actor, "catalog:update");
     const entity = await this.repo.findEntityById(input.entityId, ctx);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
+    try {
+      this.assertSameOrg(entity, actor);
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
     const entityOptionTypes = await this.repo.findOptionTypesByEntityId(input.entityId, ctx);
     const optionValueIds: string[] = [];
     for (const [optName, optVal] of Object.entries(input.options)) {
@@ -461,6 +483,11 @@ export class EntityService {
     }
     const entity = await this.repo.findEntityById(entityId, ctx);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
+    try {
+      this.assertSameOrg(entity, actor);
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
     const entityOptionTypes = await this.repo.findOptionTypesByEntityId(entityId, ctx);
     const sortedOptionTypes = entityOptionTypes.sort((a, b) => a.sortOrder - b.sortOrder);
     const optionValueGroups: string[][] = [];
