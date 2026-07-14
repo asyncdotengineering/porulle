@@ -21,8 +21,58 @@ import type { AfterHook, BeforeHook, ServiceContainer } from "../../../kernel/ho
 import type { PluginDb } from "../../../kernel/database/plugin-types.js";
 import { type AppEnv, mapErrorToResponse, mapErrorToStatus } from "../utils.js";
 import { isCommerceError } from "../../../kernel/errors.js";
+import { assertPermission } from "../../../auth/permissions.js";
 import { makeId } from "../../../utils/id.js";
 import type { ShippingAddress } from "../../../modules/shipping/calculator.js";
+import type { Actor } from "../../../auth/types.js";
+
+/**
+ * SEC-07 — resolve the customer profile a checkout order is attributed to.
+ * A self-service actor may ONLY attribute the order to its own customer
+ * profile; only actors with org-level `customers:read` (staff/clienteling) may
+ * name an arbitrary `customerId`. Returns undefined for guests / unresolved
+ * (guest checkout). Exported for unit testing.
+ */
+export async function resolveCheckoutCustomerUuid(
+  customers: Kernel["services"]["customers"],
+  actor: Actor | null,
+  customerId: string | undefined,
+): Promise<string | undefined> {
+  const actorUserId = actor?.userId;
+  let canActForOthers = false;
+  if (actorUserId) {
+    try {
+      assertPermission(actor, "customers:read");
+      canActForOthers = true;
+    } catch {
+      canActForOthers = false;
+    }
+  }
+
+  if (customerId) {
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRe.test(customerId)) {
+      const byId = await customers.getById(customerId, actor);
+      // Honor a profile UUID only if it is the actor's own, or the actor may
+      // act for other customers.
+      if (byId.ok && (canActForOthers || byId.value.userId === actorUserId)) {
+        return byId.value.id;
+      }
+    }
+    if (canActForOthers) {
+      // Staff may resolve/create a customer by a supplied user_id.
+      const byUser = await customers.getByUserId(customerId, actor);
+      if (byUser.ok) return byUser.value.id;
+    }
+  }
+
+  // Self-service default: the authenticated actor's own customer profile.
+  if (actorUserId && !canActForOthers) {
+    const own = await customers.getByUserId(actorUserId, actor);
+    if (own.ok) return own.value.id;
+  }
+  return undefined;
+}
 
 export function checkoutRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -135,32 +185,14 @@ export function checkoutRoutes(kernel: Kernel) {
         context,
       );
 
-      // Resolve customer profile UUID from customerId (may be a profile UUID or a Better Auth user_id)
-      let customerUuid: string | undefined = undefined;
-      if (processed.customerId) {
-        const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        if (uuidRe.test(processed.customerId)) {
-          // Looks like a profile UUID — try direct lookup (no auto-create)
-          const byIdResult = await kernel.services.customers.getById(
-            processed.customerId,
-            actor,
-          );
-          if (byIdResult.ok) {
-            customerUuid = byIdResult.value.id;
-          }
-        }
-        if (!customerUuid) {
-          // Fall back to user_id lookup (auto-creates customer profile if needed)
-          const byUserIdResult = await kernel.services.customers.getByUserId(
-            processed.customerId,
-            actor,
-          );
-          if (byUserIdResult.ok) {
-            customerUuid = byUserIdResult.value.id;
-          }
-        }
-        // If both lookups fail, we still allow guest checkout (customerUuid remains undefined)
-      }
+      // SEC-07: resolve the order's customer server-side. A self-service actor
+      // can only attribute the order to its own profile; a client-supplied
+      // foreign customerId is ignored unless the actor is staff.
+      const customerUuid = await resolveCheckoutCustomerUuid(
+        kernel.services.customers,
+        actor,
+        processed.customerId,
+      );
 
       const orderPayload = {
         ...(body.idempotencyKey !== undefined
