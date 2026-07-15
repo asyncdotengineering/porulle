@@ -25,8 +25,10 @@ describe("SEC-14 — exchange replacement unitPrice is server-resolved", () => {
       "orders:create",
       "orders:read",
       "orders:update",
+      "orders:manage",
       "catalog:create",
       "pricing:manage",
+      "inventory:adjust",
     ],
   };
 
@@ -47,6 +49,22 @@ describe("SEC-14 — exchange replacement unitPrice is server-resolved", () => {
       exchangeActor,
     );
     expect(price.ok).toBe(true);
+
+    const warehouse = await (kernel.services as any).inventory.createWarehouse(
+      { name: "SEC-14 Warehouse", code: `SEC14-${Date.now()}` },
+      exchangeActor,
+    );
+    expect(warehouse.ok).toBe(true);
+    const stock = await (kernel.services as any).inventory.adjust(
+      {
+        entityId,
+        warehouseId: warehouse.value.id,
+        adjustment: 20,
+        reason: "SEC-14 exchange stock",
+      },
+      exchangeActor,
+    );
+    expect(stock.ok).toBe(true);
 
     const t = await app.request("http://localhost/api/pos/terminals", {
       method: "POST",

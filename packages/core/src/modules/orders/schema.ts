@@ -50,6 +50,10 @@ export const orderLineItems = pgTable("order_line_items", {
   quantity: integer("quantity").notNull(),
   unitPrice: integer("unit_price").notNull(),
   totalPrice: integer("total_price").notNull(),
+  // Price provenance (matches Medusa's `is_custom_price`): true when a staff
+  // actor with `orders:manage` supplied an explicit override price rather than
+  // the server-derived catalog price. Audit + reporting signal.
+  isCustomPrice: boolean("is_custom_price").notNull().default(false),
   taxAmount: integer("tax_amount").notNull().default(0),
   discountAmount: integer("discount_amount").notNull().default(0),
   // Units already refunded on this line (issue #52) — line-level refund REST

@@ -20,6 +20,7 @@ const staffActor = {
     "orders:create",
     "orders:read",
     "orders:update",
+    "orders:manage",
     "cart:create",
     "cart:update",
   ],

@@ -566,16 +566,19 @@ export const reserveInventory: AfterHook<OrderResult> = async ({ result, context
       quantity: number;
       orderId: string;
       performedBy: string;
-    }): Promise<unknown>;
+    }, actor?: unknown): Promise<unknown>;
   };
   for (const lineItem of result.lineItems ?? []) {
-    await inventory.reserve({
-      entityId: lineItem.entityId,
-      ...(lineItem.variantId != null ? { variantId: lineItem.variantId } : {}),
-      quantity: lineItem.quantity,
-      orderId: result.id,
-      performedBy: context.actor?.userId ?? "system",
-    });
+    await inventory.reserve(
+      {
+        entityId: lineItem.entityId,
+        ...(lineItem.variantId != null ? { variantId: lineItem.variantId } : {}),
+        quantity: lineItem.quantity,
+        orderId: result.id,
+        performedBy: context.actor?.userId ?? "system",
+      },
+      context.actor,
+    );
   }
 };
 

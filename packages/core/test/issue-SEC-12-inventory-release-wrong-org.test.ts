@@ -31,6 +31,7 @@ const actorB: Actor = {
     "orders:create",
     "orders:read",
     "orders:update",
+    "orders:manage",
   ],
 };
 

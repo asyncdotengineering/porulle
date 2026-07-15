@@ -64,6 +64,7 @@ interface CoreOrdersService {
     input: Record<string, unknown>,
     actor: unknown,
     ctx?: unknown,
+    opts?: { trustedPricing?: boolean; stockPolicy?: "reserve" | "backorder" },
   ): Promise<{ ok: boolean; value?: { id: string; grandTotal: number }; error?: { message?: string } }>;
 }
 
@@ -167,6 +168,9 @@ export class ExchangeService {
         },
         actor,
         txCtx,
+        // Prices are server-resolved above (pricing.resolve); reserve stock for
+        // the replacement items so an exchange cannot oversell.
+        { trustedPricing: true, stockPolicy: "reserve" },
       );
       if (!replacement.ok || !replacement.value) {
         throw new Error(replacement.error?.message ?? "Replacement order creation failed");

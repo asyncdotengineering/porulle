@@ -23,7 +23,7 @@ interface CoreServices {
     release(input: { entityId: string; variantId?: string; quantity: number; orderId: string; performedBy?: string }, actor?: unknown): Promise<{ ok: boolean; error?: { message?: string } }>;
   };
   orders: {
-    create(input: Record<string, unknown>, actor: unknown): Promise<{ ok: boolean; value?: { id: string }; error?: { message?: string } }>;
+    create(input: Record<string, unknown>, actor: unknown, ctx?: unknown, opts?: { trustedPricing?: boolean; stockPolicy?: "reserve" | "backorder" }): Promise<{ ok: boolean; value?: { id: string }; error?: { message?: string } }>;
   };
 }
 
@@ -212,6 +212,10 @@ export class LayawayService {
           })),
         },
         actor,
+        undefined,
+        // Layaway prices were fixed + stock reserved at plan creation, so the
+        // completion order is trusted (no re-derive, no double reservation).
+        { trustedPricing: true },
       );
       if (!order.ok || !order.value) {
         return Err(order.error?.message ?? "Layaway completion failed to create the order");

@@ -6,6 +6,7 @@ import {
   jsonHeaders,
   posAdminActor,
   posOperatorActor,
+  TEST_ORG_ID,
 } from "./test-utils.js";
 import { posPlugin } from "../src/index.js";
 import { posPinAttempts } from "../src/schema.js";
@@ -99,7 +100,7 @@ describe("SEC-15 — per-operator PIN brute-force lockout", () => {
       .update(posPinAttempts)
       .set({ lockedUntil: new Date(Date.now() - 60_000) })
       .where(and(
-        eq(posPinAttempts.organizationId, posOperatorActor.organizationId),
+        eq(posPinAttempts.organizationId, TEST_ORG_ID),
         eq(posPinAttempts.operatorId, RECOVER_OPERATOR),
       ));
 
@@ -111,7 +112,7 @@ describe("SEC-15 — per-operator PIN brute-force lockout", () => {
       .select()
       .from(posPinAttempts)
       .where(and(
-        eq(posPinAttempts.organizationId, posOperatorActor.organizationId),
+        eq(posPinAttempts.organizationId, TEST_ORG_ID),
         eq(posPinAttempts.operatorId, RECOVER_OPERATOR),
       ));
     expect(rows).toHaveLength(1);

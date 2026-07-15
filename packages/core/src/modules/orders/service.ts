@@ -25,7 +25,10 @@ import {
 import { Err, Ok, type Result } from "../../kernel/result.js";
 import { createLogger } from "../../utils/logger.js";
 import { paginate, type Pagination } from "../../utils/pagination.js";
-import type { TxContext } from "../../kernel/database/tx-context.js";
+import {
+  withTransaction,
+  type TxContext,
+} from "../../kernel/database/tx-context.js";
 import type { DatabaseAdapter } from "../../kernel/database/adapter.js";
 import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import {
@@ -149,11 +152,128 @@ export class OrderService {
     return { ...order, lineItems };
   }
 
+  /**
+   * Resolve every line item's price with org-integrity + price provenance,
+   * mirroring how our forefathers handle this (Vendure: order lines are always
+   * server-priced from the variant; Medusa: an admin override is honored but
+   * flagged `is_custom_price`). Three modes:
+   *   - trusted caller (checkout / POS exchange, already server-priced) → prices honored as-is.
+   *   - actor with `orders:manage` → explicit price honored as a manual override, flagged isCustomPrice.
+   *   - otherwise → price re-derived server-side from the catalog; client prices ignored.
+   * The referenced entity MUST belong to the order's org in every mode.
+   */
+  private async resolveLines(
+    input: CreateOrderInput,
+    actor: Actor | null,
+    trusted: boolean,
+    ctx: TxContext | undefined,
+  ): Promise<Result<Array<CreateOrderInput["lineItems"][number] & { isCustomPrice: boolean }>>> {
+    let canOverride = trusted;
+    if (!canOverride) {
+      try {
+        assertPermission(actor, "orders:manage");
+        canOverride = true;
+      } catch {
+        canOverride = false;
+      }
+    }
+    const catalog = this.deps.services.catalog as {
+      getById(
+        id: string,
+        options: Record<string, unknown>,
+        actor?: Actor | null,
+        ctx?: TxContext,
+      ): Promise<{
+        ok: boolean;
+        value?: { variants?: Array<{ id: string }> };
+      }>;
+    };
+    const pricing = this.deps.services.pricing as {
+      resolve(
+        input: {
+          entityId: string;
+          variantId?: string;
+          currency: string;
+          quantity: number;
+          customerId?: string;
+        },
+        actor?: Actor | null,
+        ctx?: TxContext,
+      ): Promise<{ ok: boolean; value?: { finalAmount: number } }>;
+    };
+    const resolved: Array<
+      CreateOrderInput["lineItems"][number] & { isCustomPrice: boolean }
+    > = [];
+    for (const item of input.lineItems) {
+      // Org-integrity — the referenced entity must belong to this order's org.
+      const owned = await catalog.getById(
+        item.entityId,
+        { includeVariants: item.variantId !== undefined },
+        actor,
+        ctx,
+      );
+      if (!owned.ok) {
+        return Err(
+          new CommerceValidationError(
+            `Line item entity ${item.entityId} does not belong to this organization.`,
+          ),
+        );
+      }
+      if (
+        item.variantId !== undefined &&
+        !owned.value?.variants?.some((variant) => variant.id === item.variantId)
+      ) {
+        return Err(
+          new CommerceValidationError(
+            `Line item variant ${item.variantId} does not belong to entity ${item.entityId}.`,
+          ),
+        );
+      }
+      if (trusted || canOverride) {
+        // Trusted pipeline totals, or a staff manual/negotiated override.
+        resolved.push({ ...item, isCustomPrice: !trusted && canOverride });
+        continue;
+      }
+      // Server-derive the price; the client-supplied unitPrice/totalPrice is ignored.
+      const priced = await pricing.resolve(
+        {
+          entityId: item.entityId,
+          currency: input.currency,
+          quantity: item.quantity,
+          ...(item.variantId ? { variantId: item.variantId } : {}),
+          ...(input.customerId ? { customerId: input.customerId } : {}),
+        },
+        actor,
+        ctx,
+      );
+      if (!priced.ok || !priced.value) {
+        return Err(
+          new CommerceValidationError(`Cannot resolve price for ${item.entityId}.`),
+        );
+      }
+      const unitPrice = priced.value.finalAmount;
+      resolved.push({
+        ...item,
+        unitPrice,
+        totalPrice: unitPrice * item.quantity,
+        isCustomPrice: false,
+      });
+    }
+    return Ok(resolved);
+  }
+
   async create(
     input: CreateOrderInput,
     actor: Actor | null,
     ctx?: TxContext,
+    opts?: { trustedPricing?: boolean; stockPolicy?: "reserve" | "backorder" },
   ): Promise<Result<HydratedOrder>> {
+    if (opts?.stockPolicy === "reserve" && !ctx) {
+      return withTransaction(this.deps.database, { actor }, (txCtx) =>
+        this.create(input, actor, txCtx, opts),
+      );
+    }
+
     try {
       assertPermission(actor, "orders:create");
     } catch (error) {
@@ -196,6 +316,61 @@ export class OrderService {
       }
     }
 
+    // Resolve line prices with org-integrity + provenance (see resolveLines).
+    const trusted = opts?.trustedPricing === true;
+    const resolvedResult = await this.resolveLines(processed, actor, trusted, ctx);
+    if (!resolvedResult.ok) return Err(resolvedResult.error);
+    const resolvedLines = resolvedResult.value;
+
+    // Order totals: trusted callers (checkout / exchange) supply rich totals
+    // (promotions, tax, shipping); otherwise derive from the server-priced lines.
+    const computedSubtotal = trusted
+      ? processed.subtotal
+      : resolvedLines.reduce(
+          (sum, l) => sum + (l.totalPrice ?? l.unitPrice * l.quantity),
+          0,
+        );
+    const computedGrandTotal = trusted
+      ? processed.grandTotal
+      : computedSubtotal +
+        processed.taxTotal +
+        processed.shippingTotal -
+        (processed.discountTotal ?? 0);
+
+    // Stock: order creation does NOT reserve by default. Stock is allocated at
+    // the lifecycle transition to a committed state — checkout reserves in its
+    // own pipeline, mirroring Vendure's StockAllocationStrategy (allocate on
+    // PaymentAuthorized, not on creation). A caller that represents an immediate
+    // committed sale (e.g. a POS exchange) opts in with stockPolicy: "reserve".
+    const stockPolicy = opts?.stockPolicy;
+    if (stockPolicy === "reserve") {
+      const inventory = this.deps.services.inventory as {
+        getAvailable(
+          entityId: string,
+          variantId: string | undefined,
+          ctx?: TxContext,
+          actor?: Actor | null,
+        ): Promise<{ ok: boolean; value?: number }>;
+      };
+      for (const line of resolvedLines) {
+        const avail = await inventory.getAvailable(
+          line.entityId,
+          line.variantId,
+          ctx,
+          actor,
+        );
+        if (!avail.ok || (avail.value ?? 0) < line.quantity) {
+          return Err(
+            new CommerceValidationError(
+              `Insufficient stock for ${line.title ?? line.entityId}. Available: ${
+                avail.ok ? (avail.value ?? 0) : 0
+              }, requested: ${line.quantity}.`,
+            ),
+          );
+        }
+      }
+    }
+
     const orderNumber = await this.repo.getNextOrderNumber(ctx);
 
     let order: Order;
@@ -206,11 +381,11 @@ export class OrderService {
           orderNumber,
           status: "pending",
           currency: processed.currency,
-          subtotal: processed.subtotal,
+          subtotal: computedSubtotal,
           taxTotal: processed.taxTotal,
           shippingTotal: processed.shippingTotal,
           discountTotal: processed.discountTotal ?? 0,
-          grandTotal: processed.grandTotal,
+          grandTotal: computedGrandTotal,
           ...(processed.paymentIntentId != null ? { paymentIntentId: processed.paymentIntentId } : {}),
           ...(processed.paymentMethodId != null ? { paymentMethodId: processed.paymentMethodId } : {}),
           ...(processed.idempotencyKey != null ? { idempotencyKey: processed.idempotencyKey } : {}),
@@ -235,14 +410,15 @@ export class OrderService {
       throw error;
     }
 
-    const lineItemsData = processed.lineItems.map((item) => ({
+    const lineItemsData = resolvedLines.map((item) => ({
       orderId: order.id,
       entityId: item.entityId,
       entityType: item.entityType,
       title: item.title,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
-      totalPrice: item.totalPrice,
+      totalPrice: item.totalPrice ?? item.unitPrice * item.quantity,
+      isCustomPrice: item.isCustomPrice,
       taxAmount: item.taxAmount ?? 0,
       discountAmount: item.discountAmount ?? 0,
       fulfillmentStatus: "unfulfilled" as const,
@@ -252,6 +428,45 @@ export class OrderService {
     }));
 
     await this.repo.createLineItems(lineItemsData, ctx);
+
+    // Reserve stock for the resolved lines when the reserve policy is active
+    // (availability was verified above). Trusted callers reserve themselves.
+    if (stockPolicy === "reserve") {
+      const inventory = this.deps.services.inventory as {
+        reserve(
+          input: {
+            entityId: string;
+            quantity: number;
+            orderId: string;
+            variantId?: string;
+          },
+          actor?: Actor | null,
+          ctx?: TxContext,
+        ): Promise<{ ok: boolean; error?: unknown }>;
+      };
+      for (const line of resolvedLines) {
+        const reserved = await inventory.reserve(
+          {
+            entityId: line.entityId,
+            quantity: line.quantity,
+            orderId: order.id,
+            ...(line.variantId ? { variantId: line.variantId } : {}),
+          },
+          actor,
+          ctx,
+        );
+        if (!reserved.ok) {
+          return Err(
+            toCommerceError(
+              reserved.error ??
+                new CommerceValidationError(
+                  `Unable to reserve stock for ${line.title ?? line.entityId}.`,
+                ),
+            ),
+          );
+        }
+      }
+    }
 
     await this.repo.createStatusHistory(
       {
@@ -1342,22 +1557,59 @@ export class OrderService {
     const guard = this.lineItemEditGuard(order);
     if (guard) return Err(guard);
 
+    // Org-integrity + price provenance for the added line (same rules as create):
+    // the entity must belong to the order's org, and the price is server-derived
+    // unless the actor holds `orders:manage` (then honored + flagged isCustomPrice).
+    const resolvedResult = await this.resolveLines(
+      {
+        currency: order.currency,
+        subtotal: 0,
+        taxTotal: 0,
+        shippingTotal: 0,
+        grandTotal: 0,
+        lineItems: [
+          {
+            entityId: input.entityId,
+            entityType: input.entityType,
+            title: input.title,
+            quantity: input.quantity,
+            unitPrice: input.unitPrice,
+            totalPrice: input.totalPrice ?? input.unitPrice * input.quantity,
+            ...(input.variantId !== undefined ? { variantId: input.variantId } : {}),
+            ...(input.sku !== undefined ? { sku: input.sku } : {}),
+            ...(input.taxAmount !== undefined ? { taxAmount: input.taxAmount } : {}),
+            ...(input.discountAmount !== undefined
+              ? { discountAmount: input.discountAmount }
+              : {}),
+            ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+          },
+        ],
+        ...(order.customerId ? { customerId: order.customerId } : {}),
+      },
+      actor,
+      false,
+      ctx,
+    );
+    if (!resolvedResult.ok) return Err(resolvedResult.error);
+    const line = resolvedResult.value[0]!;
+
     await this.repo.createLineItems(
       [
         {
           orderId: order.id,
-          entityId: input.entityId,
-          entityType: input.entityType,
-          title: input.title,
-          quantity: input.quantity,
-          unitPrice: input.unitPrice,
-          totalPrice: input.totalPrice ?? input.unitPrice * input.quantity,
-          taxAmount: input.taxAmount ?? 0,
-          discountAmount: input.discountAmount ?? 0,
+          entityId: line.entityId,
+          entityType: line.entityType,
+          title: line.title,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          totalPrice: line.totalPrice ?? line.unitPrice * line.quantity,
+          isCustomPrice: line.isCustomPrice,
+          taxAmount: line.taxAmount ?? 0,
+          discountAmount: line.discountAmount ?? 0,
           fulfillmentStatus: "unfulfilled",
-          metadata: input.metadata ?? {},
-          ...(input.variantId !== undefined ? { variantId: input.variantId } : {}),
-          ...(input.sku !== undefined ? { sku: input.sku } : {}),
+          metadata: line.metadata ?? {},
+          ...(line.variantId !== undefined ? { variantId: line.variantId } : {}),
+          ...(line.sku !== undefined ? { sku: line.sku } : {}),
         },
       ],
       ctx,

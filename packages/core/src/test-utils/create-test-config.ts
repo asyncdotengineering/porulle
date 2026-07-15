@@ -82,6 +82,7 @@ export async function createTestConfig(
             "orders:create",
             "orders:read",
             "orders:update",
+            "orders:manage",
             "cart:create",
             "cart:update",
             "customers:update:self",

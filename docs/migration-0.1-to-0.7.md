@@ -29,6 +29,7 @@ only CREATE and ALTER-ADD.
 | Table | Column | Notes |
 |---|---|---|
 | `orders` | `idempotency_key` (text, null) | + partial unique index `(organization_id, idempotency_key) WHERE idempotency_key IS NOT NULL`. Replays of `POST /api/orders` / `POST /api/checkout` with the same key return the original order. |
+| `order_line_items` | `is_custom_price` (boolean, default false) | Price-provenance marker. `true` means an `orders:manage` actor supplied a manual override; checkout and server-resolved catalog prices remain `false`. |
 | `order_line_items` | `refunded_quantity` (int, default 0) | Maintained by the line-level refund REST (#52). If you tracked `metadata.refundedQuantity`, backfill this column once and delete the metadata hack. |
 | `carts` | `email` (text, null) | Guest-cart contact for abandoned-checkout recovery (#43). |
 | `categories` | `status` (text, default `'active'`) | Soft archive/restore (#22) — replaces `metadata.archived` hacks. |
@@ -96,6 +97,12 @@ Ordered by likelihood of touching a raw-Drizzle integration:
    nothing normalizes `orders.metadata` — keys like `idempotencyKey` written
    by old workarounds are untouched (but see the delete-list: the real
    column wins).
+10. **Manual order creation is staff-only and server-safe.** `POST /api/orders`
+    and `POST /api/orders/{id}/line-items` now require `orders:manage`.
+    Direct service callers without that permission no longer control prices:
+    core resolves the current catalog price and recomputes order totals. Add
+    `orders:manage` to custom staff roles or API-key scopes that create manual
+    orders; customer storefronts must continue through `POST /api/checkout`.
 
 ---
 

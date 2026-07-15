@@ -184,7 +184,7 @@ export const createOrderRoute = createRoute({
   path: "/",
   tags: ["Orders"],
   summary: "Create a draft / manual order",
-  description: "Operator-created order (phone / POS / manual) with line items and totals, optionally without immediate payment.",
+  description: "Requires `orders:manage`. Creates an operator-entered order (phone / POS / manual); supplied line prices are stored as audited manual overrides.",
   request: {
     body: {
       content: { "application/json": { schema: CreateOrderBodySchema } },
@@ -272,7 +272,7 @@ export const addOrderLineItemRoute = createRoute({
   path: "/{id}/line-items",
   tags: ["Orders"],
   summary: "Add a line item to a placed order",
-  description: "Adds a line item to a non-terminal order and recalculates subtotal/tax/grand totals. Records an audit entry.",
+  description: "Requires `orders:manage`. Adds a line item to a non-terminal order, records its supplied price as a manual override, and recalculates totals.",
   request: {
     params: OrderIdParam,
     body: {

@@ -241,7 +241,12 @@ export function checkoutRoutes(kernel: Kernel) {
           : {}),
       };
 
-      const order = await kernel.services.orders.create(orderPayload, actor);
+      // Checkout is a trusted, already-server-priced pipeline (resolveCurrentPrices
+      // + promotions/tax) and reserves stock in its own after-hooks — so it hands
+      // the order primitive precomputed totals rather than re-deriving them.
+      const order = await kernel.services.orders.create(orderPayload, actor, undefined, {
+        trustedPricing: true,
+      });
 
       if (!order.ok) {
         return c.json(

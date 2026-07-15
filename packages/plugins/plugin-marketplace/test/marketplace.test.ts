@@ -39,6 +39,7 @@ const coreStaffActor: Actor = {
     "catalog:read",
     "inventory:adjust",
     "orders:create",
+    "orders:manage",
     "orders:read",
     "orders:update",
   ],

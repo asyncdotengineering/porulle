@@ -3,6 +3,7 @@ import type { Kernel } from "../../../runtime/kernel.js";
 import { changeOrderStatusRoute, listOrdersRoute, orderLookupRoute, getOrderRoute, getOrderFulfillmentsRoute, createOrderRoute, refundOrderRoute, captureOrderRoute, createOrderFulfillmentRoute, addOrderLineItemRoute, updateOrderLineItemRoute, removeOrderLineItemRoute, refundOrderLinesRoute, undoOrderRefundRoute, listOrderRefundsRoute, refundCapStatusRoute, createOrderNoteRoute, listOrderNotesRoute, deleteOrderNoteRoute, orderTimelineRoute } from "../schemas/orders.js";
 import { type AppEnv, isUUID, mapErrorToResponse, mapErrorToStatus, parsePagination } from "../utils.js";
 import type { CreateOrderInput } from "../../../modules/orders/service.js";
+import { assertPermission } from "../../../auth/permissions.js";
 
 export function orderRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -62,6 +63,11 @@ export function orderRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(createOrderRoute, async (c) => {
+    try {
+      assertPermission(c.get("actor"), "orders:manage");
+    } catch (error) {
+      return c.json(mapErrorToResponse(error), mapErrorToStatus(error));
+    }
     const body = c.req.valid("json") as CreateOrderInput;
     const result = await kernel.services.orders.create(body, c.get("actor"));
     if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
@@ -170,6 +176,11 @@ export function orderRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(addOrderLineItemRoute, async (c) => {
+    try {
+      assertPermission(c.get("actor"), "orders:manage");
+    } catch (error) {
+      return c.json(mapErrorToResponse(error), mapErrorToStatus(error));
+    }
     const body = c.req.valid("json");
     const result = await kernel.services.orders.addLineItem(
       c.req.param("id"),

@@ -100,6 +100,7 @@ describe("RecipeDeductionService raw SQL fallback (SEC-raw-sql)", () => {
       TEST_ORG_ID,
     );
     expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
     expect(applied.value).toBe(1);
 
     const movements = await db

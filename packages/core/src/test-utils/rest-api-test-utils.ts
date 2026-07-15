@@ -163,6 +163,7 @@ export const testActor: Actor = {
     "orders:create",
     "orders:read",
     "orders:update",
+    "orders:manage",
     "cart:create",
     "cart:update",
     "cart:read",

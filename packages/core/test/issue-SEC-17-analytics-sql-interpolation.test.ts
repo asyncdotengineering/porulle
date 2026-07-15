@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { orders } from "../src/modules/orders/schema.js";
 import type { AnalyticsScope } from "../src/modules/analytics/types.js";
+import type { DrizzleDatabase } from "../src/kernel/database/drizzle-db.js";
 import { createTestKernel } from "../src/test-utils/create-test-kernel.js";
 
 const ADMIN_SCOPE: AnalyticsScope = { role: "admin" };
@@ -10,8 +11,9 @@ describe("SEC-17 — analytics SQL alias safety", () => {
 
   beforeAll(async () => {
     kernel = await createTestKernel();
+    const db = kernel.database.db as DrizzleDatabase;
 
-    await kernel.database.db.insert(orders).values({
+    await db.insert(orders).values({
       organizationId: "org_default",
       orderNumber: "SEC17-ORD",
       status: "confirmed",

@@ -36,12 +36,8 @@ export class PayoutService {
 
   async getBalance(vendorId: string): Promise<number> {
     const rows = await this.db.select({
-      balance: sql<number>`COALESCE((
-        SELECT running_balance_cents FROM marketplace_vendor_balances
-        WHERE vendor_id = ${vendorId}
-        ORDER BY created_at DESC LIMIT 1
-      ), 0)`,
-    }).from(vendors).where(eq(vendors.id, vendorId));
+      balance: sql<number>`COALESCE(SUM(${vendorBalances.amountCents}), 0)::integer`,
+    }).from(vendorBalances).where(eq(vendorBalances.vendorId, vendorId));
     return rows[0]?.balance ?? 0;
   }
 

@@ -30,8 +30,10 @@ describe("POS exchanges (issue #53)", () => {
       "orders:create",
       "orders:read",
       "orders:update",
+      "orders:manage",
       "catalog:create",
       "pricing:manage",
+      "inventory:adjust",
     ],
   };
 
@@ -78,6 +80,24 @@ describe("POS exchanges (issue #53)", () => {
         exchangeActor,
       );
       expect(price.ok).toBe(true);
+    }
+
+    const warehouse = await (kernel.services as any).inventory.createWarehouse(
+      { name: "Exchange Warehouse", code: `EX-${Date.now()}` },
+      exchangeActor,
+    );
+    expect(warehouse.ok).toBe(true);
+    for (const id of [entityId, premiumEntityId]) {
+      const stock = await (kernel.services as any).inventory.adjust(
+        {
+          entityId: id,
+          warehouseId: warehouse.value.id,
+          adjustment: 20,
+          reason: "exchange test stock",
+        },
+        exchangeActor,
+      );
+      expect(stock.ok).toBe(true);
     }
 
     const t = await app.request("http://localhost/api/pos/terminals", {

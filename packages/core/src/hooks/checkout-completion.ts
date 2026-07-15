@@ -13,14 +13,14 @@ interface InventoryServiceLike {
     quantity: number;
     orderId: string;
     performedBy: string;
-  }): Promise<{ ok: boolean; error?: { message: string } }>;
+  }, actor?: unknown): Promise<{ ok: boolean; error?: { message: string } }>;
   release(input: {
     entityId: string;
     variantId?: string;
     quantity: number;
     orderId: string;
     performedBy: string;
-  }): Promise<unknown>;
+  }, actor?: unknown): Promise<unknown>;
 }
 
 interface PaymentsServiceLike {
@@ -80,13 +80,16 @@ export const reserveInventoryStep: Step<
     const performedBy = ctx.hook.actor?.userId ?? "system";
 
     for (const item of data.lineItems) {
-      const result = await inventory.reserve({
-        entityId: item.entityId,
-        ...(item.variantId != null ? { variantId: item.variantId } : {}),
-        quantity: item.quantity,
-        orderId: data.checkoutId,
-        performedBy,
-      });
+      const result = await inventory.reserve(
+        {
+          entityId: item.entityId,
+          ...(item.variantId != null ? { variantId: item.variantId } : {}),
+          quantity: item.quantity,
+          orderId: data.checkoutId,
+          performedBy,
+        },
+        ctx.hook.actor,
+      );
 
       if (!result.ok) {
         return Err(
@@ -112,13 +115,16 @@ export const reserveInventoryStep: Step<
     const performedBy = ctx.hook.actor?.userId ?? "system";
 
     for (const r of reservations) {
-      await inventory.release({
-        entityId: r.entityId,
-        ...(r.variantId != null ? { variantId: r.variantId } : {}),
-        quantity: r.quantity,
-        orderId: r.orderId,
-        performedBy,
-      });
+      await inventory.release(
+        {
+          entityId: r.entityId,
+          ...(r.variantId != null ? { variantId: r.variantId } : {}),
+          quantity: r.quantity,
+          orderId: r.orderId,
+          performedBy,
+        },
+        ctx.hook.actor,
+      );
     }
   },
 };

@@ -32,7 +32,7 @@ export const testStaffActor: Actor = {
   role: "staff",
   permissions: [
     "catalog:read", "catalog:create", "catalog:update",
-    "inventory:adjust", "orders:read", "orders:create", "orders:update",
+    "inventory:adjust", "orders:read", "orders:create", "orders:update", "orders:manage",
   ],
 };
 
