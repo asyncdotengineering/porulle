@@ -1,5 +1,12 @@
 # @porulle/plugin-wishlist
 
+## 0.9.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.9.0
+
 ## 0.8.0
 
 ### Patch Changes

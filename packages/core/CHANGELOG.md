@@ -1,5 +1,21 @@
 # @porulle/core
 
+## 0.9.0
+
+### Minor Changes
+
+- Security hardening release. Multiple breaking changes — see `docs/migration-0.1-to-0.7.md`.
+
+  **Tenant isolation (SEC-01–SEC-21):** symmetric scoped-db `update`/`delete`, org-scoped catalog/pricing/entity lookups, catalog cross-org write guards, raw-SQL org predicates, PIN-login org binding, analytics alias safety, and more.
+
+  **Order creation:** server-priced by default (client prices ignored unless the actor holds `orders:manage`), tenant-integrity on line entities/variants, and `is_custom_price` provenance. **BREAKING:** `POST /api/orders` and `POST /api/orders/{id}/line-items` now require `orders:manage`; customers transact via `POST /api/checkout` (server-priced).
+
+  **Inventory / IDOR / gift cards:** `POST /api/inventory/warehouses|reserve|release` now require inventory permissions (anonymous → 401, customer → 403); checkout idempotency-key replay is bound to the requesting customer (no cross-customer order leak); gift-card repository is org-scoped; new `order_line_items.is_custom_price` column.
+
+  **Refund money-conservation:** total payout can never exceed the captured amount across `refundLines` + `changeStatus` (gross-refund cap incl. undone refunds); orders with refunded lines cannot be fulfilled; refunds are rejected on unpaid or terminal orders. **BREAKING:** refunds require a paid order.
+
+  Migration: existing deployments must grant `orders:manage` to staff roles / API-key scopes that create manual orders, keep customers on `/api/checkout`, and apply the schema change (`is_custom_price`).
+
 ## 0.8.0
 
 ### Minor Changes
