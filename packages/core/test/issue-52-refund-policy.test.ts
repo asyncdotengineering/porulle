@@ -5,6 +5,7 @@ import {
   testActor,
   parseJsonResponse,
 } from "../src/test-utils/rest-api-test-utils.js";
+import { markOrderPaidForTest } from "../src/test-utils/order-test-helpers.js";
 
 // Issue #52 — core refund (#37) moves money and flips status, but retail
 // policy lived in consumer metadata hacks: per-line refundedQuantity, a
@@ -14,11 +15,13 @@ import {
 // surfaced), and an audited undo that restores line quantities and cap room.
 describe("Issue #52 — refund policy primitives", () => {
   let server: any;
+  let kernel: any;
   let cleanup: () => Promise<void>;
 
   beforeAll(async () => {
     const result = await createTestServer();
     server = result.server;
+    kernel = result.kernel;
     cleanup = result.cleanup;
 
     // Daily cap: 3000 minor units per operator (issue #49 settings)
@@ -62,6 +65,9 @@ describe("Issue #52 — refund policy primitives", () => {
       actor: testActor,
     });
     const json = await parseJsonResponse<{ data: { id: string; lineItems: Array<{ id: string }> } }>(res);
+    // Refunds require a paid order (R-03). Mark this order captured so the
+    // refund-ledger/policy behavior under test can run.
+    await markOrderPaidForTest(kernel, json.data.id, 2200);
     return { orderId: json.data.id, lineItemId: json.data.lineItems[0]!.id };
   }
 

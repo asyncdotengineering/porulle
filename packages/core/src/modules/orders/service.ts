@@ -733,6 +733,19 @@ export class OrderService {
     const previous = order.status;
     const lineItems = await this.repo.findLineItemsByOrderId(order.id, ctx);
 
+    // R-04: goods must not ship against refunded lines. Reject the fulfilled
+    // transition if any line has been (partially) refunded.
+    if (
+      input.newStatus === "fulfilled" &&
+      lineItems.some((li) => li.refundedQuantity > 0)
+    ) {
+      return Err(
+        new CommerceValidationError(
+          "Cannot fulfill an order that has refunded line items.",
+        ),
+      );
+    }
+
     // VAPT r2 (codex) finding: side effects (inventory release, payment
     // refund, tax void) used to run BEFORE the atomic compare-and-swap on
     // updateStatus. Two parallel cancel/refund requests on the same order
@@ -825,19 +838,27 @@ export class OrderService {
           | undefined;
 
         if (payments?.refund) {
-          const maxRefund = Math.min(
-            order.grandTotal,
-            order.amountCaptured ?? order.grandTotal,
+          // R-01: subtract prior gateway refunds (line-level refundLines, and
+          // undone refunds — the gateway was never reversed) so this order-level
+          // refund can't double-pay on top of what has already been refunded.
+          const priorRefunds = await this.repo.findRefundsByOrderId(order.id, ctx);
+          const alreadyRefunded = priorRefunds.reduce((sum, r) => sum + r.amount, 0);
+          const maxRefund = Math.max(
+            0,
+            Math.min(order.grandTotal, order.amountCaptured ?? order.grandTotal) -
+              alreadyRefunded,
           );
           const refundAmount =
             input.refundAmount != null
               ? Math.min(input.refundAmount, maxRefund)
               : maxRefund;
-          await payments.refund(
-            paymentIntentId,
-            refundAmount,
-            input.reason ?? `order_${input.newStatus}`,
-          );
+          if (refundAmount > 0) {
+            await payments.refund(
+              paymentIntentId,
+              refundAmount,
+              input.reason ?? `order_${input.newStatus}`,
+            );
+          }
         }
       }
 
@@ -1043,6 +1064,26 @@ export class OrderService {
     if (input.lines.length === 0) {
       return Err(new CommerceValidationError("At least one line is required."));
     }
+    // R-02: a terminal order (cancelled / fully refunded) cannot be line-refunded.
+    if (this.machine.terminal.includes(found.order.status)) {
+      return Err(
+        new CommerceValidationError(
+          `Cannot refund an order in terminal status "${found.order.status}".`,
+        ),
+      );
+    }
+    // R-03: a refund moves collected money — reject an unpaid order (otherwise a
+    // "refund" is recorded against funds never taken). "Paid" is either a core
+    // captured payment (checkout: amountCaptured > 0) or the order having left
+    // the initial pending state (e.g. a completed POS/in-store sale). Only a
+    // still-pending, uncaptured order is treated as unpaid.
+    if ((found.order.amountCaptured ?? 0) <= 0 && found.order.status === "pending") {
+      return Err(
+        new CommerceValidationError(
+          "Cannot refund an unpaid order (no captured payment and still pending).",
+        ),
+      );
+    }
 
     const byId = new Map(found.lineItems.map((li) => [li.id, li]));
     const refundLines: Array<{ lineItemId: string; quantity: number; amount: number }> = [];
@@ -1094,15 +1135,20 @@ export class OrderService {
         | undefined;
       if (payments?.refund) {
         const priorRefunds = await this.repo.findRefundsByOrderId(orderId, ctx);
-        const alreadyRefunded = priorRefunds
-          .filter((r) => r.status === "completed")
-          .reduce((sum, r) => sum + r.amount, 0);
+        // Gross total incl. UNDONE refunds: undoRefund reverses the local ledger
+        // but not the payment gateway, so that money already left. Counting only
+        // "completed" would let refund → undo → refund re-issue a gateway refund
+        // (F-04 / R-05 / R-07). Capping on gross keeps total payout ≤ captured.
+        const alreadyRefunded = priorRefunds.reduce((sum, r) => sum + r.amount, 0);
         const refundable = Math.max(0, (found.order.amountCaptured ?? 0) - alreadyRefunded);
-        await payments.refund(
-          found.order.paymentIntentId,
-          Math.min(totalAmount, refundable),
-          input.reason ?? "line_refund",
-        );
+        const payAmount = Math.min(totalAmount, refundable);
+        if (payAmount > 0) {
+          await payments.refund(
+            found.order.paymentIntentId,
+            payAmount,
+            input.reason ?? "line_refund",
+          );
+        }
       }
     }
 
@@ -1489,6 +1535,14 @@ export class OrderService {
     ) {
       return new CommerceValidationError(
         "Order payment is fully captured; line items cannot be edited.",
+      );
+    }
+    // R-06: a checkout order carries a paymentIntentId. If amountCaptured is null
+    // (auth-only capture, or a mock adapter reporting 0), treat it as authorized —
+    // an order with a live payment must not have its lines silently edited/inflated.
+    if (order.paymentIntentId != null && order.amountCaptured == null) {
+      return new CommerceValidationError(
+        "Order has an authorized payment; line items cannot be edited.",
       );
     }
     return null;

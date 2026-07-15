@@ -7,6 +7,7 @@ import {
   posAdminActor,
 } from "./test-utils.js";
 import { posPlugin } from "../src/index.js";
+import { markOrderPaidForTest } from "@porulle/core/testing";
 
 const CATALOG_UNIT_PRICE = 5000;
 const ATTACK_UNIT_PRICE = 1;
@@ -106,6 +107,8 @@ describe("SEC-14 — exchange replacement unitPrice is server-resolved", () => {
     expect(order.ok).toBe(true);
     const orderId = order.value.id;
     const lineItemId = order.value.lineItems[0].id;
+    // Original sale is paid — mark captured so the core refund guard allows it.
+    await markOrderPaidForTest(kernel, orderId, 2000);
 
     const res = await app.request("http://localhost/api/pos/exchanges", {
       method: "POST",

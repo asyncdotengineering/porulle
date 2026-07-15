@@ -8,6 +8,7 @@ import {
   TEST_ORG_ID,
 } from "./test-utils.js";
 import { posPlugin } from "../src/index.js";
+import { markOrderPaidForTest } from "@porulle/core/testing";
 
 // Issue #53 — plugin-pos had returns but no exchange primitive. An exchange
 // (return lines + replacement order + net delta) is one call: the refund on
@@ -52,6 +53,9 @@ describe("POS exchanges (issue #53)", () => {
       exchangeActor,
     );
     expect(result.ok).toBe(true);
+    // The original sale is paid — mark it captured so the core refund guard
+    // (which rejects refunds on unpaid/pending orders) allows the exchange.
+    await markOrderPaidForTest(kernel, result.value.id, 2200);
     return { orderId: result.value.id, lineItemId: result.value.lineItems[0].id };
   }
 

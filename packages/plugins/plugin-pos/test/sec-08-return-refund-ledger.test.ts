@@ -3,6 +3,7 @@ import type { PluginTestApp } from "@porulle/core/testing";
 import type { Actor } from "@porulle/core/testing";
 import { createPluginTestApp, jsonHeaders, posAdminActor } from "./test-utils.js";
 import { posPlugin } from "../src/index.js";
+import { markOrderPaidForTest } from "@porulle/core/testing";
 
 const UNIT_PRICE = 3000;
 
@@ -40,6 +41,9 @@ describe("SEC-08 — POS return refund is server-derived, capped, idempotent", (
       actor,
     );
     expect(order.ok).toBe(true);
+    // A POS return is against a paid sale — mark the order captured so the
+    // core refund guard (rejects refunds on unpaid/pending orders) allows it.
+    await markOrderPaidForTest(kernel, order.value.id, UNIT_PRICE);
     return { orderId: order.value.id, lineItemId: order.value.lineItems[0].id };
   }
   const returnReq = (body: unknown) =>

@@ -6,6 +6,7 @@ import {
   noPermActor,
   parseJsonResponse,
 } from "../src/test-utils/rest-api-test-utils.js";
+import { markOrderPaidForTest } from "../src/test-utils/order-test-helpers.js";
 
 // Issue #56 — orders had status history but no operator annotations and no
 // unified activity view. Notes are first-class rows (author, pinned) and the
@@ -14,6 +15,7 @@ import {
 // place.
 describe("Issue #56 — order notes + activity timeline", () => {
   let server: any;
+  let kernel: any;
   let cleanup: () => Promise<void>;
   let orderId: string;
   let lineItemId: string;
@@ -21,6 +23,7 @@ describe("Issue #56 — order notes + activity timeline", () => {
   beforeAll(async () => {
     const result = await createTestServer();
     server = result.server;
+    kernel = result.kernel;
     cleanup = result.cleanup;
 
     const entityRes = await makeRequest(server, {
@@ -48,6 +51,8 @@ describe("Issue #56 — order notes + activity timeline", () => {
     });
     const order = (await parseJsonResponse<{ data: any }>(orderRes)).data;
     orderId = order.id;
+    // Refunds require a paid order (R-03) — mark the order captured.
+    await markOrderPaidForTest(kernel, orderId, 2000);
     lineItemId = order.lineItems[0].id;
   });
 

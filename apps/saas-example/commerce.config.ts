@@ -17,7 +17,10 @@ const mockPayments: PaymentAdapter = {
     });
   },
   async capturePayment(paymentIntentId, amount) {
-    return Ok({ id: paymentIntentId, status: "succeeded", amountCaptured: amount ?? 0 });
+    // Return the captured amount only when specified; leaving it undefined lets
+    // the core capture() default to the full order total (production Stripe
+    // captures the full authorized amount when no amount is passed).
+    return Ok({ id: paymentIntentId, status: "succeeded", ...(amount != null ? { amountCaptured: amount } : {}) });
   },
   async refundPayment(paymentId, amount) {
     return Ok({ id: `re_${Date.now()}`, status: "succeeded", amountRefunded: amount });

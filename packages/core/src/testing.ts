@@ -16,6 +16,7 @@ export {
   jsonHeaders,
 } from "./test-utils/test-actors.js";
 export { beforeHook, afterHook } from "./test-utils/typed-hooks.js";
+export { markOrderPaidForTest } from "./test-utils/order-test-helpers.js";
 
 // Actor type re-export for plugin tests that build custom test actors.
 export type { Actor } from "./auth/types.js";
