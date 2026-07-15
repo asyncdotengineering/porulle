@@ -49,7 +49,7 @@ export class GiftCardService {
     let attempts = 0;
     do {
       code = normalizeCode(generateGiftCardCode(this.options.codeFormat));
-      const existing = await this.repo.findByCode(code);
+      const existing = await this.repo.findByCode(orgId, code);
       if (!existing) break;
       attempts++;
     } while (attempts < 10);
@@ -92,13 +92,13 @@ export class GiftCardService {
   // ─── Query ───────────────────────────────────────────────────────────
 
   async getById(orgId: string, id: string): Promise<PluginResult<GiftCard>> {
-    const card = await this.repo.findById(id);
+    const card = await this.repo.findById(orgId, id);
     if (!card) return Err("Gift card not found");
     return Ok(card);
   }
 
   async getByCode(orgId: string, code: string): Promise<PluginResult<GiftCard>> {
-    const card = await this.repo.findByCode(normalizeCode(code));
+    const card = await this.repo.findByCode(orgId, normalizeCode(code));
     if (!card) return Err("Gift card not found");
     return Ok(card);
   }
@@ -107,7 +107,7 @@ export class GiftCardService {
     status?: GiftCardStatus;
     purchaserId?: string;
   }): Promise<PluginResult<GiftCard[]>> {
-    const cards = await this.repo.list(filters);
+    const cards = await this.repo.list(orgId, filters);
     return Ok(cards);
   }
 
@@ -126,7 +126,7 @@ export class GiftCardService {
     currency: string;
     status: string;
   }>> {
-    const card = await this.repo.findByCode(normalizeCode(code));
+    const card = await this.repo.findByCode(orgId, normalizeCode(code));
     if (!card) return Err("Gift card not found");
 
     return Ok({
@@ -152,7 +152,7 @@ export class GiftCardService {
     if (amount <= 0) return Err("Debit amount must be positive");
 
     const result = await this.transaction(async (tx) => {
-      const card = await this.repo.findByCodeForUpdate(normalizeCode(code), tx);
+      const card = await this.repo.findByCodeForUpdate(orgId, normalizeCode(code), tx);
       if (!card) return Err("GIFT_CARD_NOT_FOUND");
       if (card.status === "disabled") return Err("GIFT_CARD_INACTIVE");
       if (card.status === "exhausted") return Err("GIFT_CARD_EXHAUSTED");
@@ -163,7 +163,7 @@ export class GiftCardService {
       const balanceAfter = card.balance - amount;
       const newStatus: GiftCardStatus = balanceAfter === 0 ? "exhausted" : "active";
 
-      await this.repo.updateBalance(card.id, balanceAfter, newStatus, card.version, tx);
+      await this.repo.updateBalance(orgId, card.id, balanceAfter, newStatus, card.version, tx);
       await this.repo.recordTransaction(
         {
           giftCardId: card.id,
@@ -202,7 +202,7 @@ export class GiftCardService {
     if (amount <= 0) return Err("Credit amount must be positive");
 
     const result = await this.transaction(async (tx) => {
-      const card = await this.repo.findByCodeForUpdate(normalizeCode(code), tx);
+      const card = await this.repo.findByCodeForUpdate(orgId, normalizeCode(code), tx);
       if (!card) return Err("GIFT_CARD_NOT_FOUND");
 
       // Cap credit at initial amount (prevent inflation attack)
@@ -215,7 +215,7 @@ export class GiftCardService {
 
       const newStatus: GiftCardStatus = balanceAfter > 0 ? "active" : card.status;
 
-      await this.repo.updateBalance(card.id, balanceAfter, newStatus, card.version, tx);
+      await this.repo.updateBalance(orgId, card.id, balanceAfter, newStatus, card.version, tx);
       await this.repo.recordTransaction(
         {
           giftCardId: card.id,
@@ -237,7 +237,7 @@ export class GiftCardService {
   // ─── Admin Operations ────────────────────────────────────────────────
 
   async disable(orgId: string, id: string): Promise<PluginResult<GiftCard>> {
-    const card = await this.repo.disable(id);
+    const card = await this.repo.disable(orgId, id);
     if (!card) return Err("Gift card not found");
     return Ok(card);
   }
@@ -249,7 +249,7 @@ export class GiftCardService {
     note: string,
   ): Promise<PluginResult<GiftCard>> {
     const result = await this.transaction(async (tx) => {
-      const card = await this.repo.findByIdForUpdate(id, tx);
+      const card = await this.repo.findByIdForUpdate(orgId, id, tx);
       if (!card) return Err("Gift card not found");
 
       const newBalance = Math.max(0, Math.min(card.initialAmount, card.balance + delta));
@@ -257,6 +257,7 @@ export class GiftCardService {
       const newStatus: GiftCardStatus = newBalance === 0 ? "exhausted" : "active";
 
       const updated = await this.repo.updateBalance(
+        orgId,
         card.id,
         newBalance,
         newStatus,

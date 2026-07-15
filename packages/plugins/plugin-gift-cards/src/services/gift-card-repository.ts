@@ -19,67 +19,73 @@ export class GiftCardRepository {
     return rows[0]!;
   }
 
-  async findById(id: string, ctx?: { tx?: Db }): Promise<GiftCard | undefined> {
+  async findById(orgId: string, id: string, ctx?: { tx?: Db }): Promise<GiftCard | undefined> {
     const rows = await this.getDb(ctx)
       .select()
       .from(giftCards)
-      .where(eq(giftCards.id, id));
+      .where(and(eq(giftCards.id, id), eq(giftCards.organizationId, orgId)));
     return rows[0];
   }
 
-  async findByCode(code: string, ctx?: { tx?: Db }): Promise<GiftCard | undefined> {
+  async findByCode(orgId: string, code: string, ctx?: { tx?: Db }): Promise<GiftCard | undefined> {
+    const conditions = [eq(giftCards.code, code)];
+    // "_any" is the public bearer-token lookup (check-balance): a gift-card code
+    // is org-agnostic by design. Admin id-based lookups stay strictly org-scoped.
+    if (orgId !== "_any") conditions.push(eq(giftCards.organizationId, orgId));
     const rows = await this.getDb(ctx)
       .select()
       .from(giftCards)
-      .where(eq(giftCards.code, code));
+      .where(and(...conditions));
     return rows[0];
   }
 
   async list(
+    orgId: string,
     filters?: { status?: GiftCardStatus; purchaserId?: string },
     ctx?: { tx?: Db },
   ): Promise<GiftCard[]> {
-    const conditions = [];
+    const conditions = [eq(giftCards.organizationId, orgId)];
     if (filters?.status) conditions.push(eq(giftCards.status, filters.status));
     if (filters?.purchaserId) conditions.push(eq(giftCards.purchaserId, filters.purchaserId));
 
     return this.getDb(ctx)
       .select()
       .from(giftCards)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .where(and(...conditions))
       .orderBy(desc(giftCards.createdAt));
   }
 
-  async disable(id: string, ctx?: { tx?: Db }): Promise<GiftCard | undefined> {
+  async disable(orgId: string, id: string, ctx?: { tx?: Db }): Promise<GiftCard | undefined> {
     const rows = await this.getDb(ctx)
       .update(giftCards)
       .set({ status: "disabled" as const, updatedAt: new Date() })
-      .where(eq(giftCards.id, id))
+      .where(and(eq(giftCards.id, id), eq(giftCards.organizationId, orgId)))
       .returning();
     return rows[0];
   }
 
   // ─── SELECT FOR UPDATE (Concurrency-Safe Balance Operations) ───────
 
-  async findByCodeForUpdate(code: string, tx: Db): Promise<GiftCard | undefined> {
+  async findByCodeForUpdate(orgId: string, code: string, tx: Db): Promise<GiftCard | undefined> {
     const rows = await tx
       .select()
       .from(giftCards)
-      .where(eq(giftCards.code, code))
+      .where(and(eq(giftCards.code, code), eq(giftCards.organizationId, orgId)))
       .for("update");
     return rows[0];
   }
 
-  async findByIdForUpdate(id: string, tx: Db): Promise<GiftCard | undefined> {
+  async findByIdForUpdate(orgId: string, id: string, tx: Db): Promise<GiftCard | undefined> {
     const rows = await tx
       .select()
       .from(giftCards)
-      .where(eq(giftCards.id, id))
+      .where(and(eq(giftCards.id, id), eq(giftCards.organizationId, orgId)))
       .for("update");
     return rows[0];
   }
 
   async updateBalance(
+    orgId: string,
     id: string,
     balance: number,
     status: GiftCardStatus,
@@ -94,23 +100,24 @@ export class GiftCardRepository {
         version: currentVersion + 1,
         updatedAt: new Date(),
       })
-      .where(eq(giftCards.id, id))
+      .where(and(eq(giftCards.id, id), eq(giftCards.organizationId, orgId)))
       .returning();
     return rows[0]!;
   }
 
   async adjustBalance(
+    orgId: string,
     id: string,
     delta: number,
     tx: Db,
   ): Promise<GiftCard> {
-    const card = await this.findByIdForUpdate(id, tx);
+    const card = await this.findByIdForUpdate(orgId, id, tx);
     if (!card) throw new Error("Gift card not found");
 
     const newBalance = Math.max(0, Math.min(card.initialAmount, card.balance + delta));
     const newStatus: GiftCardStatus = newBalance === 0 ? "exhausted" : "active";
 
-    return this.updateBalance(id, newBalance, newStatus, card.version, tx);
+    return this.updateBalance(orgId, id, newBalance, newStatus, card.version, tx);
   }
 
   // ─── Transactions ───────────────────────────────────────────────────

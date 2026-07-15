@@ -94,7 +94,35 @@ export function checkoutRoutes(kernel: Kernel) {
         actor,
       );
       if (replay.ok && replay.value) {
-        return c.json({ data: replay.value }, 201);
+        // IDOR guard: an idempotency key must only replay the requester's OWN
+        // order. Without this, a same-org customer who supplies/guesses another
+        // customer's key would receive that customer's order (PII, totals, lines).
+        let canActForOthers = false;
+        try {
+          assertPermission(actor, "customers:read");
+          canActForOthers = true;
+        } catch {
+          canActForOthers = false;
+        }
+        const ownCustomer = actor
+          ? await resolveCheckoutCustomerUuid(kernel.services.customers, actor, undefined)
+          : undefined;
+        const replayCustomer = replay.value.customerId ?? null;
+        const ownsOrder =
+          (replayCustomer !== null && replayCustomer === ownCustomer) ||
+          (replayCustomer === null && !ownCustomer);
+        if (canActForOthers || ownsOrder) {
+          return c.json({ data: replay.value }, 201);
+        }
+        return c.json(
+          {
+            error: {
+              code: "IDEMPOTENCY_CONFLICT",
+              message: "Idempotency key does not belong to this account.",
+            },
+          },
+          409,
+        );
       }
     }
 

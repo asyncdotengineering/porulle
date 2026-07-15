@@ -1,4 +1,4 @@
-import { router } from "@porulle/core";
+import { router, CommerceNotFoundError } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
 import type { GiftCardService } from "../services/gift-card-service.js";
 import type { PluginRouteRegistration } from "@porulle/core";
@@ -72,7 +72,8 @@ export function buildAdminRoutes(
     .permission("gift-cards:admin")
     .handler(async ({ params, orgId }) => {
       const cardResult = await service.getById(orgId, params.id!);
-      if (!cardResult.ok) throw new Error(cardResult.error);
+      // Cross-tenant / missing card → safe 404, not a generic 500.
+      if (!cardResult.ok) throw new CommerceNotFoundError("Gift card not found.");
 
       const txnResult = await service.getTransactions(orgId, cardResult.value.id);
       return {
@@ -89,7 +90,7 @@ export function buildAdminRoutes(
     .permission("gift-cards:admin")
     .handler(async ({ params, orgId }) => {
       const result = await service.disable(orgId, params.id!);
-      if (!result.ok) throw new Error(result.error);
+      if (!result.ok) throw new CommerceNotFoundError("Gift card not found.");
       return result.value;
     });
 
@@ -107,7 +108,7 @@ export function buildAdminRoutes(
     .handler(async ({ params, input, orgId }) => {
       const body = input as { delta: number; note: string };
       const result = await service.adjust(orgId, params.id!, body.delta, body.note);
-      if (!result.ok) throw new Error(result.error);
+      if (!result.ok) throw new CommerceNotFoundError("Gift card not found.");
       return result.value;
     });
 
