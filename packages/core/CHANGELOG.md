@@ -1,5 +1,15 @@
 # @porulle/core
 
+## 0.10.2
+
+### Patch Changes
+
+- `POST /api/promotions/validate` now returns the authoritative discount the cart
+  would receive — `{ totalDiscount, freeShipping, applied, rejectedCodes }` (the
+  same computation checkout runs) — instead of only the promotion. This lets a
+  storefront show the exact discount the order will get without re-deriving it
+  (which drifts from checkout). New `PromotionValidationResult` response schema.
+
 ## 0.10.1
 
 ### Patch Changes

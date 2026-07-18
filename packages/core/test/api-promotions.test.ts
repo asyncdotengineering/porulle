@@ -220,7 +220,7 @@ describe("REST API: Promotions", () => {
       });
     });
 
-    it("validates eligible promotion code", async () => {
+    it("validates eligible promotion code and returns the authoritative discount", async () => {
       const response = await makeRequest(server, {
         method: "POST",
         url: "http://localhost/api/promotions/validate",
@@ -232,8 +232,15 @@ describe("REST API: Promotions", () => {
         },
       });
 
-      expect(response.status).toBeGreaterThanOrEqual(200);
-      // Response format may vary, just check it doesn't error
+      expect(response.status).toBe(200);
+      // The endpoint returns the computed discount (10% of 10000 = 1000), not
+      // just the promotion — so a storefront shows exactly what checkout charges.
+      const json = await parseJsonResponse<{
+        data: { totalDiscount: number; freeShipping: boolean; applied: unknown[] };
+      }>(response);
+      expect(json.data.totalDiscount).toBe(1000);
+      expect(json.data.freeShipping).toBe(false);
+      expect(Array.isArray(json.data.applied)).toBe(true);
     });
 
     it("rejects promotion below minimum order value", async () => {

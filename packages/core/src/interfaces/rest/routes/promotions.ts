@@ -61,7 +61,12 @@ export function promotionRoutes(kernel: Kernel) {
     const actor = c.get("actor");
     const orgId = resolveOrgId(actor);
 
-    const result = await kernel.services.promotions.validate(payload.code, {
+    // Apply (not just validate) so the response carries the authoritative
+    // discount the cart would receive — the same computation checkout runs.
+    // Returning only the promotion forces callers to re-derive the amount, which
+    // drifts from checkout and shows customers a wrong number. apply() still
+    // Err's on an invalid / inapplicable code (it validates first).
+    const result = await kernel.services.promotions.apply(payload.code, {
       orgId,
       currency: payload.currency,
       subtotal: payload.subtotal,

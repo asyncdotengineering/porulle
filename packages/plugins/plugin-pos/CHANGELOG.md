@@ -1,5 +1,13 @@
 # @porulle/plugin-pos
 
+## 0.10.2
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.10.2
+  - @porulle/db@0.10.2
+
 ## 0.10.1
 
 ### Patch Changes
