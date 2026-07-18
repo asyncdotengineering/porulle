@@ -34,6 +34,31 @@ export const PromotionResponseSchema = z.object({
   data: z.record(z.string(), z.unknown()),
 }).openapi("PromotionResponse");
 
+// The authoritative result of applying a code to a cart — the SAME computation
+// checkout uses, so a storefront can show the exact discount the order will get
+// (no client-side re-derivation, which would drift from checkout).
+export const PromotionValidationResultSchema = z.object({
+  data: z.object({
+    totalDiscount: z.number().openapi({
+      example: 1000,
+      description: "Discount this code applies to the cart, in the cart's minor units (e.g. cents).",
+    }),
+    freeShipping: z.boolean().openapi({ example: false }),
+    applied: z.array(z.object({
+      promotionId: z.string(),
+      code: z.string().optional(),
+      type: z.string(),
+      discountAmount: z.number(),
+      freeShipping: z.boolean(),
+      description: z.string(),
+    })).openapi({ description: "The promotion(s) applied by this code." }),
+    rejectedCodes: z.array(z.object({
+      code: z.string(),
+      reason: z.string(),
+    })),
+  }),
+}).openapi("PromotionValidationResult");
+
 // ─── Path Params ────────────────────────────────────────────────────────────
 
 const PromotionIdParam = z.object({
@@ -98,8 +123,8 @@ export const validatePromotionRoute = createRoute({
   },
   responses: {
     200: {
-      content: { "application/json": { schema: PromotionResponseSchema } },
-      description: "Promotion validation result.",
+      content: { "application/json": { schema: PromotionValidationResultSchema } },
+      description: "The code is valid for this cart: the authoritative discount it applies (same computation as checkout).",
     },
     ...errorResponses,
   },
