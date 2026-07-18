@@ -155,7 +155,10 @@ export const capturePaymentStep: Step<
     }
 
     const payments = ctx.hook.services.payments as PaymentsServiceLike;
-    const result = await payments.capture(data.paymentIntentId);
+    // Capture the full checkout total. Pass it explicitly — an adapter that
+    // returns 0 for an omitted amount (dev mock, some custom adapters) would
+    // otherwise cause a $0 capture to be recorded on every order.
+    const result = await payments.capture(data.paymentIntentId, data.total);
 
     if (!result.ok) {
       return Err(
@@ -164,23 +167,24 @@ export const capturePaymentStep: Step<
         ),
       );
     }
-    if (typeof result.value?.amountCaptured === "number") {
-      const orders = ctx.hook.services.orders as {
-        updateOrder?(
-          orderId: string,
-          data: { amountCaptured?: number },
-          actor?: unknown,
-        ): Promise<{ ok: boolean }>;
-      };
-      if (orders.updateOrder) {
-        const updated = await orders.updateOrder(
-          data.checkoutId,
-          { amountCaptured: result.value.amountCaptured },
-          ctx.hook.actor,
-        );
-        if (!updated.ok) {
-          return Err(new CommerceValidationError("Failed to persist captured payment amount."));
-        }
+    const orders = ctx.hook.services.orders as {
+      updateOrder?(
+        orderId: string,
+        data: { amountCaptured?: number },
+        actor?: unknown,
+      ): Promise<{ ok: boolean }>;
+    };
+    if (orders.updateOrder) {
+      // Record the adapter's positive figure, else the total we captured.
+      const reported = result.value?.amountCaptured;
+      const amountCaptured = reported && reported > 0 ? reported : data.total;
+      const updated = await orders.updateOrder(
+        data.checkoutId,
+        { amountCaptured },
+        ctx.hook.actor,
+      );
+      if (!updated.ok) {
+        return Err(new CommerceValidationError("Failed to persist captured payment amount."));
       }
     }
 
