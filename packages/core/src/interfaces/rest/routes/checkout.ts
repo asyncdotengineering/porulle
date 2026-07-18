@@ -286,6 +286,7 @@ export function checkoutRoutes(kernel: Kernel) {
       if (order.ok && (processed.appliedPromotions?.length ?? 0) > 0) {
         await kernel.services.promotions.recordUsage({
           promotions: processed.appliedPromotions ?? [],
+          organizationId: order.value.organizationId,
           orderId: order.value.id,
           ...(customerUuid !== undefined
             ? { customerId: customerUuid }

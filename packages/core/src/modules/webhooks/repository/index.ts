@@ -1,4 +1,4 @@
-import { eq, and, lte, isNull, or, desc, sql } from "drizzle-orm";
+import { eq, and, lte, isNull, or, desc, sql, inArray } from "drizzle-orm";
 import type { TxContext } from "../../../kernel/database/tx-context.js";
 import type {
   DrizzleDatabase,
@@ -195,28 +195,30 @@ export class WebhooksRepository {
   }
 
   async findFailedDeliveries(
+    orgId: string,
     endpointId?: string,
     ctx?: TxContext,
   ): Promise<WebhookDelivery[]> {
     const db = this.getDb(ctx);
 
-    if (endpointId) {
-      return db
-        .select()
-        .from(webhookDeliveries)
-        .where(
-          and(
-            eq(webhookDeliveries.endpointId, endpointId),
-            sql`${webhookDeliveries.failedAt} IS NOT NULL`,
-          ),
-        )
-        .orderBy(desc(webhookDeliveries.failedAt));
-    }
+    // webhook_deliveries has no organizationId column — org lives on the parent
+    // endpoint. Scope failed deliveries to endpoints owned by orgId so this can
+    // never read another tenant's deliveries.
+    const orgEndpointIds = db
+      .select({ id: webhookEndpoints.id })
+      .from(webhookEndpoints)
+      .where(eq(webhookEndpoints.organizationId, orgId));
+
+    const conditions = [
+      sql`${webhookDeliveries.failedAt} IS NOT NULL`,
+      inArray(webhookDeliveries.endpointId, orgEndpointIds),
+    ];
+    if (endpointId) conditions.push(eq(webhookDeliveries.endpointId, endpointId));
 
     return db
       .select()
       .from(webhookDeliveries)
-      .where(sql`${webhookDeliveries.failedAt} IS NOT NULL`)
+      .where(and(...conditions))
       .orderBy(desc(webhookDeliveries.failedAt));
   }
 

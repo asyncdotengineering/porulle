@@ -330,6 +330,7 @@ describe("phase 3 promotions (PGlite-backed)", () => {
 
     await kernel.services.promotions.recordUsage({
       promotions: [{ promotionId: tenOff.value.id, code: "SAVE10", type: "percentage_off_order", discountAmount: 200, freeShipping: false, description: "save" }],
+      organizationId: tenOff.value.organizationId,
       customerId: "00000000-0000-0000-0000-000000000001", // Valid UUID
       orderId: "00000000-0000-0000-0000-000000000099",
     });
@@ -549,6 +550,7 @@ describe("phase 3 shipping and checkout pipeline (PGlite-backed)", () => {
 
     await kernel.services.promotions.recordUsage({
       promotions: processed.appliedPromotions ?? [],
+      organizationId: order.value.organizationId,
       orderId: order.value.id,
       ...(processed.customerId !== undefined ? { customerId: processed.customerId } : {}),
     });

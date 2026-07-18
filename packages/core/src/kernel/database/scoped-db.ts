@@ -32,6 +32,31 @@ function tableHasOrganizationId(table: unknown): boolean {
 }
 
 /**
+ * Wrap a WHERE-able Drizzle builder so every `.where()` call AND-s `orgEq` in
+ * AND re-wraps its result. Re-wrapping is what makes a chained
+ * `.where(a).where(b)` safe: Drizzle's second `.where()` REPLACES the first, so
+ * without re-wrapping the chained call would reach the raw builder and execute
+ * with only the caller's condition — dropping the org predicate and leaking
+ * across tenants. Every link in the chain re-injects `orgEq`.
+ */
+function wrapWhereable(builder: unknown, orgEq: SQL): unknown {
+  return new Proxy(builder as Record<string, unknown>, {
+    get(st, sp, sr) {
+      const sv = Reflect.get(st, sp, sr);
+      if (sp === "where" && typeof sv === "function") {
+        return (condition?: unknown, ...wRest: unknown[]) => {
+          const c = condition as SQL | undefined;
+          const merged = c ? and(orgEq, c) : orgEq;
+          const next = (sv as (...a: unknown[]) => unknown).call(st, merged, ...wRest);
+          return wrapWhereable(next, orgEq);
+        };
+      }
+      return typeof sv === "function" ? sv.bind(st) : sv;
+    },
+  });
+}
+
+/**
  * Pre-apply the org predicate to a WHERE-able builder (UPDATE/DELETE) and wrap
  * its `.where()` so a caller-supplied condition is AND-ed with the org filter
  * rather than replacing it. Pre-applying `orgEq` immediately means a builder
@@ -42,20 +67,7 @@ function scopeWhereBuilder(
   builder: { where: (c: SQL | undefined) => unknown },
   orgEq: SQL,
 ): unknown {
-  const scoped = builder.where(orgEq);
-  return new Proxy(scoped as Record<string, unknown>, {
-    get(st, sp, sr) {
-      const sv = Reflect.get(st, sp, sr);
-      if (sp === "where" && typeof sv === "function") {
-        return (condition?: unknown, ...wRest: unknown[]) => {
-          const c = condition as SQL | undefined;
-          const merged = c ? and(orgEq, c) : orgEq;
-          return (sv as (...a: unknown[]) => unknown).call(st, merged, ...wRest);
-        };
-      }
-      return typeof sv === "function" ? sv.bind(st) : sv;
-    },
-  });
+  return wrapWhereable(builder.where(orgEq), orgEq);
 }
 
 export function createScopedDb<TDb>(rawDb: TDb, orgSource: ScopedOrganizationId): TDb {
@@ -112,20 +124,7 @@ export function createScopedDb<TDb>(rawDb: TDb, orgSource: ScopedOrganizationId)
 
                   const orgEq = eq(orgCol, resolveOrganizationId(orgSource));
                   const inner = chain as { where: (c: SQL | undefined) => unknown };
-                  const scoped = inner.where(orgEq);
-                  return new Proxy(scoped as Record<string, unknown>, {
-                    get(st, sp, sr) {
-                      const sv = Reflect.get(st, sp, sr);
-                      if (sp === "where" && typeof sv === "function") {
-                        return (condition?: unknown, ...wRest: unknown[]) => {
-                          const c = condition as SQL | undefined;
-                          const merged = c ? and(orgEq, c) : orgEq;
-                          return sv.call(st, merged, ...wRest);
-                        };
-                      }
-                      return typeof sv === "function" ? sv.bind(st) : sv;
-                    },
-                  });
+                  return wrapWhereable(inner.where(orgEq), orgEq);
                 };
               }
               return typeof sbVal === "function" ? sbVal.bind(sbTarget) : sbVal;

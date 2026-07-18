@@ -182,6 +182,7 @@ export class PromotionsRepository {
 
   async createUsage(
     data: PromotionUsageInsert,
+    orgId: string,
     ctx?: TxContext,
   ): Promise<PromotionUsage> {
     const db = this.getDb(ctx);
@@ -190,10 +191,13 @@ export class PromotionsRepository {
     // race conditions between concurrent checkouts using the same coupon.
     // A plain count-then-insert has a TOCTOU gap; this single statement
     // ensures the insert only succeeds if the limit has not been reached.
+    // Both reads are scoped by organizationId: these are raw/lock queries that
+    // bypass the scoped-db proxy, so a promotionId from another tenant must
+    // resolve to no row rather than reading/locking a foreign promotion.
     const promo = await db
       .select({ usageLimitTotal: promotions.usageLimitTotal })
       .from(promotions)
-      .where(eq(promotions.id, data.promotionId));
+      .where(and(eq(promotions.id, data.promotionId), eq(promotions.organizationId, orgId)));
 
     const limit = promo[0]?.usageLimitTotal;
 
@@ -206,7 +210,7 @@ export class PromotionsRepository {
       // concurrent callers. If the caller is already inside a transaction
       // (ctx.tx), the lock is held until that transaction commits.
       await db.execute(
-        sql`SELECT id FROM promotions WHERE id = ${data.promotionId} FOR UPDATE`,
+        sql`SELECT id FROM promotions WHERE id = ${data.promotionId} AND organization_id = ${orgId} FOR UPDATE`,
       );
 
       const currentCount = await this.countUsages(data.promotionId, ctx);

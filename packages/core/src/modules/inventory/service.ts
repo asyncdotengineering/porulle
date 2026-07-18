@@ -3,8 +3,10 @@ import { assertPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
 import type { CommerceConfig } from "../../config/types.js";
 import {
+  CommerceInventoryRecordNotFoundError,
   CommerceNotFoundError,
   CommerceValidationError,
+  INVENTORY_RECORD_NOT_FOUND_MESSAGE,
   toCommerceError,
 } from "../../kernel/errors.js";
 import { runAfterHooks } from "../../kernel/hooks/executor.js";
@@ -232,7 +234,11 @@ export class InventoryService {
       );
 
       if (!reserveResult.ok) {
-        return Err(new CommerceValidationError(reserveResult.reason));
+        return Err(
+          reserveResult.reason === INVENTORY_RECORD_NOT_FOUND_MESSAGE
+            ? new CommerceInventoryRecordNotFoundError()
+            : new CommerceValidationError(reserveResult.reason),
+        );
       }
 
       await this.repo.createMovement(
@@ -281,7 +287,11 @@ export class InventoryService {
       );
 
       if (!releaseResult.ok) {
-        return Err(new CommerceValidationError(releaseResult.reason));
+        return Err(
+          releaseResult.reason === INVENTORY_RECORD_NOT_FOUND_MESSAGE
+            ? new CommerceInventoryRecordNotFoundError()
+            : new CommerceValidationError(releaseResult.reason),
+        );
       }
 
       await this.repo.createMovement(
