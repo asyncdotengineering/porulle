@@ -164,8 +164,11 @@ export function checkoutRoutes(kernel: Kernel) {
       resolveCurrentPrices,
       checkInventoryAvailability,
       applyPromotionCodes,
-      calculateTax,
+      // Shipping BEFORE tax: calculateTax reads data.shippingTotal for
+      // appliesToShipping rates, so shipping must be computed first or shipping
+      // tax is silently never collected (audit C1).
       calculateShipping,
+      calculateTax,
       ...(kernel.hooks.resolve("checkout.beforePayment") as BeforeHook<CheckoutData>[]),
       validatePaymentMethod,
     ];
