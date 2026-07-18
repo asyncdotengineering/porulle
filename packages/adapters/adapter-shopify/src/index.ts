@@ -214,9 +214,14 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
       const result = await request<{ order: { financial_status?: string | null; fulfillment_status?: string | null; cancelled_at?: string | null } }>(fetchImpl, `${apiBase(store, version)}/orders/${encodeURIComponent(remoteId)}.json`, token);
       return result.ok ? Ok(shopifyStatus(result.value.data.order)) : result;
     },
-    async verifyWebhook(store, request) {
+    async verifyWebhook(_store, request) {
       const body = await request.text();
-      if (!validBase64Hmac(store.webhookSecret ?? "", body, request.headers.get("x-shopify-hmac-sha256"))) {
+      // Shopify signs every webhook for an app with the app CLIENT SECRET — there is no
+      // per-store/per-subscription secret (unlike WooCommerce). Verify against clientSecret.
+      if (!options.clientSecret) {
+        return Err({ code: "SHOPIFY_CLIENT_SECRET_MISSING", message: "Shopify clientSecret is required to verify webhooks." });
+      }
+      if (!validBase64Hmac(options.clientSecret, body, request.headers.get("x-shopify-hmac-sha256"))) {
         return Err({ code: "INVALID_WEBHOOK_SIGNATURE", message: "Invalid Shopify webhook signature." });
       }
       try {

@@ -133,10 +133,14 @@ describe("shopify connector", () => {
     if (!error.ok) expect(error.error.retriable).toBe(false);
   });
 
-  it("verifies raw-body HMAC and registers webhook subscriptions", async () => {
+  it("verifies raw-body HMAC with the app client secret and registers webhook subscriptions", async () => {
     const body = JSON.stringify({ id: 1 });
-    const signature = createHmac("sha256", store.webhookSecret).update(body).digest("base64");
-    const connector = shopifyConnector({ fetchImpl: async (_input, init) => {
+    // Shopify signs every webhook for an app with the app CLIENT SECRET (not a per-store
+    // secret). store.webhookSecret ("webhook-secret") is intentionally different here to
+    // prove verification uses the app secret.
+    const APP_SECRET = "app-client-secret";
+    const signature = createHmac("sha256", APP_SECRET).update(body).digest("base64");
+    const connector = shopifyConnector({ clientSecret: APP_SECRET, fetchImpl: async (_input, init) => {
       expect(JSON.parse(String(init?.body))).toMatchObject({ webhook: { topic: "refunds/create", address: "/api/channels/webhooks/store-1", format: "json" } });
       return new Response(JSON.stringify({ webhook: { id: 1 } }));
     } });
