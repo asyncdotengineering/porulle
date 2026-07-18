@@ -247,6 +247,7 @@ describe("promotions – happy path (PGlite-backed)", () => {
 
     // Use it once
     await kernel.services.promotions.recordUsage({
+      organizationId: promo.value.organizationId,
       promotions: [
         {
           promotionId: promo.value.id,
@@ -399,6 +400,7 @@ describe("promotions – unhappy path (PGlite-backed)", () => {
 
     // Record one usage
     await kernel.services.promotions.recordUsage({
+      organizationId: promo.value.organizationId,
       promotions: [
         {
           promotionId: promo.value.id,
@@ -443,6 +445,7 @@ describe("promotions – unhappy path (PGlite-backed)", () => {
 
     // Record first usage by this customer
     await kernel.services.promotions.recordUsage({
+      organizationId: promo.value.organizationId,
       promotions: [
         {
           promotionId: promo.value.id,

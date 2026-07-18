@@ -1,5 +1,5 @@
 import { eq, and, inArray, isNull, sql } from "drizzle-orm";
-import { CommerceValidationError } from "../../../kernel/errors.js";
+import { CommerceValidationError, INVENTORY_RECORD_NOT_FOUND_MESSAGE } from "../../../kernel/errors.js";
 import type { TxContext } from "../../../kernel/database/tx-context.js";
 import type {
   DrizzleDatabase,
@@ -495,7 +495,7 @@ export class InventoryRepository {
     if (!level) {
       return {
         ok: false,
-        reason: "No inventory record found for this entity.",
+        reason: INVENTORY_RECORD_NOT_FOUND_MESSAGE,
       };
     }
 
@@ -550,7 +550,7 @@ export class InventoryRepository {
     if (!level) {
       return {
         ok: false,
-        reason: "No inventory record found for this entity.",
+        reason: INVENTORY_RECORD_NOT_FOUND_MESSAGE,
       };
     }
 
@@ -600,7 +600,7 @@ export class InventoryRepository {
     if (!level) {
       return {
         ok: false,
-        reason: "No inventory record found for this entity.",
+        reason: INVENTORY_RECORD_NOT_FOUND_MESSAGE,
       };
     }
 

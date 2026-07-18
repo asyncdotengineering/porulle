@@ -32,6 +32,26 @@ export class CommerceValidationError extends Error implements CommerceError {
   }
 }
 
+/** Canonical message for a missing inventory record — the single source used by
+ * the inventory repository and mapped to the typed error below. */
+export const INVENTORY_RECORD_NOT_FOUND_MESSAGE =
+  "No inventory record found for this entity.";
+
+/** Raised when an inventory reserve/release targets an entity with no inventory
+ * record. Consumers (e.g. order status transitions that tolerate a missing
+ * record) discriminate on `code === "INVENTORY_RECORD_NOT_FOUND"`, never the
+ * message string. */
+export class CommerceInventoryRecordNotFoundError extends Error implements CommerceError {
+  code = "INVENTORY_RECORD_NOT_FOUND" as const;
+  constructor(
+    message: string = INVENTORY_RECORD_NOT_FOUND_MESSAGE,
+    public details?: unknown,
+  ) {
+    super(message);
+    this.name = "CommerceInventoryRecordNotFoundError";
+  }
+}
+
 export class CommerceForbiddenError extends Error implements CommerceError {
   code = "FORBIDDEN" as const;
   constructor(

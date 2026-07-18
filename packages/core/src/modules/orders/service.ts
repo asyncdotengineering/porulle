@@ -810,12 +810,9 @@ export class OrderService {
             );
             if (!releaseResult.ok) {
               const err = toCommerceError(releaseResult.error);
-              if (
-                !(
-                  err instanceof CommerceValidationError &&
-                  err.message === "No inventory record found for this entity."
-                )
-              ) {
+              // Tolerate a missing inventory record (nothing to release); surface
+              // any other inventory error. Check the typed code, not the message.
+              if (err.code !== "INVENTORY_RECORD_NOT_FOUND") {
                 return Err(err);
               }
             }
@@ -937,12 +934,9 @@ export class OrderService {
             );
             if (!releaseResult.ok) {
               const err = toCommerceError(releaseResult.error);
-              if (
-                !(
-                  err instanceof CommerceValidationError &&
-                  err.message === "No inventory record found for this entity."
-                )
-              ) {
+              // Tolerate a missing inventory record (nothing to release); surface
+              // any other inventory error. Check the typed code, not the message.
+              if (err.code !== "INVENTORY_RECORD_NOT_FOUND") {
                 return Err(err);
               }
             }

@@ -45,17 +45,6 @@ export const staleOrderCleanupTask: TaskDefinition<
     const thresholdHours = input.thresholdHours ?? 48;
     const cutoff = new Date(Date.now() - thresholdHours * 60 * 60 * 1000);
 
-    // Find stale pending orders
-    const staleOrders = await ctx.db
-      .select()
-      .from(orders)
-      .where(
-        and(
-          eq(orders.status, "pending"),
-          lt(orders.placedAt, cutoff),
-        ),
-      );
-
     const cancelledIds: string[] = [];
 
     // Cancel each stale order via the service (triggers inventory release + payment refund)
@@ -63,20 +52,42 @@ export const staleOrderCleanupTask: TaskDefinition<
       cancel(orderId: string, actor: Actor | null, reason: string): Promise<unknown>;
     };
 
-    for (const order of staleOrders) {
-      try {
-        await orderService.cancel(
-          order.id,
-          systemActorForOrg(order.organizationId),
-          `Auto-cancelled: pending for >${thresholdHours}h`,
+    // This is a cross-org system sweep, but the row reads stay org-scoped: first
+    // enumerate the orgs that have stale orders (id-only projection), then read
+    // each org's stale orders under an explicit organizationId predicate. No
+    // query returns another tenant's order rows.
+    const staleOrgs = await ctx.db
+      .selectDistinct({ organizationId: orders.organizationId })
+      .from(orders)
+      .where(and(eq(orders.status, "pending"), lt(orders.placedAt, cutoff)));
+
+    for (const { organizationId } of staleOrgs) {
+      const staleOrders = await ctx.db
+        .select()
+        .from(orders)
+        .where(
+          and(
+            eq(orders.organizationId, organizationId),
+            eq(orders.status, "pending"),
+            lt(orders.placedAt, cutoff),
+          ),
         );
-        cancelledIds.push(order.id);
-        ctx.logger.info(`Stale order ${order.orderNumber} auto-cancelled`, {
-          orderId: order.id,
-          placedAt: order.placedAt,
-        });
-      } catch (error) {
-        ctx.logger.error(`Failed to cancel stale order ${order.orderNumber}`, { error });
+
+      for (const order of staleOrders) {
+        try {
+          await orderService.cancel(
+            order.id,
+            systemActorForOrg(order.organizationId),
+            `Auto-cancelled: pending for >${thresholdHours}h`,
+          );
+          cancelledIds.push(order.id);
+          ctx.logger.info(`Stale order ${order.orderNumber} auto-cancelled`, {
+            orderId: order.id,
+            placedAt: order.placedAt,
+          });
+        } catch (error) {
+          ctx.logger.error(`Failed to cancel stale order ${order.orderNumber}`, { error });
+        }
       }
     }
 

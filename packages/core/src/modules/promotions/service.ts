@@ -500,6 +500,7 @@ export class PromotionService {
   async recordUsage(
     input: {
       promotions: AppliedPromotion[];
+      organizationId: string;
       customerId?: string;
       orderId?: string;
     },
@@ -513,6 +514,7 @@ export class PromotionService {
           customerId: input.customerId ?? null,
           orderId: input.orderId ?? null,
         },
+        input.organizationId,
         ctx,
       );
       usages.push(usage);
