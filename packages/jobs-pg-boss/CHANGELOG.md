@@ -1,5 +1,12 @@
 # @porulle/jobs-pg-boss
 
+## 0.10.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.10.1
+
 ## 0.10.0
 
 ### Minor Changes

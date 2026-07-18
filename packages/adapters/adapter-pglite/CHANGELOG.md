@@ -1,5 +1,24 @@
 # @porulle/adapter-pglite
 
+## 0.10.1
+
+### Patch Changes
+
+- Push merged plugin schema on zero-migration boot.
+
+  `buildSchema(config)` (the only merge of plugin `customSchemas`) had no callers,
+  `pushSchema()` pushed core-only, and nothing pushed the merged schema at boot —
+  so on a zero-migration (PGlite) boot no plugin's own tables were ever created and
+  every plugin's routes 500'd with "relation … does not exist". Adapters now
+  advertise `autoMigrate`; `createCommerce` pushes the merged core+plugin schema at
+  boot when the adapter auto-migrates and plugins declared tables (guarded, so
+  plugin-less stores and migration-managed Postgres are untouched). `pushSchema`
+  gains an optional `config` to push the merged schema. This makes `@porulle`
+  plugins (gift cards, loyalty, …) work on the zero-infra PGlite starter.
+
+- Updated dependencies []:
+  - @porulle/core@0.10.1
+
 ## 0.10.0
 
 ### Minor Changes
