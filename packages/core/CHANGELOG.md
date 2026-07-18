@@ -1,5 +1,17 @@
 # @porulle/core
 
+## 0.10.3
+
+### Patch Changes
+
+- Add an order pricing quote engine. `computeOrderPricing()` runs the same pricing
+  pipeline checkout runs (resolve → promotions → shipping → tax) with no side
+  effects, exposed as `POST /api/orders/quote` — so a manual/draft order can
+  preview exactly what checkout will charge. Also fixes the checkout composition:
+  shipping is now computed before tax (so `appliesToShipping` rates apply), and the
+  runtime-rate tax path subtracts the order discount from the taxable base (was
+  over-collecting tax on discounted orders).
+
 ## 0.10.2
 
 ### Patch Changes

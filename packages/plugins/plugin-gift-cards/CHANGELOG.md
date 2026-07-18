@@ -1,5 +1,12 @@
 # @porulle/plugin-giftcards
 
+## 0.10.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.10.3
+
 ## 0.10.2
 
 ### Patch Changes
