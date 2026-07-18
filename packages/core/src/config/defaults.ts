@@ -17,7 +17,7 @@ export const defaultConfig: Partial<CommerceConfig> = {
     },
     roles: {
       owner: { permissions: ["*:*"] },
-      admin: { permissions: ["*:*", "compensation:admin"] },
+      admin: { permissions: ["*:*", "catalog:sync", "compensation:admin"] },
       manager: {
         permissions: [
           "catalog:create",

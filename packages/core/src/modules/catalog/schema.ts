@@ -1,4 +1,5 @@
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -17,6 +18,8 @@ export const sellableEntities = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    // Connected-store id when externally sourced; null means platform-native.
+    sourceStoreId: text("source_store_id"),
     type: text("type").notNull(),
     slug: text("slug").notNull(),
     status: text("status", {
@@ -179,24 +182,36 @@ export const optionValues = pgTable("option_values", {
   metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
 });
 
-export const variants = pgTable("variants", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  entityId: uuid("entity_id")
-    .references(() => sellableEntities.id, { onDelete: "cascade" })
-    .notNull(),
-  sku: text("sku").unique(),
-  barcode: text("barcode"),
-  // Overrides the entity's taxClass when set (issue #57).
-  taxClass: text("tax_class"),
-  status: text("status", { enum: ["active", "discontinued"] })
-    .notNull()
-    .default("active"),
-  sortOrder: integer("sort_order").notNull().default(0),
-  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
-}, (table) => ({
-  barcodeIdx: index("idx_variants_barcode").on(table.barcode),
-  skuIdx: index("idx_variants_sku").on(table.sku),
-}));
+export const variants = pgTable(
+  "variants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    entityId: uuid("entity_id")
+      .references(() => sellableEntities.id, { onDelete: "cascade" })
+      .notNull(),
+    organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    sourceStoreId: text("source_store_id"),
+    sku: text("sku"),
+    barcode: text("barcode"),
+    // Overrides the entity's taxClass when set (issue #57).
+    taxClass: text("tax_class"),
+    status: text("status", { enum: ["active", "discontinued"] })
+      .notNull()
+      .default("active"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+  },
+  (table) => ({
+    barcodeIdx: index("idx_variants_barcode").on(table.barcode),
+    skuIdx: index("idx_variants_sku").on(table.sku),
+    nativeSkuUnique: uniqueIndex("variants_native_org_sku_unique")
+      .on(table.organizationId, table.sku)
+      .where(sql`${table.sourceStoreId} IS NULL AND ${table.sku} IS NOT NULL`),
+    sourceSkuUnique: uniqueIndex("variants_source_store_sku_unique")
+      .on(table.sourceStoreId, table.sku)
+      .where(sql`${table.sourceStoreId} IS NOT NULL AND ${table.sku} IS NOT NULL`),
+  }),
+);
 
 export const variantOptionValues = pgTable("variant_option_values", {
   variantId: uuid("variant_id")

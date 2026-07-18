@@ -1,0 +1,149 @@
+---
+title: Store Connector
+description: Add a new store platform (Shopify, WooCommerce, BigCommerce, …) by implementing the ChannelConnector interface.
+---
+
+Porulle is store-platform agnostic. Any platform that can list a catalog, report stock, accept an order, and sign webhooks can be integrated by implementing the `ChannelConnector` interface. The interface is defined in `@porulle/core` at `packages/core/src/modules/channels/adapter.ts`; the durable machinery (schema, jobs, sync, injection, reconciliation, REST) lives once in `@porulle/plugin-channel-connector`, so a connector is just the ~6 platform-specific methods — you inherit everything else.
+
+## The shape
+
+A connector is a factory returning the interface — mirror `@porulle/adapter-shopify`. Take an injectable `fetchImpl` so tests can run offline (see [Testing](#testing)).
+
+```ts title="packages/adapters/adapter-bigcommerce/src/index.ts"
+import { defineChannelConnector, Ok, Err, type ChannelConnector } from "@porulle/core";
+
+export interface BigCommerceOptions {
+  fetchImpl?: typeof fetch;
+}
+
+export function bigcommerceConnector(options: BigCommerceOptions = {}): ChannelConnector {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  return defineChannelConnector({
+    providerId: "bigcommerce",
+    capabilities: { importCatalog: true, importInventory: true, pushOrder: true, receiveWebhooks: true },
+    async importCatalog(store, cursor) { /* … */ },
+    async fetchInventory(store, ids) { /* … */ },
+    async pushOrder(store, slice) { /* … */ },
+    async fetchOrderStatus(store, remoteId) { /* … */ },
+    async verifyWebhook(store, request) { /* … */ },
+    async refundExecute(store, slice, amount) { /* … */ },
+  });
+}
+```
+
+Every method returns `Result<T>` (`Ok(value)` / `Err({ code, message, retriable? })`). The `store` argument is the connected-store record: `{ id, organizationId, provider, credentials, storeDomain, status, webhookSecret }`. Read the platform's auth material out of `store.credentials` (e.g. `{ accessToken }` for Shopify, `{ consumerKey, consumerSecret }` for WooCommerce) — the framework redacts it on every API read.
+
+## Interface walkthrough
+
+### `importCatalog(store, cursor?)`
+
+Return one **page** of the store's catalog as `ChannelCatalogPage` — `{ items: ChannelCatalogItem[], nextCursor?: string | null }`. Each item carries `externalId`, `slug`, `title`, and `variants[]` (each with `externalId`, `sku?`, `barcode?`). The engine walks pages via `nextCursor`, upserts by external id (idempotent), and stamps provenance. Use the platform's `updated_at` / cursor for incremental pulls. **Do not** attempt bulk-export tricks here — pagination is the contract.
+
+### `fetchInventory(store, ids?)`
+
+Return `ChannelInventoryLevel[]` — `{ externalId, available }`. The engine level-sets these into Porulle inventory in external-owns-stock mode. Return the platform's *available* number (already net of the store's own commitments).
+
+### `pushOrder(store, slice)`
+
+The heart of injection. Create the order in the merchant's store as **already paid**, from the `ChannelOrderSlice` (`{ orderId, currency, grandTotal, lines[], customer: { name, email, shippingAddress } }`). Two money rules:
+
+- Carry the **exact amounts** from the slice — the platform already captured payment. Mark the order paid (`financial_status: "paid"` / `set_paid: true`) but **never re-capture**.
+- Map each `line.externalVariantId` to the platform's line format.
+
+Return `ChannelPushOrderResult` — `{ remoteOrderId, remoteUrl? }`. On failure, return `Err({ code, message, retriable })`; set `retriable: true` for transient errors (timeouts, 5xx) and `false` for definitive ones (variant not found, auth revoked) — the SLA reaper uses this to decide how long to wait before abandoning + auto-refunding.
+
+### `fetchOrderStatus(store, remoteId)`
+
+Return `ChannelOrderStatus` — `{ status: "pending" | "confirmed" | "failed" | "cancelled" | "fulfilled" }`. Map the platform's order state onto this union. The engine uses `confirmed` to advance the export, `failed`/`cancelled` to mark it failed.
+
+### `verifyWebhook(store, request)`
+
+Verify the signature on an inbound per-store webhook and return `ChannelWebhookEvent` — `{ id, type, data }`. Compute the HMAC over the **raw request body** (`await request.text()`, never a re-serialized object) and compare with `crypto.timingSafeEqual` against the platform header (Shopify `x-shopify-hmac-sha256`, WooCommerce `x-wc-webhook-signature` — both base64 HMAC-SHA256 keyed on `store.webhookSecret`). Timing-safe comparison is required. The engine's `processed_webhook_events` table prevents replay on the inbound side; your adapter prevents forgery.
+
+### `verifyAppWebhook?(request)` (optional)
+
+Verify an **app-level** compliance webhook (e.g. Shopify's mandatory GDPR webhooks) and return `{ topic, shopDomain, data }`. These webhooks are delivered to a single app URL, signed with the **app client secret** (not a per-store `webhookSecret`), and identify the target store by `shop_domain` in the payload. The engine exposes `POST /api/channels/compliance/{provider}` as the unauthenticated ingress. Return `Err({ code, message, retriable: false })` on invalid HMAC so the engine can reply with `401` (Shopify requires this). Shopify adapters implement this; WooCommerce has no app-store equivalent and omits it.
+
+### `refundExecute(store, slice, amount)`
+
+Optional outbound leg for cross-boundary refunds — reflect a refund into the merchant's store. Return `ChannelRefundResult` — `{ remoteRefundId, status }`. The **money-moving refund on Porulle's side goes through the order refund engine** (`orders.service.refundLines`), never a direct adapter call — this method only mirrors it to the store.
+
+### `registerWebhooks?(store, topics, callbackUrl)` (optional)
+
+Subscribe the store's webhooks on connect. The engine calls this from the connect flow with the topics it needs and the callback URL (`/api/channels/webhooks/{storeId}`). Implement it via the platform's webhook API (Shopify `POST /admin/api/{v}/webhooks.json`, WooCommerce `POST /wp-json/wc/v3/webhooks`).
+
+### `reserve?(store, lines)` (optional)
+
+Reserve stock on the merchant store before payment. Off by default — Porulle's default oversell defense is a pre-payment live read (`fetchInventory`), not a reserve. Implement only if a platform benefits from hard reservations.
+
+## Register it
+
+Drop the connector into the plugin's `connectors` array — no core changes:
+
+```ts title="commerce.config.ts"
+channelConnectorPlugin({
+  connectors: [shopifyConnector(), wooConnector(), bigcommerceConnector()],
+});
+```
+
+The store row's `provider` selects your connector by `providerId`.
+
+## OAuth onboarding
+
+Credential paste and one-click OAuth are two front doors to the same `connectStore` pipeline. A connector that supports one-click onboarding adds these optional methods:
+
+```ts
+buildAuthUrl(params: {
+  storeDomain: string;
+  state: string;
+  redirectUri: string;
+  callbackUri: string;
+  scopes: string[];
+}): Result<string, ChannelConnectorError>;
+
+completeAuth(
+  request: Request,
+  ctx: { storeDomain: string },
+): Promise<Result<{
+  credentials: Record<string, unknown>;
+  storeDomain: string;
+}, ChannelConnectorError>>;
+```
+
+The engine exposes generic `GET /api/channels/oauth/{provider}/start` and `/callback` routes. The start route requires `channels:manage`, signs a five-minute state containing the organization and store domain, and redirects to the provider. The unauthenticated callback verifies the signature and single-use state, calls `completeAuth`, then reuses `connectStore` to persist credentials, register webhooks, and enqueue catalog import. OAuth credentials have the same downstream shape as paste credentials, such as `{ accessToken }` or `{ consumerKey, consumerSecret }`.
+
+Enable the routes on the engine plugin with a state secret and a fixed post-connect destination:
+
+```ts
+channelConnectorPlugin({
+  connectors: [shopifyConnector({
+    clientId: process.env.SHOPIFY_CLIENT_ID,
+    clientSecret: process.env.SHOPIFY_CLIENT_SECRET,
+    appUrl: "https://platform.example",
+  }), wooConnector()],
+  oauth: {
+    stateSecret: process.env.CHANNEL_OAUTH_SECRET!,
+    postConnectRedirect: "https://platform.example/stores",
+  },
+});
+```
+
+Shopify uses its authorization and code-exchange endpoints. WooCommerce uses `/wc-auth/v1/authorize`: its server posts keys to `callback_url`, while the browser returns through `return_url`. The signed state is carried on both Woo URLs; the browser landing redirects to the configured destination while the dashboard observes the connected store.
+
+## Testing
+
+Everything durable (jobs, id-map, injection, reconciliation, the export state machine, retries, drift report) is inherited from the plugin and covered by its tests — so a connector's tests only exercise the ~6 methods, **offline**, by injecting a fake `fetchImpl` that returns `new Response(...)` and records requests:
+
+```ts
+const requests: { url: string; method: string }[] = [];
+const connector = bigcommerceConnector({
+  fetchImpl: async (input, init) => {
+    requests.push({ url: String(input), method: init?.method ?? "GET" });
+    return new Response(JSON.stringify({ data: [] }), { status: 200 });
+  },
+});
+```
+
+The **mock connector** (`@porulle/plugin-channel-connector` `mockChannelConnector`) implements the whole interface in memory and is the integration-test backbone — use it to exercise the engine end-to-end (connect → import → inject → confirm) without any live store. Assert on behavior: a correctly-signed webhook is accepted and a tampered one rejected; `pushOrder` sends the paid amounts; errors carry `retriable`.
+
+See the [Store Connector feature docs](/building/channel-connectors) for how the pieces fit together at runtime.

@@ -49,6 +49,7 @@ export default defineConfig({
             { label: "Point of Sale", slug: "building/pos" },
             { label: "Layaway", slug: "building/layaway" },
             { label: "Supply Chain", slug: "building/supply-chain" },
+            { label: "Channel Connectors", slug: "building/channel-connectors" },
           ],
         },
         {
@@ -60,6 +61,7 @@ export default defineConfig({
             { label: "Payment Adapter", slug: "extending/payment-adapter" },
             { label: "Plugin Contract", slug: "extending/plugin-contract" },
             { label: "Payment Adapter Contract", slug: "extending/payment-adapter-contract" },
+            { label: "Store Connector", slug: "extending/store-connector" },
             { label: "Testing", slug: "extending/testing" },
             { label: "TypeScript Patterns", slug: "extending/typescript" },
           ],

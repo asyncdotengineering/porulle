@@ -3,6 +3,7 @@
 
 export interface PluginRepositoryRegistryShape {
   "appointments": Record<string, unknown>;
+  "channel-connector": Record<string, unknown>;
   "gift-cards": Record<string, unknown>;
   "layaway": Record<string, unknown>;
   "loyalty": Record<string, unknown>;

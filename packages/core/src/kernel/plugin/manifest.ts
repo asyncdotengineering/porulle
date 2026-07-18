@@ -14,6 +14,7 @@ import type {
   CommercePlugin,
   PluginPermission,
 } from "../../config/types.js";
+import type { TaskDefinition } from "../jobs/types.js";
 
 // ─── Plugin Logger ────────────────────────────────────────────────────
 
@@ -147,6 +148,7 @@ export interface CommercePluginManifest {
   hooks?: () => PluginHookRegistration[];
   routes?: (ctx: PluginContext) => PluginRouteRegistration[];
   analyticsModels?: () => unknown[];
+  jobs?: () => TaskDefinition[];
   /**
    * Named API-key scopes this plugin mints credentials under (issue #51),
    * merged into `config.auth.apiKeyScopes`. User-defined scopes with the
@@ -340,6 +342,16 @@ export function defineCommercePlugin(
         analytics: {
           ...result.analytics,
           models: [...(result.analytics?.models ?? []), ...models],
+        },
+      };
+    }
+
+    if (manifest.jobs) {
+      result = {
+        ...result,
+        jobs: {
+          ...(result.jobs ?? {}),
+          tasks: [...(result.jobs?.tasks ?? []), ...manifest.jobs()],
         },
       };
     }

@@ -17,6 +17,31 @@ export interface TaskRetryConfig {
   backoff?: { type: "fixed" | "exponential"; delay: number };
 }
 
+export interface JobProcessingOrderRecord {
+  id: string;
+  taskSlug: string;
+  input: Record<string, unknown>;
+  attempts: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type JobProcessingOrderField =
+  | "createdAt"
+  | "updatedAt"
+  | "attempts"
+  | "taskSlug";
+
+export type JobProcessingOrder =
+  | {
+      field: JobProcessingOrderField;
+      direction?: "asc" | "desc";
+    }
+  | ((
+      left: JobProcessingOrderRecord,
+      right: JobProcessingOrderRecord,
+    ) => number);
+
 /** Present when the handler is invoked by `runPendingJobs` (not for ad-hoc calls). */
 export interface TaskJobMeta {
   attemptNumber: number;

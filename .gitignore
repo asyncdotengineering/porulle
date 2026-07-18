@@ -53,3 +53,5 @@ RENAME-*-CLOSED.md
 
 # Local Claude Code settings (per-user, never commit)
 .claude/
+.plandesk/token
+.plandesk/server.json

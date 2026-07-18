@@ -32,6 +32,7 @@ export type { Kernel } from "./runtime/kernel.js";
 
 export type { Actor } from "./auth/types.js";
 export { resolveOrgId, ensureDefaultOrg, DEFAULT_ORG_ID } from "./auth/org.js";
+export { createSystemActor } from "./auth/system-actor.js";
 export { OrganizationService } from "./modules/organization/service.js";
 export { createScopedDb } from "./kernel/database/scoped-db.js";
 export type { ScopedOrganizationId } from "./kernel/database/scoped-db.js";
@@ -61,7 +62,15 @@ export type {
 export { runBeforeHooks, runAfterHooks } from "./kernel/hooks/executor.js";
 export { createHookContext } from "./kernel/hooks/create-context.js";
 export type { CreateHookContextArgs } from "./kernel/hooks/create-context.js";
-export type { JobsAdapter, EnqueueOptions } from "./kernel/jobs/adapter.js";
+export type {
+  JobsAdapter,
+  EnqueueOptions,
+  ExecutionDriver,
+  ExecutionEngine,
+  ExecutionEngineSetup,
+  RunJobsOptions,
+  RunJobsResult,
+} from "./kernel/jobs/adapter.js";
 export { NullJobsAdapter } from "./kernel/jobs/adapter.js";
 export { DrizzleJobsAdapter } from "./kernel/jobs/drizzle-adapter.js";
 export { runPendingJobs } from "./kernel/jobs/runner.js";
@@ -71,6 +80,9 @@ export type {
   TaskContext,
   TaskJobMeta,
   TaskRetryConfig,
+  JobProcessingOrder,
+  JobProcessingOrderField,
+  JobProcessingOrderRecord,
 } from "./kernel/jobs/types.js";
 export { BUILTIN_JOB_TASK_SLUGS } from "./kernel/jobs/types.js";
 export {
@@ -127,6 +139,24 @@ export type {
   PaymentRefund,
   PaymentWebhookEvent,
 } from "./modules/payments/adapter.js";
+export { defineChannelConnector } from "./modules/channels/adapter.js";
+export type {
+  ChannelCatalogItem,
+  ChannelCatalogPage,
+  ChannelCatalogVariant,
+  ChannelConnector,
+  ChannelConnectorCapabilities,
+  ChannelInventoryLevel,
+  ChannelOrderLine,
+  ChannelOrderSlice,
+  ChannelConnectorError,
+  ChannelOrderStatus,
+  ChannelPushOrderResult,
+  ChannelRefundResult,
+  ChannelReservation,
+  ChannelStore,
+  ChannelWebhookEvent,
+} from "./modules/channels/adapter.js";
 export type { StorageAdapter } from "./modules/media/adapter.js";
 export { noopStorageAdapter } from "./modules/media/noop-adapter.js";
 export type {

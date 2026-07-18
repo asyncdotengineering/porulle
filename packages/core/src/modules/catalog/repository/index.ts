@@ -1,5 +1,6 @@
 import { eq, and, inArray, type SQL } from "drizzle-orm";
 import type { TxContext } from "../../../kernel/database/tx-context.js";
+import { CommerceNotFoundError } from "../../../kernel/errors.js";
 import type {
   DrizzleDatabase,
   DbOrTx,
@@ -698,15 +699,24 @@ export class CatalogRepository {
     return rows[0];
   }
 
-  async createVariant(data: VariantInsert, ctx?: TxContext): Promise<Variant> {
+  async createVariant(
+    data: Omit<VariantInsert, "organizationId" | "sourceStoreId">,
+    ctx?: TxContext,
+  ): Promise<Variant> {
     const db = this.getDb(ctx);
-    const rows = await db.insert(variants).values(data).returning();
+    const entity = await this.findEntityById(data.entityId, ctx);
+    if (!entity) throw new CommerceNotFoundError("Entity not found.");
+    const rows = await db.insert(variants).values({
+      ...data,
+      organizationId: entity.organizationId,
+      sourceStoreId: entity.sourceStoreId,
+    }).returning();
     return rows[0]!;
   }
 
   async updateVariant(
     id: string,
-    data: Partial<Omit<VariantInsert, "id">>,
+    data: Partial<Omit<VariantInsert, "id" | "organizationId" | "sourceStoreId">>,
     ctx?: TxContext,
   ): Promise<Variant | undefined> {
     const db = this.getDb(ctx);
