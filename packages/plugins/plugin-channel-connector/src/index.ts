@@ -25,6 +25,7 @@ import {
   type ChannelConnectorPluginOptions,
 } from "./service.js";
 import { buildHooks } from "./hooks.js";
+import { oauthStateEventId, signState, verifyState } from "./oauth-state.js";
 
 type ChannelRouteContext = {
   input: unknown;
@@ -39,13 +40,16 @@ export {
   ChannelConnectorService,
   canExportTransition,
 } from "./service.js";
+export { signState, verifyState } from "./oauth-state.js";
 export type {
+  ChannelComplianceData,
   ChannelConnectorPluginOptions,
   ChannelStockLine,
   ExportState,
   PublicConnectedStore,
   ReconcileReport,
 } from "./service.js";
+export type { OAuthStatePayload, OAuthStateResult } from "./oauth-state.js";
 export type {
   ChannelEntityMapEntry,
   ChannelExportEvent,
@@ -67,6 +71,30 @@ function unwrap<T>(result: PluginResult<T>): T {
     default:
       throw new CommerceValidationError(result.error);
   }
+}
+
+function oauthError(status: number, code: string, message: string): Response {
+  return new Response(JSON.stringify({ error: { code, message } }), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function oauthRedirect(location: string): Response {
+  return new Response(null, { status: 302, headers: { location } });
+}
+
+function callbackUri(raw: unknown, redirect: string, provider: string): string {
+  const request = (raw as { req: { raw: Request } }).req.raw;
+  const requestUrl = new URL(request.url);
+  let origin = requestUrl.origin;
+  try {
+    const configured = new URL(redirect);
+    if (configured.protocol === "http:" || configured.protocol === "https:") origin = configured.origin;
+  } catch {
+    origin = requestUrl.origin;
+  }
+  return new URL(`/api/channels/oauth/${provider}/callback`, origin).toString();
 }
 
 export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = {}) {
@@ -183,6 +211,82 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
       );
       const channels = router("Channels", "/channels", ctx);
 
+      channels.get("/oauth/{provider}/start")
+        .summary("Start channel OAuth onboarding")
+        .permission("channels:manage")
+        .params(z.object({ provider: z.string().min(1) }))
+        .query(z.object({ shop: z.string().min(1).optional(), store: z.string().min(1).optional() }))
+        .handler(async ({ params, query, orgId, raw }) => {
+          const oauth = options.oauth;
+          if (!oauth?.stateSecret || !oauth.postConnectRedirect) return oauthError(501, "OAUTH_NOT_CONFIGURED", "Channel OAuth is not configured.");
+          const provider = params.provider!;
+          const connector = service.getConnector(provider);
+          if (!connector) return oauthError(404, "CONNECTOR_NOT_FOUND", `No connector registered for provider "${provider}".`);
+          if (!connector.buildAuthUrl) return oauthError(501, "OAUTH_UNSUPPORTED", `Connector "${provider}" does not support OAuth onboarding.`);
+          const storeDomain = String((query as { shop?: string; store?: string }).shop ?? (query as { store?: string }).store ?? "");
+          if (!storeDomain) return oauthError(400, "STORE_DOMAIN_REQUIRED", "The shop or store query parameter is required.");
+          const state = signState({
+            provider,
+            orgId,
+            shopDomain: storeDomain,
+            exp: Math.floor(Date.now() / 1000) + 300,
+            jti: crypto.randomUUID(),
+          }, oauth.stateSecret);
+          const redirect = callbackUri(raw, oauth.postConnectRedirect, provider);
+          const authUrl = connector.buildAuthUrl({
+            storeDomain,
+            state,
+            redirectUri: redirect,
+            callbackUri: redirect,
+            scopes: [],
+          });
+          if (!authUrl.ok) return oauthError(422, authUrl.error.code, authUrl.error.message);
+          return oauthRedirect(authUrl.value);
+        });
+
+      const handleOAuthCallback = async ({ params, raw }: { params: Record<string, string>; raw: unknown }) => {
+        const oauth = options.oauth;
+        if (!oauth?.stateSecret || !oauth.postConnectRedirect) return oauthError(501, "OAUTH_NOT_CONFIGURED", "Channel OAuth is not configured.");
+        const provider = params.provider!;
+        const connector = service.getConnector(provider);
+        if (!connector) return oauthError(404, "CONNECTOR_NOT_FOUND", `No connector registered for provider "${provider}".`);
+        if (!connector.completeAuth) return oauthError(501, "OAUTH_UNSUPPORTED", `Connector "${provider}" does not support OAuth onboarding.`);
+        const request = (raw as { req: { raw: Request } }).req.raw;
+        const requestUrl = new URL(request.url);
+        const state = requestUrl.searchParams.get("state");
+        if (!state) return oauthError(403, "INVALID_OAUTH_STATE", "OAuth state is missing.");
+        const landing = provider === "woocommerce" && request.method === "GET" && requestUrl.searchParams.get("return") === "1";
+        const verified = verifyState(state, oauth.stateSecret, Math.floor(Date.now() / 1000), !landing);
+        if (!verified.ok || verified.value.provider !== provider) return oauthError(403, "INVALID_OAUTH_STATE", "OAuth state is invalid or expired.");
+        if (landing) return oauthRedirect(oauth.postConnectRedirect);
+        const [consumed] = await db.insert(processedWebhookEvents).values({
+          eventId: oauthStateEventId(verified.value.jti),
+          provider: `oauth:${provider}`,
+          eventType: "oauth_state",
+        }).onConflictDoNothing().returning({ id: processedWebhookEvents.id });
+        if (!consumed) return oauthError(403, "OAUTH_STATE_REPLAYED", "OAuth state has already been used.");
+        const completed = await connector.completeAuth(request, { storeDomain: verified.value.shopDomain });
+        if (!completed.ok) return oauthError(400, completed.error.code, completed.error.message);
+        if (completed.value.storeDomain !== verified.value.shopDomain) return oauthError(400, "OAUTH_STORE_MISMATCH", "OAuth callback store does not match the signed state.");
+        const connected = await service.connectStore(verified.value.orgId, {
+          provider,
+          storeDomain: verified.value.shopDomain,
+          credentials: completed.value.credentials,
+        });
+        if (!connected.ok) return oauthError(422, connected.code ?? "STORE_CONNECTION_FAILED", connected.error);
+        return oauthRedirect(oauth.postConnectRedirect);
+      };
+
+      channels.get("/oauth/{provider}/callback")
+        .summary("Complete channel OAuth onboarding")
+        .params(z.object({ provider: z.string().min(1) }))
+        .handler(handleOAuthCallback);
+
+      channels.post("/oauth/{provider}/callback")
+        .summary("Receive channel OAuth credentials")
+        .params(z.object({ provider: z.string().min(1) }))
+        .handler(handleOAuthCallback);
+
       channels.post("/webhooks/{storeId}")
         .summary("Receive a channel webhook")
         .handler(async ({ params, raw }) => {
@@ -198,7 +302,11 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           if (!inserted) return context.json({ data: { received: true, duplicate: true } });
           const handled = await service.handleWebhook(store.organizationId, store.id, verified.value);
           if (!handled.ok) return context.json({ error: { code: "WEBHOOK_PROCESSING_FAILED", message: handled.error } }, 422);
-          return context.json({ data: { received: true } });
+          return context.json({ data: {
+            received: true,
+            ...(handled.value.data ? { data: handled.value.data } : {}),
+            ...(handled.value.redacted !== undefined ? { redacted: handled.value.redacted } : {}),
+          } });
         });
 
       channels.post("/stores")

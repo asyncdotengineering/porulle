@@ -84,6 +84,48 @@ channelConnectorPlugin({
 
 The store row's `provider` selects your connector by `providerId`.
 
+## OAuth onboarding
+
+Credential paste and one-click OAuth are two front doors to the same `connectStore` pipeline. A connector that supports one-click onboarding adds these optional methods:
+
+```ts
+buildAuthUrl(params: {
+  storeDomain: string;
+  state: string;
+  redirectUri: string;
+  callbackUri: string;
+  scopes: string[];
+}): Result<string, ChannelConnectorError>;
+
+completeAuth(
+  request: Request,
+  ctx: { storeDomain: string },
+): Promise<Result<{
+  credentials: Record<string, unknown>;
+  storeDomain: string;
+}, ChannelConnectorError>>;
+```
+
+The engine exposes generic `GET /api/channels/oauth/{provider}/start` and `/callback` routes. The start route requires `channels:manage`, signs a five-minute state containing the organization and store domain, and redirects to the provider. The unauthenticated callback verifies the signature and single-use state, calls `completeAuth`, then reuses `connectStore` to persist credentials, register webhooks, and enqueue catalog import. OAuth credentials have the same downstream shape as paste credentials, such as `{ accessToken }` or `{ consumerKey, consumerSecret }`.
+
+Enable the routes on the engine plugin with a state secret and a fixed post-connect destination:
+
+```ts
+channelConnectorPlugin({
+  connectors: [shopifyConnector({
+    clientId: process.env.SHOPIFY_CLIENT_ID,
+    clientSecret: process.env.SHOPIFY_CLIENT_SECRET,
+    appUrl: "https://platform.example",
+  }), wooConnector()],
+  oauth: {
+    stateSecret: process.env.CHANNEL_OAUTH_SECRET!,
+    postConnectRedirect: "https://platform.example/stores",
+  },
+});
+```
+
+Shopify uses its authorization and code-exchange endpoints. WooCommerce uses `/wc-auth/v1/authorize`: its server posts keys to `callback_url`, while the browser returns through `return_url`. The signed state is carried on both Woo URLs; the browser landing redirects to the configured destination while the dashboard observes the connected store.
+
 ## Testing
 
 Everything durable (jobs, id-map, injection, reconciliation, the export state machine, retries, drift report) is inherited from the plugin and covered by its tests — so a connector's tests only exercise the ~6 methods, **offline**, by injecting a fake `fetchImpl` that returns `new Response(...)` and records requests:

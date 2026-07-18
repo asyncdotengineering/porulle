@@ -5,6 +5,86 @@ import { shopifyConnector } from "../src/index.js";
 const store = { id: "store-1", organizationId: "org-1", provider: "shopify", credentials: { accessToken: "token" }, storeDomain: "shop.example", status: "connected" as const, webhookSecret: "webhook-secret" };
 
 describe("shopify connector", () => {
+  it("builds the Shopify authorize URL with required and additive scopes", () => {
+    const connector = shopifyConnector({
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      appUrl: "https://app.example",
+      scopes: ["read_orders", "write_products"],
+    });
+    const result = connector.buildAuthUrl!({
+      storeDomain: "acme.myshopify.com",
+      state: "signed-state",
+      redirectUri: "https://app.example/api/channels/oauth/shopify/callback",
+      callbackUri: "https://app.example/api/channels/oauth/shopify/callback",
+      scopes: [],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const url = new URL(result.value);
+    expect(url.origin).toBe("https://acme.myshopify.com");
+    expect(url.pathname).toBe("/admin/oauth/authorize");
+    expect(url.searchParams.get("client_id")).toBe("client-id");
+    expect(url.searchParams.get("redirect_uri")).toBe("https://app.example/api/channels/oauth/shopify/callback");
+    expect(url.searchParams.get("state")).toBe("signed-state");
+    expect(url.searchParams.get("scope")?.split(",")).toEqual([
+      "read_products",
+      "read_inventory",
+      "read_orders",
+      "write_orders",
+      "read_fulfillments",
+      "write_products",
+    ]);
+  });
+
+  it("exchanges a signed Shopify callback and rejects invalid or stale callbacks", async () => {
+    const secret = "client-secret";
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const buildRequest = (at: string, hmacSecret = secret) => {
+      const url = new URL("https://app.example/api/channels/oauth/shopify/callback");
+      url.searchParams.set("code", "oauth-code");
+      url.searchParams.set("shop", "acme.myshopify.com");
+      url.searchParams.set("state", "signed-state");
+      url.searchParams.set("timestamp", at);
+      const message = [...url.searchParams.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, value]) => `${key}=${value}`)
+        .join("&");
+      url.searchParams.set("hmac", createHmac("sha256", hmacSecret).update(message).digest("hex"));
+      return new Request(url, { method: "GET" });
+    };
+    const connector = shopifyConnector({
+      clientId: "client-id",
+      clientSecret: secret,
+      appUrl: "https://app.example",
+      fetchImpl: async (input, init) => {
+        expect(String(input)).toBe("https://acme.myshopify.com/admin/oauth/access_token");
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({ client_id: "client-id", client_secret: secret, code: "oauth-code" });
+        return new Response(JSON.stringify({ access_token: "shpat_oauth" }));
+      },
+    });
+    expect(await connector.completeAuth!(buildRequest(timestamp), { storeDomain: "acme.myshopify.com" })).toEqual({
+      ok: true,
+      value: { credentials: { accessToken: "shpat_oauth" }, storeDomain: "acme.myshopify.com" },
+    });
+    const invalid = await connector.completeAuth!(buildRequest(timestamp, "wrong-secret"), { storeDomain: "acme.myshopify.com" });
+    expect(invalid.ok).toBe(false);
+    if (!invalid.ok) expect(invalid.error.code).toBe("SHOPIFY_INVALID_OAUTH_HMAC");
+    const stale = await connector.completeAuth!(buildRequest((Number(timestamp) - 301).toString()), { storeDomain: "acme.myshopify.com" });
+    expect(stale.ok).toBe(false);
+    if (!stale.ok) expect(stale.error.code).toBe("SHOPIFY_STALE_OAUTH_CALLBACK");
+    const invalidDomain = await connector.buildAuthUrl!({
+      storeDomain: "attacker.example",
+      state: "state",
+      redirectUri: "https://app.example/callback",
+      callbackUri: "https://app.example/callback",
+      scopes: [],
+    });
+    expect(invalidDomain.ok).toBe(false);
+    if (!invalidDomain.ok) expect(invalidDomain.error.code).toBe("SHOPIFY_INVALID_STORE_DOMAIN");
+  });
+
   it("paginates catalog, maps variants, and sends auth", async () => {
     const requests: string[] = [];
     const connector = shopifyConnector({ fetchImpl: async (input, init) => {

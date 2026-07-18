@@ -47,8 +47,18 @@ export type PublicConnectedStore = Omit<ConnectedStore, "credentials" | "webhook
   webhookSecret: "[REDACTED]";
 };
 
+export interface ChannelComplianceData {
+  customer: { id?: string; email?: string };
+  exports: Array<{
+    exportId: string;
+    orderId: string;
+    customerData: NonNullable<ChannelOrderExport["customerData"]>;
+  }>;
+}
+
 export interface ChannelConnectorPluginOptions {
   connectors?: ChannelConnector[];
+  oauth?: { stateSecret: string; postConnectRedirect: string };
   inventoryTimeoutMs?: number;
   jobs?: JobsAdapter;
   exportSla?: { definitiveMs?: number; transientMs?: number };
@@ -212,6 +222,7 @@ export class ChannelConnectorService {
         "orders/fulfilled",
         "orders/cancelled",
         "refunds/create",
+        "app/uninstalled",
       ], `/api/channels/webhooks/${store.id}`);
       if (!registration.ok) {
         await this.db.update(connectedStores).set({ status: "error", updatedAt: new Date() }).where(eq(connectedStores.id, store.id));
@@ -234,12 +245,17 @@ export class ChannelConnectorService {
   }
 
   async disconnectStore(orgId: string, id: string): Promise<PluginResult<PublicConnectedStore>> {
+    return this.disconnectStoreSystem(orgId, id);
+  }
+
+  async disconnectStoreSystem(orgId: string, id: string, redactDomain = false): Promise<PluginResult<PublicConnectedStore>> {
     const rows = await this.db
       .update(connectedStores)
       .set({
         status: "disconnected",
         credentials: {},
         webhookSecret: null,
+        ...(redactDomain ? { storeDomain: "[REDACTED]" } : {}),
         updatedAt: new Date(),
       })
       .where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.id, id)))
@@ -577,7 +593,7 @@ export class ChannelConnectorService {
     return Ok({ synced });
   }
 
-  async handleWebhook(orgId: string, storeId: string, event: { id: string; type: string; data: unknown }): Promise<PluginResult<{ processed: true }>> {
+  async handleWebhook(orgId: string, storeId: string, event: { id: string; type: string; data: unknown }): Promise<PluginResult<{ processed: true; data?: ChannelComplianceData; redacted?: number }>> {
     const store = await this.getStoreRecord(orgId, storeId);
     if (!store) return PluginErr("Connected store not found.", "NOT_FOUND");
     const actor = createSystemActor(orgId);
@@ -613,8 +629,78 @@ export class ChannelConnectorService {
     } else if (event.type === "refunds/create") {
       const refund = await this.createRefundRequest(orgId, store, data, actor);
       if (!refund.ok) return refund;
+    } else if (event.type === "customers/data_request") {
+      const dataRequest = await this.channelCustomerDataRequest(orgId, storeId, data);
+      if (!dataRequest.ok) return dataRequest;
+      return Ok({ processed: true, data: dataRequest.value });
+    } else if (event.type === "customers/redact") {
+      const redacted = await this.redactCustomerData(orgId, storeId, data);
+      if (!redacted.ok) return redacted;
+      return Ok({ processed: true, redacted: redacted.value });
+    } else if (event.type === "shop/redact") {
+      const redacted = await this.redactShopData(orgId, storeId);
+      if (!redacted.ok) return redacted;
+      return Ok({ processed: true, redacted: redacted.value });
+    } else if (event.type === "app/uninstalled") {
+      const disconnected = await this.disconnectStoreSystem(orgId, storeId);
+      if (!disconnected.ok) return disconnected;
+      return Ok({ processed: true });
     }
     return Ok({ processed: true });
+  }
+
+  private complianceEmail(data: Record<string, unknown>): string | undefined {
+    const customer = data.customer && typeof data.customer === "object" ? data.customer as Record<string, unknown> : undefined;
+    const email = data.email ?? customer?.email;
+    return typeof email === "string" && email ? email.toLowerCase() : undefined;
+  }
+
+  private async channelCustomerExports(orgId: string, storeId: string): Promise<ChannelOrderExport[]> {
+    return await this.db.select().from(channelOrderExports).where(and(
+      eq(channelOrderExports.organizationId, orgId),
+      eq(channelOrderExports.storeId, storeId),
+    )) as ChannelOrderExport[];
+  }
+
+  private async channelCustomerDataRequest(orgId: string, storeId: string, data: Record<string, unknown>): Promise<PluginResult<ChannelComplianceData>> {
+    const rows = await this.channelCustomerExports(orgId, storeId);
+    const email = this.complianceEmail(data);
+    const matches = rows.filter((row) => email && row.customerData?.email.toLowerCase() === email && row.customerData !== null);
+    return Ok({
+      customer: {
+        ...(typeof data.customer_id === "string" ? { id: data.customer_id } : {}),
+        ...(email ? { email } : {}),
+      },
+      exports: matches.map((row) => ({
+        exportId: row.id,
+        orderId: row.orderId,
+        customerData: row.customerData!,
+      })),
+    });
+  }
+
+  private async redactCustomerData(orgId: string, storeId: string, data: Record<string, unknown>): Promise<PluginResult<number>> {
+    const rows = await this.channelCustomerExports(orgId, storeId);
+    const email = this.complianceEmail(data);
+    const matches = rows.filter((row) => email && row.customerData?.email.toLowerCase() === email && row.customerData !== null);
+    for (const row of matches) {
+      await this.db.update(channelOrderExports).set({ customerData: null, updatedAt: new Date() }).where(and(
+        eq(channelOrderExports.organizationId, orgId),
+        eq(channelOrderExports.id, row.id),
+      ));
+    }
+    return Ok(matches.length);
+  }
+
+  private async redactShopData(orgId: string, storeId: string): Promise<PluginResult<number>> {
+    const rows = await this.channelCustomerExports(orgId, storeId);
+    await this.db.update(channelOrderExports).set({ customerData: null, updatedAt: new Date() }).where(and(
+      eq(channelOrderExports.organizationId, orgId),
+      eq(channelOrderExports.storeId, storeId),
+    ));
+    const disconnected = await this.disconnectStoreSystem(orgId, storeId, true);
+    if (!disconnected.ok) return PluginErr(disconnected.error, disconnected.code);
+    return Ok(rows.filter((row) => row.customerData !== null).length);
   }
 
   private async resolveOrderId(orgId: string, storeId: string, data: Record<string, unknown>): Promise<string | undefined> {
@@ -824,6 +910,14 @@ export class ChannelConnectorService {
       );
       if (!exported.ok) return exported;
     }
+
+    await this.db
+      .update(channelOrderExports)
+      .set({ customerData: slice.customer, updatedAt: new Date() })
+      .where(and(
+        eq(channelOrderExports.organizationId, orgId),
+        eq(channelOrderExports.id, created.value.id),
+      ));
 
     const pushed = await connector.pushOrder(store as ChannelStore, slice);
     if (!pushed.ok) {

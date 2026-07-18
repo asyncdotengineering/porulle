@@ -99,6 +99,17 @@ export interface ChannelRefundResult {
 export interface ChannelConnector {
   readonly providerId: string;
   readonly capabilities: ChannelConnectorCapabilities;
+  buildAuthUrl?(params: {
+    storeDomain: string;
+    state: string;
+    redirectUri: string;
+    callbackUri: string;
+    scopes: string[];
+  }): Result<string, ChannelConnectorError>;
+  completeAuth?(
+    request: Request,
+    ctx: { storeDomain: string },
+  ): Promise<Result<{ credentials: Record<string, unknown>; storeDomain: string }, ChannelConnectorError>>;
   importCatalog(store: ChannelStore, cursor?: string): Promise<Result<ChannelCatalogPage>>;
   fetchInventory(store: ChannelStore, ids?: string[]): Promise<Result<ChannelInventoryLevel[]>>;
   pushOrder(store: ChannelStore, slice: ChannelOrderSlice): Promise<Result<ChannelPushOrderResult, ChannelConnectorError>>;

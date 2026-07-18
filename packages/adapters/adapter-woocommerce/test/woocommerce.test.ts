@@ -5,6 +5,43 @@ import { wooConnector } from "../src/index.js";
 const store = { id: "store-1", organizationId: "org-1", provider: "woocommerce", credentials: { consumerKey: "ck", consumerSecret: "cs" }, storeDomain: "https://shop.example", status: "connected" as const, webhookSecret: "webhook-secret" };
 
 describe("woocommerce connector", () => {
+  it("builds auth URLs with state on both browser and server callbacks", () => {
+    const connector = wooConnector();
+    const result = connector.buildAuthUrl!({
+      storeDomain: "https://shop.example",
+      state: "signed-state",
+      redirectUri: "https://app.example/api/channels/oauth/woocommerce/callback",
+      callbackUri: "https://app.example/api/channels/oauth/woocommerce/callback",
+      scopes: [],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const url = new URL(result.value);
+    expect(url.origin).toBe("https://shop.example");
+    expect(url.pathname).toBe("/wc-auth/v1/authorize");
+    expect(url.searchParams.get("app_name")).toBe("Porulle");
+    expect(url.searchParams.get("scope")).toBe("read_write");
+    const returnUrl = new URL(url.searchParams.get("return_url")!);
+    const callbackUrl = new URL(url.searchParams.get("callback_url")!);
+    expect(returnUrl.searchParams.get("state")).toBe("signed-state");
+    expect(returnUrl.searchParams.get("return")).toBe("1");
+    expect(callbackUrl.searchParams.get("state")).toBe("signed-state");
+    expect(callbackUrl.searchParams.get("return")).toBeNull();
+  });
+
+  it("reads WooCommerce credentials from the server callback POST", async () => {
+    const connector = wooConnector();
+    const result = await connector.completeAuth!(new Request("https://app.example/callback?state=signed-state", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ consumer_key: "ck_oauth", consumer_secret: "cs_oauth" }),
+    }), { storeDomain: "https://shop.example" });
+    expect(result).toEqual({
+      ok: true,
+      value: { credentials: { consumerKey: "ck_oauth", consumerSecret: "cs_oauth" }, storeDomain: "https://shop.example" },
+    });
+  });
+
   it("paginates products and maps inventory", async () => {
     const urls: string[] = [];
     const connector = wooConnector({ fetchImpl: async (input) => {

@@ -67,6 +67,11 @@ export const channelOrderExports = pgTable(
     organizationId: text("organization_id").notNull(),
     storeId: uuid("store_id").references(() => connectedStores.id, { onDelete: "cascade" }).notNull(),
     orderId: uuid("order_id").notNull(),
+    customerData: jsonb("customer_data").$type<{
+      name: string;
+      email: string;
+      shippingAddress: Record<string, unknown>;
+    }>(),
     state: text("state", { enum: ["pending", "exported", "confirmed", "failed", "abandoned"] })
       .notNull()
       .default("pending"),

@@ -45,7 +45,7 @@ schema: [
 bunx drizzle-kit push --config drizzle.config.ts
 ```
 
-## Connect a store
+## Connect a store: two front doors
 
 A merchant provides credentials once — a Shopify Admin API access token, or a WooCommerce consumer key + secret. Your onboarding backend makes one call:
 
@@ -69,6 +69,39 @@ Credentials are stored org-scoped and **redacted on every read**. Connecting a s
 3. **Registers webhooks** on the store (product / inventory / order / refund events) pointing at Porulle.
 
 Both catalog import and inventory sync run as durable jobs, keyed per store.
+
+For one-click onboarding, configure OAuth on the same plugin and register the provider adapters with their OAuth options:
+
+```ts
+channelConnectorPlugin({
+  connectors: [
+    shopifyConnector({
+      clientId: process.env.SHOPIFY_CLIENT_ID,
+      clientSecret: process.env.SHOPIFY_CLIENT_SECRET,
+      appUrl: "https://platform.example",
+    }),
+    wooConnector(),
+  ],
+  oauth: {
+    stateSecret: process.env.CHANNEL_OAUTH_SECRET!,
+    postConnectRedirect: "https://platform.example/stores",
+  },
+});
+```
+
+The `GET /api/channels/oauth/{provider}/start` route requires `channels:manage`, accepts `shop` for Shopify or `store` for WooCommerce, and redirects to the provider's approval screen. The unauthenticated GET/POST callback verifies the signed, single-use state and calls the connector's optional `completeAuth(request, { storeDomain })`. Shopify exchanges its callback code; WooCommerce receives `{ consumer_key, consumer_secret }` in the server-to-server POST callback. Both then call the same `connectStore` pipeline shown above, so imports, webhook registration, and credential redaction behave identically to paste onboarding.
+
+The adapter contract for this capability is:
+
+```ts
+buildAuthUrl(params): Result<string, ChannelConnectorError>;
+completeAuth(request, ctx): Promise<Result<{
+  credentials: Record<string, unknown>;
+  storeDomain: string;
+}, ChannelConnectorError>>;
+```
+
+OAuth is optional: connectors without these methods continue to support paste onboarding, and routes return a clear configuration/capability error when OAuth is not enabled.
 
 ## Selling
 
@@ -117,7 +150,7 @@ await fetch(`${PORULLE}/api/channels/stores/${storeId}/reconcile-status`);
 |---|---|
 | `POST /api/channels/stores` | Connect a store |
 | `GET /api/channels/stores` · `/{id}` | List / get stores (credentials redacted) |
-| `DELETE /api/channels/stores/{id}` | Disconnect (clears credentials) |
+| `POST /api/channels/stores/{id}/disconnect` | Disconnect (clears credentials) |
 | `GET /api/channels/exports?state=failed` · `POST …/{id}/retry` | Failed order exports + re-trigger |
 | `POST /api/channels/webhooks/{storeId}` | Inbound store webhooks (HMAC) |
 | `GET /api/channels/refund-requests` · `POST …/{id}/approve` | Cross-boundary refund approval queue |
@@ -126,5 +159,6 @@ await fetch(`${PORULLE}/api/channels/stores/${storeId}/reconcile-status`);
 ## Notes
 
 - **Standalone.** The connector works for a single-store brand or a giant multi-merchant aggregator with the same engine — no `plugin-marketplace` dependency.
-- **Nothing installed on the merchant side.** Today merchants connect by pasting credentials. A one-click OAuth onboarding (Shopify App / WooCommerce `/wc-auth`) is a planned enhancement — handled as generic OAuth routes in the engine plugin, not a per-provider plugin.
+- **Nothing installed on the merchant side.** Merchants may paste credentials or use one-click OAuth (Shopify App / WooCommerce `/wc-auth`) through the generic engine routes, not a per-provider plugin.
+- Shopify public-app distribution (listed or unlisted) requires `customers/data_request`, `customers/redact`, `shop/redact`, and `app/uninstalled` compliance webhooks. The engine registers and HMAC-verifies these topics. Custom/single-store Shopify apps do not require public-app review compliance webhooks, though operators may still enable them.
 - To support a new platform, implement the `ChannelConnector` interface — see [Store Connector](/extending/store-connector).
