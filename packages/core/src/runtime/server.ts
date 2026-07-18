@@ -17,7 +17,6 @@ import { createCustomerPortalRoutes } from "../interfaces/rest/customer-portal.j
 import { createKernel } from "./kernel.js";
 import { ensureDefaultOrg } from "../auth/org.js";
 import { createLogger, type Logger } from "./logger.js";
-import type { DrizzleDatabase } from "../kernel/database/drizzle-db.js";
 import { createCommerce, type CommerceInstance } from "./commerce.js";
 import { rewriteCommerceAliasRequest } from "./url-alias-rewrite.js";
 import { mapErrorToResponse } from "../kernel/error-mapper.js";
@@ -408,48 +407,18 @@ export async function createServer(config: CommerceConfig) {
   //   2. GET /api/jobs/run: cron endpoint (serverless — Vercel, Cloudflare)
   //   3. runPendingJobs() export (custom worker process)
 
-  const { runPendingJobs } = await import("../kernel/jobs/runner.js");
-  const { runStaleJobReaper, getJobReapThresholdMs, getJobsReaperIntervalMs } =
-    await import("../kernel/jobs/reaper.js");
-  const taskMap = new Map<string, unknown>();
-  for (const task of config.jobs?.tasks ?? []) {
-    const t = task as { slug?: string; name?: string };
-    taskMap.set(t.slug ?? t.name ?? "", task);
-  }
-
-  const jobLogger = {
-    info: (msg: string, data?: unknown) => logger.info(data != null ? { data } : {}, msg),
-    warn: (msg: string, data?: unknown) => logger.warn(data != null ? { data } : {}, msg),
-    error: (msg: string, data?: unknown) => logger.error(data != null ? { data } : {}, msg),
-  };
-
-  let lastStaleJobReaperAt = 0;
-
-  const maybeRunStaleJobReaper = async () => {
-    const interval = getJobsReaperIntervalMs();
-    const now = Date.now();
-    if (now - lastStaleJobReaperAt < interval) return;
-    lastStaleJobReaperAt = now;
-    try {
-      await runStaleJobReaper(
-        kernel.database.db as DrizzleDatabase,
-        getJobReapThresholdMs(),
-        jobLogger,
-      );
-    } catch (err) {
-      logger.error({ err }, "Stale job reaper failed");
-    }
-  };
+  const jobsEngine = (kernel.services as Record<string, unknown>)
+    .jobs as import("../kernel/jobs/adapter.js").ExecutionEngine;
 
   const runJobs = async (queue?: string, limit?: number) => {
-    await maybeRunStaleJobReaper();
-    return runPendingJobs({
-      db: kernel.database.db as DrizzleDatabase,
-      tasks: taskMap as Parameters<typeof runPendingJobs>[0]["tasks"],
+    if (jobsEngine.execution.mode !== "pull") {
+      throw new Error(
+        "The configured push execution engine is driven by its native runtime and cannot be polled with runJobs().",
+      );
+    }
+    return jobsEngine.execution.run({
       queue: queue ?? "default",
       limit: limit ?? 10,
-      logger: jobLogger,
-      services: kernel.services as Parameters<typeof runPendingJobs>[0]["services"],
     });
   };
 
@@ -478,6 +447,11 @@ export async function createServer(config: CommerceConfig) {
   // Strategy 2: In-process polling for long-running servers (ECS, Cloud Run, Docker).
   // Enable via config.jobs.autorun.enabled = true
   if (config.jobs?.autorun?.enabled) {
+    if (jobsEngine.execution.mode !== "pull") {
+      throw new Error(
+        "jobs.autorun is only valid for pull execution engines. Serve the configured push engine through its native runtime.",
+      );
+    }
     const intervalMs = config.jobs.autorun.intervalMs ?? 10_000;
 
     const jobInterval = setInterval(async () => {
@@ -494,10 +468,16 @@ export async function createServer(config: CommerceConfig) {
 
     logger.info({ intervalMs }, "Job queue autorun started (in-process polling)");
   } else {
-    logger.info(
-      "Job queue autorun disabled. Use GET /api/jobs/run for serverless cron, " +
-      "or set config.jobs.autorun.enabled = true for in-process polling.",
-    );
+    if (jobsEngine.execution.mode === "push") {
+      logger.info(
+        "Push job engine registered. Serve it through its native runtime.",
+      );
+    } else {
+      logger.info(
+        "Job queue autorun disabled. Use GET /api/jobs/run for serverless cron, " +
+        "or set config.jobs.autorun.enabled = true for in-process polling.",
+      );
+    }
   }
 
   const dispatchFetch = app.fetch.bind(app);

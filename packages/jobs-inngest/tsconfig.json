@@ -1,0 +1,10 @@
+{
+  "extends": "@porulle/typescript-config/base.json",
+  "compilerOptions": {
+    "incremental": true,
+    "rootDir": ".",
+    "outDir": "dist",
+    "declarationMap": false
+  },
+  "include": ["src", "test", "vitest.config.ts"]
+}

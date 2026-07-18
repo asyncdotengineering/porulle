@@ -1,15 +1,47 @@
-/**
- * Minimal interface for enqueueing background jobs.
- * The full DrizzleJobsAdapter implements this; hooks receive
- * it on HookContext.jobs so they can defer work without caring
- * about the underlying storage.
- */
+import type {
+  JobProcessingOrder,
+  TaskContext,
+  TaskDefinition,
+} from "./types.js";
+
+/** Enqueue-only surface exposed to hooks and services. */
 export interface JobsAdapter {
   enqueue(
     taskSlug: string,
     input: Record<string, unknown>,
     options: EnqueueOptions,
   ): Promise<string>;
+}
+
+export interface RunJobsOptions {
+  queue?: string;
+  limit?: number;
+}
+
+export interface RunJobsResult {
+  processed: number;
+  failed: number;
+}
+
+export interface ExecutionEngineSetup {
+  tasks: ReadonlyMap<string, TaskDefinition>;
+  context: TaskContext;
+  processingOrder?: JobProcessingOrder;
+}
+
+export type ExecutionDriver =
+  | {
+      mode: "pull";
+      run(options?: RunJobsOptions): Promise<RunJobsResult>;
+    }
+  | {
+      mode: "push";
+    };
+
+/** Full job-engine contract selected through `config.jobs.adapter`. */
+export interface ExecutionEngine extends JobsAdapter {
+  readonly execution: ExecutionDriver;
+  register(setup: ExecutionEngineSetup): void;
 }
 
 export interface EnqueueOptions {
@@ -22,8 +54,7 @@ export interface EnqueueOptions {
 }
 
 /**
- * No-op adapter used when no jobs backend is configured.
- * All enqueue calls silently succeed and return a placeholder ID.
+ * No-op enqueue surface used by isolated hook contexts.
  */
 export class NullJobsAdapter implements JobsAdapter {
   async enqueue(

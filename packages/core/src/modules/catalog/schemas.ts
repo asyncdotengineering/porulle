@@ -92,7 +92,9 @@ export const GenerateVariantsBodySchema = z
 
 // ─── Derived Input Types ─────────────────────────────────────────────────────
 
-export type CreateEntityInput = z.infer<typeof CreateEntityBodySchema>;
+export type CreateEntityInput = z.infer<typeof CreateEntityBodySchema> & {
+  sourceStoreId?: string;
+};
 
 export type UpdateEntityInput = z.infer<typeof UpdateEntityBodySchema>;
 

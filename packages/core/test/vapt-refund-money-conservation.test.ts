@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Ok } from "../src/kernel/result.js";
 import { orders } from "../src/modules/orders/schema.js";
+import type { DrizzleDatabase } from "../src/kernel/database/drizzle-db.js";
 import { eq } from "drizzle-orm";
 import { markOrderPaidForTest } from "../src/test-utils/order-test-helpers.js";
 import {
@@ -118,7 +119,10 @@ describe("VAPT: refund money-conservation", () => {
 
   it("R-06: line items cannot be added to an order with an authorized payment", async () => {
     const { orderId } = await makeOrder(false);
-    await kernel.database.db.update(orders).set({ paymentIntentId: `pi_auth_${orderId}` }).where(eq(orders.id, orderId));
+    await (kernel.database.db as DrizzleDatabase)
+      .update(orders)
+      .set({ paymentIntentId: `pi_auth_${orderId}` })
+      .where(eq(orders.id, orderId));
     const entRes = await makeRequest(server, { method: "POST", url: "http://localhost/api/catalog/entities", body: { type: "product", slug: `rmc2-${crypto.randomUUID()}`, metadata: {} }, actor: testActor });
     const entityId = (await parseJsonResponse<{ data: { id: string } }>(entRes)).data.id;
     const res = await makeRequest(server, { method: "POST", url: `http://localhost/api/orders/${orderId}/line-items`, body: { entityId, entityType: "product", title: "X", quantity: 1, unitPrice: 100, totalPrice: 100 }, actor: testActor });

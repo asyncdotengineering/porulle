@@ -25,11 +25,11 @@ interface DatabaseAdapter<TDatabase = unknown, TTransaction = unknown> {
 }
 ```
 
-| Member | Type | Description |
-|--------|------|-------------|
-| `provider` | `string` | Database backend identifier (e.g., `"postgresql"`) |
-| `db` | `TDatabase` | The underlying Drizzle database instance |
-| `transaction` | `<T>(fn: (tx: TTransaction) => Promise<T>) => Promise<T>` | Executes `fn` within a database transaction |
+| Member        | Type                                                      | Description                                        |
+| ------------- | --------------------------------------------------------- | -------------------------------------------------- |
+| `provider`    | `string`                                                  | Database backend identifier (e.g., `"postgresql"`) |
+| `db`          | `TDatabase`                                               | The underlying Drizzle database instance           |
+| `transaction` | `<T>(fn: (tx: TTransaction) => Promise<T>) => Promise<T>` | Executes `fn` within a database transaction        |
 
 **Implementations:** `@porulle/adapter-postgres` (Drizzle on postgres-js) for long-lived Node servers, and `@porulle/adapter-neon` for serverless/Workers. `neonAdapter({ connectionString, hyperdrive? })` uses the Neon HTTP driver for plain queries and opens a fresh WebSocket pool per `transaction()` (ended after each), sidestepping isolate-shared-pool flakiness; pass a Cloudflare `hyperdrive` binding to route the transaction pool through it.
 
@@ -40,9 +40,18 @@ interface DatabaseAdapter<TDatabase = unknown, TTransaction = unknown> {
 ```ts
 interface PaymentAdapter {
   readonly providerId: string;
-  createPaymentIntent(params: CreatePaymentIntentParams): Promise<Result<PaymentIntent>>;
-  capturePayment(paymentIntentId: string, amount?: number): Promise<Result<PaymentCapture>>;
-  refundPayment(paymentId: string, amount: number, reason?: string): Promise<Result<PaymentRefund>>;
+  createPaymentIntent(
+    params: CreatePaymentIntentParams,
+  ): Promise<Result<PaymentIntent>>;
+  capturePayment(
+    paymentIntentId: string,
+    amount?: number,
+  ): Promise<Result<PaymentCapture>>;
+  refundPayment(
+    paymentId: string,
+    amount: number,
+    reason?: string,
+  ): Promise<Result<PaymentRefund>>;
   cancelPaymentIntent(paymentIntentId: string): Promise<Result<void>>;
   verifyWebhook(request: Request): Promise<Result<PaymentWebhookEvent>>;
 }
@@ -50,47 +59,47 @@ interface PaymentAdapter {
 
 ### CreatePaymentIntentParams
 
-| Field | Type | Required |
-|-------|------|----------|
-| `amount` | `number` | Yes |
-| `currency` | `string` | Yes |
-| `orderId` | `string` | Yes |
-| `customerId` | `string` | No |
-| `metadata` | `Record<string, string>` | No |
-| `terminalId` | `string` | No |
+| Field        | Type                     | Required |
+| ------------ | ------------------------ | -------- |
+| `amount`     | `number`                 | Yes      |
+| `currency`   | `string`                 | Yes      |
+| `orderId`    | `string`                 | Yes      |
+| `customerId` | `string`                 | No       |
+| `metadata`   | `Record<string, string>` | No       |
+| `terminalId` | `string`                 | No       |
 
 ### PaymentIntent
 
-| Field | Type |
-|-------|------|
-| `id` | `string` |
-| `status` | `string` |
-| `amount` | `number` |
-| `currency` | `string` |
+| Field          | Type             |
+| -------------- | ---------------- |
+| `id`           | `string`         |
+| `status`       | `string`         |
+| `amount`       | `number`         |
+| `currency`     | `string`         |
 | `clientSecret` | `string \| null` |
 
 ### PaymentCapture
 
-| Field | Type |
-|-------|------|
-| `id` | `string` |
-| `status` | `string` |
+| Field            | Type     |
+| ---------------- | -------- |
+| `id`             | `string` |
+| `status`         | `string` |
 | `amountCaptured` | `number` |
 
 ### PaymentRefund
 
-| Field | Type |
-|-------|------|
-| `id` | `string` |
-| `status` | `string` |
+| Field            | Type     |
+| ---------------- | -------- |
+| `id`             | `string` |
+| `status`         | `string` |
 | `amountRefunded` | `number` |
 
 ### PaymentWebhookEvent
 
-| Field | Type |
-|-------|------|
-| `id` | `string` |
-| `type` | `string` |
+| Field  | Type      |
+| ------ | --------- |
+| `id`   | `string`  |
+| `type` | `string`  |
 | `data` | `unknown` |
 
 For implementation guidance, see the [Payment Adapter Contract](/extending/payment-adapter-contract/) and the [Payment Adapter guide](/extending/payment-adapter/).
@@ -102,7 +111,11 @@ For implementation guidance, see the [Payment Adapter Contract](/extending/payme
 ```ts
 interface StorageAdapter {
   readonly providerId: string;
-  upload(key: string, data: ArrayBuffer | ReadableStream, contentType: string): Promise<Result<StoredFile>>;
+  upload(
+    key: string,
+    data: ArrayBuffer | ReadableStream,
+    contentType: string,
+  ): Promise<Result<StoredFile>>;
   getUrl(key: string): Promise<Result<string>>;
   getSignedUrl(key: string, expiresIn: number): Promise<Result<string>>;
   delete(key: string): Promise<Result<void>>;
@@ -112,12 +125,12 @@ interface StorageAdapter {
 
 ### StoredFile
 
-| Field | Type | Required |
-|-------|------|----------|
-| `key` | `string` | Yes |
-| `url` | `string` | Yes |
-| `contentType` | `string` | Yes |
-| `size` | `number` | No |
+| Field         | Type     | Required |
+| ------------- | -------- | -------- |
+| `key`         | `string` | Yes      |
+| `url`         | `string` | Yes      |
+| `contentType` | `string` | Yes      |
+| `size`        | `number` | No       |
 
 ---
 
@@ -135,37 +148,37 @@ interface SearchAdapter {
 
 ### SearchDocument
 
-| Field | Type | Required |
-|-------|------|----------|
-| `id` | `string` | Yes |
-| `type` | `string` | Yes |
-| `slug` | `string` | Yes |
-| `title` | `string` | Yes |
-| `description` | `string` | No |
-| `status` | `string` | No |
-| `categories` | `string[]` | Yes |
-| `brands` | `string[]` | Yes |
-| `text` | `string` | Yes |
-| `payload` | `Record<string, unknown>` | No |
+| Field         | Type                      | Required |
+| ------------- | ------------------------- | -------- |
+| `id`          | `string`                  | Yes      |
+| `type`        | `string`                  | Yes      |
+| `slug`        | `string`                  | Yes      |
+| `title`       | `string`                  | Yes      |
+| `description` | `string`                  | No       |
+| `status`      | `string`                  | No       |
+| `categories`  | `string[]`                | Yes      |
+| `brands`      | `string[]`                | Yes      |
+| `text`        | `string`                  | Yes      |
+| `payload`     | `Record<string, unknown>` | No       |
 
 ### SearchQueryParams
 
-| Field | Type | Required |
-|-------|------|----------|
-| `query` | `string` | Yes |
-| `page` | `number` | No |
-| `limit` | `number` | No |
-| `filters` | `{ type?, category?, brand?, status? }` | No |
-| `facets` | `string[]` | No |
+| Field     | Type                                    | Required |
+| --------- | --------------------------------------- | -------- |
+| `query`   | `string`                                | Yes      |
+| `page`    | `number`                                | No       |
+| `limit`   | `number`                                | No       |
+| `filters` | `{ type?, category?, brand?, status? }` | No       |
+| `facets`  | `string[]`                              | No       |
 
 ### SearchQueryResult
 
-| Field | Type |
-|-------|------|
-| `hits` | `SearchHit[]` |
-| `total` | `number` |
-| `page` | `number` |
-| `limit` | `number` |
+| Field    | Type                                     |
+| -------- | ---------------------------------------- |
+| `hits`   | `SearchHit[]`                            |
+| `total`  | `number`                                 |
+| `page`   | `number`                                 |
+| `limit`  | `number`                                 |
 | `facets` | `Record<string, Record<string, number>>` |
 
 ---
@@ -175,42 +188,48 @@ interface SearchAdapter {
 ```ts
 interface TaxAdapter {
   readonly providerId: string;
-  calculateTax(params: TaxCalculationParams): Promise<Result<TaxCalculationResult>>;
-  reportTransaction(params: TaxReportParams): Promise<Result<{ transactionId: string }>>;
-  voidTransaction(params: TaxVoidParams): Promise<Result<{ transactionId: string }>>;
+  calculateTax(
+    params: TaxCalculationParams,
+  ): Promise<Result<TaxCalculationResult>>;
+  reportTransaction(
+    params: TaxReportParams,
+  ): Promise<Result<{ transactionId: string }>>;
+  voidTransaction(
+    params: TaxVoidParams,
+  ): Promise<Result<{ transactionId: string }>>;
 }
 ```
 
 ### TaxCalculationParams
 
-| Field | Type | Required |
-|-------|------|----------|
-| `currency` | `string` | Yes |
-| `customerId` | `string` | No |
-| `orderId` | `string` | No |
-| `fromAddress` | `TaxAddress` | No |
-| `toAddress` | `TaxAddress` | No |
-| `shippingAmount` | `number` | Yes |
-| `lineItems` | `TaxLineItem[]` | Yes |
+| Field            | Type            | Required |
+| ---------------- | --------------- | -------- |
+| `currency`       | `string`        | Yes      |
+| `customerId`     | `string`        | No       |
+| `orderId`        | `string`        | No       |
+| `fromAddress`    | `TaxAddress`    | No       |
+| `toAddress`      | `TaxAddress`    | No       |
+| `shippingAmount` | `number`        | Yes      |
+| `lineItems`      | `TaxLineItem[]` | Yes      |
 
 ### TaxCalculationResult
 
-| Field | Type |
-|-------|------|
-| `amountToCollect` | `number` |
-| `taxableAmount` | `number` |
-| `rate` | `number` |
-| `breakdown` | `Record<string, unknown>` |
+| Field             | Type                      |
+| ----------------- | ------------------------- |
+| `amountToCollect` | `number`                  |
+| `taxableAmount`   | `number`                  |
+| `rate`            | `number`                  |
+| `breakdown`       | `Record<string, unknown>` |
 
 ### TaxAddress
 
-| Field | Type | Required |
-|-------|------|----------|
-| `country` | `string` | Yes |
-| `postalCode` | `string` | Yes |
-| `state` | `string` | No |
-| `city` | `string` | No |
-| `line1` | `string` | No |
+| Field        | Type     | Required |
+| ------------ | -------- | -------- |
+| `country`    | `string` | Yes      |
+| `postalCode` | `string` | Yes      |
+| `state`      | `string` | No       |
+| `city`       | `string` | No       |
+| `line1`      | `string` | No       |
 
 ---
 
@@ -230,19 +249,73 @@ Any object with a `send` method matching this signature works. See the [Email No
 
 ---
 
+## Job execution engines
+
+Task authors depend on the enqueue-only `JobsAdapter` surface exposed through hooks. Runtime configuration accepts the full `ExecutionEngine`, which registers the merged `TaskDefinition` map and declares how execution is driven:
+
+```ts
+interface ExecutionEngine extends JobsAdapter {
+  readonly execution:
+    | {
+        mode: "pull";
+        run(options?: {
+          queue?: string;
+          limit?: number;
+        }): Promise<RunJobsResult>;
+      }
+    | { mode: "push" };
+  register(setup: ExecutionEngineSetup): void;
+}
+```
+
+The built-in `DrizzleJobsAdapter` is the default pull engine. It owns enqueue, claim, concurrency enforcement, retries, and stale-job recovery. A configured engine replaces it:
+
+```ts title="commerce.config.ts"
+import { PgBossExecutionEngine } from "@porulle/jobs-pg-boss";
+
+const jobs = new PgBossExecutionEngine({
+  connectionString: process.env.DATABASE_URL!,
+});
+
+export default defineConfig({
+  jobs: {
+    adapter: jobs,
+    tasks: [importCatalogTask],
+  },
+});
+
+await jobs.start();
+```
+
+| Package                       | Driver      | Concurrency and scheduling                                                                                                                                | Use when                                                                 |
+| ----------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Built-in `DrizzleJobsAdapter` | Pull        | Postgres claim transaction, exclusive keys, `delayMs`, configurable `processingOrder`                                                                     | Default; no extra infrastructure                                         |
+| `@porulle/jobs-pg-boss`       | Push worker | One singleton-policy queue preserves global key exclusivity; logical queue labels remain in job data. Includes retries, delayed jobs, and pending upsert. | You already operate Postgres and want pg-boss tooling                    |
+| `@porulle/jobs-inngest`       | Push        | Inngest concurrency CEL key, retries, future event timestamps; supersession uses trailing debounce                                                        | Managed durable functions and Inngest observability                      |
+| `@porulle/jobs-trigger`       | Push        | Trigger.dev queue concurrency plus `concurrencyKey`, retries, delayed triggers; supersession uses trailing debounce                                       | Managed Trigger.dev task execution                                       |
+| `@porulle/jobs-cloudflare`    | Push        | Workflow step retries and sleeps. Exclusive/superseding keys require a durable `CloudflareConcurrencyCoordinator`.                                        | A Workers-native deployment that can supply a Durable Object coordinator |
+
+For Inngest, pass `engine.functions` to the framework's `serve()` integration. Its retry and debounce policies are fixed when functions register, so put `retries` and `supersedes` on `TaskDefinition` rather than overriding them per enqueue. Trigger.dev indexes the task objects in `engine.tasks`. Cloudflare invokes `engine.run(event.payload, step)` from a `WorkflowEntrypoint`. These push engines must not use Porulle's cron endpoint or `jobs.autorun`.
+
+---
+
 ## Available implementations
 
-| Package | Adapter | Interface |
-|---------|---------|-----------|
-| `@porulle/adapter-postgres` | PostgreSQL (Drizzle) | `DatabaseAdapter` |
-| `@porulle/adapter-local-storage` | Local filesystem | `StorageAdapter` |
-| `@porulle/adapter-s3` | AWS S3 | `StorageAdapter` |
-| `@porulle/adapter-r2` | Cloudflare R2 | `StorageAdapter` |
-| `@porulle/adapter-stripe` | Stripe | `PaymentAdapter` |
-| `@porulle/adapter-resend` | Resend | `EmailAdapter` |
-| `@porulle/adapter-ses` | AWS SES v2 | `EmailAdapter` |
-| `consoleEmailAdapter()` | Console (dev) | `EmailAdapter` |
-| `@porulle/adapter-meilisearch` | Meilisearch | `SearchAdapter` |
-| `@porulle/adapter-pg-search` | PostgreSQL full-text search | `SearchAdapter` |
-| `@porulle/adapter-taxjar` | TaxJar | `TaxAdapter` |
-| `@porulle/adapter-tax-manual` | Manual / flat-rate tax | `TaxAdapter` |
+| Package                          | Adapter                     | Interface         |
+| -------------------------------- | --------------------------- | ----------------- |
+| `@porulle/adapter-postgres`      | PostgreSQL (Drizzle)        | `DatabaseAdapter` |
+| `@porulle/adapter-local-storage` | Local filesystem            | `StorageAdapter`  |
+| `@porulle/adapter-s3`            | AWS S3                      | `StorageAdapter`  |
+| `@porulle/adapter-r2`            | Cloudflare R2               | `StorageAdapter`  |
+| `@porulle/adapter-stripe`        | Stripe                      | `PaymentAdapter`  |
+| `@porulle/adapter-resend`        | Resend                      | `EmailAdapter`    |
+| `@porulle/adapter-ses`           | AWS SES v2                  | `EmailAdapter`    |
+| `consoleEmailAdapter()`          | Console (dev)               | `EmailAdapter`    |
+| `@porulle/adapter-meilisearch`   | Meilisearch                 | `SearchAdapter`   |
+| `@porulle/adapter-pg-search`     | PostgreSQL full-text search | `SearchAdapter`   |
+| `@porulle/adapter-taxjar`        | TaxJar                      | `TaxAdapter`      |
+| `@porulle/adapter-tax-manual`    | Manual / flat-rate tax      | `TaxAdapter`      |
+| `@porulle/jobs-pg-boss`          | pg-boss                     | `ExecutionEngine` |
+| `@porulle/jobs-inngest`          | Inngest                     | `ExecutionEngine` |
+| `@porulle/jobs-trigger`          | Trigger.dev                 | `ExecutionEngine` |
+| `@porulle/jobs-cloudflare`       | Cloudflare Workflows        | `ExecutionEngine` |

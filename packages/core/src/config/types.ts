@@ -8,8 +8,11 @@ import type { AuthInstance } from "../auth/setup.js";
 import type { DatabaseAdapter } from "../kernel/database/adapter.js";
 import type { TaxAdapter } from "../modules/tax/adapter.js";
 import type { SearchAdapter } from "../modules/search/adapter.js";
-import type { JobsAdapter } from "../kernel/jobs/adapter.js";
-import type { TaskDefinition } from "../kernel/jobs/types.js";
+import type { ExecutionEngine } from "../kernel/jobs/adapter.js";
+import type {
+  JobProcessingOrder,
+  TaskDefinition,
+} from "../kernel/jobs/types.js";
 
 export interface RoleDefinition {
   permissions: string[];
@@ -353,8 +356,9 @@ export interface CommerceConfig {
   analytics?: AnalyticsConfig;
   search?: SearchConfig;
   jobs?: {
-    adapter?: JobsAdapter;
+    adapter?: ExecutionEngine;
     tasks?: TaskDefinition[];
+    processingOrder?: JobProcessingOrder;
     autorun?: {
       enabled: boolean;
       intervalMs?: number;

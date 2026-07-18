@@ -98,6 +98,10 @@ export class EntityService {
     }
   }
 
+  private assertEntityWritable(entity: SellableEntity, actor: Actor | null): void {
+    if (entity.sourceStoreId != null) assertPermission(actor, "catalog:sync");
+  }
+
   private async validateAndCreateCustomFields(entityId: string, entityType: string, customFields: Record<string, unknown> | undefined, ctx?: TxContext): Promise<Result<void>> {
     if (!customFields) return Ok(undefined);
     const entityConfig = this.deps.config.entities?.[entityType];
@@ -212,7 +216,8 @@ export class EntityService {
     const afterHooks = this.deps.hooks.resolve("catalog.afterCreate") as CatalogCreateAfterHook[];
     const context: HookContext = createHookContext({ actor, tx: ctx?.tx ?? null, logger: createLogger("catalog.create"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database) });
     const processedInput = await runBeforeHooks(beforeHooks, input, "create", context);
-    const entity = await this.repo.createEntity({ organizationId: orgId, type: processedInput.type, slug: processedInput.slug, status: "draft", isVisible: false, ...(processedInput.taxClass !== undefined ? { taxClass: processedInput.taxClass } : {}), metadata: processedInput.metadata ?? {} }, ctx);
+    if (processedInput.sourceStoreId != null) assertPermission(actor, "catalog:sync");
+    const entity = await this.repo.createEntity({ organizationId: orgId, type: processedInput.type, slug: processedInput.slug, status: "draft", isVisible: false, ...(processedInput.sourceStoreId !== undefined ? { sourceStoreId: processedInput.sourceStoreId } : {}), ...(processedInput.taxClass !== undefined ? { taxClass: processedInput.taxClass } : {}), metadata: processedInput.metadata ?? {} }, ctx);
     if (processedInput.attributes) {
       await this.repo.createAttribute({ entityId: entity.id, locale: processedInput.attributes.locale ?? "en", title: processedInput.attributes.title, subtitle: processedInput.attributes.subtitle, description: processedInput.attributes.description, richDescription: processedInput.attributes.richDescription, seoTitle: processedInput.attributes.seoTitle, seoDescription: processedInput.attributes.seoDescription }, ctx);
     }
@@ -228,6 +233,7 @@ export class EntityService {
     const existing = await this.repo.findEntityById(id, ctx);
     if (!existing) return Err(new CommerceNotFoundError("Entity not found."));
     this.assertSameOrg(existing, actor);
+    this.assertEntityWritable(existing, actor);
     const beforeHooks = this.deps.hooks.resolve("catalog.beforeUpdate") as CatalogUpdateBeforeHook[];
     const afterHooks = this.deps.hooks.resolve("catalog.afterUpdate") as CatalogUpdateAfterHook[];
     const context: HookContext = createHookContext({ actor, tx: ctx?.tx ?? null, logger: createLogger("catalog.update"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database) });
@@ -244,6 +250,7 @@ export class EntityService {
     const existing = await this.repo.findEntityById(id, ctx);
     if (!existing) return Err(new CommerceNotFoundError("Entity not found."));
     this.assertSameOrg(existing, actor);
+    this.assertEntityWritable(existing, actor);
     await this.repo.deleteAttributesByEntityId(id, ctx);
     await this.repo.deleteCustomFieldsByEntityId(id, ctx);
     await this.repo.deleteEntityCategoriesByEntityId(id, ctx);
@@ -382,6 +389,7 @@ export class EntityService {
     const entity = await this.repo.findEntityById(id, ctx);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
     try { this.assertSameOrg(entity, actor); } catch (error) { return Err(toCommerceError(error)); }
+    try { this.assertEntityWritable(entity, actor); } catch (error) { return Err(toCommerceError(error)); }
     const updateData: Partial<SellableEntity> = { status };
     if (status === "active") { updateData.publishedAt = new Date(); updateData.isVisible = true; }
     const updated = await this.repo.updateEntity(id, updateData, ctx);

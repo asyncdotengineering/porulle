@@ -10,6 +10,7 @@ import {
 } from "../../kernel/errors.js";
 import { runAfterHooks, runBeforeHooks } from "../../kernel/hooks/executor.js";
 import { createHookContext } from "../../kernel/hooks/create-context.js";
+import type { JobsAdapter } from "../../kernel/jobs/adapter.js";
 import type {
   AfterHook,
   BeforeHook,
@@ -130,6 +131,7 @@ function context(
     tx,
     logger: createLogger("orders"),
     services,
+    ...(services.jobs ? { jobs: services.jobs as JobsAdapter } : {}),
     context: { moduleName: "orders" },
     database: { db: database.db as PluginDb },
   });

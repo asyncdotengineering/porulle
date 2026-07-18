@@ -3,9 +3,9 @@ title: Job Queue
 description: Task definitions, job lifecycle, runner strategies, retry policies, and the commerce_jobs schema.
 ---
 
-The job queue stores background work in the `commerce_jobs` table and processes it with a runner. Jobs are durable: they survive server restarts and can be retried on failure.
+The default execution engine stores background work in the `commerce_jobs` table and processes it with the built-in Postgres runner. Jobs are durable: they survive server restarts and can be retried on failure. Set `jobs.adapter` to replace the engine without changing task definitions.
 
-If no runner is configured (`jobs.autorun.enabled` not set), jobs accumulate in `pending` status indefinitely. The server logs a warning at boot when autorun is disabled.
+With the built-in engine, jobs accumulate in `pending` status until the cron endpoint, `server.runJobs()`, or `jobs.autorun` drives a runner cycle. Push engines are driven by their native runtime instead.
 
 ---
 
@@ -20,7 +20,7 @@ const sendEmailTask: TaskDefinition<
   { to: string; template: string; data: Record<string, unknown> },
   { messageId: string }
 > = {
-  slug: "email:send",
+  slug: "email/send",
   handler: async ({ input, ctx }) => {
     await ctx.services.email.send({
       template: input.template,
@@ -38,21 +38,21 @@ const sendEmailTask: TaskDefinition<
 
 ### TaskDefinition fields
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `slug` | `string` | Yes | Unique identifier. Convention: `domain:action` (e.g., `email:send`, `webhook:deliver`) |
-| `handler` | `(args) => Promise<{ output }>` | Yes | Function that runs when the job is processed. Receives `{ input, ctx }`. |
-| `retries` | `{ attempts, backoff? }` | No | Retry policy. `backoff.type` is `"fixed"` or `"exponential"`. `backoff.delay` is milliseconds. |
-| `concurrency` | `{ key, exclusive? }` | No | Concurrency control. `key(input)` returns a string; only one job per key runs at a time. |
+| Field         | Type                               | Required | Description                                                                                                                                                |
+| ------------- | ---------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `slug`        | `string`                           | Yes      | Unique identifier. Convention: `domain/action` (e.g., `email/send`, `webhooks/deliver`)                                                                    |
+| `handler`     | `(args) => Promise<{ output }>`    | Yes      | Function that runs when the job is processed. Receives `{ input, ctx }`.                                                                                   |
+| `retries`     | `{ attempts, backoff? }`           | No       | Retry policy. `backoff.type` is `"fixed"` or `"exponential"`. `backoff.delay` is milliseconds.                                                             |
+| `concurrency` | `{ key, exclusive?, supersedes? }` | No       | `key(input)` identifies related jobs. `exclusive` defaults to `true`; `supersedes` replaces an older pending job for the same task, organization, and key. |
 
 ### Handler context
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `input` | `TInput` | The job's input payload (typed by the task definition) |
-| `ctx.db` | `PluginDb` | Database instance for direct queries |
-| `ctx.logger` | `Logger` | Structured logger (Pino) |
-| `ctx.services` | `ServiceContainer` | Kernel services (inventory, orders, catalog, etc.) |
+| Field          | Type               | Description                                            |
+| -------------- | ------------------ | ------------------------------------------------------ |
+| `input`        | `TInput`           | The job's input payload (typed by the task definition) |
+| `ctx.db`       | `PluginDb`         | Database instance for direct queries                   |
+| `ctx.logger`   | `Logger`           | Structured logger (Pino)                               |
+| `ctx.services` | `ServiceContainer` | Kernel services (inventory, orders, catalog, etc.)     |
 
 ---
 
@@ -62,28 +62,38 @@ Jobs are enqueued via the jobs adapter on the service container or from `HookCon
 
 ```ts
 // From a hook handler
-await context.jobs.enqueue("email:send", {
-  to: "customer@example.com",
-  template: "order-confirmation",
-  data: { orderNumber: "ORD-001", total: "$99.00" },
-});
+await context.jobs.enqueue(
+  "email/send",
+  {
+    to: "customer@example.com",
+    template: "order-confirmation",
+    data: { orderNumber: "ORD-001", total: "$99.00" },
+  },
+  { organizationId: context.actor!.organizationId },
+);
 
 // With delayed execution
-await context.jobs.enqueue("appointment:reminder", {
-  bookingId: "abc-123",
-}, {
-  waitUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
-  queue: "reminders",
-});
+await context.jobs.enqueue(
+  "appointment/reminder",
+  { bookingId: "abc-123" },
+  {
+    organizationId: context.actor!.organizationId,
+    delayMs: 24 * 60 * 60 * 1000,
+    queue: "reminders",
+  },
+);
 ```
 
 ### Enqueue options
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `queue` | `string` | `"default"` | Queue name. Runners can process specific queues. |
-| `waitUntil` | `Date` | `null` | Earliest time the job can be picked up |
-| `maxAttempts` | `number` | `5` | Maximum retry attempts before marking as failed |
+| Option           | Type      | Default                       | Description                                                      |
+| ---------------- | --------- | ----------------------------- | ---------------------------------------------------------------- |
+| `organizationId` | `string`  | —                             | Required tenant boundary for the job. Blank values are rejected. |
+| `queue`          | `string`  | `"default"`                   | Queue name. Runners can process specific queues.                 |
+| `delayMs`        | `number`  | —                             | Delay before the job becomes eligible.                           |
+| `maxAttempts`    | `number`  | Task policy or `1`            | Total attempts, including the first execution.                   |
+| `concurrencyKey` | `string`  | Task `concurrency.key(input)` | Overrides the task-derived key.                                  |
+| `supersedes`     | `boolean` | Task policy                   | Overrides pending-job supersession.                              |
 
 ---
 
@@ -97,12 +107,12 @@ pending ──→ processing ──→ succeeded
                 └──→ failed (max attempts reached)
 ```
 
-| Status | Meaning |
-|--------|---------|
-| `pending` | Waiting to be claimed by a runner. Respects `waitUntil` if set. |
-| `processing` | Claimed by a runner, handler is executing |
-| `succeeded` | Handler returned successfully. Output stored. |
-| `failed` | Handler threw and max attempts reached. Error stored. |
+| Status       | Meaning                                                         |
+| ------------ | --------------------------------------------------------------- |
+| `pending`    | Waiting to be claimed by a runner. Respects `waitUntil` if set. |
+| `processing` | Claimed by a runner, handler is executing                       |
+| `succeeded`  | Handler returned successfully. Output stored.                   |
+| `failed`     | Handler threw and max attempts reached. Error stored.           |
 
 ---
 
@@ -123,10 +133,10 @@ UC exposes `GET /api/jobs/run` automatically. Point your cron service at it:
 
 Query parameters:
 
-| Param | Default | Description |
-|-------|---------|-------------|
-| `queue` | `"default"` | Which queue to process |
-| `limit` | `10` | Max jobs per invocation |
+| Param   | Default     | Description             |
+| ------- | ----------- | ----------------------- |
+| `queue` | `"default"` | Which queue to process  |
+| `limit` | `10`        | Max jobs per invocation |
 
 In production, the endpoint requires `*:*` permission. Pass an API key via `x-api-key` header.
 
@@ -145,6 +155,24 @@ export default defineConfig({
 ```
 
 The runner uses `SELECT FOR UPDATE SKIP LOCKED`, so multiple instances can poll the same queue safely without double-processing.
+
+For tasks with a concurrency key, the claim transaction excludes keys already in `processing`. If a claimed batch contains multiple exclusive jobs with the same key, only the oldest runs; the rest are released to `pending` without consuming an attempt. Jobs with different keys execute in parallel.
+
+### Processing order
+
+The default claim order is oldest `createdAt` first. Configure a sortable field or a comparator when a queue needs a different fairness policy:
+
+```ts title="commerce.config.ts"
+export default defineConfig({
+  jobs: {
+    processingOrder: { field: "createdAt", direction: "asc" },
+    // Or: processingOrder: (left, right) =>
+    //   Number(right.input.priority) - Number(left.input.priority),
+  },
+});
+```
+
+Sort specifications support `createdAt`, `updatedAt`, `attempts`, and `taskSlug`. A comparator receives the stored job records and must be deterministic.
 
 ### 3. Custom worker process
 
@@ -171,6 +199,8 @@ async function loop() {
 loop();
 ```
 
+`runPendingJobs` drives only the built-in Drizzle engine. A custom pull engine is polled through `server.runJobs()`. Push engines such as Inngest, Trigger.dev, and Cloudflare Workflows are invoked by their native runtime; do not enable `jobs.autorun` for them.
+
 ---
 
 ## Retry and backoff
@@ -188,20 +218,6 @@ Attempt 4: wait 20s  (exponential: 5000 × 2^2)
 Attempt 5: failed
 ```
 
-To cancel a job without retrying, throw with `error.cancel = true`:
-
-```ts
-handler: async ({ input }) => {
-  if (!isValidEmail(input.email)) {
-    const err = new Error("Invalid email — cancelling job");
-    (err as Record<string, unknown>).cancel = true;
-    throw err;
-  }
-},
-```
-
----
-
 ## Database schema
 
 ```sql
@@ -215,7 +231,7 @@ CREATE TABLE commerce_jobs (
   output          JSONB,
   error           TEXT,
   attempts        INTEGER NOT NULL DEFAULT 0,
-  max_attempts    INTEGER NOT NULL DEFAULT 5,
+  max_attempts    INTEGER NOT NULL DEFAULT 1,
   wait_until      TIMESTAMPTZ,
   concurrency_key TEXT,
   processing_started_at TIMESTAMPTZ,

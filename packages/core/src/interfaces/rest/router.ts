@@ -240,6 +240,8 @@ class RouteChain {
 
         const result = await fn(handlerCtx);
 
+        if (result instanceof Response) return result;
+
         if (result === undefined || result === null) {
           return ctx.json({ data: null }, successStatus);
         }

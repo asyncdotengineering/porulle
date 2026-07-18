@@ -11,6 +11,7 @@ import { withTiming } from "../kernel/service-timing.js";
 import { setBootDefaultOrgId } from "../auth/org.js";
 import { setBootStrictOrgResolution } from "../auth/strict-org-resolution.js";
 import { DrizzleJobsAdapter } from "../kernel/jobs/drizzle-adapter.js";
+import type { ExecutionEngine } from "../kernel/jobs/adapter.js";
 import { CompensationFailuresRepository } from "../kernel/compensation/repository.js";
 
 import {
@@ -72,8 +73,21 @@ export function createKernel(config: CommerceConfig): Kernel {
   const jobsTaskMap = new Map(
     (config.jobs?.tasks ?? []).map((t) => [t.slug, t]),
   );
-  const jobsAdapter = new DrizzleJobsAdapter(db, jobsTaskMap);
-  serviceContainer.jobs = jobsAdapter;
+  const jobsEngine: ExecutionEngine =
+    config.jobs?.adapter ?? new DrizzleJobsAdapter(db);
+  const jobLogger = {
+    info: (message: string, data?: unknown) => logger.info(message, data),
+    warn: (message: string, data?: unknown) => logger.warn(message, data),
+    error: (message: string, data?: unknown) => logger.error(message, data),
+  };
+  jobsEngine.register({
+    tasks: jobsTaskMap,
+    context: { logger: jobLogger, db, services: serviceContainer },
+    ...(config.jobs?.processingOrder !== undefined
+      ? { processingOrder: config.jobs.processingOrder }
+      : {}),
+  });
+  serviceContainer.jobs = jobsEngine;
 
   const topoGraph = kernelModulesForTopoSort();
   const order = topoSortModules(topoGraph);
