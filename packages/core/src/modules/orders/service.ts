@@ -1482,17 +1482,24 @@ export class OrderService {
     const paymentMethodId = (order as Record<string, unknown>).paymentMethodId as
       | string
       | undefined;
+    // Capture the full authorized total when no partial amount is given, and
+    // pass it explicitly: Stripe captures the full authorized amount for an
+    // omitted value, but not every adapter does — an ambiguous "no amount"
+    // capture must never silently record 0.
+    const amountToCapture = opts?.amount ?? order.grandTotal;
     const captureResult = await payments.capture(
       paymentIntentId,
-      opts?.amount,
+      amountToCapture,
       paymentMethodId,
     );
     if (!captureResult.ok) {
       return Err(toCommerceError(captureResult.error));
     }
 
-    const amountCaptured =
-      captureResult.value?.amountCaptured ?? opts?.amount ?? order.grandTotal;
+    // Trust the adapter's reported figure only when it sends a positive one;
+    // otherwise record the amount we asked to capture (never a swallowed 0).
+    const reported = captureResult.value?.amountCaptured;
+    const amountCaptured = reported && reported > 0 ? reported : amountToCapture;
     await this.repo.update(orderId, { amountCaptured }, ctx);
 
     const refreshed = await this.repo.findById(orgId, orderId, ctx);

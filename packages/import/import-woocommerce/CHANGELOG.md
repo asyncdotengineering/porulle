@@ -1,5 +1,12 @@
 # @porulle/import-woocommerce
 
+## 0.10.4
+
+### Patch Changes
+
+- Updated dependencies [[`26a5a72`](https://github.com/asyncdotengineering/porulle/commit/26a5a722ae2e2a94d284e71f8e824ab2c985cce0)]:
+  - @porulle/core@0.10.4
+
 ## 0.10.3
 
 ### Patch Changes
