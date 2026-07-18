@@ -22,6 +22,7 @@ import {
 } from "./schema.js";
 import {
   ChannelConnectorService,
+  type ChannelComplianceData,
   type ChannelConnectorPluginOptions,
 } from "./service.js";
 import { buildHooks } from "./hooks.js";
@@ -324,14 +325,25 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           const eventId = request.headers.get("x-shopify-event-id") ?? createHash("sha256").update(`${verified.value.topic}:${verified.value.shopDomain}:${JSON.stringify(verified.value.data)}`).digest("hex");
           const [inserted] = await db.insert(processedWebhookEvents).values({ eventId, provider, eventType: verified.value.topic }).onConflictDoNothing().returning({ id: processedWebhookEvents.id });
           if (!inserted) return context.json({ data: { received: true, duplicate: true } });
-          const store = await service.getStoreByDomain(verified.value.shopDomain);
-          if (!store) return context.json({ data: { received: true } });
-          const handled = await service.handleWebhook(store.organizationId, store.id, { id: eventId, type: verified.value.topic, data: verified.value.data });
-          if (!handled.ok) return context.json({ error: { code: "WEBHOOK_PROCESSING_FAILED", message: handled.error } }, 422);
+          const stores = await service.getStoresByDomain(verified.value.shopDomain);
+          if (stores.length === 0) return context.json({ data: { received: true } });
+          let redacted = 0;
+          let redactedSeen = false;
+          let complianceData: ChannelComplianceData | undefined;
+          for (const store of stores) {
+            const handled = await service.handleWebhook(store.organizationId, store.id, { id: eventId, type: verified.value.topic, data: verified.value.data });
+            if (!handled.ok) return context.json({ error: { code: "WEBHOOK_PROCESSING_FAILED", message: handled.error } }, 422);
+            if (handled.value.redacted !== undefined) { redacted += handled.value.redacted; redactedSeen = true; }
+            if (handled.value.data) {
+              complianceData = complianceData
+                ? { customer: complianceData.customer, exports: [...complianceData.exports, ...handled.value.data.exports] }
+                : handled.value.data;
+            }
+          }
           return context.json({ data: {
             received: true,
-            ...(handled.value.data ? { data: handled.value.data } : {}),
-            ...(handled.value.redacted !== undefined ? { redacted: handled.value.redacted } : {}),
+            ...(complianceData ? { data: complianceData } : {}),
+            ...(redactedSeen ? { redacted } : {}),
           } });
         });
 
