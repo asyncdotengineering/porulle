@@ -1,8 +1,9 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
-import { changeOrderStatusRoute, listOrdersRoute, orderLookupRoute, getOrderRoute, getOrderFulfillmentsRoute, createOrderRoute, refundOrderRoute, captureOrderRoute, createOrderFulfillmentRoute, addOrderLineItemRoute, updateOrderLineItemRoute, removeOrderLineItemRoute, refundOrderLinesRoute, undoOrderRefundRoute, listOrderRefundsRoute, refundCapStatusRoute, createOrderNoteRoute, listOrderNotesRoute, deleteOrderNoteRoute, orderTimelineRoute } from "../schemas/orders.js";
+import { changeOrderStatusRoute, listOrdersRoute, orderLookupRoute, getOrderRoute, getOrderFulfillmentsRoute, createOrderRoute, quoteOrderRoute, refundOrderRoute, captureOrderRoute, createOrderFulfillmentRoute, addOrderLineItemRoute, updateOrderLineItemRoute, removeOrderLineItemRoute, refundOrderLinesRoute, undoOrderRefundRoute, listOrderRefundsRoute, refundCapStatusRoute, createOrderNoteRoute, listOrderNotesRoute, deleteOrderNoteRoute, orderTimelineRoute } from "../schemas/orders.js";
 import { type AppEnv, isUUID, mapErrorToResponse, mapErrorToStatus, parsePagination } from "../utils.js";
 import type { CreateOrderInput } from "../../../modules/orders/service.js";
+import { computeOrderPricing } from "../../../modules/orders/quote.js";
 import { assertPermission } from "../../../auth/permissions.js";
 
 export function orderRoutes(kernel: Kernel) {
@@ -72,6 +73,40 @@ export function orderRoutes(kernel: Kernel) {
     const result = await kernel.services.orders.create(body, c.get("actor"));
     if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value }, 201);
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(quoteOrderRoute, async (c) => {
+    try {
+      assertPermission(c.get("actor"), "orders:manage");
+    } catch (error) {
+      return c.json(mapErrorToResponse(error), mapErrorToStatus(error));
+    }
+    const body = c.req.valid("json") as {
+      currency: string;
+      lineItems: Array<{ entityId: string; entityType?: string; variantId?: string; quantity: number; title?: string }>;
+      customerId?: string;
+      customerGroupIds?: string[];
+      promotionCodes?: string[];
+      shippingAddress?: import("../../../modules/shipping/calculator.js").ShippingAddress;
+    };
+    try {
+      const breakdown = await computeOrderPricing(
+        kernel,
+        {
+          currency: body.currency,
+          lineItems: body.lineItems,
+          ...(body.customerId !== undefined ? { customerId: body.customerId } : {}),
+          ...(body.customerGroupIds !== undefined ? { customerGroupIds: body.customerGroupIds } : {}),
+          ...(body.promotionCodes !== undefined ? { promotionCodes: body.promotionCodes } : {}),
+          ...(body.shippingAddress !== undefined ? { shippingAddress: body.shippingAddress } : {}),
+        },
+        c.get("actor"),
+      );
+      return c.json({ data: breakdown });
+    } catch (error) {
+      return c.json(mapErrorToResponse(error), mapErrorToStatus(error));
+    }
   });
 
   // @ts-expect-error -- openapi handler union return type

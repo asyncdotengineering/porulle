@@ -53,10 +53,16 @@ export class TaxService {
     if (this.repository && orgId && params.toAddress) {
       const matched = await this.matchRuntimeRates(orgId, params.toAddress, ctx);
       if (matched.length > 0) {
-        const taxableAmount = params.lineItems.reduce(
-          (sum, lineItem) =>
-            sum + lineItem.unitPrice * lineItem.quantity - (lineItem.discount ?? 0),
+        // Subtract the order-level discount from the taxable base too (audit
+        // C2a) — otherwise runtime rates tax the pre-discount subtotal and
+        // over-collect on every discounted order, unlike the class-based path.
+        const taxableAmount = Math.max(
           0,
+          params.lineItems.reduce(
+            (sum, lineItem) =>
+              sum + lineItem.unitPrice * lineItem.quantity - (lineItem.discount ?? 0),
+            0,
+          ) - (params.orderDiscount ?? 0),
         );
         let amountToCollect = 0;
         const breakdown: Record<string, unknown> = {};

@@ -55,6 +55,74 @@ export const CreateOrderBodySchema = z.object({
   lineItems: z.array(CreateOrderLineItemSchema).min(1),
 }).openapi("CreateOrderRequest");
 
+const QuoteLineItemSchema = z.object({
+  entityId: z.uuid().openapi({ example: "550e8400-e29b-41d4-a716-446655440000" }),
+  entityType: z.string().optional().openapi({ example: "product" }),
+  variantId: z.uuid().optional(),
+  quantity: z.number().int().positive().openapi({ example: 2 }),
+  title: z.string().optional(),
+});
+
+const QuoteAddressSchema = z.object({
+  line1: z.string(),
+  line2: z.string().optional(),
+  city: z.string(),
+  state: z.string().optional(),
+  postalCode: z.string(),
+  country: z.string(),
+});
+
+export const QuoteOrderBodySchema = z.object({
+  currency: z.string().min(3).max(3).openapi({ example: "USD" }),
+  lineItems: z.array(QuoteLineItemSchema).min(1),
+  customerId: z.uuid().optional(),
+  customerGroupIds: z.array(z.string()).optional(),
+  promotionCodes: z.array(z.string()).optional(),
+  shippingAddress: QuoteAddressSchema.optional(),
+}).openapi("QuoteOrderRequest");
+
+export const QuoteOrderResultSchema = z.object({
+  data: z.object({
+    currency: z.string(),
+    subtotal: z.number().openapi({ description: "Minor units (e.g. cents)." }),
+    discountTotal: z.number(),
+    shippingTotal: z.number(),
+    taxTotal: z.number(),
+    grandTotal: z.number(),
+    lineItems: z.array(z.object({
+      entityId: z.string(),
+      variantId: z.string().optional(),
+      quantity: z.number(),
+      unitPrice: z.number(),
+      totalPrice: z.number(),
+      discountAmount: z.number(),
+      taxAmount: z.number(),
+    })),
+  }),
+}).openapi("QuoteOrderResult");
+
+export const quoteOrderRoute = createRoute({
+  method: "post",
+  path: "/quote",
+  tags: ["Orders"],
+  summary: "Quote an order's charges without creating it",
+  description:
+    "Computes subtotal, discount, shipping, tax and grand total for the given line items (+ optional address, customer, promotion codes) using the SAME pricing pipeline checkout runs — so a manual/draft order previews exactly what it will be charged. Persists nothing.",
+  request: {
+    body: {
+      content: { "application/json": { schema: QuoteOrderBodySchema } },
+      required: true,
+    },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: QuoteOrderResultSchema } },
+      description: "Computed order charges (authoritative — matches checkout).",
+    },
+    ...errorResponses,
+  },
+});
+
 // ─── Response Schemas ───────────────────────────────────────────────────────
 
 export const OrderDataResponseSchema = OrderResponse;
