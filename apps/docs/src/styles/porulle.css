@@ -1,63 +1,144 @@
-/* Porulle — warm technical palette (bronze / ink), aligned with sibling Starlight themes. */
+/* Porulle docs — ElevenLabs-inspired light base with the Porulle bronze accent.
+ * Clean white surface, near-black ink, hairline borders, generous spacing,
+ * refined type. Light is the default; a refined bronze dark stays available. */
 
+:root {
+  --sl-font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --sl-font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Menlo", monospace;
+
+  /* Brand accent (bronze) */
+  --porulle-bronze: #d4a574;
+  --porulle-bronze-deep: #9a6a35; /* readable link text on white */
+  --porulle-ink: #1a1510;
+
+  /* EL-ish shape + rhythm */
+  --sl-content-width: 48rem;
+  --sl-nav-height: 3.75rem;
+  --porulle-radius: 10px;
+  --porulle-hairline: #ece9e4;
+}
+
+/* ── Light theme (the only theme) ──────────────────────────────────────── */
+/* Applied to every data-theme value so the docs are light regardless. */
 :root,
-:root:root {
-  --sl-font: ui-sans-serif, system-ui, "Segoe UI", Inter, sans-serif;
-  --sl-font-mono: ui-monospace, "JetBrains Mono", "SF Mono", monospace;
+:root[data-theme="light"],
+:root[data-theme="dark"] {
+  color-scheme: light;
 
-  --sl-color-accent-low: #2a1810;
-  --sl-color-accent: #d4a574;
-  --sl-color-accent-high: #f0dcc4;
+  --sl-color-accent-low: #f4ebdc;
+  --sl-color-accent: var(--porulle-bronze-deep);
+  --sl-color-accent-high: #6f4a22;
 
-  --sl-color-white: #faf6f1;
-  --sl-color-gray-1: #ebe4da;
-  --sl-color-gray-2: #cfc3b2;
-  --sl-color-gray-3: #9a876f;
-  --sl-color-gray-4: #6b5a47;
-  --sl-color-gray-5: #423529;
-  --sl-color-gray-6: #2e251c;
-  --sl-color-black: #1a1510;
+  --sl-color-white: #17120d; /* "white" token = strongest ink in light mode */
+  --sl-color-gray-1: #2a231b;
+  --sl-color-gray-2: #4b4239;
+  --sl-color-gray-3: #6f665b;
+  --sl-color-gray-4: #938a7e;
+  --sl-color-gray-5: #c8c2b8;
+  --sl-color-gray-6: #ece9e4;
+  --sl-color-gray-7: #f6f4f0;
+  --sl-color-black: #ffffff; /* "black" token = page surface in light mode */
 
-  --sl-color-bg: #1a1510;
-  --sl-color-bg-nav: #221a14;
-  --sl-color-bg-sidebar: #1a1510;
-  --sl-color-bg-inline-code: #2e251c;
-  --sl-color-text: #ebe4da;
-  --sl-color-text-accent: #f0dcc4;
-  --sl-color-hairline: #423529;
-  --sl-color-hairline-light: #2e251c;
-  --sl-color-hairline-shade: #2e251c;
+  --sl-color-bg: #ffffff;
+  --sl-color-bg-nav: rgba(255, 255, 255, 0.82);
+  --sl-color-bg-sidebar: #ffffff;
+  --sl-color-bg-inline-code: #f4f1ec;
+  --sl-color-bg-accent: var(--porulle-bronze);
+
+  --sl-color-text: #2a231b;
+  --sl-color-text-accent: var(--porulle-bronze-deep);
+  --sl-color-text-invert: #ffffff;
+
+  --sl-color-hairline: var(--porulle-hairline);
+  --sl-color-hairline-light: #f1eee9;
+  --sl-color-hairline-shade: #f6f4f0;
+
+  --sl-color-backdrop-overlay: rgba(26, 21, 16, 0.35);
 }
 
-:root[data-theme="light"][data-theme="light"] {
-  --sl-color-accent-low: #faf3ea;
-  --sl-color-accent: #b07a3d;
-  --sl-color-accent-high: #5c3d1c;
+/* ── EL-style polish ───────────────────────────────────────────────────── */
 
-  --sl-color-white: #1a1510;
-  --sl-color-gray-1: #2e251c;
-  --sl-color-gray-2: #423529;
-  --sl-color-gray-3: #6b5a47;
-  --sl-color-gray-4: #9a876f;
-  --sl-color-gray-5: #cfc3b2;
-  --sl-color-gray-6: #ebe4da;
-  --sl-color-gray-7: #f2ebe3;
-  --sl-color-black: #faf6f1;
-
-  --sl-color-bg: #faf6f1;
-  --sl-color-bg-nav: #f5efe6;
-  --sl-color-bg-sidebar: #f8f2ea;
-  --sl-color-bg-inline-code: #ebe4da;
-  --sl-color-text: #2e251c;
-  --sl-color-text-accent: #8a5528;
-  --sl-color-hairline: #cfc3b2;
-  --sl-color-hairline-light: #ebe4da;
-  --sl-color-hairline-shade: #cfc3b2;
+body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
+/* Sticky, translucent, hairline-bottom header (EL trademark). */
+.header {
+  backdrop-filter: saturate(1.4) blur(12px);
+  border-bottom: 1px solid var(--sl-color-hairline);
+}
+
+/* Content typography — calm, generous. */
+.sl-markdown-content {
+  line-height: 1.72;
+  font-size: 1rem;
+}
+.sl-markdown-content h1,
 .sl-markdown-content h2,
-.sl-markdown-content h3,
-.sl-markdown-content h4 {
-  font-weight: 700;
+.sl-markdown-content h3 {
+  letter-spacing: -0.018em;
+  font-weight: 640;
+}
+.sl-markdown-content h1 {
+  font-size: 2.1rem;
+  line-height: 1.15;
+}
+.sl-markdown-content h2 {
+  margin-top: 2.4em;
+  padding-top: 1.4em;
+  border-top: 1px solid var(--sl-color-hairline-light);
+}
+
+/* Links — bronze, understated underline that thickens on hover. */
+.sl-markdown-content a:not(:where(.not-content *)) {
+  color: var(--sl-color-text-accent);
+  text-decoration-color: color-mix(in srgb, var(--porulle-bronze) 60%, transparent);
+  text-underline-offset: 0.2em;
+  transition: text-decoration-color 0.15s ease;
+}
+.sl-markdown-content a:not(:where(.not-content *)):hover {
+  text-decoration-color: var(--porulle-bronze);
+}
+
+/* Inline + block code — soft surface, hairline, rounded (EL). */
+.sl-markdown-content :not(pre) > code {
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 6px;
+  padding: 0.15em 0.4em;
+  font-size: 0.875em;
+}
+.expressive-code .frame,
+.sl-markdown-content pre {
+  border-radius: var(--porulle-radius);
+  border: 1px solid var(--sl-color-hairline);
+}
+
+/* Sidebar — quiet; active item carries a bronze wash. */
+.sidebar-content a[aria-current="page"] {
+  background: var(--sl-color-accent-low);
+  color: var(--sl-color-text-accent);
+  font-weight: 600;
+  border-radius: 7px;
+}
+
+/* Cards / asides — rounded. */
+.card,
+starlight-aside .starlight-aside {
+  border-radius: var(--porulle-radius);
+}
+
+/* Tables — hairline, breathable. */
+.sl-markdown-content table {
+  border-collapse: collapse;
+}
+.sl-markdown-content th,
+.sl-markdown-content td {
+  border-color: var(--sl-color-hairline);
+}
+
+/* Tighter, EL-like site title. */
+.site-title {
   letter-spacing: -0.01em;
+  font-weight: 620;
 }

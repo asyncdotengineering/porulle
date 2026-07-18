@@ -1,0 +1,206 @@
+---
+const SITE = "https://porulle.asyncdot.com";
+const GITHUB = "https://github.com/asyncdotengineering/porulle";
+const PROMPT = `Read ${SITE}/start.md then follow it to scaffold a Porulle headless store.`;
+
+const scaffoldCode = `mkdir my-store && cd my-store
+curl -fsSL ${SITE}/start.md | your-agent   # or follow it yourself
+pnpm install && pnpm dev
+
+# → REST commerce API on http://localhost:4000/api
+#   real Postgres (embedded PGlite) — no database to install`;
+
+const configCode = `import { defineConfig } from "@porulle/core";
+import { pgliteAdapter } from "@porulle/adapter-pglite";
+
+export default defineConfig({
+  storeName: "My Store",
+  databaseAdapter: await pgliteAdapter({ path: "./.data" }),
+  entities: { product: { variants: { enabled: true }, fulfillment: "physical" } },
+  payments: [stripeAdapter({ secretKey: process.env.STRIPE_SECRET_KEY! })],
+  plugins: [loyaltyPlugin(), reviewsPlugin()],
+});`;
+
+const features = [
+  { t: "Own the commerce truth", d: "Orders, payments, refunds, inventory, and price-at-sale live in your database — not a vendor's. Money-conservation invariants enforced in the core." },
+  { t: "REST-only, typed", d: "One clean REST surface with an OpenAPI spec and a typed SDK client. No GraphQL to learn, no bespoke query language." },
+  { t: "Plugins & adapters", d: "Extend with plugins (POS, layaway, loyalty, channel connectors) and swap infrastructure through adapters — payments, storage, search, database." },
+  { t: "Security-hardened", d: "Tenant isolation enforced at the data layer, PIN/API-key auth, VAPT-driven hardening. Multi-tenant safe by construction." },
+  { t: "Zero-infra dev", d: "Ship the 80% before you own any infrastructure. Embedded PGlite runs a real Postgres in-process — no server, no connection string, no migrations." },
+  { t: "Agent-native", d: "An MCP endpoint and llms.txt out of the box. Coding agents scaffold, read, and operate a store without hand-holding." },
+];
+
+const steps = [
+  { n: "01", t: "Scaffold", d: "One prompt (curl start.md) drops a runnable store — config, server, embedded database, mock checkout — all done." },
+  { n: "02", t: "Make it yours", d: "Edit one config: your catalog shape, branding, and the plugins you want. The config is the single source of truth." },
+  { n: "03", t: "Ship", d: "Swap one line to real Postgres and Stripe. Same PostgreSQL, same code, production-ready." },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Porulle — TypeScript headless commerce you own</title>
+    <meta name="description" content="A TypeScript, REST-only headless commerce framework. Own orders, payments, refunds, and inventory. Scaffold a runnable store in one prompt — zero infrastructure to start." />
+    <link rel="icon" href="/logo.svg" />
+    <style>
+      :root {
+        --ink: #1a1510; --ink-2: #4b4239; --ink-3: #6f665b;
+        --bronze: #d4a574; --bronze-deep: #9a6a35;
+        --bg: #ffffff; --bg-2: #faf8f5; --hair: #ece9e4;
+        --radius: 12px;
+        --sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+      }
+      * { box-sizing: border-box; }
+      html { -webkit-font-smoothing: antialiased; scroll-behavior: smooth; }
+      body { margin: 0; background: var(--bg); color: var(--ink-2); font-family: var(--sans); line-height: 1.6; }
+      a { color: var(--bronze-deep); text-underline-offset: 0.2em; }
+      .wrap { max-width: 62rem; margin: 0 auto; padding: 0 1.5rem; }
+
+      nav { position: sticky; top: 0; z-index: 10; backdrop-filter: saturate(1.4) blur(12px); background: rgba(255,255,255,0.82); border-bottom: 1px solid var(--hair); }
+      nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 3.75rem; }
+      .brand { display: flex; align-items: center; gap: 0.55rem; font-weight: 640; color: var(--ink); letter-spacing: -0.01em; text-decoration: none; font-size: 1.05rem; }
+      .brand img { width: 24px; height: 24px; }
+      .nav-links { display: flex; gap: 1.4rem; align-items: center; font-size: 0.92rem; }
+      .nav-links a { color: var(--ink-2); text-decoration: none; }
+      .nav-links a:hover { color: var(--ink); }
+
+      header { padding: 6rem 0 3rem; }
+      .eyebrow { font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--bronze-deep); font-weight: 600; }
+      h1 { color: var(--ink); font-size: clamp(2.4rem, 6vw, 3.6rem); line-height: 1.05; letter-spacing: -0.03em; font-weight: 660; margin: 0.8rem 0 0; }
+      h1 .muted { color: var(--ink-3); }
+      .lede { font-size: 1.2rem; color: var(--ink-2); max-width: 40rem; margin: 1.3rem 0 2rem; }
+
+      .cta { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
+      .btn { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1.15rem; border-radius: 8px; font-weight: 560; font-size: 0.95rem; text-decoration: none; border: 1px solid transparent; }
+      .btn-primary { background: var(--ink); color: #fff; }
+      .btn-primary:hover { background: #000; }
+      .btn-ghost { border-color: var(--hair); color: var(--ink); background: #fff; }
+      .btn-ghost:hover { border-color: var(--bronze); }
+
+      .prompt { margin-top: 2.2rem; border: 1px solid var(--hair); border-radius: var(--radius); background: var(--bg-2); overflow: hidden; }
+      .prompt-head { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--hair); font-size: 0.78rem; color: var(--ink-3); }
+      .prompt-head .dot { color: var(--bronze-deep); }
+      .prompt code { display: block; padding: 1rem; font-family: var(--mono); font-size: 0.86rem; color: var(--ink); white-space: pre-wrap; }
+      .copy { cursor: pointer; border: 1px solid var(--hair); background: #fff; border-radius: 6px; padding: 0.25rem 0.6rem; font-size: 0.75rem; color: var(--ink-2); font-family: var(--sans); }
+      .copy:hover { border-color: var(--bronze); }
+
+      section { padding: 3.5rem 0; border-top: 1px solid var(--hair); }
+      .sec-title { color: var(--ink); font-size: 1.7rem; letter-spacing: -0.02em; font-weight: 640; margin: 0 0 0.5rem; }
+      .sec-sub { color: var(--ink-3); margin: 0 0 2rem; max-width: 40rem; }
+
+      pre.code { background: var(--bg-2); border: 1px solid var(--hair); border-radius: var(--radius); padding: 1.1rem 1.2rem; overflow-x: auto; font-family: var(--mono); font-size: 0.85rem; color: var(--ink); line-height: 1.65; }
+      pre.code .cm { color: var(--ink-3); }
+
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; }
+      .card { border: 1px solid var(--hair); border-radius: var(--radius); padding: 1.3rem; background: #fff; }
+      .card h3 { color: var(--ink); font-size: 1.02rem; margin: 0 0 0.4rem; font-weight: 620; }
+      .card p { margin: 0; font-size: 0.92rem; color: var(--ink-2); }
+
+      .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.5rem; }
+      .step .n { font-family: var(--mono); color: var(--bronze-deep); font-size: 0.85rem; }
+      .step h3 { color: var(--ink); margin: 0.3rem 0 0.4rem; font-size: 1.1rem; }
+      .step p { margin: 0; font-size: 0.92rem; }
+
+      footer { padding: 3rem 0 4rem; border-top: 1px solid var(--hair); color: var(--ink-3); font-size: 0.9rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
+      footer a { color: var(--ink-2); text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <div class="wrap">
+        <a class="brand" href="/"><img src="/logo.svg" alt="" />Porulle</a>
+        <div class="nav-links">
+          <a href="/get-started/intro/">Docs</a>
+          <a href="/get-started/quickstart/">Quickstart</a>
+          <a href={GITHUB}>GitHub</a>
+        </div>
+      </div>
+    </nav>
+
+    <header>
+      <div class="wrap">
+        <div class="eyebrow">TypeScript headless commerce</div>
+        <h1>Commerce you own.<br /><span class="muted">Running in one prompt.</span></h1>
+        <p class="lede">
+          Porulle is a REST-only, security-hardened headless commerce framework.
+          It owns the hard parts — orders, payments, refunds, inventory,
+          price-at-sale — in <em>your</em> database. Scaffold a runnable store in
+          one prompt, with zero infrastructure to start.
+        </p>
+        <div class="cta">
+          <a class="btn btn-primary" href="/get-started/quickstart/">Get started →</a>
+          <a class="btn btn-ghost" href={GITHUB}>View on GitHub</a>
+        </div>
+
+        <div class="prompt">
+          <div class="prompt-head">
+            <span><span class="dot">▸</span> paste into your coding agent</span>
+            <button class="copy" data-copy={PROMPT}>Copy</button>
+          </div>
+          <code>{PROMPT}</code>
+        </div>
+      </div>
+    </header>
+
+    <section>
+      <div class="wrap">
+        <h2 class="sec-title">One prompt to a running store</h2>
+        <p class="sec-sub">The starter gives you the 80% — server, config, an embedded Postgres, mock checkout — all done. It runs instantly; no database to install.</p>
+        <pre class="code">{scaffoldCode}</pre>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <h2 class="sec-title">Then it's one config</h2>
+        <p class="sec-sub">Your catalog, payments, and plugins in a single typed file — the single source of truth.</p>
+        <pre class="code">{configCode}</pre>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <h2 class="sec-title">What you get</h2>
+        <div class="grid">
+          {features.map((f) => (
+            <div class="card"><h3>{f.t}</h3><p>{f.d}</p></div>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <h2 class="sec-title">Zero to shipped</h2>
+        <div class="steps">
+          {steps.map((s) => (
+            <div class="step"><div class="n">{s.n}</div><h3>{s.t}</h3><p>{s.d}</p></div>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <div class="wrap" style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:1rem;width:100%">
+        <span>Porulle — open-source TypeScript headless commerce.</span>
+        <span><a href="/get-started/intro/">Docs</a> · <a href="/llms-full.txt">llms.txt</a> · <a href={GITHUB}>GitHub</a></span>
+      </div>
+    </footer>
+
+    <script is:inline>
+      document.querySelectorAll(".copy").forEach((b) => {
+        b.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(b.getAttribute("data-copy") || "");
+            const t = b.textContent; b.textContent = "Copied ✓";
+            setTimeout(() => (b.textContent = t), 1500);
+          } catch (e) {}
+        });
+      });
+    </script>
+  </body>
+</html>

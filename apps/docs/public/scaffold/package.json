@@ -1,0 +1,26 @@
+{
+  "name": "my-porulle-store",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@porulle/core": "^0.9.0",
+    "@porulle/adapter-pglite": "^0.9.0",
+    "@porulle/adapter-local-storage": "^0.9.0",
+    "@hono/node-server": "^1.19.6",
+    "hono": "^4.9.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "drizzle-kit": "^0.31.9",
+    "tsx": "^4.22.4",
+    "typescript": "5.9.2"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
