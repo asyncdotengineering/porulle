@@ -1,7 +1,9 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import starlightLlmsTxt from "starlight-llms-txt";
 
 export default defineConfig({
+  site: "https://porulle.asyncdot.com",
   integrations: [
     starlight({
       title: "Porulle",
@@ -9,6 +11,17 @@ export default defineConfig({
         "TypeScript headless commerce framework — REST-only, security-hardened, plugin architecture (v0.1.0 alpha).",
       logo: { src: "./public/logo.svg", alt: "Porulle" },
       favicon: "/logo.svg",
+      // Light-only: force light on every load and remove the theme toggle.
+      head: [
+        {
+          tag: "script",
+          content:
+            "document.documentElement.dataset.theme='light';try{localStorage.setItem('starlight-theme','light')}catch(e){}",
+        },
+      ],
+      components: {
+        ThemeSelect: "./src/components/ThemeSelect.astro",
+      },
       social: [
         {
           icon: "github",
@@ -23,6 +36,15 @@ export default defineConfig({
       lastUpdated: true,
       pagination: true,
       pagefind: true,
+      plugins: [
+        starlightLlmsTxt({
+          projectName: "Porulle",
+          description:
+            "Porulle is a TypeScript headless commerce framework — REST-only, security-hardened, plugin architecture. It owns commerce truth (orders, payments, refunds, inventory) and is extended through plugins and adapters.",
+          details:
+            "Scaffold a runnable headless store in one prompt: read https://porulle.asyncdot.com/start.md then follow it. Published under @porulle on npm — core plus plugins (POS, layaway, channel-connectors, partners) and adapters (Stripe, Resend, Shopify, WooCommerce). REST-only API, Drizzle/Postgres, security-hardened tenant isolation.",
+        }),
+      ],
       customCss: ["./src/styles/porulle.css"],
       sidebar: [
         {
