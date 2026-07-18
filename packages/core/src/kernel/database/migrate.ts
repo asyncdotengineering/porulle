@@ -103,7 +103,10 @@ export function getSchemaFiles(): string[] {
  * Drizzle instance bound to your database. `drizzle-kit` must be available
  * (it is the standard schema tool); a clear error is thrown if it is not.
  */
-export async function pushSchema(drizzleInstance: unknown): Promise<void> {
+export async function pushSchema(
+  drizzleInstance: unknown,
+  config?: CommerceConfig,
+): Promise<void> {
   const require = createRequire(import.meta.url);
   let drizzleKit: {
     pushSchema(
@@ -118,7 +121,10 @@ export async function pushSchema(drizzleInstance: unknown): Promise<void> {
       "pushSchema() requires `drizzle-kit` to be installed. Add it to your project: bun add -d drizzle-kit",
     );
   }
+  // With a config, push the merged core + plugin schema so plugin-declared
+  // tables are created too; without one, push core only (backward compatible).
+  const schemaToApply = config ? buildSchema(config) : getSchema();
   // drizzle-kit needs the native driver result shape; unwrap a normalized db.
-  const { apply } = await drizzleKit.pushSchema(getSchema(), unwrapDb(drizzleInstance));
+  const { apply } = await drizzleKit.pushSchema(schemaToApply, unwrapDb(drizzleInstance));
   await apply();
 }
