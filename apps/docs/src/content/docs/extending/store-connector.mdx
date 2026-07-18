@@ -58,7 +58,7 @@ Return `ChannelOrderStatus` — `{ status: "pending" | "confirmed" | "failed" | 
 
 ### `verifyWebhook(store, request)`
 
-Verify the signature on an inbound per-store webhook and return `ChannelWebhookEvent` — `{ id, type, data }`. Compute the HMAC over the **raw request body** (`await request.text()`, never a re-serialized object) and compare with `crypto.timingSafeEqual` against the platform header (Shopify `x-shopify-hmac-sha256`, WooCommerce `x-wc-webhook-signature` — both base64 HMAC-SHA256 keyed on `store.webhookSecret`). Timing-safe comparison is required. The engine's `processed_webhook_events` table prevents replay on the inbound side; your adapter prevents forgery.
+Verify the signature on an inbound per-store webhook and return `ChannelWebhookEvent` — `{ id, type, data }`. Compute the HMAC over the **raw request body** (`await request.text()`, never a re-serialized object) and compare with `crypto.timingSafeEqual` against the platform header. **The signing key is platform-specific:** Shopify signs every webhook for an app with the **app client secret** (there is no per-store secret — verify against the connector's configured `clientSecret`, `x-shopify-hmac-sha256`); WooCommerce uses the **per-webhook secret** set at registration (`store.webhookSecret`, `x-wc-webhook-signature`). Both are base64 HMAC-SHA256; timing-safe comparison is required. The engine's `processed_webhook_events` table prevents replay on the inbound side; your adapter prevents forgery.
 
 ### `verifyAppWebhook?(request)` (optional)
 
