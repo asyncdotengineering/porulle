@@ -1,5 +1,28 @@
 # @porulle/core
 
+## 0.10.0
+
+### Minor Changes
+
+- [#77](https://github.com/asyncdotengineering/porulle/pull/77) [`22e0be4`](https://github.com/asyncdotengineering/porulle/commit/22e0be4eca991f78aed7f458306a399c9dc7c8ce) Thanks [@octalpixel](https://github.com/octalpixel)! - Add Shopify and WooCommerce catalog synchronization plus paid order injection with transparent customer shipping details, remote status confirmation, and tiered failed-export handling.
+
+- [#77](https://github.com/asyncdotengineering/porulle/pull/77) [`8f8c564`](https://github.com/asyncdotengineering/porulle/commit/8f8c564deb399a86c50d27d8ca07e5334888bf30) Thanks [@octalpixel](https://github.com/octalpixel)! - Add generic one-click store onboarding: Shopify OAuth and WooCommerce `/wc-auth` endpoint flows via new engine-plugin routes (`/api/channels/oauth/{provider}/start` + `/callback`), signed single-use callback state, and connector `buildAuthUrl`/`completeAuth` methods — alongside the existing credential-paste path. Add Shopify mandatory GDPR compliance webhook ingress: `POST /api/channels/compliance/{provider}` unauthenticated route, app-secret HMAC verification (`verifyAppWebhook`), `shop_domain` store resolution, and idempotent dispatch to existing redaction methods (`customers/data_request`, `customers/redact`, `shop/redact`).
+
+- [#77](https://github.com/asyncdotengineering/porulle/pull/77) [`22e0be4`](https://github.com/asyncdotengineering/porulle/commit/22e0be4eca991f78aed7f458306a399c9dc7c8ce) Thanks [@octalpixel](https://github.com/octalpixel)! - Enforce keyed job concurrency in the built-in runner and add swappable execution engines for pg-boss, Inngest, Trigger.dev, and Cloudflare Workflows.
+
+- [#77](https://github.com/asyncdotengineering/porulle/pull/77) [`22e0be4`](https://github.com/asyncdotengineering/porulle/commit/22e0be4eca991f78aed7f458306a399c9dc7c8ce) Thanks [@octalpixel](https://github.com/octalpixel)! - Add externally sourced catalog provenance, store-scoped SKU uniqueness, the core channel connector contract, and the standalone channel connector engine plugin, including mandatory pre-payment live stock validation for channel checkout lines.
+
+### Patch Changes
+
+- [#77](https://github.com/asyncdotengineering/porulle/pull/77) [`22e0be4`](https://github.com/asyncdotengineering/porulle/commit/22e0be4eca991f78aed7f458306a399c9dc7c8ce) Thanks [@octalpixel](https://github.com/octalpixel)! - Add verified channel webhooks, provider subscription registration, mirror convergence, guarded cross-boundary refund approval, and per-store catalog/inventory reconciliation with drift reporting.
+
+- [#79](https://github.com/asyncdotengineering/porulle/pull/79) [`ff3d5e6`](https://github.com/asyncdotengineering/porulle/commit/ff3d5e6e876f090119fd025aa6b5499f0dccd9fb) Thanks [@octalpixel](https://github.com/octalpixel)! - Security hardening from the holistic review (R-03–R-07):
+
+  - Orders discriminate a missing inventory record by a typed code (`INVENTORY_RECORD_NOT_FOUND`) instead of matching the message string — new `CommerceInventoryRecordNotFoundError`, emitted by the inventory service from a single shared message constant.
+  - The stale-order-cleanup job enumerates orgs and reads each org's stale orders under an explicit `organizationId` predicate, so no query returns another tenant's order rows.
+  - The scoped-db proxy re-wraps the result of an intercepted `.where()`, so a chained `.where(a).where(b)` can no longer drop the injected org predicate (Drizzle's second `.where` replaces the first).
+  - Promotions usage recording (`FOR UPDATE` lock + limit read) and `webhooks.findFailedDeliveries` are scoped by `organizationId` (the latter via its parent endpoint).
+
 ## 0.9.0
 
 ### Minor Changes

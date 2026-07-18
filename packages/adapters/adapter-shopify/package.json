@@ -1,16 +1,23 @@
 {
   "name": "@porulle/adapter-shopify",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "license": "MIT",
   "type": "module",
-  "exports": { ".": { "import": "./dist/index.js", "types": "./src/index.ts" } },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./src/index.ts"
+    }
+  },
   "scripts": {
     "build": "rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json && cp -R dist/src/. dist/ && rm -rf dist/src",
     "check-types": "tsc --noEmit",
     "lint": "eslint . --max-warnings 1000",
     "test": "vitest run"
   },
-  "dependencies": { "@porulle/core": "workspace:*" },
+  "dependencies": {
+    "@porulle/core": "workspace:*"
+  },
   "devDependencies": {
     "@porulle/eslint-config": "workspace:*",
     "@porulle/typescript-config": "workspace:*",
@@ -19,6 +26,12 @@
     "typescript": "5.9.2",
     "vitest": "^3.2.4"
   },
-  "publishConfig": { "access": "public" },
-  "files": ["src", "dist", "README.md"]
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md"
+  ]
 }
