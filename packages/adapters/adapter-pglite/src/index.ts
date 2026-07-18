@@ -71,5 +71,13 @@ export async function pgliteAdapter(
     }
   }
 
-  return { provider: "postgresql", db, transaction };
+  // Signal the runtime to push any plugin-declared tables at boot: PGlite has
+  // no separate migration step, and plugin schemas aren't known until plugins
+  // run in defineConfig (after this adapter was constructed). Honors `migrate`.
+  return {
+    provider: "postgresql",
+    db,
+    transaction,
+    autoMigrate: options.migrate !== false,
+  };
 }

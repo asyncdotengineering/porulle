@@ -10,6 +10,14 @@ export interface DatabaseAdapter<TDatabase = unknown, TTransaction = unknown> {
   provider: string;
   db: TDatabase;
   transaction<T>(fn: (tx: TTransaction) => Promise<T>): Promise<T>;
+  /**
+   * Zero-migration adapters (e.g. PGlite) set this so the runtime pushes any
+   * plugin-declared tables (`config.customSchemas`) at boot. Plugin schemas
+   * only exist after plugins run in `defineConfig` — i.e. after this adapter was
+   * constructed — so the adapter cannot create them itself. Omit/false when the
+   * consumer manages migrations (e.g. production Postgres via drizzle-kit).
+   */
+  autoMigrate?: boolean;
 }
 
 export interface DatabaseConnectionFactoryInput {

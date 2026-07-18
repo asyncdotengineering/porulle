@@ -2,6 +2,7 @@ import type { Actor } from "../auth/types.js";
 import type { CommerceConfig } from "../config/types.js";
 import type { Kernel } from "./kernel.js";
 import { createKernel } from "./kernel.js";
+import { pushSchema } from "../kernel/database/migrate.js";
 import { ensureDefaultOrg, setBootDefaultOrgId } from "../auth/org.js";
 import { setBootStrictOrgResolution } from "../auth/strict-org-resolution.js";
 import { createAuth, type AuthInstance } from "../auth/setup.js";
@@ -121,6 +122,15 @@ export async function createCommerce(
   config: CommerceConfig,
 ): Promise<CommerceInstance> {
   const kernel = createKernel(config);
+
+  // Zero-migration adapters (PGlite) push core schema at construction, but a
+  // plugin's own tables live in `config.customSchemas`, which only exist after
+  // plugins run in `defineConfig` — i.e. after the adapter was constructed.
+  // Create them now so plugin routes have their tables. Guarded on both signals
+  // so plugin-less stores and migration-managed adapters (Postgres) are untouched.
+  if (config.databaseAdapter?.autoMigrate && config.customSchemas?.length) {
+    await pushSchema(kernel.database.db, config);
+  }
 
   setBootStrictOrgResolution(config.auth?.strictOrgResolution === true);
 
