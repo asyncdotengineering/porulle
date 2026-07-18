@@ -115,6 +115,9 @@ export interface ChannelConnector {
   pushOrder(store: ChannelStore, slice: ChannelOrderSlice): Promise<Result<ChannelPushOrderResult, ChannelConnectorError>>;
   fetchOrderStatus(store: ChannelStore, remoteId: string): Promise<Result<ChannelOrderStatus, ChannelConnectorError>>;
   verifyWebhook(store: ChannelStore, request: Request): Promise<Result<ChannelWebhookEvent>>;
+  verifyAppWebhook?(
+    request: Request,
+  ): Promise<Result<{ topic: string; shopDomain: string; data: unknown }, ChannelConnectorError>>;
   registerWebhooks?(
     store: ChannelStore,
     topics: string[],

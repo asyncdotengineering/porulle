@@ -309,6 +309,32 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           } });
         });
 
+      channels.post("/compliance/{provider}")
+        .summary("Receive a compliance webhook")
+        .params(z.object({ provider: z.string().min(1) }))
+        .handler(async ({ params, raw }) => {
+          const context = raw as { req: { raw: Request; header(name: string): string | undefined }; json(data: unknown, status?: number): Response };
+          const provider = params.provider!;
+          const connector = service.getConnector(provider);
+          if (!connector) return context.json({ error: { code: "NOT_FOUND", message: `No connector registered for provider "${provider}".` } }, 404);
+          if (!connector.verifyAppWebhook) return context.json({ error: { code: "NOT_IMPLEMENTED", message: `Compliance webhook is not supported for provider "${provider}".` } }, 501);
+          const verified = await connector.verifyAppWebhook(context.req.raw);
+          if (!verified.ok) return context.json({ error: { code: "UNAUTHORIZED", message: verified.error.message } }, 401);
+          const request = context.req.raw;
+          const eventId = request.headers.get("x-shopify-event-id") ?? createHash("sha256").update(`${verified.value.topic}:${verified.value.shopDomain}:${JSON.stringify(verified.value.data)}`).digest("hex");
+          const [inserted] = await db.insert(processedWebhookEvents).values({ eventId, provider, eventType: verified.value.topic }).onConflictDoNothing().returning({ id: processedWebhookEvents.id });
+          if (!inserted) return context.json({ data: { received: true, duplicate: true } });
+          const store = await service.getStoreByDomain(verified.value.shopDomain);
+          if (!store) return context.json({ data: { received: true } });
+          const handled = await service.handleWebhook(store.organizationId, store.id, { id: eventId, type: verified.value.topic, data: verified.value.data });
+          if (!handled.ok) return context.json({ error: { code: "WEBHOOK_PROCESSING_FAILED", message: handled.error } }, 422);
+          return context.json({ data: {
+            received: true,
+            ...(handled.value.data ? { data: handled.value.data } : {}),
+            ...(handled.value.redacted !== undefined ? { redacted: handled.value.redacted } : {}),
+          } });
+        });
+
       channels.post("/stores")
         .summary("Connect a channel store")
         .permission("channels:manage")

@@ -190,6 +190,14 @@ export class ChannelConnectorService {
     return rows[0] as ConnectedStore | undefined;
   }
 
+  async getStoreByDomain(shopDomain: string): Promise<ConnectedStore | undefined> {
+    const rows = await this.db
+      .select()
+      .from(connectedStores)
+      .where(eq(connectedStores.storeDomain, shopDomain));
+    return rows[0] as ConnectedStore | undefined;
+  }
+
   async connectStore(
     orgId: string,
     input: {

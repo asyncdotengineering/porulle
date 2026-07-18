@@ -229,6 +229,25 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
         return Err({ code: "INVALID_WEBHOOK", message: "Shopify webhook body must be valid JSON." });
       }
     },
+    async verifyAppWebhook(request) {
+      if (!options.clientSecret) {
+        return Err({ code: "SHOPIFY_CLIENT_SECRET_MISSING", message: "Shopify clientSecret is required to verify app webhooks.", retriable: false });
+      }
+      const body = await request.text();
+      if (!validBase64Hmac(options.clientSecret, body, request.headers.get("x-shopify-hmac-sha256"))) {
+        return Err({ code: "INVALID_APP_WEBHOOK_SIGNATURE", message: "Invalid Shopify app webhook signature.", retriable: false });
+      }
+      try {
+        const data = JSON.parse(body) as unknown;
+        const payload = data as Record<string, unknown>;
+        const topic = request.headers.get("x-shopify-topic");
+        const shopDomain = typeof payload.shop_domain === "string" ? payload.shop_domain : "";
+        if (!topic) return Err({ code: "INVALID_APP_WEBHOOK", message: "Shopify app webhook topic header is missing.", retriable: false });
+        return Ok({ topic, shopDomain, data });
+      } catch {
+        return Err({ code: "INVALID_APP_WEBHOOK", message: "Shopify app webhook body must be valid JSON.", retriable: false });
+      }
+    },
     async registerWebhooks(store: ChannelStore, topics: string[], callbackUrl: string) {
       const token = credentials(store);
       if (!token) return Err({ code: "SHOPIFY_CREDENTIALS_REQUIRED", message: "Shopify accessToken is required." });

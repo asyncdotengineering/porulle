@@ -58,7 +58,11 @@ Return `ChannelOrderStatus` — `{ status: "pending" | "confirmed" | "failed" | 
 
 ### `verifyWebhook(store, request)`
 
-Verify the signature on an inbound webhook and return `ChannelWebhookEvent` — `{ id, type, data }`. Compute the HMAC over the **raw request body** (`await request.text()`, never a re-serialized object) and compare with `crypto.timingSafeEqual` against the platform header (Shopify `x-shopify-hmac-sha256`, WooCommerce `x-wc-webhook-signature` — both base64 HMAC-SHA256 keyed on `store.webhookSecret`). Timing-safe comparison is required. The engine's `processed_webhook_events` table prevents replay on the inbound side; your adapter prevents forgery.
+Verify the signature on an inbound per-store webhook and return `ChannelWebhookEvent` — `{ id, type, data }`. Compute the HMAC over the **raw request body** (`await request.text()`, never a re-serialized object) and compare with `crypto.timingSafeEqual` against the platform header (Shopify `x-shopify-hmac-sha256`, WooCommerce `x-wc-webhook-signature` — both base64 HMAC-SHA256 keyed on `store.webhookSecret`). Timing-safe comparison is required. The engine's `processed_webhook_events` table prevents replay on the inbound side; your adapter prevents forgery.
+
+### `verifyAppWebhook?(request)` (optional)
+
+Verify an **app-level** compliance webhook (e.g. Shopify's mandatory GDPR webhooks) and return `{ topic, shopDomain, data }`. These webhooks are delivered to a single app URL, signed with the **app client secret** (not a per-store `webhookSecret`), and identify the target store by `shop_domain` in the payload. The engine exposes `POST /api/channels/compliance/{provider}` as the unauthenticated ingress. Return `Err({ code, message, retriable: false })` on invalid HMAC so the engine can reply with `401` (Shopify requires this). Shopify adapters implement this; WooCommerce has no app-store equivalent and omits it.
 
 ### `refundExecute(store, slice, amount)`
 

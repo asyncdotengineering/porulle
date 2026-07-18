@@ -152,7 +152,8 @@ await fetch(`${PORULLE}/api/channels/stores/${storeId}/reconcile-status`);
 | `GET /api/channels/stores` · `/{id}` | List / get stores (credentials redacted) |
 | `POST /api/channels/stores/{id}/disconnect` | Disconnect (clears credentials) |
 | `GET /api/channels/exports?state=failed` · `POST …/{id}/retry` | Failed order exports + re-trigger |
-| `POST /api/channels/webhooks/{storeId}` | Inbound store webhooks (HMAC) |
+| `POST /api/channels/webhooks/{storeId}` | Inbound per-store webhooks (HMAC) |
+| `POST /api/channels/compliance/{provider}` | Inbound app-level compliance webhooks (GDPR) |
 | `GET /api/channels/refund-requests` · `POST …/{id}/approve` | Cross-boundary refund approval queue |
 | `GET /api/channels/stores/{storeId}/reconcile-status` | Per-store sync health + drift report |
 
@@ -160,5 +161,5 @@ await fetch(`${PORULLE}/api/channels/stores/${storeId}/reconcile-status`);
 
 - **Standalone.** The connector works for a single-store brand or a giant multi-merchant aggregator with the same engine — no `plugin-marketplace` dependency.
 - **Nothing installed on the merchant side.** Merchants may paste credentials or use one-click OAuth (Shopify App / WooCommerce `/wc-auth`) through the generic engine routes, not a per-provider plugin.
-- Shopify public-app distribution (listed or unlisted) requires `customers/data_request`, `customers/redact`, `shop/redact`, and `app/uninstalled` compliance webhooks. The engine registers and HMAC-verifies these topics. Custom/single-store Shopify apps do not require public-app review compliance webhooks, though operators may still enable them.
+- Shopify public-app distribution (listed or unlisted) requires `customers/data_request`, `customers/redact`, `shop/redact`, and `app/uninstalled` compliance webhooks. The three GDPR topics are delivered to a single app-level URL (`POST /api/channels/compliance/shopify`), signed with the app client secret, and resolve the store by `shop_domain` in the payload. Public-app operators set this URL in `shopify.app.toml`; custom/single-store apps do not need it. `app/uninstalled` is registered per-store via the Admin API and also arrives app-secret-signed at the compliance URL — both paths are supported.
 - To support a new platform, implement the `ChannelConnector` interface — see [Store Connector](/extending/store-connector).

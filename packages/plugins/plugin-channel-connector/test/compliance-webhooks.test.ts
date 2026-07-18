@@ -7,6 +7,7 @@ import { channelConnectorPlugin, mockChannelConnector } from "../src/index.js";
 import { channelOrderExports, connectedStores } from "../src/schema.js";
 
 const WEBHOOK_SECRET = "shopify-compliance-secret";
+const APP_SECRET = "shopify-app-client-secret";
 
 function complianceConnector() {
   const base = mockChannelConnector();
@@ -28,6 +29,17 @@ function complianceConnector() {
       const type = request.headers.get("x-shopify-topic");
       if (!id || !type) return { ok: false as const, error: { code: "INVALID_WEBHOOK", message: "Webhook headers are incomplete." } };
       return Ok({ id, type, data: JSON.parse(body) as unknown });
+    },
+    async verifyAppWebhook(request: Request) {
+      const body = await request.text();
+      const expected = createHmac("sha256", APP_SECRET).update(body).digest("base64");
+      const signature = request.headers.get("x-shopify-hmac-sha256") ?? "";
+      if (signature !== expected) {
+        return { ok: false as const, error: { code: "INVALID_APP_HMAC", message: "Invalid app HMAC." } };
+      }
+      const topic = request.headers.get("x-shopify-topic") ?? "";
+      const data = JSON.parse(body) as { shop_domain?: string };
+      return Ok({ topic, shopDomain: data.shop_domain ?? "", data });
     },
   };
 }
@@ -79,6 +91,20 @@ describe("Shopify compliance webhooks", () => {
     });
   }
 
+  async function appWebhook(type: string, data: Record<string, unknown>, secret = APP_SECRET) {
+    const body = JSON.stringify(data);
+    const signature = createHmac("sha256", secret).update(body).digest("base64");
+    return built.app.request("http://localhost/api/channels/compliance/shopify", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-shopify-hmac-sha256": signature,
+        "x-shopify-topic": type,
+      },
+      body,
+    });
+  }
+
   it("registers sync topics + app/uninstalled per-store (GDPR topics are app-level, not per-store)", () => {
     // The three mandatory GDPR topics (customers/data_request, customers/redact, shop/redact)
     // are configured at the app level in shopify.app.toml and delivered to a single app URL —
@@ -95,7 +121,7 @@ describe("Shopify compliance webhooks", () => {
   });
 
   it("returns channel-held customer data only for a verified data request", async () => {
-    const response = await webhook("customers/data_request", { customer: { id: "shopify-customer-1", email: "priya@example.test" } }, "compliance-data-1");
+    const response = await appWebhook("customers/data_request", { shop_domain: "acme.myshopify.com", customer: { id: "shopify-customer-1", email: "priya@example.test" } });
     expect(response.status).toBe(200);
     expect((await response.json()).data.data.exports[0].customerData).toEqual({
       name: "Priya Shopper",
@@ -104,22 +130,22 @@ describe("Shopify compliance webhooks", () => {
     });
   });
 
-  it("redacts customer slice PII after HMAC verification", async () => {
-    const response = await webhook("customers/redact", { customer: { email: "priya@example.test" } }, "compliance-redact-1");
+  it("redacts customer slice PII after app-secret HMAC verification", async () => {
+    const response = await appWebhook("customers/redact", { shop_domain: "acme.myshopify.com", customer: { email: "priya@example.test" } });
     expect(response.status).toBe(200);
     expect((await response.json()).data.redacted).toBe(1);
     const rows = await built.db.select().from(channelOrderExports).where(eq(channelOrderExports.storeId, storeId));
     expect(rows[0]?.customerData).toBeNull();
   });
 
-  it("redacts all shop slices and disconnects the store", async () => {
+  it("redacts all shop slices and disconnects the store via app-level endpoint", async () => {
     const second = await built.db.insert(channelOrderExports).values({
       organizationId: testAdminActor.organizationId!,
       storeId,
       orderId: crypto.randomUUID(),
       customerData: { name: "Second", email: "second@example.test", shippingAddress: { city: "Galle" } },
     }).returning({ id: channelOrderExports.id });
-    const response = await webhook("shop/redact", {}, "compliance-shop-redact-1");
+    const response = await appWebhook("shop/redact", { shop_domain: "acme.myshopify.com" });
     expect(response.status).toBe(200);
     expect((await response.json()).data.redacted).toBe(1);
     const rows = await built.db.select().from(channelOrderExports).where(and(
@@ -131,7 +157,10 @@ describe("Shopify compliance webhooks", () => {
     expect(store[0]).toMatchObject({ status: "disconnected", credentials: {}, webhookSecret: null, storeDomain: "[REDACTED]" });
   });
 
-  it("disconnects an uninstalled store through the system path", async () => {
+  it("disconnects an uninstalled store through the per-store webhook path", async () => {
+    // app/uninstalled is registered per-store via Admin API and also arrives app-secret-signed
+    // at the app-level compliance URL. We keep the per-store route for backwards compatibility
+    // with stores already registered there; both paths call disconnectStoreSystem.
     const connected = await built.app.request("http://localhost/api/channels/stores", {
       method: "POST",
       headers: jsonHeaders(testAdminActor),
@@ -150,7 +179,7 @@ describe("Shopify compliance webhooks", () => {
     expect(store[0]).toMatchObject({ status: "disconnected", credentials: {}, webhookSecret: null });
   });
 
-  it("rejects a forged compliance webhook before dispatch", async () => {
+  it("rejects a forged per-store webhook before dispatch", async () => {
     const connected = await built.app.request("http://localhost/api/channels/stores", {
       method: "POST",
       headers: jsonHeaders(testAdminActor),
@@ -163,6 +192,11 @@ describe("Shopify compliance webhooks", () => {
       headers: { "content-type": "application/json", "x-shopify-hmac-sha256": "invalid", "x-shopify-event-id": "compliance-forged-1", "x-shopify-topic": "customers/redact" },
       body,
     });
+    expect(response.status).toBe(401);
+  });
+
+  it("rejects a forged app-level compliance webhook with 401", async () => {
+    const response = await appWebhook("customers/redact", { shop_domain: "acme.myshopify.com", customer: { email: "priya@example.test" } }, "wrong-secret");
     expect(response.status).toBe(401);
   });
 });
