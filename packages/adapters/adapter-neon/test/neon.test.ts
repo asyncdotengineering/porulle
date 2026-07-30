@@ -3,10 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Issue #55 — no first-party Neon/Workers adapter existed; integrators
 // hand-rolled hybrid adapters (ordereka's hyperdrive-adapter.ts). These tests
 // verify the adapter's orchestration: HTTP driver for plain queries, a FRESH
-// WebSocket Pool per transaction (created inside, ended after), Hyperdrive
-// connection-string routing for pools, and postgres-js-shaped `.execute()`.
+// request-scoped transaction client, Postgres.js routing for Hyperdrive, and
+// postgres-js-shaped `.execute()`.
 
 const poolInstances: Array<{ connectionString: string; ended: boolean }> = [];
+const postgresInstances: Array<{
+  connectionString: string;
+  options: Record<string, unknown>;
+  ended: boolean;
+}> = [];
 
 vi.mock("@neondatabase/serverless", () => {
   class Pool {
@@ -45,10 +50,37 @@ vi.mock("drizzle-orm/neon-serverless", () => ({
   })),
 }));
 
+vi.mock("postgres", () => ({
+  default: vi.fn((connectionString: string, options: Record<string, unknown>) => {
+    const client = {
+      connectionString,
+      options,
+      ended: false,
+      async end() {
+        client.ended = true;
+      },
+    };
+    postgresInstances.push(client);
+    return client;
+  }),
+}));
+
+vi.mock("drizzle-orm/postgres-js", () => ({
+  drizzle: vi.fn((client: unknown) => ({
+    __driver: "postgres-js",
+    __client: client,
+    execute: vi.fn(async () => [{ tx: 1 }]),
+    transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({ __tx: true, execute: async () => [{ inTx: 1 }] }),
+    ),
+  })),
+}));
+
 import { neonAdapter, normalizeExecuteShape } from "../src/index.js";
 
 beforeEach(() => {
   poolInstances.length = 0;
+  postgresInstances.length = 0;
 });
 
 describe("@porulle/adapter-neon", () => {
@@ -87,13 +119,30 @@ describe("@porulle/adapter-neon", () => {
     expect(poolInstances[0]!.ended).toBe(true);
   });
 
-  it("routes transaction pools through the Hyperdrive connection string when provided", async () => {
+  it("routes Hyperdrive transactions through a fresh Postgres.js client", async () => {
     const adapter = neonAdapter({
       connectionString: "postgresql://user@x.neon.tech/db",
       hyperdrive: { connectionString: "postgresql://hyperdrive-internal/db" },
     });
     await adapter.transaction(async () => null);
-    expect(poolInstances[0]!.connectionString).toBe("postgresql://hyperdrive-internal/db");
+    expect(poolInstances).toHaveLength(0);
+    expect(postgresInstances).toHaveLength(1);
+    expect(postgresInstances[0]!.connectionString).toBe("postgresql://hyperdrive-internal/db");
+    expect(postgresInstances[0]!.options).toMatchObject({ max: 1, prepare: false });
+    expect(postgresInstances[0]!.ended).toBe(true);
+  });
+
+  it("ends the Hyperdrive client when the transaction throws", async () => {
+    const adapter = neonAdapter({
+      connectionString: "postgresql://user@x.neon.tech/db",
+      hyperdrive: { connectionString: "postgresql://hyperdrive-internal/db" },
+    });
+    await expect(
+      adapter.transaction(async () => {
+        throw new Error("checkout failed");
+      }),
+    ).rejects.toThrow("checkout failed");
+    expect(postgresInstances[0]!.ended).toBe(true);
   });
 
   it("splices transaction() onto db so kernel.database.db.transaction works too", async () => {

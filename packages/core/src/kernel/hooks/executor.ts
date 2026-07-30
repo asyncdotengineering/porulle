@@ -34,6 +34,24 @@ function withTimeout<T>(promiseOrValue: Promise<T> | T, timeoutMs: number, hookN
   });
 }
 
+function actionableHookError(error: unknown, hookName: string): Error {
+  if (error instanceof Error && error.message && error.message !== "[object ErrorEvent]") {
+    return error;
+  }
+  const candidate = error as { error?: unknown; cause?: unknown; message?: unknown } | null;
+  const nested = candidate?.error ?? candidate?.cause;
+  const nestedMessage = nested instanceof Error
+    ? nested.message
+    : nested && typeof nested === "object" && typeof (nested as { message?: unknown }).message === "string"
+      ? String((nested as { message: string }).message)
+      : undefined;
+  const directMessage = typeof candidate?.message === "string" && candidate.message !== "[object ErrorEvent]"
+    ? candidate.message
+    : undefined;
+  const message = nestedMessage || directMessage || String(error);
+  return new Error(`Before-hook "${hookName}" failed: ${message}`, { cause: error });
+}
+
 export async function runBeforeHooks<T>(
   hooks: BeforeHook<T>[],
   data: T,
@@ -54,7 +72,7 @@ export async function runBeforeHooks<T>(
         error: error instanceof Error ? error.message : String(error),
         requestId: context.requestId,
       });
-      throw error; // Re-throw — beforeHooks MUST succeed
+      throw actionableHookError(error, hookName); // Before hooks MUST succeed with actionable context.
     }
   }
   return current;

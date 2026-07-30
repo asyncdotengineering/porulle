@@ -1,6 +1,6 @@
 {
   "name": "@porulle/adapter-neon",
-  "version": "0.10.5",
+  "version": "0.10.6",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -19,7 +19,8 @@
   "dependencies": {
     "@neondatabase/serverless": "^1.0.1",
     "@porulle/core": "workspace:*",
-    "drizzle-orm": "^0.45.1"
+    "drizzle-orm": "^0.45.1",
+    "postgres": "^3.4.7"
   },
   "devDependencies": {
     "@porulle/eslint-config": "workspace:*",
@@ -37,7 +38,7 @@
     "dist",
     "README.md"
   ],
-  "description": "Workers-grade Neon DatabaseAdapter for @porulle/core: HTTP driver for plain queries, a fresh WebSocket Pool per transaction, Hyperdrive-aware.",
+  "description": "Workers-grade Neon DatabaseAdapter for @porulle/core: Neon HTTP queries with request-scoped Neon or Hyperdrive transactions.",
   "homepage": "https://porulle-docs.vercel.app",
   "bugs": {
     "url": "https://github.com/asyncdotengineering/porulle/issues"

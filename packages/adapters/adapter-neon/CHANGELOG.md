@@ -1,5 +1,14 @@
 # @porulle/adapter-neon
 
+## 0.10.6
+
+### Patch Changes
+
+- Use Worker-native transports for agentic checkout: bound fetch for Stripe, Neon HTTP for plain queries, and request-scoped Postgres.js transactions through Hyperdrive. Preserve actionable hook and checkout-stage context when edge runtimes surface opaque errors.
+
+- Updated dependencies []:
+  - @porulle/core@0.10.6
+
 ## 0.10.5
 
 ### Patch Changes

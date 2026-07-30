@@ -7,20 +7,21 @@
  *   1. Plain queries (select / insert / update / delete / raw execute) go
  *      through `@neondatabase/serverless` HTTP — stateless, no socket-reuse
  *      races across Workers isolates.
- *   2. `transaction()` creates a FRESH WebSocket `Pool` per call, runs the
- *      transaction, then ends the pool. `drizzle-orm/neon-http` throws on
- *      `db.transaction()` ("No transactions support"), and isolate-shared
- *      WebSocket pools flake (~30% observed) when reused across requests —
- *      a short-lived pool per transaction gives atomicity without the flake.
+ *   2. `transaction()` creates a FRESH client per call. Direct Neon uses its
+ *      WebSocket `Pool`; Hyperdrive uses Postgres.js over Workers TCP. Both
+ *      clients are closed before the request completes. `drizzle-orm/neon-http`
+ *      throws on `db.transaction()` ("No transactions support").
  *
  * Hyperdrive-aware: pass the binding (`{ hyperdrive: env.HYPERDRIVE }`) and
- * its connection string is used for the per-transaction pools, keeping pool
- * setup on Cloudflare's fast path. The HTTP driver always speaks directly to
- * Neon, so a direct `connectionString` is still required alongside it.
+ * its TCP connection string is used by Postgres.js for transactions. A Neon
+ * WebSocket client cannot speak to Hyperdrive's TCP endpoint. The HTTP driver
+ * always speaks directly to Neon, so a direct `connectionString` is required.
  */
 import { Pool, neon, neonConfig } from "@neondatabase/serverless";
 import { drizzle as drizzleHttp, type NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { drizzle as drizzleWs, type NeonDatabase } from "drizzle-orm/neon-serverless";
+import { drizzle as drizzlePg, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import type { DatabaseAdapter } from "@porulle/core";
 
 if (typeof WebSocket !== "undefined") {
@@ -29,15 +30,16 @@ if (typeof WebSocket !== "undefined") {
 
 type HttpClient = NeonHttpDatabase<Record<string, unknown>>;
 type WsClient = NeonDatabase<Record<string, unknown>>;
-type AnyDb = HttpClient | WsClient;
+type PgClient = PostgresJsDatabase<Record<string, never>>;
+type AnyDb = HttpClient | WsClient | PgClient;
 
 export interface NeonAdapterOptions {
   /** Direct Neon connection string (postgresql://...neon.tech/...). */
   connectionString: string;
   /**
    * Optional Cloudflare Hyperdrive binding (or any object exposing
-   * `connectionString`). When set, per-transaction pools connect through it;
-   * plain queries keep using the Neon HTTP driver against `connectionString`.
+   * `connectionString`). When set, transactions use a fresh Postgres.js TCP
+   * client through Hyperdrive; plain queries keep using Neon HTTP directly.
    */
   hyperdrive?: { connectionString: string } | undefined;
 }
@@ -75,13 +77,12 @@ export function normalizeExecuteShape<T extends AnyDb>(db: T): T {
 
 export function neonAdapter(options: NeonAdapterOptions): NeonDatabaseAdapter {
   const httpConnectionString = options.connectionString;
-  const poolConnectionString = options.hyperdrive?.connectionString ?? options.connectionString;
 
   const sql = neon(httpConnectionString);
   const httpDb = normalizeExecuteShape(drizzleHttp(sql) as HttpClient);
 
-  const runInFreshPool = async (fn: (tx: unknown) => Promise<unknown>): Promise<unknown> => {
-    const pool = new Pool({ connectionString: poolConnectionString });
+  const runInFreshNeonPool = async (fn: (tx: unknown) => Promise<unknown>): Promise<unknown> => {
+    const pool = new Pool({ connectionString: options.connectionString });
     try {
       const wsDb = normalizeExecuteShape(drizzleWs(pool) as WsClient);
       return await wsDb.transaction(async (tx) => fn(normalizeExecuteShape(tx as WsClient)));
@@ -92,13 +93,34 @@ export function neonAdapter(options: NeonAdapterOptions): NeonDatabaseAdapter {
     }
   };
 
+  const runInFreshHyperdriveClient = async (
+    fn: (tx: unknown) => Promise<unknown>,
+  ): Promise<unknown> => {
+    const client = postgres(options.hyperdrive!.connectionString, {
+      max: 1,
+      prepare: false,
+      connect_timeout: 10,
+      idle_timeout: 5,
+    });
+    try {
+      const pgDb = normalizeExecuteShape(drizzlePg(client) as PgClient);
+      return await pgDb.transaction(async (tx) => fn(normalizeExecuteShape(tx as PgClient)));
+    } finally {
+      await client.end({ timeout: 1 }).catch(() => {});
+    }
+  };
+
+  const runTransaction = options.hyperdrive
+    ? runInFreshHyperdriveClient
+    : runInFreshNeonPool;
+
   // Some core paths call `kernel.database.db.transaction(...)` directly —
   // splice the pool-backed transaction onto the HTTP client so both entry
   // points behave identically.
   const dbWithTx = new Proxy(httpDb, {
     get(target, prop, receiver) {
       if (prop === "transaction") {
-        return runInFreshPool;
+        return runTransaction;
       }
       return Reflect.get(target, prop, receiver);
     },
@@ -108,7 +130,7 @@ export function neonAdapter(options: NeonAdapterOptions): NeonDatabaseAdapter {
     provider: "postgresql",
     db: dbWithTx,
     async transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
-      return runInFreshPool(fn) as Promise<T>;
+      return runTransaction(fn) as Promise<T>;
     },
   };
 }

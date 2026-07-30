@@ -16,9 +16,32 @@ export interface StripeAdapterOptions {
   apiVersion?: Stripe.LatestApiVersion;
 }
 
+function providerErrorMessage(error: unknown, fallback: string): string {
+  if (error && typeof error === "object") {
+    const candidate = error as { error?: unknown; cause?: unknown; reason?: unknown; message?: unknown };
+    for (const nested of [candidate.error, candidate.cause, candidate.reason]) {
+      if (nested && nested !== error) {
+        const message = providerErrorMessage(nested, "");
+        if (message) return message;
+      }
+    }
+    if (typeof candidate.message === "string" && candidate.message && candidate.message !== "[object ErrorEvent]") {
+      return candidate.message;
+    }
+  }
+  if (error instanceof Error && error.message && error.message !== "[object ErrorEvent]") {
+    return error.message;
+  }
+  return fallback;
+}
+
 export function stripePayment(options: StripeAdapterOptions): PaymentAdapter {
   const stripe = new Stripe(options.secretKey, {
     apiVersion: options.apiVersion ?? "2025-08-27.basil",
+    // Stripe's fetch transport works in Cloudflare Workers and remains valid in
+    // Node/Bun. The default Node HTTP client can surface opaque ErrorEvents in
+    // workerd before a request ever reaches Stripe.
+    httpClient: Stripe.createFetchHttpClient(globalThis.fetch.bind(globalThis)),
   });
 
   return {
@@ -62,7 +85,7 @@ export function stripePayment(options: StripeAdapterOptions): PaymentAdapter {
       } catch (error) {
         return Err({
           code: "PAYMENT_INTENT_CREATE_FAILED",
-          message: error instanceof Error ? error.message : "Stripe payment intent creation failed.",
+          message: providerErrorMessage(error, "Stripe payment intent creation failed."),
         });
       }
     },
@@ -78,7 +101,7 @@ export function stripePayment(options: StripeAdapterOptions): PaymentAdapter {
       } catch (error) {
         return Err({
           code: "PAYMENT_CAPTURE_FAILED",
-          message: error instanceof Error ? error.message : "Stripe capture failed.",
+          message: providerErrorMessage(error, "Stripe capture failed."),
         });
       }
     },
@@ -103,7 +126,7 @@ export function stripePayment(options: StripeAdapterOptions): PaymentAdapter {
       } catch (error) {
         return Err({
           code: "PAYMENT_REFUND_FAILED",
-          message: error instanceof Error ? error.message : "Stripe refund failed.",
+          message: providerErrorMessage(error, "Stripe refund failed."),
         });
       }
     },
@@ -115,7 +138,7 @@ export function stripePayment(options: StripeAdapterOptions): PaymentAdapter {
       } catch (error) {
         return Err({
           code: "PAYMENT_CANCEL_FAILED",
-          message: error instanceof Error ? error.message : "Stripe cancellation failed.",
+          message: providerErrorMessage(error, "Stripe cancellation failed."),
         });
       }
     },
@@ -148,7 +171,7 @@ export function stripePayment(options: StripeAdapterOptions): PaymentAdapter {
       } catch (error) {
         return Err({
           code: "WEBHOOK_VERIFICATION_FAILED",
-          message: error instanceof Error ? error.message : "Stripe webhook verification failed.",
+          message: providerErrorMessage(error, "Stripe webhook verification failed."),
         });
       }
     },

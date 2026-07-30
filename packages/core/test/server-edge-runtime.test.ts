@@ -52,4 +52,38 @@ describe("isNodeRuntime — S2-04 edge-runtime guard", () => {
       globalThis.process = prev;
     }
   });
+
+  it("returns false in Cloudflare Workers even with the comprehensive process shim", () => {
+    const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    try {
+      Object.defineProperty(globalThis, "navigator", {
+        configurable: true,
+        value: { userAgent: "Cloudflare-Workers" },
+      });
+      expect(isNodeRuntime()).toBe(false);
+    } finally {
+      if (previousNavigator) {
+        Object.defineProperty(globalThis, "navigator", previousNavigator);
+      } else {
+        Reflect.deleteProperty(globalThis, "navigator");
+      }
+    }
+  });
+
+  it("returns false when the Workers-only WebSocketPair global is present", () => {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, "WebSocketPair");
+    try {
+      Object.defineProperty(globalThis, "WebSocketPair", {
+        configurable: true,
+        value: class WebSocketPair {},
+      });
+      expect(isNodeRuntime()).toBe(false);
+    } finally {
+      if (previous) {
+        Object.defineProperty(globalThis, "WebSocketPair", previous);
+      } else {
+        Reflect.deleteProperty(globalThis, "WebSocketPair");
+      }
+    }
+  });
 });

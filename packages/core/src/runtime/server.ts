@@ -39,8 +39,16 @@ type ServerEnv = {
  * Exposed for direct unit testing — see test/server-edge-runtime.test.ts.
  */
 export function isNodeRuntime(): boolean {
+  const workerUserAgent = typeof navigator !== "undefined"
+    ? navigator.userAgent
+    : undefined;
+  const hasWorkersSocketPair = "WebSocketPair" in globalThis;
+  if (workerUserAgent === "Cloudflare-Workers" || hasWorkersSocketPair) {
+    return false;
+  }
   return (
     typeof process !== "undefined" &&
+    typeof process.versions?.node === "string" &&
     typeof process.on === "function" &&
     typeof process.exit === "function"
   );

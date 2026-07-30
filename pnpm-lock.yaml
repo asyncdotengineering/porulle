@@ -407,6 +407,9 @@ importers:
       drizzle-orm:
         specifier: ^0.45.1
         version: 0.45.2(@cloudflare/workers-types@5.20260730.1)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/pg@8.15.6)(kysely@0.29.2)(pg@8.22.0)(postgres@3.4.9)
+      postgres:
+        specifier: ^3.4.7
+        version: 3.4.9
     devDependencies:
       '@porulle/eslint-config':
         specifier: workspace:*

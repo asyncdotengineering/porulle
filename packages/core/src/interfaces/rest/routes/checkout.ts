@@ -200,6 +200,7 @@ export function checkoutRoutes(kernel: Kernel) {
       database: { db: kernel.database.db as PluginDb },
     });
 
+    let pipelineStage = "validate-and-calculate";
     try {
       // Phase 1: DB transaction for validation — releases connection immediately after
       const validated = await kernel.database.transaction(async (_tx) => {
@@ -214,6 +215,7 @@ export function checkoutRoutes(kernel: Kernel) {
 
       // Phase 2: Payment authorization — NO DB connection held while calling Stripe/etc.
       // If Stripe takes 5s, the DB connection pool is not affected.
+      pipelineStage = "authorize-payment";
       context.tx = null;
       const processed = await runBeforeHooks(
         paymentHooks,
@@ -225,6 +227,7 @@ export function checkoutRoutes(kernel: Kernel) {
       // SEC-07: resolve the order's customer server-side. A self-service actor
       // can only attribute the order to its own profile; a client-supplied
       // foreign customerId is ignored unless the actor is staff.
+      pipelineStage = "resolve-customer";
       const customerUuid = await resolveCheckoutCustomerUuid(
         kernel.services.customers,
         actor,
@@ -281,6 +284,7 @@ export function checkoutRoutes(kernel: Kernel) {
       // Checkout is a trusted, already-server-priced pipeline (resolveCurrentPrices
       // + promotions/tax) and reserves stock in its own after-hooks — so it hands
       // the order primitive precomputed totals rather than re-deriving them.
+      pipelineStage = "create-order";
       const order = await kernel.services.orders.create(orderPayload, actor, undefined, {
         trustedPricing: true,
       });
@@ -293,6 +297,7 @@ export function checkoutRoutes(kernel: Kernel) {
       }
 
       if (order.ok && (processed.appliedPromotions?.length ?? 0) > 0) {
+        pipelineStage = "record-promotion-usage";
         await kernel.services.promotions.recordUsage({
           promotions: processed.appliedPromotions ?? [],
           organizationId: order.value.organizationId,
@@ -304,6 +309,7 @@ export function checkoutRoutes(kernel: Kernel) {
       }
 
       if (order.ok) {
+        pipelineStage = "report-tax-transaction";
         await kernel.services.tax.reportTransaction({
           transactionId: order.value.id,
           transactionDate: new Date(),
@@ -336,6 +342,7 @@ export function checkoutRoutes(kernel: Kernel) {
       // Stash paymentMethodId for completeCheckout compensation chain
       context.context.paymentMethodId = processed.paymentMethodId;
 
+      pipelineStage = "complete-checkout";
       const afterReport = await runAfterHooks(
         afterHooks,
         null,
@@ -344,6 +351,7 @@ export function checkoutRoutes(kernel: Kernel) {
         context,
       );
 
+      pipelineStage = "mark-cart-checked-out";
       await kernel.services.cart.markAsCheckedOut(body.cartId, actor);
 
       return c.json(
@@ -374,7 +382,10 @@ export function checkoutRoutes(kernel: Kernel) {
         },
       );
       // Always log the real error — hidden errors in checkout are unacceptable
-      const realMessage = error instanceof Error ? error.message : String(error);
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const realMessage = rawMessage === "[object ErrorEvent]"
+        ? `Checkout stage "${pipelineStage}" failed: ${rawMessage}`
+        : rawMessage;
       const realStack = error instanceof Error ? error.stack : undefined;
       console.error("[checkout] Pipeline failed:", { message: realMessage, stack: realStack, code: (error as Record<string, unknown>)?.code });
 
