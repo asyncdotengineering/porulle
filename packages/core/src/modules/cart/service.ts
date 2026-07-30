@@ -600,6 +600,17 @@ export class CartService {
   }
 
   /**
+   * Atomically returns a failed checkout claim to `active`. A checked-out,
+   * merged, abandoned, or already-active cart is left untouched.
+   */
+  async releaseCheckoutClaim(
+    cartId: string,
+    ctx?: TxContext,
+  ): Promise<Result<Cart | null>> {
+    return Ok((await this.repo.releaseCheckoutClaim(cartId, ctx)) ?? null);
+  }
+
+  /**
    * Creates an anonymous guest cart with a secret token for access control.
    * The secret must be stored client-side (cookie/local storage) and sent
    * with subsequent requests to identify the cart owner.

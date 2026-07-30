@@ -26,18 +26,31 @@ export function stripePayment(options: StripeAdapterOptions): PaymentAdapter {
 
     async createPaymentIntent(params): Promise<Result<PaymentIntent>> {
       try {
-        const intent = await stripe.paymentIntents.create({
-          amount: params.amount,
-          currency: params.currency.toLowerCase(),
-          metadata: {
-            orderId: params.orderId,
-            customerId: params.customerId ?? "",
-            ...params.metadata,
+        const intent = await stripe.paymentIntents.create(
+          {
+            amount: params.amount,
+            currency: params.currency.toLowerCase(),
+            metadata: {
+              orderId: params.orderId,
+              customerId: params.customerId ?? "",
+              ...params.metadata,
+            },
+            automatic_payment_methods: {
+              enabled: true,
+              allow_redirects: "never",
+            },
+            // Porulle's synchronous checkout reserves inventory and captures
+            // after order creation. With a token, confirm up to the
+            // requires_capture boundary; never send raw card data here.
+            capture_method: "manual",
+            ...(params.paymentMethodToken
+              ? { payment_method: params.paymentMethodToken, confirm: true }
+              : {}),
           },
-          automatic_payment_methods: {
-            enabled: true,
-          },
-        });
+          params.idempotencyKey
+            ? { idempotencyKey: params.idempotencyKey }
+            : undefined,
+        );
 
         return Ok({
           id: intent.id,

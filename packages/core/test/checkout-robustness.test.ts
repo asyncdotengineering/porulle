@@ -70,6 +70,16 @@ const mockPaymentAdapter: PaymentAdapter = {
   },
 };
 
+let forwardedPaymentParams: Parameters<PaymentAdapter["createPaymentIntent"]>[0] | undefined;
+const observingPaymentAdapter: PaymentAdapter = {
+  ...mockPaymentAdapter,
+  providerId: "observing-payments",
+  async createPaymentIntent(params) {
+    forwardedPaymentParams = params;
+    return mockPaymentAdapter.createPaymentIntent(params);
+  },
+};
+
 const failingPaymentAdapter: PaymentAdapter = {
   providerId: "failing-payments",
   async createPaymentIntent() {
@@ -489,6 +499,70 @@ describe("checkout – authorizePayment (PGlite-backed)", () => {
     await expect(
       runBeforeHooks(beforeHooks as any, checkoutData, "create", ctx),
     ).rejects.toThrow(/payment authorization failed/i);
+  });
+});
+
+describe("checkout – payment authority handoff", () => {
+  let kernel: ReturnType<typeof createKernel>;
+  let cleanup: () => Promise<void>;
+
+  beforeAll(async () => {
+    const built = await createPGliteTestConfig({ payments: [observingPaymentAdapter] });
+    cleanup = built.cleanup;
+    kernel = createKernel(built.config);
+  });
+
+  afterAll(async () => cleanup());
+  beforeEach(async () => {
+    forwardedPaymentParams = undefined;
+    await cleanup();
+  });
+
+  it("forwards the provider token and stable idempotency key without conflating the adapter id", async () => {
+    const data = makeBlankCheckout("00000000-0000-0000-0000-000000000001", {
+      paymentMethodId: "observing-payments",
+      paymentMethodToken: "pm_card_visa",
+      idempotencyKey: "checkout-cart-v7",
+      total: 4200,
+    });
+
+    await authorizePayment({ data, context: makeContext(kernel), operation: "create" } as never);
+
+    expect(forwardedPaymentParams).toMatchObject({
+      amount: 4200,
+      paymentMethodToken: "pm_card_visa",
+      idempotencyKey: "checkout-cart-v7",
+    });
+  });
+});
+
+describe("checkout – cart claim recovery", () => {
+  let kernel: ReturnType<typeof createKernel>;
+  let cleanup: () => Promise<void>;
+
+  beforeAll(async () => {
+    const built = await createPGliteTestConfig({ payments: [mockPaymentAdapter] });
+    cleanup = built.cleanup;
+    kernel = createKernel(built.config);
+  });
+
+  afterAll(async () => cleanup());
+  beforeEach(async () => cleanup());
+
+  it("releases only checking_out carts and never reopens terminal carts", async () => {
+    const created = await kernel.services.cart.create({ currency: "USD" }, actor);
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    expect((await kernel.services.cart.claimForCheckout(created.value.id)).ok).toBe(true);
+    const released = await kernel.services.cart.releaseCheckoutClaim(created.value.id);
+    expect(released.ok && released.value?.status).toBe("active");
+
+    await kernel.services.cart.markAsCheckedOut(created.value.id, actor);
+    const terminal = await kernel.services.cart.releaseCheckoutClaim(created.value.id);
+    expect(terminal.ok && terminal.value).toBeNull();
+    const viewed = await kernel.services.cart.getById(created.value.id, actor);
+    expect(viewed.ok && viewed.value.status).toBe("checked_out");
   });
 });
 

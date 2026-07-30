@@ -5,7 +5,14 @@ import { ErrorSchema, errorResponses } from "./shared.js";
 
 export const CheckoutBodySchema = z.object({
   cartId: z.uuid().openapi({ example: "550e8400-e29b-41d4-a716-446655440000" }),
-  paymentMethodId: z.string().openapi({ example: "pm_card_visa" }),
+  paymentMethodId: z.string().openapi({
+    example: "stripe",
+    description: "Registered Porulle payment adapter/provider id.",
+  }),
+  paymentMethodToken: z.string().min(3).max(255).optional().openapi({
+    example: "pm_card_visa",
+    description: "Provider-issued token for the shopper's payment instrument. This is not the Porulle adapter id.",
+  }),
   idempotencyKey: z.string().min(8).max(255).optional().openapi({
     example: "checkout-8f14e45f-1738312200",
     description: "Client-supplied retry key. A re-submitted checkout with the same key returns the already-created order without re-authorizing payment (safe offline-queue replay).",

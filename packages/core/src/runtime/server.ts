@@ -150,8 +150,8 @@ export async function createServer(config: CommerceConfig) {
       const ct = c.res.headers.get("content-type");
       if (ct?.includes("json")) {
         try {
-          const body = await c.res.clone().json();
-          if (body?.error?.name === "ZodError") {
+          const body = await c.res.clone().json() as { error?: { name?: string } };
+          if (body.error?.name === "ZodError") {
             c.res = new Response(
               JSON.stringify({ error: { code: "VALIDATION_FAILED", message: "Invalid input." } }),
               { status: 422, headers: { "content-type": "application/json" } },

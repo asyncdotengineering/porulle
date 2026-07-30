@@ -1,5 +1,14 @@
 # @porulle/adapter-stripe
 
+## 0.10.5
+
+### Patch Changes
+
+- Make server-side agent checkout safe and portable: accept tokenized payment methods and idempotency keys through the REST/core adapter contract, release cart checkout claims after failed payment attempts, and confirm Stripe PaymentIntents with manual capture and idempotent requests. Add an explicit Better Auth base URL for deployed runtimes and keep the reusable catalog/cart/order behavior independent of any one agent example.
+
+- Updated dependencies []:
+  - @porulle/core@0.10.5
+
 ## 0.10.4
 
 ### Patch Changes

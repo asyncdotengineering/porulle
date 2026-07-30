@@ -32,6 +32,10 @@ export interface CreatePaymentIntentParams {
   orderId: string;
   customerId?: string;
   metadata?: Record<string, string>;
+  /** Provider token for the shopper-selected payment instrument. */
+  paymentMethodToken?: string;
+  /** Stable key forwarded to the provider so retries cannot create a second intent. */
+  idempotencyKey?: string;
   terminalId?: string;
 }
 

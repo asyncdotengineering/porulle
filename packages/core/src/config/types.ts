@@ -124,6 +124,14 @@ export interface ApiKeyScopeDefinition {
 
 export interface AuthConfig {
   /**
+   * Canonical public origin used by Better Auth when constructing callback
+   * URLs and validating requests. Set this explicitly in deployed runtimes
+   * instead of relying on request-header inference.
+   *
+   * @example "https://commerce.example.com"
+   */
+  baseURL?: string;
+  /**
    * The default organization ID for single-store deployments.
    * Created by the seed script via `auth.api.createOrganization()`.
    * Used as fallback when a request has no org context (no session org,

@@ -1,0 +1,39 @@
+{
+  "name": "agentic-commerce-origin",
+  "version": "0.1.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --env-file-if-exists=.env watch src/server.ts",
+    "start": "tsx --env-file-if-exists=.env src/server.ts",
+    "start:neon": "tsx --env-file=.env.neon src/server.ts",
+    "worker:dev": "wrangler dev",
+    "worker:types": "wrangler types",
+    "worker:check": "wrangler deploy --dry-run",
+    "worker:deploy": "wrangler deploy",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "seed": "tsx --env-file=.env src/seed.ts",
+    "seed:neon": "tsx --env-file=.env.neon src/seed.ts",
+    "db:push": "drizzle-kit push --config drizzle.config.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.3",
+    "@porulle/adapter-neon": "workspace:*",
+    "@porulle/adapter-postgres": "workspace:*",
+    "@porulle/adapter-stripe": "workspace:*",
+    "@porulle/core": "workspace:*",
+    "hono": "^4.12.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260730.1",
+    "@porulle/typescript-config": "workspace:*",
+    "@types/node": "^25.5.0",
+    "drizzle-kit": "^0.31.9",
+    "tsx": "^4.21.0",
+    "typescript": "5.9.2",
+    "vitest": "^3.2.6",
+    "wrangler": "^4.115.0"
+  }
+}

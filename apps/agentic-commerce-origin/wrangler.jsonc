@@ -1,0 +1,21 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "porulle-agentic-commerce-origin",
+  "main": "src/worker.ts",
+  "workers_dev": true,
+  "preview_urls": true,
+  "compatibility_date": "2026-07-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "PUBLIC_URL": "https://porulle-agentic-commerce-origin.mithushancj.workers.dev",
+    "BETTER_AUTH_URL": "https://porulle-agentic-commerce-origin.mithushancj.workers.dev"
+  },
+  "hyperdrive": [
+    { "binding": "HYPERDRIVE", "id": "25d7e7bdf7ca4b2db9cb5ab1da883ad3" }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.1 }
+  }
+}

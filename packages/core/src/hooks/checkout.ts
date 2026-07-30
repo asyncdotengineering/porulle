@@ -61,7 +61,12 @@ export interface CheckoutData {
   customerId?: string;
   customerGroupIds?: string[];
   currency: string;
+  /** Porulle payment adapter/provider id, e.g. `stripe`. */
   paymentMethodId: string;
+  /** Provider-issued token for the actual payment instrument. */
+  paymentMethodToken?: string;
+  /** Stable retry key shared by order creation and payment authorization. */
+  idempotencyKey?: string;
   lineItems: CheckoutLineItem[];
   subtotal: number;
   discountTotal: number;
@@ -517,6 +522,8 @@ export const authorizePayment: BeforeHook<CheckoutData> = async ({
       amount: number;
       currency: string;
       paymentMethodId: string;
+      paymentMethodToken?: string;
+      idempotencyKey?: string;
       customerId?: string;
       metadata: Record<string, unknown>;
     }): Promise<{
@@ -529,6 +536,12 @@ export const authorizePayment: BeforeHook<CheckoutData> = async ({
     amount: data.total,
     currency: data.currency,
     paymentMethodId: data.paymentMethodId,
+    ...(data.paymentMethodToken !== undefined
+      ? { paymentMethodToken: data.paymentMethodToken }
+      : {}),
+    ...(data.idempotencyKey !== undefined
+      ? { idempotencyKey: data.idempotencyKey }
+      : {}),
     metadata: {
       checkoutId: data.checkoutId,
       cartId: data.cartId,

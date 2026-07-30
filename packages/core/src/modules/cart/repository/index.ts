@@ -148,6 +148,20 @@ export class CartRepository {
     return rows[0];
   }
 
+  /** Release only an in-progress checkout claim; terminal cart states are untouched. */
+  async releaseCheckoutClaim(
+    id: string,
+    ctx?: TxContext,
+  ): Promise<Cart | undefined> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .update(carts)
+      .set({ status: "active", updatedAt: new Date() })
+      .where(and(eq(carts.id, id), eq(carts.status, "checking_out")))
+      .returning();
+    return rows[0];
+  }
+
   async delete(id: string, ctx?: TxContext): Promise<boolean> {
     const db = this.getDb(ctx);
     const result = await db.delete(carts).where(eq(carts.id, id)).returning();

@@ -131,6 +131,12 @@ export function checkoutRoutes(kernel: Kernel) {
       cartId: body.cartId,
       currency: body.currency ?? "USD",
       paymentMethodId: body.paymentMethodId,
+      ...(body.paymentMethodToken !== undefined
+        ? { paymentMethodToken: body.paymentMethodToken }
+        : {}),
+      ...(body.idempotencyKey !== undefined
+        ? { idempotencyKey: body.idempotencyKey }
+        : {}),
       lineItems: [],
       subtotal: 0,
       discountTotal: 0,
@@ -356,6 +362,17 @@ export function checkoutRoutes(kernel: Kernel) {
         201,
       );
     } catch (error) {
+      // Validation, payment authorization, or compensated completion may fail
+      // after the cart's atomic active -> checking_out claim. Release only
+      // that transient state so the shopper can correct the problem and retry.
+      await kernel.services.cart.releaseCheckoutClaim(body.cartId).catch(
+        (releaseError: unknown) => {
+          console.error("[checkout] Failed to release cart claim:", {
+            cartId: body.cartId,
+            error: releaseError instanceof Error ? releaseError.message : String(releaseError),
+          });
+        },
+      );
       // Always log the real error — hidden errors in checkout are unacceptable
       const realMessage = error instanceof Error ? error.message : String(error);
       const realStack = error instanceof Error ? error.stack : undefined;

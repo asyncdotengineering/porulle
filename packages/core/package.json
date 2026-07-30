@@ -1,38 +1,38 @@
 {
   "name": "@porulle/core",
-  "version": "0.10.4",
+  "version": "0.10.5",
   "license": "MIT",
   "type": "module",
   "exports": {
     ".": {
+      "types": "./src/index.ts",
       "bun": "./src/index.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
-      "types": "./src/index.ts"
+      "require": "./dist/index.js"
     },
     "./schema": {
+      "types": "./src/kernel/database/schema.ts",
       "bun": "./src/kernel/database/schema.ts",
       "import": "./dist/kernel/database/schema.js",
-      "require": "./dist/kernel/database/schema.js",
-      "types": "./src/kernel/database/schema.ts"
+      "require": "./dist/kernel/database/schema.js"
     },
     "./auth-schema": {
+      "types": "./src/auth/auth-schema.ts",
       "bun": "./src/auth/auth-schema.ts",
       "import": "./dist/auth/auth-schema.js",
-      "require": "./dist/auth/auth-schema.js",
-      "types": "./src/auth/auth-schema.ts"
+      "require": "./dist/auth/auth-schema.js"
     },
     "./testing": {
+      "types": "./src/testing.ts",
       "bun": "./src/testing.ts",
       "import": "./dist/testing.js",
-      "require": "./dist/testing.js",
-      "types": "./src/testing.ts"
+      "require": "./dist/testing.js"
     },
     "./drizzle": {
+      "types": "./src/drizzle.ts",
       "bun": "./src/drizzle.ts",
       "import": "./dist/drizzle.js",
-      "require": "./dist/drizzle.js",
-      "types": "./src/drizzle.ts"
+      "require": "./dist/drizzle.js"
     }
   },
   "scripts": {

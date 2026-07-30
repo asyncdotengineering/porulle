@@ -122,6 +122,7 @@ export function createAuth(
 
   try {
     const auth = betterAuth({
+      ...(config.auth?.baseURL ? { baseURL: config.auth.baseURL } : {}),
       database: drizzleAdapter(db.db as unknown as Record<string, unknown>, {
         provider: resolveAuthDbProvider(db.provider),
         schema: authSchema,
