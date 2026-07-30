@@ -16,11 +16,13 @@ describe("order + checkout idempotencyKey (offline-retry safety)", () => {
   let kernel: any;
   let cleanup: () => Promise<void>;
   const paymentIntentCalls: string[] = [];
+  const paymentOrderIds: string[] = [];
 
   const spyPayments = {
     providerId: "spy-payments",
-    async createPaymentIntent(p: { amount: number; currency: string }) {
+    async createPaymentIntent(p: { amount: number; currency: string; orderId: string }) {
       paymentIntentCalls.push(`${p.amount}`);
+      paymentOrderIds.push(p.orderId);
       return Ok({ id: `pi_${paymentIntentCalls.length}`, status: "succeeded", amount: p.amount, currency: p.currency, clientSecret: "s" });
     },
     async capturePayment() {
@@ -106,10 +108,12 @@ describe("order + checkout idempotencyKey (offline-retry safety)", () => {
     const body = { cartId: cart.value.id, paymentMethodId: "spy-payments", currency: "USD", idempotencyKey: key };
 
     paymentIntentCalls.length = 0;
+    paymentOrderIds.length = 0;
     const first = await makeRequest(server, { method: "POST", url: "http://localhost/api/checkout", body, actor: testActor });
     expect(first.status).toBe(201);
     const firstOrder = (await parseJsonResponse<{ data: any }>(first)).data;
     expect(paymentIntentCalls.length).toBe(1);
+    expect(paymentOrderIds).toEqual([firstOrder.id]);
 
     const second = await makeRequest(server, { method: "POST", url: "http://localhost/api/checkout", body, actor: testActor });
     expect(second.status).toBe(201);
@@ -118,5 +122,6 @@ describe("order + checkout idempotencyKey (offline-retry safety)", () => {
     expect(secondOrder.id).toBe(firstOrder.id);
     // No second payment authorization happened on replay
     expect(paymentIntentCalls.length).toBe(1);
+    expect(paymentOrderIds).toEqual([firstOrder.id]);
   });
 });

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const stripeMocks = vi.hoisted(() => ({
   createPaymentIntent: vi.fn(),
+  constructEventAsync: vi.fn(),
   constructor: vi.fn(),
   fetchHttpClient: { kind: "fetch" },
 }));
@@ -18,7 +19,7 @@ vi.mock("stripe", () => ({
       cancel: vi.fn(),
     };
     refunds = { create: vi.fn() };
-    webhooks = { constructEvent: vi.fn() };
+    webhooks = { constructEventAsync: stripeMocks.constructEventAsync };
 
     constructor(secretKey: string, options: unknown) {
       stripeMocks.constructor(secretKey, options);
@@ -31,6 +32,7 @@ import { stripePayment } from "../src/index.js";
 describe("stripe adapter", () => {
   beforeEach(() => {
     stripeMocks.createPaymentIntent.mockReset();
+    stripeMocks.constructEventAsync.mockReset();
     stripeMocks.constructor.mockReset();
   });
 
@@ -83,6 +85,38 @@ describe("stripe adapter", () => {
     );
 
     expect(result.ok).toBe(false);
+  });
+
+  it("uses Stripe's asynchronous webhook verifier for Worker-compatible crypto", async () => {
+    stripeMocks.constructEventAsync.mockResolvedValue({
+      id: "evt_test_1",
+      type: "payment_intent.succeeded",
+      data: { object: { id: "pi_test_1" } },
+    });
+    const adapter = stripePayment({
+      secretKey: "sk_test_123",
+      webhookSecret: "whsec_test_123",
+    });
+
+    const result = await adapter.verifyWebhook(new Request("http://localhost/webhook", {
+      method: "POST",
+      headers: { "stripe-signature": "t=123,v1=signature" },
+      body: JSON.stringify({ id: "evt_test_1" }),
+    }));
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        id: "evt_test_1",
+        type: "payment_intent.succeeded",
+        data: { id: "pi_test_1" },
+      },
+    });
+    expect(stripeMocks.constructEventAsync).toHaveBeenCalledWith(
+      JSON.stringify({ id: "evt_test_1" }),
+      "t=123,v1=signature",
+      "whsec_test_123",
+    );
   });
 
   it("unwraps nested runtime errors instead of returning an opaque ErrorEvent", async () => {

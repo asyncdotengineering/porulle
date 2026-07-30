@@ -42,6 +42,8 @@ import {
 } from "./repository/index.js";
 
 export interface CreateOrderInput {
+  /** Server-allocated id for trusted pipelines that must reference the order before persistence. */
+  id?: string;
   customerId?: string;
   /** Client-supplied retry key — a repeat create with the same key returns the original order. */
   idempotencyKey?: string | undefined;
@@ -379,6 +381,7 @@ export class OrderService {
     try {
       order = await this.repo.create(
         {
+          ...(opts?.trustedPricing === true && processed.id != null ? { id: processed.id } : {}),
           organizationId: orgId,
           orderNumber,
           status: "pending",

@@ -26,5 +26,8 @@ describe("error mapper", () => {
     expect(mapErrorToStatus(new CommerceForbiddenError("x"))).toBe(403);
     expect(mapErrorToStatus(new CommerceConflictError("x"))).toBe(409);
     expect(mapErrorToStatus(new CommerceInvalidTransitionError("x"))).toBe(422);
+    expect(mapErrorToStatus({ code: "WEBHOOK_SIGNATURE_MISSING", message: "x" })).toBe(400);
+    expect(mapErrorToStatus({ code: "WEBHOOK_VERIFICATION_FAILED", message: "x" })).toBe(400);
+    expect(mapErrorToStatus({ code: "WEBHOOK_SECRET_MISSING", message: "x" })).toBe(503);
   });
 });

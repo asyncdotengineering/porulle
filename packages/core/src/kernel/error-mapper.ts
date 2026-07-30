@@ -11,6 +11,9 @@ const statusByCode: Record<string, ContentfulStatusCode> = {
   CONFLICT: 409,
   INVALID_TRANSITION: 422,
   ORG_RESOLUTION_FAILED: 503,
+  WEBHOOK_SIGNATURE_MISSING: 400,
+  WEBHOOK_VERIFICATION_FAILED: 400,
+  WEBHOOK_SECRET_MISSING: 503,
 };
 
 export function mapErrorToStatus(error: unknown): ContentfulStatusCode {

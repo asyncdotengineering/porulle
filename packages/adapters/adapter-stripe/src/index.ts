@@ -161,7 +161,14 @@ export function stripePayment(options: StripeAdapterOptions): PaymentAdapter {
         }
 
         const body = await request.text();
-        const event = stripe.webhooks.constructEvent(body, signature, options.webhookSecret);
+        // Workers expose Web Crypto through an asynchronous provider. Stripe's
+        // synchronous verifier throws under workerd even for a valid signature.
+        // The async verifier works across Workers, Node, and Bun.
+        const event = await stripe.webhooks.constructEventAsync(
+          body,
+          signature,
+          options.webhookSecret,
+        );
 
         return Ok({
           id: event.id,

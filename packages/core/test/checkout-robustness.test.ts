@@ -520,6 +520,7 @@ describe("checkout – payment authority handoff", () => {
 
   it("forwards the provider token and stable idempotency key without conflating the adapter id", async () => {
     const data = makeBlankCheckout("00000000-0000-0000-0000-000000000001", {
+      orderId: "00000000-0000-8000-8000-000000000002",
       paymentMethodId: "observing-payments",
       paymentMethodToken: "pm_card_visa",
       idempotencyKey: "checkout-cart-v7",
@@ -530,6 +531,8 @@ describe("checkout – payment authority handoff", () => {
 
     expect(forwardedPaymentParams).toMatchObject({
       amount: 4200,
+      orderId: "00000000-0000-8000-8000-000000000002",
+      metadata: { organizationId: "org_default" },
       paymentMethodToken: "pm_card_visa",
       idempotencyKey: "checkout-cart-v7",
     });

@@ -57,6 +57,8 @@ export interface CheckoutLineItem {
 
 export interface CheckoutData {
   checkoutId: string;
+  /** Server-owned order id allocated before payment authorization. */
+  orderId?: string;
   cartId: string;
   customerId?: string;
   customerGroupIds?: string[];
@@ -543,6 +545,8 @@ export const authorizePayment: BeforeHook<CheckoutData> = async ({
       ? { idempotencyKey: data.idempotencyKey }
       : {}),
     metadata: {
+      ...(data.orderId !== undefined ? { orderId: data.orderId } : {}),
+      organizationId: resolveOrgId(context.actor),
       checkoutId: data.checkoutId,
       cartId: data.cartId,
     },

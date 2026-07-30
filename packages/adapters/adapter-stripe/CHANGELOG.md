@@ -1,5 +1,14 @@
 # @porulle/adapter-stripe
 
+## 0.10.8
+
+### Patch Changes
+
+- Make agent-driven checkout allocate a stable server-owned order ID before payment authorization, propagate that ID and organization scope into Stripe metadata, and reconcile signed payment events transactionally. Use Stripe's asynchronous webhook verifier for Cloudflare Workers and map webhook configuration or signature failures to actionable HTTP statuses.
+
+- Updated dependencies []:
+  - @porulle/core@0.10.8
+
 ## 0.10.6
 
 ### Patch Changes

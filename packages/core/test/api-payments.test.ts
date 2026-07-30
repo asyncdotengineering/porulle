@@ -5,6 +5,7 @@ import {
   testActor,
   parseJsonResponse,
 } from "../src/test-utils/rest-api-test-utils.js";
+import { Err, Ok } from "../src/kernel/result.js";
 
 describe("REST API: Payments", () => {
   let server: any;
@@ -27,6 +28,49 @@ describe("REST API: Payments", () => {
   // ─── POST /api/payments/webhook ───────────────────────────────────────────────
 
   describe("POST /api/payments/webhook", () => {
+    it("maps provider webhook failures to safe actionable statuses", async () => {
+      const failingAdapter = {
+        providerId: "failing-webhook",
+        async createPaymentIntent() {
+          return Ok({ id: "pi_unused", status: "succeeded", amount: 0, currency: "USD" });
+        },
+        async capturePayment() {
+          return Ok({ id: "pi_unused", status: "succeeded", amountCaptured: 0 });
+        },
+        async refundPayment() {
+          return Ok({ id: "re_unused", status: "succeeded", amountRefunded: 0 });
+        },
+        async cancelPaymentIntent() {
+          return Ok(undefined);
+        },
+        async verifyWebhook() {
+          return Err({
+            code: "WEBHOOK_SIGNATURE_MISSING",
+            message: "Missing stripe-signature header.",
+          });
+        },
+      };
+      const isolated = await createTestServer({ payments: [failingAdapter] });
+      try {
+        const response = await makeRequest(isolated.server, {
+          method: "POST",
+          url: "http://localhost/api/payments/webhook",
+          headers: { "content-type": "application/json" },
+          body: {},
+        });
+
+        expect(response.status).toBe(400);
+        await expect(parseJsonResponse(response)).resolves.toEqual({
+          error: {
+            code: "WEBHOOK_SIGNATURE_MISSING",
+            message: "Missing stripe-signature header.",
+          },
+        });
+      } finally {
+        await isolated.cleanup();
+      }
+    });
+
     it("accepts valid webhook payload", async () => {
       const response = await makeRequest(server, {
         method: "POST",
@@ -35,7 +79,7 @@ describe("REST API: Payments", () => {
           "content-type": "application/json",
         },
         body: {
-          type: "payment_intent.succeeded",
+          type: "commerce.webhook.probe",
           data: {
             metadata: {
               orderId: "00000000-0000-0000-0000-000000000001",
@@ -44,13 +88,9 @@ describe("REST API: Payments", () => {
         },
       });
 
-      // Webhook verification may succeed or fail depending on mock adapter
-      expect([200, 401, 422]).toContain(response.status);
-
-      if (response.status === 200) {
-        const json = await parseJsonResponse<{ data: { received: boolean } }>(response);
-        expect(json.data.received).toBe(true);
-      }
+      expect(response.status).toBe(200);
+      const json = await parseJsonResponse<{ data: { received: boolean } }>(response);
+      expect(json.data.received).toBe(true);
     });
 
     it("rejects webhook with invalid signature", async () => {
@@ -116,8 +156,13 @@ describe("REST API: Payments", () => {
           },
         });
 
-        // May succeed or fail depending on verification
-        expect([200, 401, 422]).toContain(response.status);
+        expect(response.status).toBe(200);
+        const updated = await server.request(`http://localhost/api/orders/${orderId}`, {
+          headers: { "x-test-actor": JSON.stringify(testActor) },
+        });
+        expect(updated.status).toBe(200);
+        const updatedBody = await parseJsonResponse<{ data: { status: string } }>(updated);
+        expect(updatedBody.data.status).toBe("confirmed");
       }
     });
 

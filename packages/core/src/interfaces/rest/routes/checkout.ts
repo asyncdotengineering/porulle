@@ -22,7 +22,8 @@ import type { PluginDb } from "../../../kernel/database/plugin-types.js";
 import { type AppEnv, mapErrorToResponse, mapErrorToStatus } from "../utils.js";
 import { isCommerceError } from "../../../kernel/errors.js";
 import { assertPermission } from "../../../auth/permissions.js";
-import { makeId } from "../../../utils/id.js";
+import { resolveOrgId } from "../../../auth/org.js";
+import { makeDeterministicId, makeId } from "../../../utils/id.js";
 import type { ShippingAddress } from "../../../modules/shipping/calculator.js";
 import type { Actor } from "../../../auth/types.js";
 
@@ -126,8 +127,12 @@ export function checkoutRoutes(kernel: Kernel) {
       }
     }
 
+    const orderId = body.idempotencyKey
+      ? await makeDeterministicId(`checkout:${resolveOrgId(actor)}:${body.idempotencyKey}`)
+      : makeId();
     const checkoutData: CheckoutData = {
       checkoutId: makeId(),
+      orderId,
       cartId: body.cartId,
       currency: body.currency ?? "USD",
       paymentMethodId: body.paymentMethodId,
@@ -235,6 +240,7 @@ export function checkoutRoutes(kernel: Kernel) {
       );
 
       const orderPayload = {
+        id: processed.orderId ?? orderId,
         ...(body.idempotencyKey !== undefined
           ? { idempotencyKey: body.idempotencyKey }
           : {}),

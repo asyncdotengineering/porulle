@@ -1,5 +1,12 @@
 # @porulle/adapter-postgres
 
+## 0.10.8
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.10.8
+
 ## 0.10.6
 
 ### Patch Changes
