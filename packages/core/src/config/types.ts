@@ -34,6 +34,7 @@ export type FieldType = "text" | "number" | "boolean" | "date" | "json" | "relat
 export interface EntityFieldDefinition {
   name: string;
   type: FieldType;
+  filterable?: boolean;
   unit?: string;
   schema?: unknown;
   target?: string;

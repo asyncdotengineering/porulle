@@ -1,7 +1,12 @@
 import { Ok, type Result } from "../../kernel/result.js";
 import { resolveOrgId } from "../../auth/org.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
-import type { CatalogRepository, SellableEntity } from "../catalog/repository/index.js";
+import type { CommerceConfig } from "../../config/types.js";
+import type {
+  CatalogRepository,
+  SellableCustomField,
+  SellableEntity,
+} from "../catalog/repository/index.js";
 import type {
   SearchAdapter,
   SearchDocument,
@@ -13,6 +18,7 @@ import type {
 
 interface SearchServiceDeps {
   catalogRepository: CatalogRepository;
+  entities?: CommerceConfig["entities"];
   adapter?: SearchAdapter;
   defaultFacets?: string[];
 }
@@ -37,6 +43,19 @@ function includesAllTokens(haystack: string, tokens: string[]): boolean {
   if (tokens.length === 0) return true;
   const lower = haystack.toLowerCase();
   return tokens.every((token) => lower.includes(token));
+}
+
+function customFieldValue(field: SellableCustomField): string | undefined {
+  if (field.textValue != null) return field.textValue;
+  if (field.numberValue != null) return String(field.numberValue);
+  if (field.booleanValue != null) return String(field.booleanValue);
+  if (field.dateValue != null) return field.dateValue.toISOString();
+  return undefined;
+}
+
+function attributeValues(value: string | string[] | undefined): string[] {
+  if (value == null) return [];
+  return Array.isArray(value) ? value : [value];
 }
 
 function scoreText(document: SearchDocument, tokens: string[]): number {
@@ -109,16 +128,40 @@ export class SearchService {
     entity: SellableEntity,
     ctx?: TxContext,
   ): Promise<SearchDocument> {
-    const attributes =
+    const localizedAttributes =
       await this.deps.catalogRepository.findAttributesByEntityId(
         entity.id,
         ctx,
       );
-    const primary = attributes[0];
+    const primary = localizedAttributes[0];
     const title = primary?.title ?? entity.slug;
     const description = primary?.description;
     const categories = await this.entityCategories(entity.id, ctx);
     const brands = await this.entityBrands(entity.id, ctx);
+    const filterableFields = new Set(
+      (this.deps.entities?.[entity.type]?.fields ?? [])
+        .filter((field) => field.filterable === true)
+        .map((field) => field.name),
+    );
+    const customFields = await this.deps.catalogRepository.findCustomFieldsByEntityId(
+      entity.id,
+      ctx,
+    );
+    const attributeValuesByName = new Map<string, string[]>();
+    for (const field of customFields) {
+      if (field.locale !== "en" || !filterableFields.has(field.fieldName)) continue;
+      const value = customFieldValue(field);
+      if (value == null) continue;
+      const values = attributeValuesByName.get(field.fieldName) ?? [];
+      if (!values.includes(value)) values.push(value);
+      attributeValuesByName.set(field.fieldName, values);
+    }
+    const attributes = Object.fromEntries(
+      [...attributeValuesByName.entries()].map(([name, values]) => [
+        name,
+        values.length === 1 ? values[0]! : values,
+      ]),
+    ) as Record<string, string | string[]>;
 
     const textParts: string[] = [
       entity.slug,
@@ -126,8 +169,8 @@ export class SearchService {
       description ?? "",
       ...categories,
       ...brands,
-      ...attributes.map((attr) => attr.title),
-      ...attributes.map((attr) => attr.description ?? ""),
+      ...localizedAttributes.map((attr) => attr.title),
+      ...localizedAttributes.map((attr) => attr.description ?? ""),
     ];
 
     return {
@@ -140,6 +183,7 @@ export class SearchService {
       categories,
       brands,
       text: textParts.join(" ").trim(),
+      ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
       payload: {
         metadata: entity.metadata ?? undefined,
       },
@@ -168,6 +212,11 @@ export class SearchService {
     if (filters.category && !document.categories.includes(filters.category))
       return false;
     if (filters.brand && !document.brands.includes(filters.brand)) return false;
+    for (const [name, requested] of Object.entries(filters.attributes ?? {})) {
+      const actual = attributeValues(document.attributes?.[name]);
+      const expected = attributeValues(requested);
+      if (!expected.some((value) => actual.includes(value))) return false;
+    }
     return true;
   }
 
@@ -214,6 +263,26 @@ export class SearchService {
           }
         }
       }
+
+      const attributeName = facet.startsWith("attributes.")
+        ? facet.slice("attributes.".length)
+        : facet;
+      if (
+        attributeName !== "type" &&
+        attributeName !== "status" &&
+        attributeName !== "category" &&
+        attributeName !== "categories" &&
+        attributeName !== "brand" &&
+        attributeName !== "brands"
+      ) {
+        const values: Record<string, number> = {};
+        for (const document of documents) {
+          for (const value of new Set(attributeValues(document.attributes?.[attributeName]))) {
+            values[value] = (values[value] ?? 0) + 1;
+          }
+        }
+        if (Object.keys(values).length > 0) output[attributeName] = values;
+      }
     }
 
     return output;
@@ -255,7 +324,14 @@ export class SearchService {
     // In-memory fallback: require a non-empty query to avoid loading all entities
     // (allDocuments triggers N+1 DB queries per entity — unsafe at scale)
     const tokens = tokenize(safeQuery);
-    if (tokens.length === 0 && !params.filters?.type && !params.filters?.category && !params.filters?.brand && !params.filters?.status) {
+    if (
+      tokens.length === 0 &&
+      !params.filters?.type &&
+      !params.filters?.category &&
+      !params.filters?.brand &&
+      !params.filters?.status &&
+      Object.keys(params.filters?.attributes ?? {}).length === 0
+    ) {
       return Ok({ hits: [], total: 0, page, limit, facets: {} });
     }
 

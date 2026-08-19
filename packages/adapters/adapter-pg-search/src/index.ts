@@ -64,7 +64,36 @@ function parseBrands(value: unknown): string[] {
   return [];
 }
 
+function parseAttributes(value: unknown): Record<string, string | string[]> {
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value) as unknown;
+    } catch {
+      return {};
+    }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+  const attributes: Record<string, string | string[]> = {};
+  for (const [key, entry] of Object.entries(parsed)) {
+    if (typeof entry === "string") {
+      attributes[key] = entry;
+    } else if (Array.isArray(entry) && entry.every((item) => typeof item === "string")) {
+      attributes[key] = entry as string[];
+    }
+  }
+  return attributes;
+}
+
+function attributeValues(document: SearchDocument, name: string): string[] {
+  const value = document.attributes?.[name];
+  if (value == null) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
 function toDocument(row: PgSearchQueryResultRow): SearchDocument {
+  const attributes = parseAttributes(row.attributes);
   return {
     id: String(row.id ?? ""),
     type: String(row.type ?? ""),
@@ -75,6 +104,7 @@ function toDocument(row: PgSearchQueryResultRow): SearchDocument {
     categories: parseCategories(row.categories),
     brands: parseBrands(row.brands),
     text: String(row.text ?? ""),
+    ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
     ...(row.payload && typeof row.payload === "object" ? { payload: row.payload as Record<string, unknown> } : {}),
   };
 }
@@ -109,6 +139,23 @@ function buildWhere(
   if (params.filters?.brand) {
     values.push(params.filters.brand);
     clauses.push(`$${values.length} = ANY(brands)`);
+  }
+
+  for (const [name, requested] of Object.entries(params.filters?.attributes ?? {})) {
+    values.push(name);
+    const keyPlaceholder = `$${values.length}`;
+    const requestedValues = Array.isArray(requested) ? requested : [requested];
+    if (requestedValues.length === 0) {
+      clauses.push("FALSE");
+      continue;
+    }
+    const valuePlaceholders = requestedValues.map((value) => {
+      values.push(value);
+      return `$${values.length}`;
+    });
+    clauses.push(
+      `EXISTS (SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(attributes -> ${keyPlaceholder}) = 'array' THEN attributes -> ${keyPlaceholder} ELSE jsonb_build_array(attributes ->> ${keyPlaceholder}) END) AS attribute_value WHERE attribute_value IN (${valuePlaceholders.join(", ")}))`,
+    );
   }
 
   return {
@@ -154,6 +201,20 @@ function computeFacets(documents: SearchDocument[], requested?: string[]): Recor
     }
   }
 
+  for (const facet of facets) {
+    const attributeName = facet.startsWith("attributes.")
+      ? facet.slice("attributes.".length)
+      : facet;
+    if (["type", "status", "category", "categories", "brand", "brands"].includes(attributeName)) continue;
+    const values: Record<string, number> = {};
+    for (const document of documents) {
+      for (const value of new Set(attributeValues(document, attributeName))) {
+        values[value] = (values[value] ?? 0) + 1;
+      }
+    }
+    if (Object.keys(values).length > 0) output[attributeName] = values;
+  }
+
   return output;
 }
 
@@ -170,8 +231,8 @@ export function pgSearchAdapter(options: PgSearchAdapterOptions): SearchAdapter 
 
         for (const document of documents) {
           await options.query(
-            `INSERT INTO ${table} (id, type, slug, title, description, status, categories, brands, text, payload)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+            `INSERT INTO ${table} (id, type, slug, title, description, status, categories, brands, text, attributes, payload)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb)
              ON CONFLICT (id)
              DO UPDATE SET
                type = EXCLUDED.type,
@@ -182,6 +243,7 @@ export function pgSearchAdapter(options: PgSearchAdapterOptions): SearchAdapter 
                categories = EXCLUDED.categories,
                brands = EXCLUDED.brands,
                text = EXCLUDED.text,
+               attributes = EXCLUDED.attributes,
                payload = EXCLUDED.payload`,
             [
               document.id,
@@ -193,6 +255,7 @@ export function pgSearchAdapter(options: PgSearchAdapterOptions): SearchAdapter 
               document.categories,
               document.brands,
               document.text,
+              JSON.stringify(document.attributes ?? {}),
               JSON.stringify(document.payload ?? {}),
             ],
           );
@@ -232,7 +295,7 @@ export function pgSearchAdapter(options: PgSearchAdapterOptions): SearchAdapter 
           : "0";
 
         const rows = await options.query(
-          `SELECT id, type, slug, title, description, status, categories, brands, text, payload, ${scoreExpr} AS score
+          `SELECT id, type, slug, title, description, status, categories, brands, text, attributes, payload, ${scoreExpr} AS score
            FROM ${table}
            ${where.sql}
            ORDER BY score DESC, title ASC
@@ -247,7 +310,7 @@ export function pgSearchAdapter(options: PgSearchAdapterOptions): SearchAdapter 
         );
 
         const facetRows = await options.query(
-          `SELECT id, type, slug, title, description, status, categories, brands, text, payload
+          `SELECT id, type, slug, title, description, status, categories, brands, text, attributes, payload
            FROM ${table}
            ${where.sql}`,
           where.values,

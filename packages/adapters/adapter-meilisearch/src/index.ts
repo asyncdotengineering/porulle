@@ -19,6 +19,7 @@ interface MeiliIndexLike {
     facetDistribution?: Record<string, Record<string, number>>;
   }>;
   updateFilterableAttributes(attributes: string[]): Promise<unknown>;
+  getFilterableAttributes?(): Promise<string[]>;
 }
 
 interface MeiliClientLike {
@@ -32,6 +33,8 @@ export interface MeilisearchAdapterOptions {
   filterableAttributes?: string[];
   client?: MeiliClientLike;
 }
+
+const SAFE_ATTRIBUTE_NAME = /^[A-Za-z0-9_-]+$/;
 
 function toFilter(params: SearchQueryParams): string[] {
   const filters: string[] = [];
@@ -52,7 +55,37 @@ function toFilter(params: SearchQueryParams): string[] {
     filters.push(`brands = \"${params.filters.brand}\"`);
   }
 
+  for (const [name, requested] of Object.entries(params.filters?.attributes ?? {})) {
+    const values = Array.isArray(requested) ? requested : [requested];
+    if (values.length === 0 || !SAFE_ATTRIBUTE_NAME.test(name)) {
+      filters.push('id = ""');
+      continue;
+    }
+    const expressions = values.map((value) => `attributes.${name} = ${JSON.stringify(value)}`);
+    if (expressions.length > 1) {
+      filters.push(`(${expressions.join(" OR ")})`);
+    } else if (expressions.length === 1) {
+      filters.push(expressions[0]!);
+    }
+  }
+
   return filters;
+}
+
+function normalizeFacets(
+  facets: Record<string, Record<string, number>>,
+): Record<string, Record<string, number>> {
+  return Object.fromEntries(
+    Object.entries(facets).map(([name, values]) => [
+      name.startsWith("attributes.") ? name.slice("attributes.".length) : name,
+      values,
+    ]),
+  );
+}
+
+function toFacetName(name: string): string {
+  if (["type", "status", "category", "categories", "brand", "brands"].includes(name)) return name;
+  return name.startsWith("attributes.") ? name : `attributes.${name}`;
 }
 
 function normalizeSearchResult(
@@ -75,7 +108,7 @@ function normalizeSearchResult(
     total: result.estimatedTotalHits ?? result.hits.length,
     page,
     limit,
-    facets: result.facetDistribution ?? {},
+    facets: normalizeFacets(result.facetDistribution ?? {}),
   };
 }
 
@@ -85,12 +118,26 @@ export function meilisearchAdapter(options: MeilisearchAdapterOptions): SearchAd
   const indexName = options.indexName ?? "catalog";
   const filterable = options.filterableAttributes ?? ["type", "status", "categories", "brands"];
 
-  let filterableConfigured = false;
+  const attributeNames = new Set<string>();
+  let configuredFilterable: string[] | undefined;
 
-  async function ensureFilterable(index: MeiliIndexLike): Promise<void> {
-    if (filterableConfigured) return;
-    await index.updateFilterableAttributes(filterable);
-    filterableConfigured = true;
+  async function ensureFilterable(index: MeiliIndexLike, documents: SearchDocument[]): Promise<void> {
+    for (const document of documents) {
+      for (const name of Object.keys(document.attributes ?? {})) {
+        if (SAFE_ATTRIBUTE_NAME.test(name)) attributeNames.add(name);
+      }
+    }
+    if (configuredFilterable === undefined && index.getFilterableAttributes) {
+      configuredFilterable = await index.getFilterableAttributes();
+    }
+    const nextFilterable = [
+      ...(configuredFilterable ?? []),
+      ...filterable,
+      ...[...attributeNames].map((name) => `attributes.${name}`),
+    ].filter((name, position, list) => list.indexOf(name) === position);
+    if (configuredFilterable?.length === nextFilterable.length && configuredFilterable.every((name, index) => name === nextFilterable[index])) return;
+    await index.updateFilterableAttributes(nextFilterable);
+    configuredFilterable = nextFilterable;
   }
 
   return {
@@ -100,7 +147,7 @@ export function meilisearchAdapter(options: MeilisearchAdapterOptions): SearchAd
       try {
         if (documents.length === 0) return Ok(undefined);
         const index = client.index(indexName);
-        await ensureFilterable(index);
+        await ensureFilterable(index, documents);
         await index.addDocuments(documents);
         return Ok(undefined);
       } catch (error) {
@@ -133,9 +180,11 @@ export function meilisearchAdapter(options: MeilisearchAdapterOptions): SearchAd
         const filters = toFilter(params);
 
         const index = client.index(indexName);
+        const requestedFacets = (params.facets ?? ["type", "status", "categories", "brands"]).map(toFacetName);
+        const facets = requestedFacets.filter((name, position, list) => list.indexOf(name) === position);
         const result = await index.search(params.query, {
           ...(filters.length > 0 ? { filter: filters } : {}),
-          facets: params.facets ?? ["type", "status", "categories", "brands"],
+          facets,
           limit,
           offset,
         });

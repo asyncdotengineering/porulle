@@ -10,6 +10,7 @@ export interface SearchDocument {
   categories: string[];
   brands: string[];
   text: string;
+  attributes?: Record<string, string | string[]>;
   payload?: Record<string, unknown>;
 }
 
@@ -18,6 +19,7 @@ export interface SearchFilters {
   category?: string;
   brand?: string;
   status?: string;
+  attributes?: Record<string, string | string[]>;
 }
 
 export interface SearchQueryParams {
