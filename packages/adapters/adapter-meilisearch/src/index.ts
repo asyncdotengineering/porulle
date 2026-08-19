@@ -19,7 +19,7 @@ interface MeiliIndexLike {
     facetDistribution?: Record<string, Record<string, number>>;
   }>;
   updateFilterableAttributes(attributes: string[]): Promise<unknown>;
-  getFilterableAttributes?(): Promise<string[]>;
+  getFilterableAttributes?(): Promise<unknown>;
 }
 
 interface MeiliClientLike {
@@ -128,7 +128,10 @@ export function meilisearchAdapter(options: MeilisearchAdapterOptions): SearchAd
       }
     }
     if (configuredFilterable === undefined && index.getFilterableAttributes) {
-      configuredFilterable = await index.getFilterableAttributes();
+      const stored = await index.getFilterableAttributes();
+      configuredFilterable = Array.isArray(stored)
+        ? stored.filter((name): name is string => typeof name === "string")
+        : [];
     }
     const nextFilterable = [
       ...(configuredFilterable ?? []),
