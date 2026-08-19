@@ -1,6 +1,6 @@
 import { defineChannelConnector, Err, Ok } from "@porulle/core";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { ChannelCatalogPage, ChannelConnector, ChannelConnectorError, ChannelInventoryLevel, ChannelStore, ChannelOrderSlice, ChannelOrderStatus, Result } from "@porulle/core";
+import type { ChannelCatalogPage, ChannelCatalogPrice, ChannelConnector, ChannelConnectorError, ChannelInventoryLevel, ChannelStore, ChannelOrderSlice, ChannelOrderStatus, Result } from "@porulle/core";
 
 export interface WooConnectorOptions { fetchImpl?: typeof fetch }
 
@@ -8,10 +8,46 @@ type WooProduct = {
   id: number | string;
   name: string;
   slug?: string;
-  description?: string;
-  variations?: Array<{ id: number | string; sku?: string | null; price?: string | null }>;
+  description?: string | null;
+  status?: string | null;
+  images?: Array<{ id: number | string; src: string; alt?: string | null; position?: number | null }>;
+  attributes?: Array<{ name: string; variation?: boolean | null; position?: number | null; options?: string[] }>;
+  tags?: Array<{ slug?: string | null }>;
+  categories?: Array<{ slug?: string | null }>;
+  variations?: Array<number | string | {
+    id: number | string;
+    sku?: string | null;
+    price?: string | null;
+    attributes?: Array<{ name: string; option?: string | null }>;
+  }>;
   stock_quantity?: number | null;
 };
+
+type WooProductVariation = {
+  id: number | string;
+  sku?: string | null;
+  price?: string | null;
+  attributes?: Array<{ name: string; option?: string | null }>;
+};
+
+const zeroDecimalCurrencies = new Set([
+  "BIF",
+  "CLP",
+  "DJF",
+  "GNF",
+  "ISK",
+  "JPY",
+  "KMF",
+  "KRW",
+  "PYG",
+  "RWF",
+  "UGX",
+  "VND",
+  "VUV",
+  "XAF",
+  "XOF",
+  "XPF",
+]);
 
 function buildWooUrl(base: string, path: string, key: string, secret: string, page: number, cursor?: string): string {
   const url = new URL(path, base.replace(/\/$/, "/"));
@@ -23,10 +59,92 @@ function buildWooUrl(base: string, path: string, key: string, secret: string, pa
   return url.toString();
 }
 
-function parseMoney(value: string | null | undefined): number {
-  if (!value) return 0;
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+function normalizeCurrency(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  return value.trim().toUpperCase();
+}
+
+function parseMoney(value: string | null | undefined, currency: string): number | undefined {
+  if (value == null || value.trim() === "") return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  const exponent = zeroDecimalCurrencies.has(currency) ? 0 : 2;
+  return Math.round(parsed * (10 ** exponent));
+}
+
+function pricesForVariation(variation: WooProductVariation, currency: string | undefined): ChannelCatalogPrice[] | undefined {
+  if (!currency) return undefined;
+  const amount = parseMoney(variation.price, currency);
+  return amount === undefined ? undefined : [{ currency, amount }];
+}
+
+function catalogStatus(value: string | null | undefined): "draft" | "active" | undefined {
+  if (value === "publish") return "active";
+  if (value === "draft" || value === "private") return "draft";
+  return undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined;
+}
+
+function settingCurrency(data: unknown): string | undefined {
+  if (Array.isArray(data)) {
+    for (const entry of data) {
+      const setting = asRecord(entry);
+      if (setting?.id === "woocommerce_currency") return normalizeCurrency(setting.value);
+    }
+  }
+  const object = asRecord(data);
+  if (!object) return undefined;
+  const direct = normalizeCurrency(object.woocommerce_currency);
+  if (direct) return direct;
+  const systemStatus = asRecord(object.system_status);
+  return normalizeCurrency(systemStatus?.woocommerce_currency);
+}
+
+async function fetchWooCurrency(fetchImpl: typeof fetch, url: string): Promise<string | undefined> {
+  const result = await request<unknown>(fetchImpl, url);
+  return result.ok ? settingCurrency(result.value.data) : undefined;
+}
+
+async function fetchProductVariations(
+  fetchImpl: typeof fetch,
+  storeDomain: string,
+  auth: { key: string; secret: string },
+  productId: string,
+  modifiedAfter: string | undefined,
+): Promise<Result<WooProductVariation[]>> {
+  const variations: WooProductVariation[] = [];
+  let page = 1;
+  while (true) {
+    const result = await request<WooProductVariation[]>(fetchImpl, buildWooUrl(storeDomain, `/wp-json/wc/v3/products/${encodeURIComponent(productId)}/variations`, auth.key, auth.secret, page, modifiedAfter));
+    if (!result.ok) return result;
+    variations.push(...result.value.data);
+    const totalPages = Number.parseInt(result.value.response.headers.get("x-wp-totalpages") ?? "1", 10);
+    if (!Number.isFinite(totalPages) || page >= totalPages) break;
+    page += 1;
+  }
+  return Ok(variations);
+}
+
+function variationFromReference(reference: NonNullable<WooProduct["variations"]>[number]): WooProductVariation {
+  return typeof reference === "object" && reference !== null ? reference : { id: reference };
+}
+
+function mergeProductVariations(
+  references: NonNullable<WooProduct["variations"]>,
+  details: WooProductVariation[],
+): WooProductVariation[] {
+  const detailById = new Map(details.map((variation) => [String(variation.id), variation]));
+  const referencedIds = new Set<string>();
+  const merged = references.map((reference) => {
+    const fallback = variationFromReference(reference);
+    const id = String(fallback.id);
+    referencedIds.add(id);
+    return detailById.get(id) ?? fallback;
+  });
+  return [...merged, ...details.filter((variation) => !referencedIds.has(String(variation.id)))];
 }
 
 async function request<T>(fetchImpl: typeof fetch, url: string, init?: RequestInit): Promise<Result<{ data: T; response: Response }>> {
@@ -75,6 +193,7 @@ function storeUrl(domain: string): URL | undefined {
 
 export function wooConnector(options: WooConnectorOptions = {}): ChannelConnector {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const currencyCache = new Map<string, Promise<string | undefined>>();
   return defineChannelConnector({
     providerId: "woocommerce",
     capabilities: { importCatalog: true, importInventory: true, pushOrder: true, receiveWebhooks: true },
@@ -124,21 +243,65 @@ export function wooConnector(options: WooConnectorOptions = {}): ChannelConnecto
       const parsedPage = isPage && pagePart ? Number.parseInt(pagePart, 10) : 1;
       const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
       const modifiedAfter = afterParts.length > 0 ? afterParts.join("|") : (!isPage ? cursor : undefined);
+      const currencyKey = store.storeDomain.replace(/\/$/, "");
+      let currencyPromise = currencyCache.get(currencyKey);
+      if (!currencyPromise) {
+        currencyPromise = fetchWooCurrency(fetchImpl, buildWooUrl(store.storeDomain, "/wp-json/wc/v3/settings/general", auth.key, auth.secret, 1));
+        currencyCache.set(currencyKey, currencyPromise);
+      }
+      const currency = await currencyPromise;
       const result = await request<WooProduct[]>(fetchImpl, buildWooUrl(store.storeDomain, "/wp-json/wc/v3/products", auth.key, auth.secret, page, modifiedAfter));
       if (!result.ok) return result;
       const totalPages = Number.parseInt(result.value.response.headers.get("x-wp-totalpages") ?? "1", 10);
       const nextCursor = page < totalPages ? (modifiedAfter ? `${page + 1}|${modifiedAfter}` : String(page + 1)) : null;
-      return Ok({ items: result.value.data.map((product) => ({
-        externalId: String(product.id),
-        slug: product.slug ?? String(product.id),
-        title: product.name,
-        ...(product.description ? { description: product.description } : {}),
-        variants: (product.variations ?? []).map((variant) => ({
-          externalId: String(variant.id),
-          ...(variant.sku ? { sku: variant.sku } : {}),
-          metadata: { price: parseMoney(variant.price) },
-        })),
-      })), nextCursor });
+      const items = [];
+      for (const product of result.value.data) {
+        const references = product.variations ?? [];
+        const details = references.length > 0
+          ? await fetchProductVariations(fetchImpl, store.storeDomain, auth, String(product.id), modifiedAfter)
+          : Ok<WooProductVariation[]>([]);
+        if (!details.ok) return details;
+        const variants = mergeProductVariations(references, details.value).map((variant) => {
+          const optionValues = Object.fromEntries((variant.attributes ?? []).flatMap((attribute) => (
+            attribute.option != null && attribute.option !== "" ? [[attribute.name, attribute.option] as const] : []
+          )));
+          const prices = pricesForVariation(variant, currency);
+          return {
+            externalId: String(variant.id),
+            ...(variant.sku ? { sku: variant.sku } : {}),
+            ...(Object.keys(optionValues).length > 0 ? { optionValues } : {}),
+            ...(prices ? { prices } : {}),
+          };
+        });
+        const options = product.attributes?.filter((attribute) => attribute.variation === true).map((attribute, index) => ({
+          name: attribute.name,
+          displayName: attribute.name,
+          ...(attribute.position != null ? { sortOrder: attribute.position } : { sortOrder: index }),
+          values: (attribute.options ?? []).map((value, valueIndex) => ({ value, displayValue: value, sortOrder: valueIndex })),
+        }));
+        const status = catalogStatus(product.status);
+        items.push({
+          externalId: String(product.id),
+          slug: product.slug ?? String(product.id),
+          title: product.name,
+          attributes: [{ locale: "en", title: product.name, ...(product.description != null ? { description: product.description } : {}) }],
+          variants,
+          ...(product.images ? {
+            images: product.images.map((image, index) => ({
+              externalId: String(image.id),
+              url: image.src,
+              ...(image.alt != null ? { alt: image.alt } : {}),
+              role: index === 0 ? "primary" as const : "gallery" as const,
+              ...(image.position != null ? { sortOrder: image.position } : {}),
+            })),
+          } : {}),
+          ...(options ? { options } : {}),
+          ...(product.tags ? { tags: product.tags.flatMap((tag) => tag.slug ? [tag.slug] : []) } : {}),
+          ...(product.categories ? { categories: product.categories.flatMap((category) => category.slug ? [category.slug] : []) } : {}),
+          ...(status ? { status } : {}),
+        });
+      }
+      return Ok({ items, nextCursor });
     },
     async fetchInventory(store, ids): Promise<Result<ChannelInventoryLevel[]>> {
       const auth = credentials(store);

@@ -4,6 +4,37 @@ import { wooConnector } from "../src/index.js";
 
 const store = { id: "store-1", organizationId: "org-1", provider: "woocommerce", credentials: { consumerKey: "ck", consumerSecret: "cs" }, storeDomain: "https://shop.example", status: "connected" as const, webhookSecret: "webhook-secret" };
 
+const fullWooProduct = {
+  id: 201,
+  name: "Trail Boot",
+  slug: "trail-boot",
+  description: "Built for wet trails.",
+  status: "publish",
+  images: [
+    { id: 3001, src: "https://cdn.shop.example/trail-boot.jpg", alt: "Brown trail boot", position: 0 },
+    { id: 3002, src: "https://cdn.shop.example/trail-boot-side.jpg", alt: "Trail boot side", position: 1 },
+  ],
+  attributes: [
+    { id: 1, name: "Size", variation: true, options: ["42", "43"] },
+    { id: 2, name: "Color", variation: true, options: ["Brown", "Black"] },
+    { id: 3, name: "Material", variation: false, options: ["Leather"] },
+  ],
+  tags: [
+    { id: 1, name: "Outdoor", slug: "outdoor" },
+    { id: 2, name: "Waterproof", slug: "waterproof" },
+  ],
+  categories: [
+    { id: 1, name: "Footwear", slug: "footwear" },
+    { id: 2, name: "Boots", slug: "boots" },
+  ],
+  variations: [2101, 2102],
+};
+
+const fullWooVariations = [
+  { id: 2101, sku: "TB-42-BRN", price: "99.90", attributes: [{ name: "Size", option: "42" }, { name: "Color", option: "Brown" }] },
+  { id: 2102, sku: "TB-43-BLK", price: "109.90", attributes: [{ name: "Size", option: "43" }, { name: "Color", option: "Black" }] },
+];
+
 describe("woocommerce connector", () => {
   it("builds auth URLs with state on both browser and server callbacks", () => {
     const connector = wooConnector();
@@ -45,12 +76,16 @@ describe("woocommerce connector", () => {
   it("paginates products and maps inventory", async () => {
     const urls: string[] = [];
     const connector = wooConnector({ fetchImpl: async (input) => {
-      urls.push(String(input));
-      const page = new URL(String(input)).searchParams.get("page");
+      const url = String(input);
+      urls.push(url);
+      const parsed = new URL(url);
+      if (parsed.pathname.endsWith("/settings/general")) return new Response(JSON.stringify([{ id: "woocommerce_currency", value: "USD" }]));
+      if (parsed.pathname.endsWith("/products/1/variations")) return new Response(JSON.stringify([{ id: 11, sku: "SKU", price: "8.50" }]), { headers: { "X-WP-TotalPages": "1" } });
+      const page = parsed.searchParams.get("page");
       return new Response(JSON.stringify(page === "1" ? [{ id: 1, name: "First", slug: "first", variations: [{ id: 11, sku: "SKU", price: "8.50" }], stock_quantity: 7 }] : [{ id: 2, name: "Second", slug: "second", variations: [] }]), { headers: { "X-WP-TotalPages": "2" } });
     } });
     const first = await connector.importCatalog(store);
-    expect(first.ok && first.value.items[0]).toMatchObject({ externalId: "1", variants: [{ externalId: "11", sku: "SKU", metadata: { price: 850 } }] });
+    expect(first.ok && first.value.items[0]).toMatchObject({ externalId: "1", variants: [{ externalId: "11", sku: "SKU", prices: [{ currency: "USD", amount: 850 }] }] });
     expect(first.ok && first.value.nextCursor).toBe("2");
     const second = await connector.importCatalog(store, first.ok ? first.value.nextCursor ?? undefined : undefined);
     expect(second.ok && second.value.items[0]?.externalId).toBe("2");
@@ -60,7 +95,57 @@ describe("woocommerce connector", () => {
     expect(urls[0]).toContain("consumer_secret=cs");
     const incremental = await connector.importCatalog(store, "2026-01-01T00:00:00.000Z");
     expect(incremental.ok).toBe(true);
-    expect(urls[3]).toContain("modified_after=2026-01-01T00%3A00%3A00.000Z");
+    expect(urls.some((url) => url.includes("modified_after=2026-01-01T00%3A00%3A00.000Z"))).toBe(true);
+  });
+
+  it("maps the complete WooCommerce variable-product payload into the catalog contract", async () => {
+    const requests: string[] = [];
+    const connector = wooConnector({ fetchImpl: async (input) => {
+      const url = String(input);
+      requests.push(url);
+      const pathname = new URL(url).pathname;
+      if (pathname.endsWith("/settings/general")) return new Response(JSON.stringify([{ id: "woocommerce_currency", value: "USD" }]));
+      if (pathname.endsWith("/products/201/variations")) return new Response(JSON.stringify(fullWooVariations), { headers: { "X-WP-TotalPages": "1" } });
+      return new Response(JSON.stringify([fullWooProduct]), { headers: { "X-WP-TotalPages": "1" } });
+    } });
+
+    const result = await connector.importCatalog(store);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.items).toEqual([{
+      externalId: "201",
+      slug: "trail-boot",
+      title: "Trail Boot",
+      attributes: [{ locale: "en", title: "Trail Boot", description: "Built for wet trails." }],
+      variants: [
+        {
+          externalId: "2101",
+          sku: "TB-42-BRN",
+          optionValues: { Size: "42", Color: "Brown" },
+          prices: [{ currency: "USD", amount: 9990 }],
+        },
+        {
+          externalId: "2102",
+          sku: "TB-43-BLK",
+          optionValues: { Size: "43", Color: "Black" },
+          prices: [{ currency: "USD", amount: 10990 }],
+        },
+      ],
+      images: [
+        { externalId: "3001", url: "https://cdn.shop.example/trail-boot.jpg", alt: "Brown trail boot", role: "primary", sortOrder: 0 },
+        { externalId: "3002", url: "https://cdn.shop.example/trail-boot-side.jpg", alt: "Trail boot side", role: "gallery", sortOrder: 1 },
+      ],
+      options: [
+        { name: "Size", displayName: "Size", sortOrder: 0, values: [{ value: "42", displayValue: "42", sortOrder: 0 }, { value: "43", displayValue: "43", sortOrder: 1 }] },
+        { name: "Color", displayName: "Color", sortOrder: 1, values: [{ value: "Brown", displayValue: "Brown", sortOrder: 0 }, { value: "Black", displayValue: "Black", sortOrder: 1 }] },
+      ],
+      tags: ["outdoor", "waterproof"],
+      categories: ["footwear", "boots"],
+      status: "active",
+    }]);
+    expect(requests.filter((url) => new URL(url).pathname.endsWith("/settings/general"))).toHaveLength(1);
+    expect(requests.filter((url) => new URL(url).pathname.endsWith("/products/201/variations"))).toHaveLength(1);
   });
 
   it("returns API errors", async () => {

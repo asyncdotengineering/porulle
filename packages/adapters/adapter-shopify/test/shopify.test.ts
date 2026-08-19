@@ -4,6 +4,29 @@ import { shopifyConnector } from "../src/index.js";
 
 const store = { id: "store-1", organizationId: "org-1", provider: "shopify", credentials: { accessToken: "token" }, storeDomain: "shop.example", status: "connected" as const, webhookSecret: "webhook-secret" };
 
+const fullShopifyProduct = {
+  id: 101,
+  title: "Trail Boot",
+  handle: "trail-boot",
+  body_html: "<p>Built for wet trails.</p>",
+  vendor: "Summit Supply",
+  product_type: "Trail Boots",
+  tags: "outdoor, waterproof, trail",
+  status: "active",
+  images: [
+    { id: 1001, src: "https://cdn.shop.example/trail-boot.jpg", alt: "Brown trail boot", position: 1, variant_ids: [10001] },
+    { id: 1002, src: "https://cdn.shop.example/trail-boot-side.jpg", alt: "Trail boot side", position: 2, variant_ids: [10002] },
+  ],
+  options: [
+    { name: "Size", position: 1, values: ["42", "43"] },
+    { name: "Color", position: 2, values: ["Brown", "Black"] },
+  ],
+  variants: [
+    { id: 10001, sku: "TB-42-BRN", barcode: "100010001", price: "99.90", compare_at_price: "129.90", option1: "42", option2: "Brown" },
+    { id: 10002, sku: "TB-43-BLK", barcode: "100020002", price: "109.90", compare_at_price: "139.90", option1: "43", option2: "Black" },
+  ],
+};
+
 describe("shopify connector", () => {
   it("builds the Shopify authorize URL with required and additive scopes", () => {
     const connector = shopifyConnector({
@@ -88,16 +111,68 @@ describe("shopify connector", () => {
   it("paginates catalog, maps variants, and sends auth", async () => {
     const requests: string[] = [];
     const connector = shopifyConnector({ fetchImpl: async (input, init) => {
-      requests.push(`${String(input)} ${init?.headers ? (init.headers as Record<string, string>)["x-shopify-access-token"] : ""}`);
-      if (String(input).includes("page_info=next")) return new Response(JSON.stringify({ products: [{ id: 2, title: "Second", handle: "second", variants: [] }] }), { headers: { link: "" } });
+      const url = String(input);
+      requests.push(`${url} ${init?.headers ? (init.headers as Record<string, string>)["x-shopify-access-token"] : ""}`);
+      if (url.endsWith("/shop.json")) return new Response(JSON.stringify({ shop: { currency: "USD" } }));
+      if (url.includes("page_info=next")) return new Response(JSON.stringify({ products: [{ id: 2, title: "Second", handle: "second", variants: [] }] }), { headers: { link: "" } });
       return new Response(JSON.stringify({ products: [{ id: 1, title: "First", handle: "first", variants: [{ id: 11, sku: "SKU", barcode: "BAR", price: "12.34" }] }] }), { headers: { link: '<https://shop.example/admin/api/2024-10/products.json?limit=250&page_info=next>; rel="next"' } });
     } });
     const first = await connector.importCatalog(store);
-    expect(first.ok && first.value.items[0]).toMatchObject({ externalId: "1", slug: "first", variants: [{ externalId: "11", sku: "SKU", barcode: "BAR", metadata: { price: 1234 } }] });
+    expect(first.ok && first.value.items[0]).toMatchObject({ externalId: "1", slug: "first", variants: [{ externalId: "11", sku: "SKU", barcode: "BAR", prices: [{ currency: "USD", amount: 1234 }] }] });
     expect(first.ok && first.value.nextCursor).toContain("page_info=next");
     const second = await connector.importCatalog(store, first.ok ? first.value.nextCursor ?? undefined : undefined);
     expect(second.ok && second.value.items[0]?.externalId).toBe("2");
     expect(requests.every((request) => request.endsWith(" token"))).toBe(true);
+  });
+
+  it("maps the complete Shopify product payload into the catalog contract", async () => {
+    const requests: string[] = [];
+    const connector = shopifyConnector({ fetchImpl: async (input) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.endsWith("/shop.json")) return new Response(JSON.stringify({ shop: { currency: "USD" } }));
+      return new Response(JSON.stringify({ products: [fullShopifyProduct] }));
+    } });
+
+    const result = await connector.importCatalog(store);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.items).toEqual([{
+      externalId: "101",
+      slug: "trail-boot",
+      title: "Trail Boot",
+      attributes: [{ locale: "en", title: "Trail Boot", description: "<p>Built for wet trails.</p>" }],
+      variants: [
+        {
+          externalId: "10001",
+          sku: "TB-42-BRN",
+          barcode: "100010001",
+          optionValues: { Size: "42", Color: "Brown" },
+          prices: [{ currency: "USD", amount: 9990, compareAtAmount: 12990 }],
+        },
+        {
+          externalId: "10002",
+          sku: "TB-43-BLK",
+          barcode: "100020002",
+          optionValues: { Size: "43", Color: "Black" },
+          prices: [{ currency: "USD", amount: 10990, compareAtAmount: 13990 }],
+        },
+      ],
+      images: [
+        { externalId: "1001", url: "https://cdn.shop.example/trail-boot.jpg", alt: "Brown trail boot", role: "primary", sortOrder: 1, variantExternalIds: ["10001"] },
+        { externalId: "1002", url: "https://cdn.shop.example/trail-boot-side.jpg", alt: "Trail boot side", role: "gallery", sortOrder: 2, variantExternalIds: ["10002"] },
+      ],
+      options: [
+        { name: "Size", displayName: "Size", sortOrder: 1, values: [{ value: "42", displayValue: "42", sortOrder: 0 }, { value: "43", displayValue: "43", sortOrder: 1 }] },
+        { name: "Color", displayName: "Color", sortOrder: 2, values: [{ value: "Brown", displayValue: "Brown", sortOrder: 0 }, { value: "Black", displayValue: "Black", sortOrder: 1 }] },
+      ],
+      tags: ["outdoor", "waterproof", "trail"],
+      brand: "Summit Supply",
+      categories: ["trail-boots"],
+      status: "active",
+    }]);
+    expect(requests.filter((url) => url.endsWith("/shop.json"))).toHaveLength(1);
   });
 
   it("maps inventory and returns API errors", async () => {

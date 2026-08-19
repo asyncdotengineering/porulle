@@ -57,6 +57,7 @@ export interface ChannelCatalogOptionType {
 export interface ChannelCatalogPrice {
   currency: string;
   amount: number;
+  compareAtAmount?: number;
 }
 
 export interface ChannelCatalogVariant {

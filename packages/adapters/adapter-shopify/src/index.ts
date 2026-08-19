@@ -2,6 +2,7 @@ import { defineChannelConnector, Err, Ok } from "@porulle/core";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type {
   ChannelCatalogPage,
+  ChannelCatalogPrice,
   ChannelConnector,
   ChannelConnectorError,
   ChannelInventoryLevel,
@@ -33,13 +34,92 @@ type ShopifyProduct = {
   title: string;
   handle?: string;
   body_html?: string;
-  variants?: Array<{ id: number | string; sku?: string | null; barcode?: string | null; price?: string | null }>;
+  vendor?: string | null;
+  product_type?: string | null;
+  tags?: string | null;
+  status?: string | null;
+  images?: Array<{
+    id: number | string;
+    src: string;
+    alt?: string | null;
+    position?: number | null;
+    variant_ids?: Array<number | string> | null;
+  }>;
+  options?: Array<{
+    name: string;
+    position?: number | null;
+    values?: string[];
+  }>;
+  variants?: Array<{
+    id: number | string;
+    sku?: string | null;
+    barcode?: string | null;
+    price?: string | null;
+    compare_at_price?: string | null;
+    option1?: string | null;
+    option2?: string | null;
+    option3?: string | null;
+  }>;
 };
 
-function parseMoney(value: string | null | undefined): number {
-  if (!value) return 0;
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+const zeroDecimalCurrencies = new Set([
+  "BIF",
+  "CLP",
+  "DJF",
+  "GNF",
+  "ISK",
+  "JPY",
+  "KMF",
+  "KRW",
+  "PYG",
+  "RWF",
+  "UGX",
+  "VND",
+  "VUV",
+  "XAF",
+  "XOF",
+  "XPF",
+]);
+
+function normalizeCurrency(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  return value.trim().toUpperCase();
+}
+
+function parseMoney(value: string | null | undefined, currency: string): number | undefined {
+  if (value == null || value.trim() === "") return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  const exponent = zeroDecimalCurrencies.has(currency) ? 0 : 2;
+  return Math.round(parsed * (10 ** exponent));
+}
+
+function pricesForVariant(
+  variant: NonNullable<ShopifyProduct["variants"]>[number],
+  currency: string | undefined,
+): ChannelCatalogPrice[] | undefined {
+  if (!currency) return undefined;
+  const amount = parseMoney(variant.price, currency);
+  if (amount === undefined) return undefined;
+  const compareAtAmount = parseMoney(variant.compare_at_price, currency);
+  return [{
+    currency,
+    amount,
+    ...(compareAtAmount !== undefined && compareAtAmount !== amount ? { compareAtAmount } : {}),
+  }];
+}
+
+function catalogStatus(value: string | null | undefined): "draft" | "active" | "archived" | undefined {
+  return value === "draft" || value === "active" || value === "archived" ? value : undefined;
+}
+
+function slugify(value: string): string {
+  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+async function fetchShopCurrency(fetchImpl: typeof fetch, url: string, accessToken: string): Promise<string | undefined> {
+  const result = await request<{ shop?: { currency?: string | null } }>(fetchImpl, url, accessToken);
+  return result.ok ? normalizeCurrency(result.value.data.shop?.currency) : undefined;
 }
 
 function apiBase(store: ChannelStore, version: string): string {
@@ -106,6 +186,7 @@ function oauthError(code: string, message: string): Result<never, ChannelConnect
 export function shopifyConnector(options: ShopifyConnectorOptions = {}): ChannelConnector {
   const fetchImpl = options.fetchImpl ?? fetch;
   const version = options.apiVersion ?? "2024-10";
+  const currencyCache = new Map<string, Promise<string | undefined>>();
   return defineChannelConnector({
     providerId: "shopify",
     capabilities: { importCatalog: true, importInventory: true, pushOrder: true, receiveWebhooks: true },
@@ -159,24 +240,67 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
     async importCatalog(store, cursor): Promise<Result<ChannelCatalogPage>> {
       const token = credentials(store);
       if (!token) return Err({ code: "SHOPIFY_CREDENTIALS_REQUIRED", message: "Shopify accessToken is required." });
+      const currencyUrl = `${apiBase(store, version)}/shop.json`;
+      const currencyKey = apiBase(store, version);
+      let currencyPromise = currencyCache.get(currencyKey);
+      if (!currencyPromise) {
+        currencyPromise = fetchShopCurrency(fetchImpl, currencyUrl, token);
+        currencyCache.set(currencyKey, currencyPromise);
+      }
+      const currency = await currencyPromise;
       const url = cursor ?? `${apiBase(store, version)}/products.json?limit=250`;
       const result = await request<{ products: ShopifyProduct[] }>(fetchImpl, url, token);
       if (!result.ok) return result;
       const link = result.value.response.headers.get("link") ?? "";
       const next = link.match(/<([^>]+)>;\s*rel="next"/)?.[1] ?? null;
       return Ok({
-        items: result.value.data.products.map((product) => ({
-          externalId: String(product.id),
-          slug: product.handle ?? String(product.id),
-          title: product.title,
-          ...(product.body_html ? { description: product.body_html } : {}),
-          variants: (product.variants ?? []).map((variant) => ({
-            externalId: String(variant.id),
-            ...(variant.sku ? { sku: variant.sku } : {}),
-            ...(variant.barcode ? { barcode: variant.barcode } : {}),
-            metadata: { price: parseMoney(variant.price) },
-          })),
-        })),
+        items: result.value.data.products.map((product) => {
+          const options = product.options?.map((option, index) => ({
+            name: option.name,
+            displayName: option.name,
+            ...(option.position != null ? { sortOrder: option.position } : { sortOrder: index }),
+            values: (option.values ?? []).map((value, valueIndex) => ({ value, displayValue: value, sortOrder: valueIndex })),
+          }));
+          const variants = (product.variants ?? []).map((variant) => {
+            const selectors = [variant.option1, variant.option2, variant.option3];
+            const optionValues = Object.fromEntries((product.options ?? []).slice(0, 3).flatMap((option, index) => {
+              const value = selectors[index];
+              return value != null && value !== "" ? [[option.name, value] as const] : [];
+            }));
+            const prices = pricesForVariant(variant, currency);
+            return {
+              externalId: String(variant.id),
+              ...(variant.sku ? { sku: variant.sku } : {}),
+              ...(variant.barcode ? { barcode: variant.barcode } : {}),
+              ...(Object.keys(optionValues).length > 0 ? { optionValues } : {}),
+              ...(prices ? { prices } : {}),
+            };
+          });
+          const category = product.product_type ? slugify(product.product_type) : "";
+          const status = catalogStatus(product.status);
+          return {
+            externalId: String(product.id),
+            slug: product.handle ?? String(product.id),
+            title: product.title,
+            attributes: [{ locale: "en", title: product.title, ...(product.body_html != null ? { description: product.body_html } : {}) }],
+            variants,
+            ...(product.images ? {
+              images: product.images.map((image, index) => ({
+                externalId: String(image.id),
+                url: image.src,
+                ...(image.alt != null ? { alt: image.alt } : {}),
+                role: index === 0 ? "primary" as const : "gallery" as const,
+                ...(image.position != null ? { sortOrder: image.position } : {}),
+                ...(image.variant_ids != null ? { variantExternalIds: image.variant_ids.map(String) } : {}),
+              })),
+            } : {}),
+            ...(options ? { options } : {}),
+            ...(product.tags != null ? { tags: product.tags.split(",").map((tag) => tag.trim()).filter(Boolean) } : {}),
+            ...(product.vendor ? { brand: product.vendor } : {}),
+            ...(category ? { categories: [category] } : {}),
+            ...(status ? { status } : {}),
+          };
+        }),
         nextCursor: next,
       });
     },
