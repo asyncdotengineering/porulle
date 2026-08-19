@@ -257,12 +257,29 @@ export class CatalogRepository {
     return db
       .select()
       .from(sellableCustomFields)
+      .where(
+        and(
+          eq(sellableCustomFields.entityId, entityId),
+          eq(sellableCustomFields.status, "approved"),
+        ),
+      );
+  }
+
+  async findAllCustomFieldsByEntityId(
+    entityId: string,
+    ctx?: TxContext,
+  ): Promise<SellableCustomField[]> {
+    const db = this.getDb(ctx);
+    return db
+      .select()
+      .from(sellableCustomFields)
       .where(eq(sellableCustomFields.entityId, entityId));
   }
 
   async findCustomFieldByName(
     entityId: string,
     fieldName: string,
+    locale = "en",
     ctx?: TxContext,
   ): Promise<SellableCustomField | undefined> {
     const db = this.getDb(ctx);
@@ -273,6 +290,8 @@ export class CatalogRepository {
         and(
           eq(sellableCustomFields.entityId, entityId),
           eq(sellableCustomFields.fieldName, fieldName),
+          eq(sellableCustomFields.locale, locale),
+          eq(sellableCustomFields.status, "approved"),
         ),
       );
     return rows[0];
@@ -295,7 +314,7 @@ export class CatalogRepository {
     const db = this.getDb(ctx);
     const rows = await db
       .update(sellableCustomFields)
-      .set(data)
+      .set({ ...data, updatedAt: new Date() })
       .where(eq(sellableCustomFields.id, id))
       .returning();
     return rows[0];
@@ -304,20 +323,22 @@ export class CatalogRepository {
   async upsertCustomField(
     entityId: string,
     fieldName: string,
+    locale: string,
     data: Omit<SellableCustomFieldInsert, "entityId" | "fieldName">,
     ctx?: TxContext,
   ): Promise<SellableCustomField> {
-    const existing = await this.findCustomFieldByName(entityId, fieldName, ctx);
+    const existing = await this.findCustomFieldByName(entityId, fieldName, locale, ctx);
     if (existing) {
       const updated = await this.updateCustomField(existing.id, data, ctx);
       return updated!;
     }
-    return this.createCustomField({ ...data, entityId, fieldName }, ctx);
+    return this.createCustomField({ ...data, entityId, fieldName, locale }, ctx);
   }
 
   async deleteCustomField(
     entityId: string,
     fieldName: string,
+    locale = "en",
     ctx?: TxContext,
   ): Promise<void> {
     const db = this.getDb(ctx);
@@ -327,6 +348,8 @@ export class CatalogRepository {
         and(
           eq(sellableCustomFields.entityId, entityId),
           eq(sellableCustomFields.fieldName, fieldName),
+          eq(sellableCustomFields.locale, locale),
+          eq(sellableCustomFields.status, "approved"),
         ),
       );
   }

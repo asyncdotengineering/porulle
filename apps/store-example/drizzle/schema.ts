@@ -1,4 +1,4 @@
-import { pgTable, unique, text, timestamp, integer, boolean, foreignKey, uuid, jsonb, index } from "drizzle-orm/pg-core"
+import { pgTable, unique, text, timestamp, integer, boolean, foreignKey, uuid, jsonb, index, uniqueIndex, numeric } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 
@@ -216,12 +216,22 @@ export const sellableCustomFields = pgTable("sellable_custom_fields", {
 	entityId: uuid("entity_id").notNull(),
 	fieldName: text("field_name").notNull(),
 	fieldType: text("field_type").notNull(),
+	source: text().default('merchant').notNull(),
+	status: text().default('approved').notNull(),
+	confidence: numeric({ precision: 4, scale: 3 }),
+	evidence: jsonb(),
+	locale: text().default('en').notNull(),
+	approvedAt: timestamp("approved_at", { withTimezone: true, mode: 'string' }),
+	approvedBy: text("approved_by"),
 	textValue: text("text_value"),
 	numberValue: integer("number_value"),
 	booleanValue: boolean("boolean_value"),
 	dateValue: timestamp("date_value", { withTimezone: true, mode: 'string' }),
 	jsonValue: jsonb("json_value"),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
+	uniqueIndex("sellable_custom_fields_live_unique").on(table.entityId, table.fieldName, table.locale).where(sql`${table.status} = 'approved'`),
 	index("idx_custom_fields_entity_field").using("btree", table.entityId.asc().nullsLast().op("text_ops"), table.fieldName.asc().nullsLast().op("uuid_ops")),
 	index("idx_custom_fields_number").using("btree", table.fieldName.asc().nullsLast().op("int4_ops"), table.numberValue.asc().nullsLast().op("int4_ops")),
 	index("idx_custom_fields_text").using("btree", table.fieldName.asc().nullsLast().op("text_ops"), table.textValue.asc().nullsLast().op("text_ops")),

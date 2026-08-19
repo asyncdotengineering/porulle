@@ -5,6 +5,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -79,17 +80,33 @@ export const sellableCustomFields = pgTable(
     fieldType: text("field_type", {
       enum: ["text", "number", "boolean", "date", "json", "relation"],
     }).notNull(),
+    source: text("source", {
+      enum: ["merchant", "import", "enrichment", "rule"],
+    }).notNull().default("merchant"),
+    status: text("status", {
+      enum: ["proposed", "approved", "rejected"],
+    }).notNull().default("approved"),
+    confidence: numeric("confidence", { precision: 4, scale: 3 }),
+    evidence: jsonb("evidence").$type<Record<string, unknown>>(),
+    locale: text("locale").notNull().default("en"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    approvedBy: text("approved_by"),
     textValue: text("text_value"),
     numberValue: integer("number_value"),
     booleanValue: boolean("boolean_value"),
     dateValue: timestamp("date_value", { withTimezone: true }),
     jsonValue: jsonb("json_value"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({
-    entityFieldUnique: uniqueIndex("sellable_custom_fields_entity_field_unique").on(
-      table.entityId,
-      table.fieldName,
-    ),
+    liveUnique: uniqueIndex("sellable_custom_fields_live_unique")
+      .on(
+        table.entityId,
+        table.fieldName,
+        table.locale,
+      )
+      .where(sql`${table.status} = 'approved'`),
     entityFieldIdx: index("idx_custom_fields_entity_field").on(
       table.entityId,
       table.fieldName,

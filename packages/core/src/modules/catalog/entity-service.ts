@@ -83,8 +83,8 @@ function getCustomFieldValue(field: SellableCustomField): unknown {
   }
 }
 
-type CustomFieldData = Omit<SellableCustomFieldInsert, "entityId" | "fieldName">;
-type ValidatedCustomField = { fieldName: string; data: CustomFieldData | null };
+type CustomFieldData = Omit<SellableCustomFieldInsert, "entityId" | "fieldName" | "locale">;
+type ValidatedCustomField = { fieldName: string; locale: string; data: CustomFieldData | null };
 
 export class EntityService {
   constructor(private readonly deps: CatalogServiceDeps) {}
@@ -115,7 +115,7 @@ export class EntityService {
       const def = definitionMap.get(name);
       if (!def) return Err(new CommerceValidationError(`Unknown custom field: ${name}`));
       if (value === null) {
-        validated.push({ fieldName: name, data: null });
+        validated.push({ fieldName: name, locale: "en", data: null });
         continue;
       }
       const type = def.type;
@@ -143,7 +143,15 @@ export class EntityService {
       }
       if (!valid) return Err(new CommerceValidationError(`Custom field ${name} expected type ${type}.`));
       const fieldType = (type === "select" ? "text" : type) as SellableCustomField["fieldType"];
-      const insertData: CustomFieldData = { fieldType };
+      const insertData: CustomFieldData = {
+        fieldType,
+        source: "merchant",
+        status: "approved",
+        confidence: null,
+        evidence: null,
+        approvedAt: null,
+        approvedBy: null,
+      };
       switch (fieldType) {
         case "text":
         case "relation":
@@ -162,7 +170,7 @@ export class EntityService {
           insertData.jsonValue = value;
           break;
       }
-      validated.push({ fieldName: name, data: insertData });
+      validated.push({ fieldName: name, locale: "en", data: insertData });
     }
     return Ok(validated);
   }
@@ -170,11 +178,11 @@ export class EntityService {
   private async writeCustomFields(entityId: string, customFields: ValidatedCustomField[], ctx?: TxContext, upsert = false): Promise<void> {
     for (const customField of customFields) {
       if (customField.data === null) {
-        await this.repo.deleteCustomField(entityId, customField.fieldName, ctx);
+        await this.repo.deleteCustomField(entityId, customField.fieldName, customField.locale, ctx);
       } else if (upsert) {
-        await this.repo.upsertCustomField(entityId, customField.fieldName, customField.data, ctx);
+        await this.repo.upsertCustomField(entityId, customField.fieldName, customField.locale, customField.data, ctx);
       } else {
-        await this.repo.createCustomField({ ...customField.data, entityId, fieldName: customField.fieldName }, ctx);
+        await this.repo.createCustomField({ ...customField.data, entityId, fieldName: customField.fieldName, locale: customField.locale }, ctx);
       }
     }
   }
