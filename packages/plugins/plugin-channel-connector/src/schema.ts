@@ -8,6 +8,7 @@ import {
   uniqueIndex,
   uuid,
 } from "@porulle/core/drizzle";
+import type { FieldPath } from "@porulle/core";
 
 export const connectedStores = pgTable(
   "connected_stores",
@@ -48,6 +49,7 @@ export const channelEntityMap = pgTable(
     variantId: uuid("variant_id"),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }).defaultNow().notNull(),
     syncHash: text("sync_hash").notNull(),
+    heldFieldPaths: jsonb("held_field_paths").$type<FieldPath[]>().notNull().default([]),
   },
   (table) => ({
     orgIdx: index("idx_channel_entity_map_org").on(table.organizationId),

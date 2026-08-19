@@ -45,6 +45,8 @@ export { signState, verifyState } from "./oauth-state.js";
 export type {
   BackfillCatalogOptions,
   BackfillCatalogReport,
+  CatalogFieldConflict,
+  CatalogFieldSkip,
   ChannelComplianceData,
   ChannelConnectorPluginOptions,
   ChannelStockLine,

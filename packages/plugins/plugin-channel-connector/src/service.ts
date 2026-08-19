@@ -17,6 +17,8 @@ import type {
   PluginResult,
   PluginTxFn,
 } from "@porulle/core";
+import { isValidFieldPath } from "@porulle/core";
+import type { FieldOwner, FieldPath } from "@porulle/core";
 import type { JobsAdapter } from "@porulle/core";
 import { and, eq, inArray, isNull } from "@porulle/core/drizzle";
 import {
@@ -32,9 +34,11 @@ import {
   optionValues,
   orderLineItems,
   orders,
+  prices,
   sellableAttributes,
   sellableEntities,
   tags,
+  variants,
   variantOptionValues,
 } from "@porulle/core/schema";
 import {
@@ -57,7 +61,22 @@ export interface ReconcileReport extends Record<string, unknown> {
   archived: number;
   inventoryUpdated: number;
   driftAlert: boolean;
+  skipped?: CatalogFieldSkip[];
+  conflicts?: CatalogFieldConflict[];
   warnings?: string[];
+}
+
+export interface CatalogFieldConflict {
+  entityId: string;
+  storeId: string;
+  fieldPath: FieldPath;
+  localValueSummary: string;
+  remoteValueSummary: string;
+}
+
+export interface CatalogFieldSkip {
+  entityId: string;
+  fieldPath: FieldPath;
 }
 
 export type PublicConnectedStore = Omit<ConnectedStore, "credentials" | "webhookSecret"> & {
@@ -103,6 +122,8 @@ interface BackfillCounts {
 export interface BackfillCatalogReport extends BackfillCounts, Record<string, unknown> {
   cursor: string | null;
   complete: boolean;
+  skipped?: CatalogFieldSkip[];
+  conflicts?: CatalogFieldConflict[];
   warnings?: string[];
 }
 
@@ -113,6 +134,8 @@ interface CatalogConvergenceStats {
   attributesCreated: number;
   mediaImported: number;
   variantsGivenOptionValues: number;
+  skipped: CatalogFieldSkip[];
+  conflicts: CatalogFieldConflict[];
   warnings: string[];
 }
 
@@ -125,11 +148,16 @@ export interface BackfillCatalogOptions {
 interface BackfillState {
   cursor: string | null;
   report: BackfillCounts;
+  skipped?: CatalogFieldSkip[];
+  conflicts?: CatalogFieldConflict[];
   warnings?: string[];
   completedAt?: string;
 }
 
 interface CatalogService {
+  repository: {
+    findRevisionMarkers(entityId: string, since?: Date): Promise<Array<{ createdAt: Date; reason: string }>>;
+  };
   update(
     id: string,
     input: { slug?: string; status?: string; metadata?: Record<string, unknown>; isVisible?: boolean },
@@ -164,6 +192,13 @@ interface CatalogService {
     },
     actor: Actor,
   ): Promise<{ ok: true; value: undefined } | { ok: false; error: { message: string } }>;
+  recordEntityRevision(
+    entityId: string,
+    actor: Actor,
+    reason: "import",
+  ): Promise<{ ok: true; value: unknown } | { ok: false; error: { message: string } }>;
+  resolveFieldOwners(entityId: string, storeId: string): Promise<Map<FieldPath, FieldOwner>>;
+  seedImportedFieldOwnership(entityId: string, storeId: string, fieldPaths: FieldPath[]): Promise<{ ok: true; value: undefined } | { ok: false; error: { message: string } }>;
   createOptionType(
     input: { entityId: string; name: string; values?: string[] },
     actor: Actor,
@@ -250,6 +285,54 @@ function mergeMetadata(
   return { ...(existing ?? {}), ...remote };
 }
 
+const attributeFields = ["title", "subtitle", "description", "richDescription", "seoTitle", "seoDescription"] as const;
+
+function importedFieldPaths(item: ChannelCatalogItem): FieldPath[] {
+  const paths = new Set<FieldPath>(["entity.slug"]);
+  if (item.status !== undefined) paths.add("entity.status");
+  for (const key of Object.keys(item.metadata ?? {})) {
+    const path = `entity.metadata.${key}`;
+    if (isValidFieldPath(path)) paths.add(path);
+  }
+  const attributes = item.attributes?.length
+    ? item.attributes
+    : [{ locale: "en", title: item.title, ...(item.description !== undefined ? { description: item.description } : {}) }];
+  for (const attribute of attributes) {
+    for (const field of attributeFields) {
+      if (attribute[field] !== undefined) paths.add(`attributes.${attribute.locale}.${field}`);
+    }
+  }
+  for (const image of item.images ?? []) paths.add(`media.${image.role}`);
+  if (item.options?.length) paths.add("options");
+  if (item.variants.some((variant) => variant.sku !== undefined)) paths.add("variants.sku");
+  if (item.variants.some((variant) => variant.barcode !== undefined)) paths.add("variants.barcode");
+  for (const currency of item.variants.flatMap((variant) => variant.prices ?? []).map((price) => price.currency)) {
+    const path = `prices.${currency}`;
+    if (isValidFieldPath(path)) paths.add(path);
+  }
+  return [...paths];
+}
+
+function summarizeValue(value: unknown): string {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) return String(value);
+  return serialized.length > 256 ? `${serialized.slice(0, 253)}...` : serialized;
+}
+
+function uniqueSkipped(skipped: CatalogFieldSkip[]): CatalogFieldSkip[] {
+  const seen = new Set<string>();
+  return skipped.filter((entry) => {
+    const key = `${entry.entityId}:${entry.fieldPath}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function ownerAllows(owners: Map<FieldPath, FieldOwner>, path: FieldPath): boolean {
+  return owners.get(path) !== "platform";
+}
+
 function stockFailure(line: ChannelStockLine, reason: string): string {
   return `Cannot checkout line "${line.title ?? line.entityId}": ${reason}.`;
 }
@@ -327,26 +410,230 @@ export class ChannelConnectorService {
     return this.services.pricing as PricingService;
   }
 
+  private filterOwnedFields(
+    item: ChannelCatalogItem,
+    owners: Map<FieldPath, FieldOwner>,
+  ): { writable: ChannelCatalogItem; skipped: FieldPath[]; conflicts: FieldPath[] } {
+    return this.filterOwnedFieldsAtPaths(item, owners, importedFieldPaths(item));
+  }
+
+  private filterOwnedFieldsAtPaths(
+    item: ChannelCatalogItem,
+    owners: Map<FieldPath, FieldOwner>,
+    fieldPaths: FieldPath[],
+  ): { writable: ChannelCatalogItem; skipped: FieldPath[]; conflicts: FieldPath[] } {
+    const populated = new Set(fieldPaths);
+    const skipped = fieldPaths.filter((path) => owners.get(path) === "platform");
+    const blocked = new Set(skipped);
+    const attributes = (item.attributes?.length
+      ? item.attributes
+      : [{ locale: "en", title: item.title, ...(item.description !== undefined ? { description: item.description } : {}) }])
+      .flatMap((attribute) => {
+        return [{
+          locale: attribute.locale,
+          title: attribute.title,
+          ...Object.fromEntries(attributeFields.slice(1)
+            .filter((field) => attribute[field] !== undefined
+              && populated.has(`attributes.${attribute.locale}.${field}`)
+              && !blocked.has(`attributes.${attribute.locale}.${field}`))
+            .map((field) => [field, attribute[field]])),
+        }];
+      });
+    const writable: ChannelCatalogItem = {
+      ...item,
+      attributes,
+      metadata: Object.fromEntries(Object.entries(item.metadata ?? {}).filter(([key]) => populated.has(`entity.metadata.${key}`) && !blocked.has(`entity.metadata.${key}`))),
+      ...(item.images !== undefined ? { images: item.images.filter((image) => populated.has(`media.${image.role}`) && !blocked.has(`media.${image.role}`)) } : {}),
+      ...(item.options !== undefined ? { options: blocked.has("options") ? [] : item.options } : {}),
+      variants: item.variants.map((variant) => ({
+        externalId: variant.externalId,
+        ...(variant.sku !== undefined && populated.has("variants.sku") && !blocked.has("variants.sku") ? { sku: variant.sku } : {}),
+        ...(variant.barcode !== undefined && populated.has("variants.barcode") && !blocked.has("variants.barcode") ? { barcode: variant.barcode } : {}),
+        ...(variant.metadata !== undefined ? { metadata: variant.metadata } : {}),
+        ...(variant.optionValues !== undefined && populated.has("options") && !blocked.has("options") ? { optionValues: variant.optionValues } : {}),
+        ...(variant.prices !== undefined
+          ? { prices: variant.prices.filter((price) => populated.has(`prices.${price.currency}`) && !blocked.has(`prices.${price.currency}`)) }
+          : {}),
+      })),
+    };
+    return { writable, skipped, conflicts: [] };
+  }
+
+  private filterConflictingFields(
+    item: ChannelCatalogItem,
+    conflicts: FieldPath[],
+  ): { writable: ChannelCatalogItem; conflicts: FieldPath[] } {
+    if (conflicts.length === 0) return { writable: item, conflicts: [] };
+    const blocked = new Set(conflicts);
+    const attributes = (item.attributes ?? []).flatMap((attribute) => {
+      return [{
+        locale: attribute.locale,
+        title: attribute.title,
+        ...Object.fromEntries(attributeFields.slice(1)
+          .filter((field) => attribute[field] !== undefined && !blocked.has(`attributes.${attribute.locale}.${field}`))
+          .map((field) => [field, attribute[field]])),
+      }];
+    });
+    return {
+      writable: {
+        ...item,
+        attributes,
+        metadata: Object.fromEntries(Object.entries(item.metadata ?? {}).filter(([key]) => !blocked.has(`entity.metadata.${key}`))),
+        ...(item.images !== undefined ? { images: item.images.filter((image) => !blocked.has(`media.${image.role}`)) } : {}),
+        ...(item.options !== undefined ? { options: blocked.has("options") ? [] : item.options } : {}),
+        variants: item.variants.map((variant) => ({
+          externalId: variant.externalId,
+          ...(variant.sku !== undefined && !blocked.has("variants.sku") ? { sku: variant.sku } : {}),
+          ...(variant.barcode !== undefined && !blocked.has("variants.barcode") ? { barcode: variant.barcode } : {}),
+          ...(variant.metadata !== undefined ? { metadata: variant.metadata } : {}),
+          ...(variant.optionValues !== undefined && !blocked.has("options") ? { optionValues: variant.optionValues } : {}),
+          ...(variant.prices !== undefined
+            ? { prices: variant.prices.filter((price) => !blocked.has(`prices.${price.currency}`)) }
+            : {}),
+        })),
+      },
+      conflicts,
+    };
+  }
+
+  private remoteFieldValue(item: ChannelCatalogItem, path: FieldPath): unknown {
+    const [root, segment, field] = path.split(".");
+    if (root === "entity" && segment === "slug") return item.slug;
+    if (root === "entity" && segment === "status") return item.status;
+    if (root === "entity" && segment === "metadata") return item.metadata?.[field ?? ""];
+    if (root === "attributes" && segment && field) {
+      const attributes = item.attributes?.length
+        ? item.attributes
+        : [{ locale: "en", title: item.title, ...(item.description !== undefined ? { description: item.description } : {}) }];
+      const attribute = attributes.find((row) => row.locale === segment);
+      return attribute?.[field as keyof typeof attribute];
+    }
+    if (root === "media" && segment) return (item.images ?? []).filter((image) => image.role === segment).map((image) => image.externalId ?? image.url);
+    if (path === "options") return item.options;
+    if (path === "variants.sku") return item.variants.map((variant) => variant.sku);
+    if (path === "variants.barcode") return item.variants.map((variant) => variant.barcode);
+    if (root === "prices" && segment) return item.variants.flatMap((variant) => variant.prices ?? []).filter((price) => price.currency === segment);
+    return undefined;
+  }
+
+  private async localFieldValue(
+    entityId: string,
+    entity: typeof sellableEntities.$inferSelect,
+    path: FieldPath,
+  ): Promise<unknown> {
+    const [root, segment, field] = path.split(".");
+    if (root === "entity" && segment === "slug") return entity.slug;
+    if (root === "entity" && segment === "status") return entity.status;
+    if (root === "entity" && segment === "metadata") return entity.metadata?.[field ?? ""];
+    if (root === "attributes" && segment && field) {
+      const [attribute] = await this.db.select().from(sellableAttributes).where(and(
+        eq(sellableAttributes.entityId, entityId),
+        eq(sellableAttributes.locale, segment),
+      ));
+      const values: Record<string, unknown> = attribute
+        ? {
+          title: attribute.title,
+          subtitle: attribute.subtitle,
+          description: attribute.description,
+          richDescription: attribute.richDescription,
+          seoTitle: attribute.seoTitle,
+          seoDescription: attribute.seoDescription,
+        }
+        : {};
+      return values[field];
+    }
+    if (root === "media" && segment) {
+      const links = await this.db.select({ id: entityMedia.mediaAssetId }).from(entityMedia).where(and(
+        eq(entityMedia.entityId, entityId),
+        eq(entityMedia.role, segment as "primary" | "gallery" | "thumbnail" | "video" | "document"),
+      ));
+      return links.map((link) => link.id);
+    }
+    if (path === "options") {
+      const types = await this.db.select().from(optionTypes).where(eq(optionTypes.entityId, entityId));
+      const values = await Promise.all(types.map(async (type) => ({
+        name: type.name,
+        values: await this.db.select().from(optionValues).where(eq(optionValues.optionTypeId, type.id)),
+      })));
+      return values;
+    }
+    if (path === "variants.sku" || path === "variants.barcode") {
+      const rows = await this.db.select().from(variants).where(eq(variants.entityId, entityId));
+      return rows.map((variant) => path === "variants.sku" ? variant.sku : variant.barcode);
+    }
+    if (root === "prices" && segment) {
+      const rows = await this.db.select().from(prices).where(and(
+        eq(prices.entityId, entityId),
+        eq(prices.currency, segment),
+      ));
+      return rows.map((price) => ({ amount: price.amount, compareAtAmount: price.compareAtAmount }));
+    }
+    return undefined;
+  }
+
+  private async detectSharedConflicts(
+    entityId: string,
+    storeId: string,
+    entity: typeof sellableEntities.$inferSelect,
+    mapping: typeof channelEntityMap.$inferSelect | undefined,
+    item: ChannelCatalogItem,
+    owners: Map<FieldPath, FieldOwner>,
+    fieldPaths: FieldPath[] = importedFieldPaths(item),
+    remoteHash = hash(item),
+  ): Promise<{ paths: FieldPath[]; conflicts: CatalogFieldConflict[] }> {
+    if (!mapping || mapping.syncHash === remoteHash) return { paths: [], conflicts: [] };
+    const revisions = await this.catalog.repository.findRevisionMarkers(entityId, mapping.lastSyncedAt);
+    const localChanged = revisions.some((revision) => revision.reason !== "import");
+    if (!localChanged) return { paths: [], conflicts: [] };
+    const paths = fieldPaths.filter((path) => owners.get(path) === "shared");
+    const conflicts = await Promise.all(paths.map(async (fieldPath) => ({
+      entityId,
+      storeId,
+      fieldPath,
+      localValueSummary: summarizeValue(await this.localFieldValue(entityId, entity, fieldPath)),
+      remoteValueSummary: summarizeValue(this.remoteFieldValue(item, fieldPath)),
+    })));
+    return { paths, conflicts };
+  }
+
   private async setCatalogAttributes(
     entityId: string,
     item: ChannelCatalogItem,
     actor: Actor,
-  ): Promise<PluginResult<{ created: number }>> {
-    const attributes = item.attributes?.length
-      ? item.attributes
-      : [{
-        locale: "en",
-        title: item.title,
-        ...(item.description !== undefined ? { description: item.description } : {}),
-      }];
+    blockedPaths: ReadonlySet<FieldPath> = new Set<FieldPath>(),
+  ): Promise<PluginResult<{ created: number; changed: boolean }>> {
+    const attributes = item.attributes ?? [{
+      locale: "en",
+      title: item.title,
+      ...(item.description !== undefined ? { description: item.description } : {}),
+    }];
     const existing = await this.db.select().from(sellableAttributes).where(eq(sellableAttributes.entityId, entityId));
     let created = 0;
+    let changed = false;
     for (const attribute of attributes) {
-      if (!existing.some((row) => row.locale === attribute.locale)) created += 1;
-      const result = await this.catalog.setAttributes(entityId, attribute.locale, attribute, actor);
+      const current = existing.find((row) => row.locale === attribute.locale);
+      const titlePath = `attributes.${attribute.locale}.title` as FieldPath;
+      if (!current && blockedPaths.has(titlePath)) continue;
+      const title = blockedPaths.has(titlePath) ? current?.title : attribute.title;
+      if (title === undefined) continue;
+      const writeAttribute = {
+        title,
+        ...(attribute.subtitle !== undefined && !blockedPaths.has(`attributes.${attribute.locale}.subtitle`) ? { subtitle: attribute.subtitle } : current?.subtitle != null ? { subtitle: current.subtitle } : {}),
+        ...(attribute.description !== undefined && !blockedPaths.has(`attributes.${attribute.locale}.description`) ? { description: attribute.description } : current?.description != null ? { description: current.description } : {}),
+        ...(attribute.richDescription !== undefined && !blockedPaths.has(`attributes.${attribute.locale}.richDescription`) ? { richDescription: attribute.richDescription } : current?.richDescription != null ? { richDescription: current.richDescription } : {}),
+        ...(attribute.seoTitle !== undefined && !blockedPaths.has(`attributes.${attribute.locale}.seoTitle`) ? { seoTitle: attribute.seoTitle } : current?.seoTitle != null ? { seoTitle: current.seoTitle } : {}),
+        ...(attribute.seoDescription !== undefined && !blockedPaths.has(`attributes.${attribute.locale}.seoDescription`) ? { seoDescription: attribute.seoDescription } : current?.seoDescription != null ? { seoDescription: current.seoDescription } : {}),
+      };
+      if (!current) {
+        created += 1;
+        changed = true;
+      } else if (attributeFields.some((field) => (current[field] == null ? null : current[field]) !== (writeAttribute[field] == null ? null : writeAttribute[field]))) {
+        changed = true;
+      }
+      const result = await this.catalog.setAttributes(entityId, attribute.locale, writeAttribute, actor);
       if (!result.ok) return PluginErr(result.error.message);
     }
-    return Ok({ created });
+    return Ok({ created, changed });
   }
 
   private async upsertOptionAxes(
@@ -405,6 +692,8 @@ export class ChannelConnectorService {
     optionValueIds: Map<string, Map<string, string>>,
     actor: Actor,
     warnings: string[],
+    applyOptionValues: boolean,
+    fullItem: ChannelCatalogItem,
   ): Promise<PluginResult<{ value: Map<string, string>; repaired: number; changed: boolean }>> {
     const variantIds = new Map<string, string>();
     let repaired = 0;
@@ -416,6 +705,7 @@ export class ChannelConnectorService {
       eq(channelEntityMap.entityId, entityId),
     ));
     for (const sourceVariant of item.variants) {
+      const fullSourceVariant = fullItem.variants.find((variant) => variant.externalId === sourceVariant.externalId) ?? sourceVariant;
       let mapping = mappings.find((row) => row.externalId === sourceVariant.externalId);
       let variantId = mapping?.variantId;
       const createdVariant = !variantId;
@@ -444,7 +734,7 @@ export class ChannelConnectorService {
           externalId: sourceVariant.externalId,
           entityId,
           variantId,
-          syncHash: hash(sourceVariant),
+          syncHash: hash(fullSourceVariant),
         }).returning();
         mapping = createdMapping;
         if (mapping) mappings.push(mapping);
@@ -454,23 +744,25 @@ export class ChannelConnectorService {
         continue;
       }
       variantIds.set(sourceVariant.externalId, variantId);
-      const desiredOptionValueIds = Object.entries(sourceVariant.optionValues ?? {})
-        .map(([name, value]) => optionValueIds.get(name)?.get(value))
-        .filter((optionValueId): optionValueId is string => optionValueId !== undefined);
-      const currentOptionValues = await this.db.select().from(variantOptionValues).where(eq(variantOptionValues.variantId, variantId));
-      const currentIds = currentOptionValues.map((row) => row.optionValueId).sort();
-      const desiredIds = [...new Set(desiredOptionValueIds)].sort();
-      if (currentIds.length !== desiredIds.length || currentIds.some((id, index) => id !== desiredIds[index])) {
-        await this.db.delete(variantOptionValues).where(eq(variantOptionValues.variantId, variantId));
-        if (desiredIds.length > 0) {
-          await this.db.insert(variantOptionValues).values(desiredIds.map((optionValueId) => ({ variantId, optionValueId }))).onConflictDoNothing();
-          repaired += 1;
+      if (applyOptionValues) {
+        const desiredOptionValueIds = Object.entries(sourceVariant.optionValues ?? {})
+          .map(([name, value]) => optionValueIds.get(name)?.get(value))
+          .filter((optionValueId): optionValueId is string => optionValueId !== undefined);
+        const currentOptionValues = await this.db.select().from(variantOptionValues).where(eq(variantOptionValues.variantId, variantId));
+        const currentIds = currentOptionValues.map((row) => row.optionValueId).sort();
+        const desiredIds = [...new Set(desiredOptionValueIds)].sort();
+        if (currentIds.length !== desiredIds.length || currentIds.some((id, index) => id !== desiredIds[index])) {
+          await this.db.delete(variantOptionValues).where(eq(variantOptionValues.variantId, variantId));
+          if (desiredIds.length > 0) {
+            await this.db.insert(variantOptionValues).values(desiredIds.map((optionValueId) => ({ variantId, optionValueId }))).onConflictDoNothing();
+            repaired += 1;
+          }
+          changed = true;
         }
-        changed = true;
-      }
-      if (createdVariant && desiredIds.length > 0) {
-        repaired += 1;
-        changed = true;
+        if (createdVariant && desiredIds.length > 0) {
+          repaired += 1;
+          changed = true;
+        }
       }
       for (const price of sourceVariant.prices ?? []) {
         const priced = await this.pricing.setBasePrice({
@@ -484,8 +776,7 @@ export class ChannelConnectorService {
       }
       if (mapping) {
         await this.db.update(channelEntityMap).set({
-          syncHash: hash(sourceVariant),
-          lastSyncedAt: new Date(),
+          syncHash: hash(fullSourceVariant),
         }).where(eq(channelEntityMap.id, mapping.id));
       }
     }
@@ -557,11 +848,13 @@ export class ChannelConnectorService {
     variantIds: Map<string, string>,
     actor: Actor,
     warnings: string[],
-  ): Promise<PluginResult<{ imported: number; changed: boolean }>> {
+    owners: Map<FieldPath, FieldOwner>,
+  ): Promise<PluginResult<{ imported: number; changed: boolean; skipped: FieldPath[] }>> {
     const assets = await this.db.select().from(mediaAssets).where(eq(mediaAssets.organizationId, orgId));
     const links = await this.db.select().from(entityMedia).where(eq(entityMedia.entityId, entityId));
     let imported = 0;
     let changed = false;
+    const skipped: FieldPath[] = [];
     for (const image of item.images ?? []) {
       const urlHash = hash(image.url);
       const asset = assets.find((row) => {
@@ -620,6 +913,14 @@ export class ChannelConnectorService {
           && (target.variantId === undefined ? link.variantId === null : link.variantId === target.variantId),
         );
         if (existingLink) {
+          if (existingLink.role !== image.role) {
+            const currentRolePath = `media.${existingLink.role}` as FieldPath;
+            const incomingRolePath = `media.${image.role}` as FieldPath;
+            for (const path of [currentRolePath, incomingRolePath]) {
+              if (owners.get(path) === "platform" && !skipped.includes(path)) skipped.push(path);
+            }
+            if (skipped.includes(currentRolePath) || skipped.includes(incomingRolePath)) continue;
+          }
           if (existingLink.role !== image.role || existingLink.sortOrder !== (image.sortOrder ?? 0)) {
             await this.db.update(entityMedia).set({ role: image.role, sortOrder: image.sortOrder ?? 0 }).where(and(
               eq(entityMedia.entityId, entityId),
@@ -649,7 +950,7 @@ export class ChannelConnectorService {
         });
       }
     }
-    return Ok({ imported, changed });
+    return Ok({ imported, changed, skipped });
   }
 
   private async getStoreRecord(orgId: string, id: string): Promise<ConnectedStore | undefined> {
@@ -842,7 +1143,7 @@ export class ChannelConnectorService {
     orgId: string,
     storeId: string,
     actor: Actor,
-  ): Promise<PluginResult<{ imported: number; cursor: string | null; warnings?: string[] }>> {
+  ): Promise<PluginResult<{ imported: number; cursor: string | null; skipped?: CatalogFieldSkip[]; conflicts?: CatalogFieldConflict[]; warnings?: string[] }>> {
     const store = await this.getStoreRecord(orgId, storeId);
     if (!store || store.status !== "connected") {
       return PluginErr("Connected store not found.", "NOT_FOUND");
@@ -869,6 +1170,8 @@ export class ChannelConnectorService {
     return Ok({
       imported: result.value.imported,
       cursor: null,
+      ...(result.value.skipped.length > 0 ? { skipped: uniqueSkipped(result.value.skipped) } : {}),
+      ...(result.value.conflicts.length > 0 ? { conflicts: result.value.conflicts } : {}),
       ...(result.value.warnings.length > 0 ? { warnings: result.value.warnings } : {}),
     });
   }
@@ -895,6 +1198,8 @@ export class ChannelConnectorService {
       if (attributes.length > 0) continue;
       const metadata = entity.metadata ?? {};
       if (typeof metadata.title !== "string") continue;
+      const owners = await this.catalog.resolveFieldOwners(entity.id, storeId);
+      if (owners.get("attributes.en.title") === "platform") continue;
       if (dryRun) {
         created += 1;
         continue;
@@ -951,7 +1256,14 @@ export class ChannelConnectorService {
     // re-triggered run continues an unfinished backfill instead of restarting.
     const resume = options.resume ?? (savedState !== undefined && !savedState.completedAt);
     if (resume && savedState?.completedAt && savedState.cursor === null) {
-      return Ok({ ...savedState.report, cursor: null, complete: true, ...(savedState.warnings?.length ? { warnings: savedState.warnings } : {}) });
+      return Ok({
+        ...savedState.report,
+        cursor: null,
+        complete: true,
+        ...(savedState.skipped?.length ? { skipped: savedState.skipped } : {}),
+        ...(savedState.conflicts?.length ? { conflicts: savedState.conflicts } : {}),
+        ...(savedState.warnings?.length ? { warnings: savedState.warnings } : {}),
+      });
     }
     const report = resume && savedState ? { ...savedState.report } : {
       entitiesTouched: 0,
@@ -959,6 +1271,8 @@ export class ChannelConnectorService {
       mediaImported: 0,
       variantsGivenOptionValues: 0,
     };
+    const skipped = resume && savedState?.skipped ? [...savedState.skipped] : [];
+    const conflicts = resume && savedState?.conflicts ? [...savedState.conflicts] : [];
     const warnings = resume && savedState?.warnings ? [...savedState.warnings] : [];
     const promoted = await this.promoteLegacyAttributes(orgId, storeId, actor, dryRun);
     if (!promoted.ok) return promoted;
@@ -969,6 +1283,8 @@ export class ChannelConnectorService {
       await this.saveBackfillState(orgId, storeId, {
         cursor: cursor ?? null,
         report,
+        ...(skipped.length > 0 ? { skipped: uniqueSkipped(skipped) } : {}),
+        ...(conflicts.length > 0 ? { conflicts } : {}),
         ...(warnings.length > 0 ? { warnings } : {}),
       });
     }
@@ -981,6 +1297,8 @@ export class ChannelConnectorService {
       report.attributesCreated += converged.value.attributesCreated;
       report.mediaImported += converged.value.mediaImported;
       report.variantsGivenOptionValues += converged.value.variantsGivenOptionValues;
+      skipped.push(...converged.value.skipped);
+      conflicts.push(...converged.value.conflicts);
       warnings.push(...converged.value.warnings);
       cursor = page.value.nextCursor ?? undefined;
       pages += 1;
@@ -990,22 +1308,40 @@ export class ChannelConnectorService {
         await this.saveBackfillState(orgId, storeId, {
           cursor,
           report,
+          ...(skipped.length > 0 ? { skipped: uniqueSkipped(skipped) } : {}),
+          ...(conflicts.length > 0 ? { conflicts } : {}),
           ...(warnings.length > 0 ? { warnings } : {}),
         });
       }
       if (options.maxPages !== undefined && pages >= options.maxPages && cursor) {
-        return Ok({ ...report, cursor, complete: false, ...(warnings.length > 0 ? { warnings } : {}) });
+        return Ok({
+          ...report,
+          cursor,
+          complete: false,
+          ...(skipped.length > 0 ? { skipped: uniqueSkipped(skipped) } : {}),
+          ...(conflicts.length > 0 ? { conflicts } : {}),
+          ...(warnings.length > 0 ? { warnings } : {}),
+        });
       }
     } while (cursor);
     if (!dryRun) {
       await this.saveBackfillState(orgId, storeId, {
         cursor: null,
         report,
+        ...(skipped.length > 0 ? { skipped: uniqueSkipped(skipped) } : {}),
+        ...(conflicts.length > 0 ? { conflicts } : {}),
         ...(warnings.length > 0 ? { warnings } : {}),
         completedAt: new Date().toISOString(),
       });
     }
-    return Ok({ ...report, cursor: null, complete: true, ...(warnings.length > 0 ? { warnings } : {}) });
+    return Ok({
+      ...report,
+      cursor: null,
+      complete: true,
+      ...(skipped.length > 0 ? { skipped: uniqueSkipped(skipped) } : {}),
+      ...(conflicts.length > 0 ? { conflicts } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
+    });
   }
 
   private async estimateCatalogItems(
@@ -1020,6 +1356,8 @@ export class ChannelConnectorService {
       attributesCreated: 0,
       mediaImported: 0,
       variantsGivenOptionValues: 0,
+      skipped: [],
+      conflicts: [],
       warnings: [],
     };
     const assets = await this.db.select().from(mediaAssets).where(eq(mediaAssets.organizationId, orgId));
@@ -1043,6 +1381,10 @@ export class ChannelConnectorService {
         eq(sellableEntities.id, entityMapping.entityId),
       ));
       if (!entity) continue;
+      const owners = await this.catalog.resolveFieldOwners(entity.id, storeId);
+      stats.skipped.push(...importedFieldPaths(item)
+        .filter((path) => owners.get(path) === "platform")
+        .map((fieldPath) => ({ entityId: entity.id, fieldPath })));
       let touched = false;
       const attributes = await this.db.select().from(sellableAttributes).where(eq(sellableAttributes.entityId, entity.id));
       const locales = new Set(attributes.map((attribute) => attribute.locale));
@@ -1159,8 +1501,11 @@ export class ChannelConnectorService {
     let attributesCreated = 0;
     let mediaImported = 0;
     let variantsGivenOptionValues = 0;
+    const skipped: CatalogFieldSkip[] = [];
+    const conflicts: CatalogFieldConflict[] = [];
     const warnings: string[] = [];
     for (const item of items) {
+      const remoteHash = hash(item);
       const existing = await this.db
         .select()
         .from(channelEntityMap)
@@ -1174,6 +1519,7 @@ export class ChannelConnectorService {
       let entityId: string;
       let isNew = false;
       let entityTouched = false;
+      let existingEntity: typeof sellableEntities.$inferSelect | undefined;
       if (entityMapping) {
         const [entity] = await this.db.select().from(sellableEntities).where(and(
           eq(sellableEntities.organizationId, orgId),
@@ -1184,23 +1530,7 @@ export class ChannelConnectorService {
           continue;
         }
         entityId = entityMapping.entityId;
-        const remoteMetadata = mergeMetadata(entity?.metadata, item.metadata ?? {});
-        const remoteStatus = item.status ?? (entity?.status === "archived" ? "active" : undefined);
-        const shouldUpdate = force
-          ? entity.slug !== item.slug
-            || hash(remoteMetadata) !== hash(entity.metadata ?? {})
-            || (remoteStatus !== undefined && remoteStatus !== entity.status)
-          : entityMapping.syncHash !== hash(item) || entity?.status === "archived";
-        if (shouldUpdate) {
-          const updated = await this.catalog.update(entityMapping.entityId, {
-            slug: item.slug,
-            metadata: remoteMetadata,
-            ...(remoteStatus !== undefined ? { status: remoteStatus, isVisible: remoteStatus === "active" } : {}),
-          }, actor);
-          if (!updated.ok) return PluginErr(updated.error.message);
-          converged += 1;
-          entityTouched = true;
-        }
+        existingEntity = entity;
       } else {
         const status = item.status;
         const entity = await this.catalog.create({
@@ -1217,21 +1547,100 @@ export class ChannelConnectorService {
         entityTouched = true;
       }
 
-      const optionAxes = await this.upsertOptionAxes(entityId, item, actor);
+      const ownershipBeforeSeed = await this.catalog.resolveFieldOwners(entityId, storeId);
+      const seedPaths = importedFieldPaths(item).filter((path) => !ownershipBeforeSeed.has(path));
+      const seeded = await this.catalog.seedImportedFieldOwnership(entityId, storeId, seedPaths);
+      if (!seeded.ok) return PluginErr(seeded.error.message);
+      for (const path of seedPaths) ownershipBeforeSeed.set(path, "store");
+      const owners = ownershipBeforeSeed;
+      const remoteChanged = entityMapping === undefined || entityMapping.syncHash !== remoteHash;
+      // An unchanged remote item writes nothing and advances no baseline:
+      // converging a stale replay would revert local edits to shared and
+      // unowned fields that the store never actually changed.
+      if (!force && !remoteChanged && existingEntity && existingEntity.status !== "archived") {
+        continue;
+      }
+      const shared = existingEntity
+        ? await this.detectSharedConflicts(entityId, storeId, existingEntity, entityMapping, item, owners)
+        : { paths: [], conflicts: [] };
+      const owned = this.filterOwnedFields(item, owners);
+      const heldSharedPaths = [...new Set([...(entityMapping?.heldFieldPaths ?? []), ...shared.paths])];
+      const held = this.filterConflictingFields(owned.writable, heldSharedPaths);
+      const writable = held.writable;
+      const blockedPaths = new Set<FieldPath>([...owned.skipped, ...heldSharedPaths]);
+      skipped.push(...owned.skipped.map((fieldPath) => ({ entityId, fieldPath })));
+      conflicts.push(...shared.conflicts);
+      for (const conflict of shared.conflicts) {
+        warnings.push(`Held shared field conflict for entity "${conflict.entityId}", store "${conflict.storeId}", field "${conflict.fieldPath}" (local ${conflict.localValueSummary}, remote ${conflict.remoteValueSummary}).`);
+      }
+
+      if (existingEntity && entityMapping) {
+        const remoteMetadata = mergeMetadata(existingEntity.metadata, writable.metadata ?? {});
+        const remoteStatus = ownerAllows(owners, "entity.status") && !blockedPaths.has("entity.status")
+          ? writable.status ?? (existingEntity.status === "archived" ? "active" : undefined)
+          : undefined;
+        const updateInput: {
+          slug?: string;
+          metadata?: Record<string, unknown>;
+          status?: string;
+          isVisible?: boolean;
+        } = {};
+        if (ownerAllows(owners, "entity.slug") && !blockedPaths.has("entity.slug") && existingEntity.slug !== writable.slug) {
+          updateInput.slug = writable.slug;
+        }
+        if (hash(remoteMetadata) !== hash(existingEntity.metadata ?? {})) updateInput.metadata = remoteMetadata;
+        if (remoteStatus !== undefined && !blockedPaths.has("entity.status") && remoteStatus !== existingEntity.status) {
+          updateInput.status = remoteStatus;
+          updateInput.isVisible = remoteStatus === "active";
+        }
+        const shouldUpdate = force
+          ? Object.keys(updateInput).length > 0
+          : remoteChanged || existingEntity.status === "archived";
+        if (shouldUpdate) {
+          converged += 1;
+          if (Object.keys(updateInput).length > 0) {
+            const updated = await this.catalog.update(entityMapping.entityId, updateInput, actor);
+            if (!updated.ok) return PluginErr(updated.error.message);
+            entityTouched = true;
+          }
+        }
+      }
+
+      const optionAxes = await this.upsertOptionAxes(entityId, writable, actor);
       if (!optionAxes.ok) return optionAxes;
-      const attributes = await this.setCatalogAttributes(entityId, item, actor);
+      const attributes = await this.setCatalogAttributes(entityId, writable, actor, blockedPaths);
       if (!attributes.ok) return attributes;
-      const variantIds = await this.upsertVariants(orgId, storeId, entityId, item, optionAxes.value.value, actor, warnings);
+      const variantIds = await this.upsertVariants(
+        orgId,
+        storeId,
+        entityId,
+        writable,
+        optionAxes.value.value,
+        actor,
+        warnings,
+        !heldSharedPaths.includes("options") && owners.get("options") !== "platform",
+        item,
+      );
       if (!variantIds.ok) return variantIds;
-      const taxonomy = await this.applyTaxonomy(orgId, entityId, item, actor, warnings);
+      const taxonomy = await this.applyTaxonomy(orgId, entityId, writable, actor, warnings);
       if (!taxonomy.ok) return taxonomy;
-      const media = await this.applyMedia(orgId, entityId, item, variantIds.value.value, actor, warnings);
+      const media = await this.applyMedia(orgId, entityId, writable, variantIds.value.value, actor, warnings, owners);
       if (!media.ok) return media;
       attributesCreated += attributes.value.created;
       mediaImported += media.value.imported;
       variantsGivenOptionValues += variantIds.value.repaired;
-      entityTouched = entityTouched || optionAxes.value.changed || variantIds.value.changed || media.value.changed || attributes.value.created > 0;
+      skipped.push(...media.value.skipped.map((fieldPath) => ({ entityId, fieldPath })));
+      entityTouched = entityTouched || optionAxes.value.changed || variantIds.value.changed || media.value.changed || attributes.value.changed;
       if (entityTouched) entitiesTouched += 1;
+
+      if (entityTouched) {
+        const revision = await this.catalog.recordEntityRevision(entityId, actor, "import");
+        if (!revision.ok) return PluginErr(revision.error.message);
+      }
+
+      const revisionMarkers = await this.catalog.repository.findRevisionMarkers(entityId);
+      const latestRevisionAt = revisionMarkers.at(-1)?.createdAt;
+      const lastSyncedAt = latestRevisionAt ?? entityMapping?.lastSyncedAt ?? new Date();
 
       if (isNew) {
         await this.db.insert(channelEntityMap).values({
@@ -1240,14 +1649,23 @@ export class ChannelConnectorService {
           kind: "entity",
           externalId: item.externalId,
           entityId,
-          syncHash: hash(item),
+          syncHash: remoteHash,
+          lastSyncedAt,
+          heldFieldPaths: heldSharedPaths,
         });
       } else if (entityMapping) {
         await this.db.update(channelEntityMap).set({
-          syncHash: hash(item),
-          lastSyncedAt: new Date(),
+          syncHash: remoteHash,
+          lastSyncedAt,
+          heldFieldPaths: heldSharedPaths,
         }).where(eq(channelEntityMap.id, entityMapping.id));
       }
+      await this.db.update(channelEntityMap).set({ lastSyncedAt }).where(and(
+        eq(channelEntityMap.organizationId, orgId),
+        eq(channelEntityMap.storeId, storeId),
+        eq(channelEntityMap.entityId, entityId),
+        eq(channelEntityMap.kind, "variant"),
+      ));
     }
     return Ok({
       imported,
@@ -1256,6 +1674,8 @@ export class ChannelConnectorService {
       attributesCreated,
       mediaImported,
       variantsGivenOptionValues,
+      skipped,
+      conflicts,
       warnings,
     });
   }
@@ -1285,6 +1705,7 @@ export class ChannelConnectorService {
     if (!converged.ok) return converged;
     const present = new Set(items.map((item) => item.externalId));
     let archived = 0;
+    const skipped = [...converged.value.skipped];
     for (const mapping of entityMappings) {
       if (present.has(mapping.externalId)) continue;
       const [entity] = await this.db.select({ status: sellableEntities.status }).from(sellableEntities).where(and(
@@ -1292,6 +1713,11 @@ export class ChannelConnectorService {
         eq(sellableEntities.id, mapping.entityId),
       ));
       if (entity?.status !== "archived") {
+        const owners = await this.catalog.resolveFieldOwners(mapping.entityId, storeId);
+        if (owners.get("entity.status") === "platform") {
+          skipped.push({ entityId: mapping.entityId, fieldPath: "entity.status" });
+          continue;
+        }
         const result = await this.catalog.archive(mapping.entityId, actor);
         if (!result.ok) return PluginErr(result.error.message);
         archived += 1;
@@ -1326,6 +1752,8 @@ export class ChannelConnectorService {
       archived,
       inventoryUpdated,
       driftAlert: converged.value.imported + converged.value.converged + archived > threshold,
+      ...(skipped.length > 0 ? { skipped: uniqueSkipped(skipped) } : {}),
+      ...(converged.value.conflicts.length > 0 ? { conflicts: converged.value.conflicts } : {}),
       ...(converged.value.warnings.length > 0 ? { warnings: converged.value.warnings } : {}),
     };
     await this.db.update(connectedStores).set({
@@ -1387,16 +1815,30 @@ export class ChannelConnectorService {
     if (!store) return PluginErr("Connected store not found.", "NOT_FOUND");
     const actor = createSystemActor(orgId);
     const data = event.data as Record<string, unknown>;
+    let skipped: CatalogFieldSkip[] = [];
+    let conflicts: CatalogFieldConflict[] = [];
+    let warnings: string[] = [];
     if (event.type === "products/update") {
       const productId = String(data.id ?? data.product_id ?? "");
       const mapping = await this.db.select().from(channelEntityMap).where(and(eq(channelEntityMap.organizationId, orgId), eq(channelEntityMap.storeId, storeId), eq(channelEntityMap.kind, "entity"), eq(channelEntityMap.externalId, productId)));
-      if (mapping[0]) await this.convergeCatalogItem(orgId, storeId, mapping[0].entityId, data, actor);
+      if (mapping[0]) {
+        const converged = await this.convergeCatalogItem(orgId, storeId, mapping[0].entityId, data, actor);
+        if (!converged.ok) return converged;
+        skipped = converged.value.skipped;
+        conflicts = converged.value.conflicts;
+        warnings = converged.value.warnings;
+      }
     } else if (event.type === "products/delete") {
       const productId = String(data.id ?? data.product_id ?? "");
       const mapping = await this.db.select().from(channelEntityMap).where(and(eq(channelEntityMap.organizationId, orgId), eq(channelEntityMap.storeId, storeId), eq(channelEntityMap.kind, "entity"), eq(channelEntityMap.externalId, productId)));
       if (mapping[0]) {
-        const archived = await this.catalog.archive(mapping[0].entityId, actor);
-        if (!archived.ok) return PluginErr(archived.error.message);
+        const owners = await this.catalog.resolveFieldOwners(mapping[0].entityId, storeId);
+        if (owners.get("entity.status") === "platform") {
+          skipped.push({ entityId: mapping[0].entityId, fieldPath: "entity.status" });
+        } else {
+          const archived = await this.catalog.archive(mapping[0].entityId, actor);
+          if (!archived.ok) return PluginErr(archived.error.message);
+        }
       }
     } else if (event.type === "inventory_levels/update") {
       const externalId = String(data.inventory_item_id ?? data.variation_id ?? data.product_id ?? "");
@@ -1434,6 +1876,18 @@ export class ChannelConnectorService {
       const disconnected = await this.disconnectStoreSystem(orgId, storeId);
       if (!disconnected.ok) return disconnected;
       return Ok({ processed: true });
+    }
+    if (skipped.length > 0 || conflicts.length > 0 || warnings.length > 0) {
+      const report = {
+        ...(store.lastReconcileReport ?? {}),
+        ...(skipped.length > 0 ? { skipped: uniqueSkipped(skipped) } : {}),
+        ...(conflicts.length > 0 ? { conflicts } : {}),
+        ...(warnings.length > 0 ? { warnings } : {}),
+      };
+      await this.db.update(connectedStores).set({ lastReconcileReport: report, updatedAt: new Date() }).where(and(
+        eq(connectedStores.organizationId, orgId),
+        eq(connectedStores.id, storeId),
+      ));
     }
     return Ok({ processed: true });
   }
@@ -1506,30 +1960,115 @@ export class ChannelConnectorService {
     await inventory.setAbsolute({ entityId: mapping.entityId, ...(mapping.variantId ? { variantId: mapping.variantId } : {}), quantity: Math.max(0, Math.floor(quantity)), reason: "Inventory webhook sync" }, actor);
   }
 
-  private async convergeCatalogItem(orgId: string, storeId: string, entityId: string, data: Record<string, unknown>, actor: Actor): Promise<void> {
+  private async convergeCatalogItem(
+    orgId: string,
+    storeId: string,
+    entityId: string,
+    data: Record<string, unknown>,
+    actor: Actor,
+  ): Promise<PluginResult<{ skipped: CatalogFieldSkip[]; conflicts: CatalogFieldConflict[]; warnings: string[] }>> {
     const product = data.product && typeof data.product === "object" ? data.product as Record<string, unknown> : data;
     const remoteMetadata = product.metadata && typeof product.metadata === "object" && !Array.isArray(product.metadata)
       ? product.metadata as Record<string, unknown>
       : {};
+    const [mapping] = await this.db.select().from(channelEntityMap).where(and(
+      eq(channelEntityMap.organizationId, orgId),
+      eq(channelEntityMap.storeId, storeId),
+      eq(channelEntityMap.kind, "entity"),
+      eq(channelEntityMap.entityId, entityId),
+    ));
     const [entity] = await this.db.select().from(sellableEntities).where(and(
       eq(sellableEntities.organizationId, orgId),
       eq(sellableEntities.id, entityId),
     ));
-    if (Object.keys(remoteMetadata).length > 0) {
-      if (entity) await this.catalog.update(entityId, { metadata: mergeMetadata(entity.metadata, remoteMetadata) }, actor);
+    if (!mapping || !entity) return Ok({ skipped: [], conflicts: [], warnings: [] });
+    const [currentAttribute] = await this.db.select().from(sellableAttributes).where(and(
+      eq(sellableAttributes.entityId, entityId),
+      eq(sellableAttributes.locale, "en"),
+    ));
+    const title = typeof product.title === "string" ? product.title : currentAttribute?.title ?? entity.slug;
+    const description = product.description !== undefined
+      ? String(product.description)
+      : currentAttribute?.description ?? undefined;
+    const status = typeof product.status === "string" && ["draft", "active", "archived", "discontinued"].includes(product.status)
+      ? product.status as NonNullable<ChannelCatalogItem["status"]>
+      : undefined;
+    const remoteItem: ChannelCatalogItem = {
+      externalId: mapping.externalId,
+      slug: typeof product.slug === "string" ? product.slug : entity.slug,
+      title,
+      ...(description !== undefined ? { description } : {}),
+      ...(status !== undefined ? { status } : {}),
+      attributes: [{ locale: "en", title, ...(description !== undefined ? { description } : {}) }],
+      ...(Object.keys(remoteMetadata).length > 0 ? { metadata: remoteMetadata } : {}),
+      variants: [],
+    };
+    const fieldPaths: FieldPath[] = [];
+    if (typeof product.slug === "string") fieldPaths.push("entity.slug");
+    if (status !== undefined) fieldPaths.push("entity.status");
+    for (const key of Object.keys(remoteMetadata)) {
+      const path = `entity.metadata.${key}`;
+      if (isValidFieldPath(path)) fieldPaths.push(path);
     }
-    if (entity && typeof product.title === "string") {
-      await this.catalog.setAttributes(entityId, "en", {
-        title: product.title,
-        ...(product.description !== undefined ? { description: String(product.description) } : {}),
-      }, actor);
+    if (typeof product.title === "string") fieldPaths.push("attributes.en.title");
+    if (product.description !== undefined) fieldPaths.push("attributes.en.description");
+    const ownershipBeforeSeed = await this.catalog.resolveFieldOwners(entityId, storeId);
+    const seedPaths = fieldPaths.filter((path) => !ownershipBeforeSeed.has(path));
+    const seeded = await this.catalog.seedImportedFieldOwnership(entityId, storeId, seedPaths);
+    if (!seeded.ok) return PluginErr(seeded.error.message);
+    for (const path of seedPaths) ownershipBeforeSeed.set(path, "store");
+    const owners = ownershipBeforeSeed;
+    const remoteHash = hash(product);
+    const shared = await this.detectSharedConflicts(entityId, storeId, entity, mapping, remoteItem, owners, fieldPaths, remoteHash);
+    const owned = this.filterOwnedFieldsAtPaths(remoteItem, owners, fieldPaths);
+    const heldPaths = [...new Set([...(mapping.heldFieldPaths ?? []), ...shared.paths])];
+    const held = this.filterConflictingFields(owned.writable, heldPaths);
+    const blockedPaths = new Set<FieldPath>([
+      ...owned.skipped,
+      ...heldPaths,
+      ...(!fieldPaths.includes("attributes.en.title") ? ["attributes.en.title" as FieldPath] : []),
+    ]);
+    const skipped = owned.skipped.map((fieldPath) => ({ entityId, fieldPath }));
+    const conflicts = shared.conflicts;
+    const warnings = conflicts.map((conflict) => `Held shared field conflict for entity "${conflict.entityId}", store "${conflict.storeId}", field "${conflict.fieldPath}" (local ${conflict.localValueSummary}, remote ${conflict.remoteValueSummary}).`);
+    const writable = held.writable;
+    const updateInput: {
+      slug?: string;
+      metadata?: Record<string, unknown>;
+      status?: string;
+      isVisible?: boolean;
+    } = {};
+    if (fieldPaths.includes("entity.slug") && ownerAllows(owners, "entity.slug") && !blockedPaths.has("entity.slug") && entity.slug !== writable.slug) {
+      updateInput.slug = writable.slug;
     }
+    if (Object.keys(writable.metadata ?? {}).length > 0) {
+      const remoteEntityMetadata = mergeMetadata(entity.metadata, writable.metadata ?? {});
+      if (hash(remoteEntityMetadata) !== hash(entity.metadata ?? {})) updateInput.metadata = remoteEntityMetadata;
+    }
+    if (fieldPaths.includes("entity.status") && ownerAllows(owners, "entity.status") && !blockedPaths.has("entity.status") && typeof writable.status === "string" && writable.status !== entity.status) {
+      updateInput.status = writable.status;
+      updateInput.isVisible = writable.status === "active";
+    }
+    if (Object.keys(updateInput).length > 0) {
+      const updated = await this.catalog.update(entityId, updateInput, actor);
+      if (!updated.ok) return PluginErr(updated.error.message);
+    }
+    const attributes = await this.setCatalogAttributes(entityId, writable, actor, blockedPaths);
+    if (!attributes.ok) return attributes;
     const levels = Array.isArray(product.variants) ? product.variants as Array<Record<string, unknown>> : [];
     for (const variant of levels) {
       const externalId = String(variant.id ?? variant.variation_id ?? "");
       const available = variant.inventory_quantity ?? variant.stock_quantity;
       if (externalId && available !== undefined) await this.setMappedInventory(orgId, storeId, externalId, Number(available), actor);
     }
+    const revisionMarkers = await this.catalog.repository.findRevisionMarkers(entityId);
+    const lastSyncedAt = revisionMarkers.at(-1)?.createdAt ?? mapping.lastSyncedAt;
+    await this.db.update(channelEntityMap).set({
+      syncHash: remoteHash,
+      lastSyncedAt,
+      heldFieldPaths: heldPaths,
+    }).where(eq(channelEntityMap.id, mapping.id));
+    return Ok({ skipped, conflicts, warnings });
   }
 
   private async createRefundRequest(orgId: string, store: ConnectedStore, data: Record<string, unknown>, actor: Actor): Promise<PluginResult<ChannelRefundRequest>> {

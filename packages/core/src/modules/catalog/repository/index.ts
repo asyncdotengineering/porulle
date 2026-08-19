@@ -263,6 +263,25 @@ export class CatalogRepository {
       .orderBy(asc(sellableEntityRevisions.revision));
   }
 
+  async findRevisionMarkers(
+    entityId: string,
+    since?: Date,
+    ctx?: TxContext,
+  ): Promise<Array<Pick<SellableEntityRevision, "createdAt" | "reason">>> {
+    const db = this.getDb(ctx);
+    return db
+      .select({
+        createdAt: sellableEntityRevisions.createdAt,
+        reason: sellableEntityRevisions.reason,
+      })
+      .from(sellableEntityRevisions)
+      .where(and(
+        eq(sellableEntityRevisions.entityId, entityId),
+        ...(since ? [gt(sellableEntityRevisions.createdAt, since)] : []),
+      ))
+      .orderBy(asc(sellableEntityRevisions.createdAt));
+  }
+
   async findLatestRevision(
     entityId: string,
     ctx?: TxContext,
