@@ -28,6 +28,7 @@ export const UpdateEntityBodySchema = z.object({
   taxClass: z.string().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   isVisible: z.boolean().optional(),
+  customFields: z.record(z.string(), z.unknown().nullable()).optional(),
 }).openapi("UpdateEntityBody");
 
 export const SetAttributesBodySchema = z.record(z.string(), z.unknown()).openapi("SetAttributesBody");

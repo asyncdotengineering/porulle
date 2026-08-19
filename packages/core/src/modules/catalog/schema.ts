@@ -86,6 +86,10 @@ export const sellableCustomFields = pgTable(
     jsonValue: jsonb("json_value"),
   },
   (table) => ({
+    entityFieldUnique: uniqueIndex("sellable_custom_fields_entity_field_unique").on(
+      table.entityId,
+      table.fieldName,
+    ),
     entityFieldIdx: index("idx_custom_fields_entity_field").on(
       table.entityId,
       table.fieldName,

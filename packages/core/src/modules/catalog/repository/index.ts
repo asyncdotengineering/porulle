@@ -260,6 +260,24 @@ export class CatalogRepository {
       .where(eq(sellableCustomFields.entityId, entityId));
   }
 
+  async findCustomFieldByName(
+    entityId: string,
+    fieldName: string,
+    ctx?: TxContext,
+  ): Promise<SellableCustomField | undefined> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .select()
+      .from(sellableCustomFields)
+      .where(
+        and(
+          eq(sellableCustomFields.entityId, entityId),
+          eq(sellableCustomFields.fieldName, fieldName),
+        ),
+      );
+    return rows[0];
+  }
+
   async createCustomField(
     data: SellableCustomFieldInsert,
     ctx?: TxContext,
@@ -267,6 +285,50 @@ export class CatalogRepository {
     const db = this.getDb(ctx);
     const rows = await db.insert(sellableCustomFields).values(data).returning();
     return rows[0]!;
+  }
+
+  async updateCustomField(
+    id: string,
+    data: Partial<Omit<SellableCustomFieldInsert, "id">>,
+    ctx?: TxContext,
+  ): Promise<SellableCustomField | undefined> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .update(sellableCustomFields)
+      .set(data)
+      .where(eq(sellableCustomFields.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async upsertCustomField(
+    entityId: string,
+    fieldName: string,
+    data: Omit<SellableCustomFieldInsert, "entityId" | "fieldName">,
+    ctx?: TxContext,
+  ): Promise<SellableCustomField> {
+    const existing = await this.findCustomFieldByName(entityId, fieldName, ctx);
+    if (existing) {
+      const updated = await this.updateCustomField(existing.id, data, ctx);
+      return updated!;
+    }
+    return this.createCustomField({ ...data, entityId, fieldName }, ctx);
+  }
+
+  async deleteCustomField(
+    entityId: string,
+    fieldName: string,
+    ctx?: TxContext,
+  ): Promise<void> {
+    const db = this.getDb(ctx);
+    await db
+      .delete(sellableCustomFields)
+      .where(
+        and(
+          eq(sellableCustomFields.entityId, entityId),
+          eq(sellableCustomFields.fieldName, fieldName),
+        ),
+      );
   }
 
   async deleteCustomFieldsByEntityId(

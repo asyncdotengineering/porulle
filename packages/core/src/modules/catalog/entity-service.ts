@@ -83,6 +83,9 @@ function getCustomFieldValue(field: SellableCustomField): unknown {
   }
 }
 
+type CustomFieldData = Omit<SellableCustomFieldInsert, "entityId" | "fieldName">;
+type ValidatedCustomField = { fieldName: string; data: CustomFieldData | null };
+
 export class EntityService {
   constructor(private readonly deps: CatalogServiceDeps) {}
 
@@ -102,14 +105,19 @@ export class EntityService {
     if (entity.sourceStoreId != null) assertPermission(actor, "catalog:sync");
   }
 
-  private async validateAndCreateCustomFields(entityId: string, entityType: string, customFields: Record<string, unknown> | undefined, ctx?: TxContext): Promise<Result<void>> {
-    if (!customFields) return Ok(undefined);
+  private validateCustomFields(entityType: string, customFields: Record<string, unknown> | undefined): Result<ValidatedCustomField[]> {
+    if (!customFields) return Ok([]);
     const entityConfig = this.deps.config.entities?.[entityType];
-    if (!entityConfig) return Ok(undefined);
+    if (!entityConfig) return Ok([]);
     const definitionMap = new Map(entityConfig.fields.map((f) => [f.name, f]));
+    const validated: ValidatedCustomField[] = [];
     for (const [name, value] of Object.entries(customFields)) {
       const def = definitionMap.get(name);
       if (!def) return Err(new CommerceValidationError(`Unknown custom field: ${name}`));
+      if (value === null) {
+        validated.push({ fieldName: name, data: null });
+        continue;
+      }
       const type = def.type;
       let valid = false;
       switch (type) {
@@ -135,7 +143,7 @@ export class EntityService {
       }
       if (!valid) return Err(new CommerceValidationError(`Custom field ${name} expected type ${type}.`));
       const fieldType = (type === "select" ? "text" : type) as SellableCustomField["fieldType"];
-      const insertData: SellableCustomFieldInsert = { entityId, fieldName: name, fieldType };
+      const insertData: CustomFieldData = { fieldType };
       switch (fieldType) {
         case "text":
         case "relation":
@@ -154,9 +162,21 @@ export class EntityService {
           insertData.jsonValue = value;
           break;
       }
-      await this.repo.createCustomField(insertData, ctx);
+      validated.push({ fieldName: name, data: insertData });
     }
-    return Ok(undefined);
+    return Ok(validated);
+  }
+
+  private async writeCustomFields(entityId: string, customFields: ValidatedCustomField[], ctx?: TxContext, upsert = false): Promise<void> {
+    for (const customField of customFields) {
+      if (customField.data === null) {
+        await this.repo.deleteCustomField(entityId, customField.fieldName, ctx);
+      } else if (upsert) {
+        await this.repo.upsertCustomField(entityId, customField.fieldName, customField.data, ctx);
+      } else {
+        await this.repo.createCustomField({ ...customField.data, entityId, fieldName: customField.fieldName }, ctx);
+      }
+    }
   }
 
   private async hydrateEntity(entity: SellableEntity, options?: GetOptions, ctx?: TxContext): Promise<CatalogEntityHydrated> {
@@ -221,8 +241,9 @@ export class EntityService {
     if (processedInput.attributes) {
       await this.repo.createAttribute({ entityId: entity.id, locale: processedInput.attributes.locale ?? "en", title: processedInput.attributes.title, subtitle: processedInput.attributes.subtitle, description: processedInput.attributes.description, richDescription: processedInput.attributes.richDescription, seoTitle: processedInput.attributes.seoTitle, seoDescription: processedInput.attributes.seoDescription }, ctx);
     }
-    const customFieldsResult = await this.validateAndCreateCustomFields(entity.id, entity.type, processedInput.customFields, ctx);
+    const customFieldsResult = this.validateCustomFields(entity.type, processedInput.customFields);
     if (!customFieldsResult.ok) return customFieldsResult;
+    await this.writeCustomFields(entity.id, customFieldsResult.value, ctx);
     const hookReport = await runAfterHooks(afterHooks, null, entity, "create", context);
     const hydrated = await this.hydrateEntity(entity, undefined, ctx);
     return Ok(hydrated, hookReport.hasErrors ? { hookErrors: hookReport.errors } : undefined);
@@ -238,8 +259,11 @@ export class EntityService {
     const afterHooks = this.deps.hooks.resolve("catalog.afterUpdate") as CatalogUpdateAfterHook[];
     const context: HookContext = createHookContext({ actor, tx: ctx?.tx ?? null, logger: createLogger("catalog.update"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database) });
     const processed = await runBeforeHooks(beforeHooks, input, "update", context);
+    const customFieldsResult = this.validateCustomFields(existing.type, processed.customFields);
+    if (!customFieldsResult.ok) return customFieldsResult;
     const updated = await this.repo.updateEntity(id, { ...(processed.slug !== undefined ? { slug: processed.slug } : {}), ...(processed.status !== undefined ? { status: processed.status as SellableEntity["status"] } : {}), ...(processed.taxClass !== undefined ? { taxClass: processed.taxClass } : {}), ...(processed.metadata !== undefined ? { metadata: processed.metadata } : {}), ...(processed.isVisible !== undefined ? { isVisible: processed.isVisible } : {}) }, ctx);
     if (!updated) return Err(new CommerceNotFoundError("Entity not found."));
+    await this.writeCustomFields(existing.id, customFieldsResult.value, ctx, true);
     const hookReport = await runAfterHooks(afterHooks, existing, updated, "update", context);
     const hydrated = await this.hydrateEntity(updated, undefined, ctx);
     return Ok(hydrated, hookReport.hasErrors ? { hookErrors: hookReport.errors } : undefined);
