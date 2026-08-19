@@ -18,8 +18,23 @@ import type {
   PluginTxFn,
 } from "@porulle/core";
 import type { JobsAdapter } from "@porulle/core";
-import { and, eq, inArray } from "@porulle/core/drizzle";
-import { customerAddresses, customers, inventoryLevels, orderLineItems, orders, sellableEntities } from "@porulle/core/schema";
+import { and, eq, inArray, isNull } from "@porulle/core/drizzle";
+import {
+  brands,
+  categories,
+  customerAddresses,
+  customers,
+  entityMedia,
+  entityTags,
+  inventoryLevels,
+  mediaAssets,
+  optionTypes,
+  optionValues,
+  orderLineItems,
+  orders,
+  sellableEntities,
+  tags,
+} from "@porulle/core/schema";
 import {
   channelEntityMap,
   channelExportEvents,
@@ -40,6 +55,7 @@ export interface ReconcileReport extends Record<string, unknown> {
   archived: number;
   inventoryUpdated: number;
   driftAlert: boolean;
+  warnings?: string[];
 }
 
 export type PublicConnectedStore = Omit<ConnectedStore, "credentials" | "webhookSecret"> & {
@@ -88,6 +104,8 @@ interface CatalogService {
       slug: string;
       sourceStoreId: string;
       metadata: Record<string, unknown>;
+      status?: string;
+      isVisible?: boolean;
     },
     actor: Actor,
   ): Promise<{ ok: true; value: { id: string } } | { ok: false; error: { message: string } }>;
@@ -95,6 +113,80 @@ interface CatalogService {
     input: { entityId: string; options: Record<string, string>; sku?: string; barcode?: string },
     actor: Actor,
   ): Promise<{ ok: true; value: { id: string } } | { ok: false; error: { message: string } }>;
+  setAttributes(
+    entityId: string,
+    locale: string,
+    attrs: {
+      title: string;
+      subtitle?: string;
+      description?: string;
+      richDescription?: unknown;
+      seoTitle?: string;
+      seoDescription?: string;
+    },
+    actor: Actor,
+  ): Promise<{ ok: true; value: undefined } | { ok: false; error: { message: string } }>;
+  createOptionType(
+    input: { entityId: string; name: string; values?: string[] },
+    actor: Actor,
+  ): Promise<{ ok: true; value: { id: string } } | { ok: false; error: { message: string } }>;
+  createOptionValue(
+    input: { optionTypeId: string; value: string },
+    actor: Actor,
+  ): Promise<{ ok: true; value: { id: string } } | { ok: false; error: { message: string } }>;
+  createCategory(
+    input: { slug: string },
+    actor: Actor,
+  ): Promise<{ ok: true; value: { id: string } } | { ok: false; error: { message: string } }>;
+  addToCategory(
+    entityId: string,
+    categoryId: string,
+    actor: Actor,
+  ): Promise<{ ok: true; value: undefined } | { ok: false; error: { message: string } }>;
+  createBrand(
+    input: { slug: string; displayName: string },
+    actor: Actor,
+  ): Promise<{ ok: true; value: { id: string } } | { ok: false; error: { message: string } }>;
+  addToBrand(
+    entityId: string,
+    brandId: string,
+    actor: Actor,
+  ): Promise<{ ok: true; value: undefined } | { ok: false; error: { message: string } }>;
+}
+
+type ServiceResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: { message: string; code?: string } };
+
+interface MediaService {
+  upload(
+    input: {
+      filename: string;
+      contentType: string;
+      data: ArrayBuffer;
+      alt?: string;
+      metadata?: Record<string, unknown>;
+      origin?: "merchant" | "generated" | "imported";
+    },
+    actor: Actor,
+  ): Promise<ServiceResult<{ id: string; url: string }>>;
+  attachToEntity(
+    input: {
+      entityId: string;
+      mediaAssetId: string;
+      role: "primary" | "gallery" | "thumbnail" | "video" | "document";
+      variantId?: string;
+      sortOrder?: number;
+    },
+    actor: Actor,
+  ): Promise<ServiceResult<undefined>>;
+}
+
+interface PricingService {
+  setBasePrice(
+    input: { entityId: string; variantId?: string; currency: string; amount: number; compareAtAmount?: number | null },
+    actor: Actor,
+  ): Promise<ServiceResult<unknown>>;
 }
 
 const exportTransitions: Record<ExportState, readonly ExportState[]> = {
@@ -187,6 +279,306 @@ export class ChannelConnectorService {
 
   private get catalog(): CatalogService {
     return this.services.catalog as CatalogService;
+  }
+
+  private get media(): MediaService {
+    return this.services.media as MediaService;
+  }
+
+  private get pricing(): PricingService {
+    return this.services.pricing as PricingService;
+  }
+
+  private async setCatalogAttributes(
+    entityId: string,
+    item: ChannelCatalogItem,
+    actor: Actor,
+  ): Promise<PluginResult<void>> {
+    const attributes = item.attributes?.length
+      ? item.attributes
+      : [{
+        locale: "en",
+        title: item.title,
+        ...(item.description !== undefined ? { description: item.description } : {}),
+      }];
+    for (const attribute of attributes) {
+      const result = await this.catalog.setAttributes(entityId, attribute.locale, attribute, actor);
+      if (!result.ok) return PluginErr(result.error.message);
+    }
+    return Ok(undefined);
+  }
+
+  private async upsertOptionAxes(
+    entityId: string,
+    item: ChannelCatalogItem,
+    actor: Actor,
+  ): Promise<PluginResult<Map<string, Map<string, string>>>> {
+    const optionValueIds = new Map<string, Map<string, string>>();
+    const existingTypes = await this.db.select().from(optionTypes).where(eq(optionTypes.entityId, entityId));
+    for (const [typeIndex, sourceType] of (item.options ?? []).entries()) {
+      let optionType = existingTypes.find((row) => row.name === sourceType.name);
+      if (!optionType) {
+        const created = await this.catalog.createOptionType({ entityId, name: sourceType.name, values: [] }, actor);
+        if (!created.ok) return PluginErr(created.error.message);
+        const [createdType] = await this.db.select().from(optionTypes).where(eq(optionTypes.id, created.value.id));
+        if (!createdType) return PluginErr(`Option type "${sourceType.name}" was not persisted.`);
+        optionType = createdType;
+        existingTypes.push(optionType);
+      }
+      await this.db.update(optionTypes).set({
+        displayName: sourceType.displayName,
+        sortOrder: sourceType.sortOrder ?? typeIndex,
+      }).where(eq(optionTypes.id, optionType.id));
+
+      const existingValues = await this.db.select().from(optionValues).where(eq(optionValues.optionTypeId, optionType.id));
+      const valueIds = new Map<string, string>();
+      for (const [valueIndex, sourceValue] of sourceType.values.entries()) {
+        let optionValue = existingValues.find((row) => row.value === sourceValue.value);
+        if (!optionValue) {
+          const created = await this.catalog.createOptionValue({ optionTypeId: optionType.id, value: sourceValue.value }, actor);
+          if (!created.ok) return PluginErr(created.error.message);
+          const [createdValue] = await this.db.select().from(optionValues).where(eq(optionValues.id, created.value.id));
+          if (!createdValue) return PluginErr(`Option value "${sourceValue.value}" was not persisted.`);
+          optionValue = createdValue;
+          existingValues.push(optionValue);
+        }
+        await this.db.update(optionValues).set({
+          displayValue: sourceValue.displayValue,
+          sortOrder: sourceValue.sortOrder ?? valueIndex,
+        }).where(eq(optionValues.id, optionValue.id));
+        valueIds.set(sourceValue.value, optionValue.id);
+      }
+      optionValueIds.set(sourceType.name, valueIds);
+    }
+    return Ok(optionValueIds);
+  }
+
+  private async upsertVariants(
+    orgId: string,
+    storeId: string,
+    entityId: string,
+    item: ChannelCatalogItem,
+    optionValueIds: Map<string, Map<string, string>>,
+    actor: Actor,
+    warnings: string[],
+  ): Promise<PluginResult<Map<string, string>>> {
+    const variantIds = new Map<string, string>();
+    const mappings = await this.db.select().from(channelEntityMap).where(and(
+      eq(channelEntityMap.organizationId, orgId),
+      eq(channelEntityMap.storeId, storeId),
+      eq(channelEntityMap.kind, "variant"),
+      eq(channelEntityMap.entityId, entityId),
+    ));
+    for (const sourceVariant of item.variants) {
+      let mapping = mappings.find((row) => row.externalId === sourceVariant.externalId);
+      let variantId = mapping?.variantId;
+      if (!variantId) {
+        const options: Record<string, string> = {};
+        for (const [name, value] of Object.entries(sourceVariant.optionValues ?? {})) {
+          const optionValueId = optionValueIds.get(name)?.get(value);
+          if (!optionValueId) {
+            warnings.push(`Skipped unmapped option "${name}=${value}" on variant "${sourceVariant.externalId}".`);
+            continue;
+          }
+          options[name] = value;
+        }
+        const created = await this.catalog.createVariant({
+          entityId,
+          options,
+          ...(sourceVariant.sku !== undefined ? { sku: sourceVariant.sku } : {}),
+          ...(sourceVariant.barcode !== undefined ? { barcode: sourceVariant.barcode } : {}),
+        }, actor);
+        if (!created.ok) return PluginErr(created.error.message);
+        variantId = created.value.id;
+        const [createdMapping] = await this.db.insert(channelEntityMap).values({
+          organizationId: orgId,
+          storeId,
+          kind: "variant",
+          externalId: sourceVariant.externalId,
+          entityId,
+          variantId,
+          syncHash: hash(sourceVariant),
+        }).returning();
+        mapping = createdMapping;
+        if (mapping) mappings.push(mapping);
+      }
+      if (!variantId) {
+        warnings.push(`Skipped variant "${sourceVariant.externalId}": no local variant mapping exists.`);
+        continue;
+      }
+      variantIds.set(sourceVariant.externalId, variantId);
+      for (const price of sourceVariant.prices ?? []) {
+        const priced = await this.pricing.setBasePrice({
+          entityId,
+          variantId,
+          currency: price.currency,
+          amount: price.amount,
+          compareAtAmount: price.compareAtAmount ?? null,
+        }, actor);
+        if (!priced.ok) return PluginErr(priced.error.message);
+      }
+      if (mapping) {
+        await this.db.update(channelEntityMap).set({
+          syncHash: hash(sourceVariant),
+          lastSyncedAt: new Date(),
+        }).where(eq(channelEntityMap.id, mapping.id));
+      }
+    }
+    return Ok(variantIds);
+  }
+
+  private async applyTaxonomy(
+    orgId: string,
+    entityId: string,
+    item: ChannelCatalogItem,
+    actor: Actor,
+    warnings: string[],
+  ): Promise<PluginResult<void>> {
+    const categoryRows = await this.db.select().from(categories).where(eq(categories.organizationId, orgId));
+    for (const slug of new Set(item.categories ?? [])) {
+      let category = categoryRows.find((row) => row.slug === slug);
+      if (category?.status === "archived") {
+        warnings.push(`Skipped archived category "${slug}".`);
+        continue;
+      }
+      if (!category) {
+        const created = await this.catalog.createCategory({ slug }, actor);
+        if (!created.ok) return PluginErr(created.error.message);
+        const [createdCategory] = await this.db.select().from(categories).where(eq(categories.id, created.value.id));
+        if (!createdCategory) return PluginErr(`Category "${slug}" was not persisted.`);
+        category = createdCategory;
+        categoryRows.push(category);
+      }
+      const linked = await this.catalog.addToCategory(entityId, category.id, actor);
+      if (!linked.ok) return PluginErr(linked.error.message);
+    }
+
+    const brandRows = await this.db.select().from(brands).where(eq(brands.organizationId, orgId));
+    if (item.brand) {
+      let brand = brandRows.find((row) => row.slug === item.brand);
+      if (!brand) {
+        const created = await this.catalog.createBrand({ slug: item.brand, displayName: item.brand }, actor);
+        if (!created.ok) return PluginErr(created.error.message);
+        const [createdBrand] = await this.db.select().from(brands).where(eq(brands.id, created.value.id));
+        if (!createdBrand) return PluginErr(`Brand "${item.brand}" was not persisted.`);
+        brand = createdBrand;
+        brandRows.push(brand);
+      }
+      const linked = await this.catalog.addToBrand(entityId, brand.id, actor);
+      if (!linked.ok) return PluginErr(linked.error.message);
+    }
+
+    const tagRows = await this.db.select().from(tags).where(eq(tags.organizationId, orgId));
+    for (const slug of new Set(item.tags ?? [])) {
+      let tag = tagRows.find((row) => row.slug === slug);
+      if (!tag) {
+        const [createdTag] = await this.db.insert(tags).values({ organizationId: orgId, slug, displayName: slug }).onConflictDoNothing().returning();
+        tag = createdTag ?? (await this.db.select().from(tags).where(and(
+          eq(tags.organizationId, orgId),
+          eq(tags.slug, slug),
+        )))[0];
+        if (!tag) return PluginErr(`Tag "${slug}" was not persisted.`);
+        tagRows.push(tag);
+      }
+      await this.db.insert(entityTags).values({ entityId, tagId: tag.id }).onConflictDoNothing();
+    }
+    return Ok(undefined);
+  }
+
+  private async applyMedia(
+    orgId: string,
+    entityId: string,
+    item: ChannelCatalogItem,
+    variantIds: Map<string, string>,
+    actor: Actor,
+    warnings: string[],
+  ): Promise<PluginResult<void>> {
+    const assets = await this.db.select().from(mediaAssets).where(eq(mediaAssets.organizationId, orgId));
+    const links = await this.db.select().from(entityMedia).where(eq(entityMedia.entityId, entityId));
+    for (const image of item.images ?? []) {
+      const urlHash = hash(image.url);
+      const asset = assets.find((row) => {
+        const metadata = row.metadata ?? {};
+        return (image.externalId != null && metadata.channelImageExternalId === image.externalId)
+          || metadata.channelImageUrlHash === urlHash;
+      });
+      let mediaAssetId = asset?.id;
+      if (!mediaAssetId) {
+        let response: Response;
+        try {
+          response = await fetch(image.url);
+        } catch (error) {
+          warnings.push(`Skipped image "${image.externalId ?? image.url}": ${error instanceof Error ? error.message : "download failed"}.`);
+          continue;
+        }
+        if (!response.ok) {
+          warnings.push(`Skipped image "${image.externalId ?? image.url}": download returned ${response.status}.`);
+          continue;
+        }
+        const contentType = response.headers.get("content-type")?.split(";", 1)[0] ?? "image/jpeg";
+        const extension = contentType.split("/", 2)[1] ?? "jpg";
+        const uploaded = await this.media.upload({
+          filename: `${image.externalId ?? urlHash}.${extension}`,
+          contentType,
+          data: await response.arrayBuffer(),
+          ...(image.alt !== undefined ? { alt: image.alt } : {}),
+          metadata: {
+            channelImageUrlHash: urlHash,
+            ...(image.externalId !== undefined ? { channelImageExternalId: image.externalId } : {}),
+          },
+          origin: "imported",
+        }, actor);
+        if (!uploaded.ok) {
+          warnings.push(`Skipped image "${image.externalId ?? image.url}": ${uploaded.error.code === "STORAGE_NOT_SUPPORTED" ? "storage adapter is not configured" : uploaded.error.message}.`);
+          continue;
+        }
+        mediaAssetId = uploaded.value.id;
+        const [createdAsset] = await this.db.select().from(mediaAssets).where(eq(mediaAssets.id, mediaAssetId));
+        if (createdAsset) assets.push(createdAsset);
+      }
+      if (!mediaAssetId) continue;
+
+      const targets = image.variantExternalIds?.length
+        ? image.variantExternalIds.map((externalId) => ({ externalId, variantId: variantIds.get(externalId) }))
+        : [{ externalId: undefined, variantId: undefined }];
+      for (const target of targets) {
+        if (image.variantExternalIds?.length && !target.variantId) {
+          warnings.push(`Skipped image "${image.externalId ?? image.url}" for unmapped variant "${target.externalId}".`);
+          continue;
+        }
+        const existingLink = links.find((link) =>
+          link.mediaAssetId === mediaAssetId
+          && (target.variantId === undefined ? link.variantId === null : link.variantId === target.variantId),
+        );
+        if (existingLink) {
+          if (existingLink.role !== image.role || existingLink.sortOrder !== (image.sortOrder ?? 0)) {
+            await this.db.update(entityMedia).set({ role: image.role, sortOrder: image.sortOrder ?? 0 }).where(and(
+              eq(entityMedia.entityId, entityId),
+              eq(entityMedia.mediaAssetId, mediaAssetId),
+              target.variantId === undefined ? isNull(entityMedia.variantId) : eq(entityMedia.variantId, target.variantId),
+            ));
+          }
+          continue;
+        }
+        const attached = await this.media.attachToEntity({
+          entityId,
+          mediaAssetId,
+          role: image.role,
+          sortOrder: image.sortOrder ?? 0,
+          ...(target.variantId !== undefined ? { variantId: target.variantId } : {}),
+        }, actor);
+        if (!attached.ok) return PluginErr(attached.error.message);
+        links.push({
+          entityId,
+          mediaAssetId,
+          role: image.role,
+          sortOrder: image.sortOrder ?? 0,
+          variantId: target.variantId ?? null,
+          createdAt: new Date(),
+        });
+      }
+    }
+    return Ok(undefined);
   }
 
   private async getStoreRecord(orgId: string, id: string): Promise<ConnectedStore | undefined> {
@@ -379,7 +771,7 @@ export class ChannelConnectorService {
     orgId: string,
     storeId: string,
     actor: Actor,
-  ): Promise<PluginResult<{ imported: number; cursor: string | null }>> {
+  ): Promise<PluginResult<{ imported: number; cursor: string | null; warnings?: string[] }>> {
     const store = await this.getStoreRecord(orgId, storeId);
     if (!store || store.status !== "connected") {
       return PluginErr("Connected store not found.", "NOT_FOUND");
@@ -403,7 +795,11 @@ export class ChannelConnectorService {
       .update(connectedStores)
       .set({ catalogCursor: null, lastSyncAt: new Date(), updatedAt: new Date() })
       .where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.id, storeId)));
-    return Ok({ imported: result.value.imported, cursor: null });
+    return Ok({
+      imported: result.value.imported,
+      cursor: null,
+      ...(result.value.warnings ? { warnings: result.value.warnings } : {}),
+    });
   }
 
   private async convergeCatalogItems(
@@ -411,9 +807,10 @@ export class ChannelConnectorService {
     storeId: string,
     items: ChannelCatalogItem[],
     actor: Actor,
-  ): Promise<PluginResult<{ imported: number; converged: number }>> {
+  ): Promise<PluginResult<{ imported: number; converged: number; warnings?: string[] }>> {
     let imported = 0;
     let converged = 0;
+    const warnings: string[] = [];
     for (const item of items) {
       const existing = await this.db
         .select()
@@ -425,77 +822,75 @@ export class ChannelConnectorService {
           eq(channelEntityMap.externalId, item.externalId),
         ));
       const entityMapping = existing.find((entry) => entry.kind === "entity");
+      let entityId: string;
+      let isNew = false;
       if (entityMapping) {
         const [entity] = await this.db.select().from(sellableEntities).where(and(
           eq(sellableEntities.organizationId, orgId),
           eq(sellableEntities.id, entityMapping.entityId),
         ));
-        const remoteMetadata = {
-          ...(item.metadata ?? {}),
-          title: item.title,
-          ...(item.description !== undefined ? { description: item.description } : {}),
-        };
+        if (!entity) {
+          warnings.push(`Skipped "${item.externalId}": mapped entity ${entityMapping.entityId} no longer exists.`);
+          continue;
+        }
+        entityId = entityMapping.entityId;
         if (entityMapping.syncHash !== hash(item) || entity?.status === "archived") {
+          const status = item.status ?? (entity?.status === "archived" ? "active" : undefined);
           const updated = await this.catalog.update(entityMapping.entityId, {
             slug: item.slug,
-            metadata: mergeMetadata(entity?.metadata, remoteMetadata),
-            ...(entity?.status === "archived" ? { status: "active", isVisible: true } : {}),
+            metadata: mergeMetadata(entity?.metadata, item.metadata ?? {}),
+            ...(status !== undefined ? { status, isVisible: status === "active" } : {}),
           }, actor);
           if (!updated.ok) return PluginErr(updated.error.message);
-          await this.db.update(channelEntityMap).set({ syncHash: hash(item), lastSyncedAt: new Date() }).where(eq(channelEntityMap.id, entityMapping.id));
           converged += 1;
         }
-        continue;
-      }
-
-      const entity = await this.catalog.create(
-        {
+      } else {
+        const status = item.status;
+        const entity = await this.catalog.create({
           type: "product",
           slug: item.slug,
           sourceStoreId: storeId,
-          metadata: mergeMetadata(undefined, {
-            ...(item.metadata ?? {}),
-            title: item.title,
-            ...(item.description !== undefined ? { description: item.description } : {}),
-          }),
-        },
-        actor,
-      );
-      if (!entity.ok) return PluginErr(entity.error.message);
+          metadata: mergeMetadata(undefined, item.metadata ?? {}),
+          ...(status !== undefined ? { status, isVisible: status === "active" } : {}),
+        }, actor);
+        if (!entity.ok) return PluginErr(entity.error.message);
+        entityId = entity.value.id;
+        isNew = true;
+        imported += 1;
+      }
 
-      await this.db.insert(channelEntityMap).values({
-        organizationId: orgId,
-        storeId,
-        kind: "entity",
-        externalId: item.externalId,
-        entityId: entity.value.id,
-        syncHash: hash(item),
-      });
+      const optionAxes = await this.upsertOptionAxes(entityId, item, actor);
+      if (!optionAxes.ok) return optionAxes;
+      const attributes = await this.setCatalogAttributes(entityId, item, actor);
+      if (!attributes.ok) return attributes;
+      const variantIds = await this.upsertVariants(orgId, storeId, entityId, item, optionAxes.value, actor, warnings);
+      if (!variantIds.ok) return variantIds;
+      const taxonomy = await this.applyTaxonomy(orgId, entityId, item, actor, warnings);
+      if (!taxonomy.ok) return taxonomy;
+      const media = await this.applyMedia(orgId, entityId, item, variantIds.value, actor, warnings);
+      if (!media.ok) return media;
 
-      for (const sourceVariant of item.variants) {
-        const variant = await this.catalog.createVariant(
-          {
-            entityId: entity.value.id,
-            options: {},
-            ...(sourceVariant.sku !== undefined ? { sku: sourceVariant.sku } : {}),
-            ...(sourceVariant.barcode !== undefined ? { barcode: sourceVariant.barcode } : {}),
-          },
-          actor,
-        );
-        if (!variant.ok) return PluginErr(variant.error.message);
+      if (isNew) {
         await this.db.insert(channelEntityMap).values({
           organizationId: orgId,
           storeId,
-          kind: "variant",
-          externalId: sourceVariant.externalId,
-          entityId: entity.value.id,
-          variantId: variant.value.id,
-          syncHash: hash(sourceVariant),
+          kind: "entity",
+          externalId: item.externalId,
+          entityId,
+          syncHash: hash(item),
         });
+      } else if (entityMapping) {
+        await this.db.update(channelEntityMap).set({
+          syncHash: hash(item),
+          lastSyncedAt: new Date(),
+        }).where(eq(channelEntityMap.id, entityMapping.id));
       }
-      imported += 1;
     }
-    return Ok({ imported, converged });
+    return Ok({
+      imported,
+      converged,
+      ...(warnings.length > 0 ? { warnings } : {}),
+    });
   }
 
   async reconcile(
@@ -564,6 +959,7 @@ export class ChannelConnectorService {
       archived,
       inventoryUpdated,
       driftAlert: converged.value.imported + converged.value.converged + archived > threshold,
+      ...(converged.value.warnings ? { warnings: converged.value.warnings } : {}),
     };
     await this.db.update(connectedStores).set({
       lastReconcileAt: new Date(),
@@ -745,17 +1141,21 @@ export class ChannelConnectorService {
 
   private async convergeCatalogItem(orgId: string, storeId: string, entityId: string, data: Record<string, unknown>, actor: Actor): Promise<void> {
     const product = data.product && typeof data.product === "object" ? data.product as Record<string, unknown> : data;
-    const remoteMetadata = {
-      ...(product.metadata && typeof product.metadata === "object" && !Array.isArray(product.metadata) ? product.metadata as Record<string, unknown> : {}),
-      ...(typeof product.title === "string" ? { title: product.title } : {}),
-      ...(product.description !== undefined ? { description: product.description } : {}),
-    };
+    const remoteMetadata = product.metadata && typeof product.metadata === "object" && !Array.isArray(product.metadata)
+      ? product.metadata as Record<string, unknown>
+      : {};
+    const [entity] = await this.db.select().from(sellableEntities).where(and(
+      eq(sellableEntities.organizationId, orgId),
+      eq(sellableEntities.id, entityId),
+    ));
     if (Object.keys(remoteMetadata).length > 0) {
-      const [entity] = await this.db.select().from(sellableEntities).where(and(
-        eq(sellableEntities.organizationId, orgId),
-        eq(sellableEntities.id, entityId),
-      ));
       if (entity) await this.catalog.update(entityId, { metadata: mergeMetadata(entity.metadata, remoteMetadata) }, actor);
+    }
+    if (entity && typeof product.title === "string") {
+      await this.catalog.setAttributes(entityId, "en", {
+        title: product.title,
+        ...(product.description !== undefined ? { description: String(product.description) } : {}),
+      }, actor);
     }
     const levels = Array.isArray(product.variants) ? product.variants as Array<Record<string, unknown>> : [];
     for (const variant of levels) {

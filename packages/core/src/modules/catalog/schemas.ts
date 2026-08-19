@@ -70,6 +70,7 @@ export const CreateOptionValueBodySchema = z.object({
 
 export const CreateVariantBodySchema = z.object({
   sku: z.string().optional().openapi({ example: "SKU-001" }),
+  barcode: z.string().optional().openapi({ example: "0123456789012" }),
   options: z.record(z.string(), z.string()).openapi({ example: { Color: "Red" } }),
   price: z.number().optional().openapi({ example: 34.99 }),
   taxClass: z.string().optional().openapi({ example: "zero", description: "Overrides the entity's tax class (issue #57)." }),

@@ -14,6 +14,7 @@ import {
   entityCategories,
   brands,
   entityBrands,
+  entityTags,
   optionTypes,
   optionValues,
   variants,
@@ -282,12 +283,13 @@ export class CatalogRepository {
   ): Promise<SellableEntityRevisionSnapshot> {
     const entity = await this.findEntityById(entityId, ctx);
     if (!entity) throw new CommerceNotFoundError("Entity not found.");
-    const [attributes, customFields, categoriesForEntity, brandsForEntity, media] = await Promise.all([
+    const [attributes, customFields, categoriesForEntity, brandsForEntity, media, tagsForEntity] = await Promise.all([
       this.findAttributesByEntityId(entityId, ctx),
       this.findAllCustomFieldsByEntityId(entityId, ctx),
       this.findEntityCategories(entityId, ctx),
       this.findEntityBrands(entityId, ctx),
       this.findEntityMedia(entityId, ctx),
+      this.findEntityTags(entityId, ctx),
     ]);
     return {
       entity: entity as unknown as Record<string, unknown>,
@@ -296,6 +298,7 @@ export class CatalogRepository {
       media: media.sort((a, b) => a.mediaAssetId.localeCompare(b.mediaAssetId) || (a.variantId ?? "").localeCompare(b.variantId ?? "")) as unknown as Array<Record<string, unknown>>,
       categories: categoriesForEntity.sort((a, b) => a.categoryId.localeCompare(b.categoryId)) as unknown as Array<Record<string, unknown>>,
       brands: brandsForEntity.sort((a, b) => a.brandId.localeCompare(b.brandId)) as unknown as Array<Record<string, unknown>>,
+      tags: tagsForEntity.sort((a, b) => a.tagId.localeCompare(b.tagId)) as unknown as Array<Record<string, unknown>>,
     };
   }
 
@@ -939,6 +942,27 @@ export class CatalogRepository {
       .select()
       .from(entityBrands)
       .where(eq(entityBrands.entityId, entityId));
+  }
+
+  async findEntityTags(
+    entityId: string,
+    ctx?: TxContext,
+  ): Promise<Array<typeof entityTags.$inferSelect>> {
+    const db = this.getDb(ctx);
+    return db
+      .select()
+      .from(entityTags)
+      .where(eq(entityTags.entityId, entityId));
+  }
+
+  async addEntityTag(entityId: string, tagId: string, ctx?: TxContext): Promise<void> {
+    const db = this.getDb(ctx);
+    await db.insert(entityTags).values({ entityId, tagId }).onConflictDoNothing();
+  }
+
+  async deleteEntityTagsByEntityId(entityId: string, ctx?: TxContext): Promise<void> {
+    const db = this.getDb(ctx);
+    await db.delete(entityTags).where(eq(entityTags.entityId, entityId));
   }
 
   async addEntityToBrand(

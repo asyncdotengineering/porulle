@@ -30,5 +30,6 @@ export function comparableSerialize(snapshot: SellableEntityRevisionSnapshot): s
     media: snapshot.media.map(stripRowTimestamps),
     categories: snapshot.categories.map(stripRowTimestamps),
     brands: snapshot.brands.map(stripRowTimestamps),
+    tags: (snapshot.tags ?? []).map(stripRowTimestamps),
   });
 }

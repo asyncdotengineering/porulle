@@ -709,6 +709,15 @@ export class CatalogServiceImpl implements CatalogService {
       await this.repository.addEntityToBrand(entityId, row.brandId, row.sortOrder, ctx);
     }
 
+    // Snapshots written before tags existed carry no key; restoring one must
+    // not delete tag links the snapshot never saw.
+    if (snapshot.tags) {
+      await this.repository.deleteEntityTagsByEntityId(entityId, ctx);
+      for (const row of snapshot.tags as unknown as Array<{ tagId: string }>) {
+        await this.repository.addEntityTag(entityId, row.tagId, ctx);
+      }
+    }
+
     await this.repository.deleteEntityMediaByEntityId(entityId, ctx);
     for (const row of snapshot.media as unknown as Array<{
       mediaAssetId: string;

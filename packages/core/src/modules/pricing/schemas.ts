@@ -7,6 +7,7 @@ export const SetBasePriceBodySchema = z.object({
   variantId: z.string().optional().openapi({ example: "variant-uuid" }),
   currency: z.string().length(3).openapi({ example: "USD" }),
   amount: z.number().openapi({ example: 29.99 }),
+  compareAtAmount: z.number().nullable().optional(),
   customerGroupId: z.string().optional(),
   minQuantity: z.number().int().optional(),
   maxQuantity: z.number().int().optional(),

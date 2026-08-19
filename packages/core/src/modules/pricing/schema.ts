@@ -15,6 +15,7 @@ export const prices = pgTable(
     variantId: uuid("variant_id").references(() => variants.id, { onDelete: "cascade" }),
     currency: text("currency").notNull(),
     amount: integer("amount").notNull(),
+    compareAtAmount: integer("compare_at_amount"),
     customerGroupId: text("customer_group_id"),
     minQuantity: integer("min_quantity"),
     maxQuantity: integer("max_quantity"),

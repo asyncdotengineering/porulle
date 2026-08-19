@@ -138,7 +138,13 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
         const service = new ChannelConnectorService(ctx.db, ctx.services, options);
         const result = await service.importCatalog(String(input.orgId), String(input.storeId), createSystemActor(String(input.orgId)));
         if (!result.ok) throw new Error(result.error);
-        return { output: { imported: result.value.imported, cursor: result.value.cursor } };
+        return {
+          output: {
+            imported: result.value.imported,
+            cursor: result.value.cursor,
+            ...(result.value.warnings ? { warnings: result.value.warnings } : {}),
+          },
+        };
       },
     },
     {

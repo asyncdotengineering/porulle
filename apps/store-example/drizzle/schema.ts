@@ -86,6 +86,38 @@ export const brands = pgTable("brands", {
 	unique("brands_slug_unique").on(table.slug),
 ]);
 
+export const tags = pgTable("tags", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	organizationId: text("organization_id").notNull(),
+	slug: text().notNull(),
+	displayName: text("display_name").notNull(),
+}, (table) => [
+	index("idx_tags_org").using("btree", table.organizationId.asc().nullsLast().op("text_ops")),
+	uniqueIndex("tags_org_slug_unique").using("btree", table.organizationId.asc().nullsLast().op("text_ops"), table.slug.asc().nullsLast().op("text_ops")),
+	foreignKey({
+			columns: [table.organizationId],
+			foreignColumns: [organization.id],
+			name: "tags_organization_id_organization_id_fk"
+		}).onDelete("cascade"),
+]);
+
+export const entityTags = pgTable("entity_tags", {
+	entityId: uuid("entity_id").notNull(),
+	tagId: uuid("tag_id").notNull(),
+}, (table) => [
+	uniqueIndex("entity_tags_entity_tag_unique").using("btree", table.entityId.asc().nullsLast().op("uuid_ops"), table.tagId.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.entityId],
+			foreignColumns: [sellableEntities.id],
+			name: "entity_tags_entity_id_sellable_entities_id_fk"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.tagId],
+			foreignColumns: [tags.id],
+			name: "entity_tags_tag_id_tags_id_fk"
+		}).onDelete("cascade"),
+]);
+
 export const invitation = pgTable("invitation", {
 	id: text().primaryKey().notNull(),
 	organizationId: text("organization_id").notNull(),
@@ -597,6 +629,7 @@ export const prices = pgTable("prices", {
 	variantId: uuid("variant_id"),
 	currency: text().notNull(),
 	amount: integer().notNull(),
+	compareAtAmount: integer("compare_at_amount"),
 	customerGroupId: text("customer_group_id"),
 	minQuantity: integer("min_quantity"),
 	maxQuantity: integer("max_quantity"),

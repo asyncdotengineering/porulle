@@ -266,7 +266,9 @@ export class EntityService {
     if (processedInput.sourceStoreId != null) assertPermission(actor, "catalog:sync");
     const customFieldsResult = await this.validateCustomFields(processedInput.type, processedInput.customFields, actor, ctx);
     if (!customFieldsResult.ok) return customFieldsResult;
-    const entity = await this.repo.createEntity({ organizationId: orgId, type: processedInput.type, slug: processedInput.slug, status: "draft", isVisible: false, ...(processedInput.sourceStoreId !== undefined ? { sourceStoreId: processedInput.sourceStoreId } : {}), ...(processedInput.taxClass !== undefined ? { taxClass: processedInput.taxClass } : {}), metadata: processedInput.metadata ?? {} }, ctx);
+    const statuses = ["draft", "active", "archived", "discontinued"] as const;
+    const status = statuses.find((value) => value === processedInput.status) ?? "draft";
+    const entity = await this.repo.createEntity({ organizationId: orgId, type: processedInput.type, slug: processedInput.slug, status, isVisible: status === "active", ...(processedInput.sourceStoreId !== undefined ? { sourceStoreId: processedInput.sourceStoreId } : {}), ...(processedInput.taxClass !== undefined ? { taxClass: processedInput.taxClass } : {}), metadata: processedInput.metadata ?? {} }, ctx);
     if (processedInput.attributes) {
       await this.repo.createAttribute({ entityId: entity.id, locale: processedInput.attributes.locale ?? "en", title: processedInput.attributes.title, subtitle: processedInput.attributes.subtitle, description: processedInput.attributes.description, richDescription: processedInput.attributes.richDescription, seoTitle: processedInput.attributes.seoTitle, seoDescription: processedInput.attributes.seoDescription }, ctx);
     }
@@ -518,7 +520,7 @@ export class EntityService {
       if (!ov) return Err(new CommerceValidationError(`Option value "${optVal}" does not exist for option type "${optName}".`));
       optionValueIds.push(ov.id);
     }
-    const variant = await this.repo.createVariant({ entityId: input.entityId, status: "active", sortOrder: 0, metadata: {}, ...(input.sku !== undefined ? { sku: input.sku } : {}), ...(input.taxClass !== undefined ? { taxClass: input.taxClass } : {}) }, ctx);
+    const variant = await this.repo.createVariant({ entityId: input.entityId, status: "active", sortOrder: 0, metadata: {}, ...(input.sku !== undefined ? { sku: input.sku } : {}), ...(input.barcode !== undefined ? { barcode: input.barcode } : {}), ...(input.taxClass !== undefined ? { taxClass: input.taxClass } : {}) }, ctx);
     await this.repo.createVariantOptionValues(optionValueIds.map((optionValueId) => ({ variantId: variant.id, optionValueId })), ctx);
     return Ok(variant);
   }

@@ -218,6 +218,31 @@ export const entityBrands = pgTable("entity_brands", {
   entityBrandUnique: uniqueIndex("entity_brands_entity_brand_unique").on(table.entityId, table.brandId),
 }));
 
+export const tags = pgTable(
+  "tags",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    displayName: text("display_name").notNull(),
+  },
+  (table) => ({
+    orgIdx: index("idx_tags_org").on(table.organizationId),
+    orgSlugUnique: uniqueIndex("tags_org_slug_unique").on(table.organizationId, table.slug),
+  }),
+);
+
+export const entityTags = pgTable("entity_tags", {
+  entityId: uuid("entity_id")
+    .references(() => sellableEntities.id, { onDelete: "cascade" })
+    .notNull(),
+  tagId: uuid("tag_id")
+    .references(() => tags.id, { onDelete: "cascade" })
+    .notNull(),
+}, (table) => ({
+  entityTagUnique: uniqueIndex("entity_tags_entity_tag_unique").on(table.entityId, table.tagId),
+}));
+
 export const sellableEntityRevisionReason = pgEnum("sellable_entity_revision_reason", [
   "create",
   "update",
@@ -236,6 +261,8 @@ export type SellableEntityRevisionSnapshot = {
   media: Array<Record<string, unknown>>;
   categories: Array<Record<string, unknown>>;
   brands: Array<Record<string, unknown>>;
+  // Optional: snapshots written before tags existed do not carry the key.
+  tags?: Array<Record<string, unknown>>;
 };
 
 export const sellableEntityRevisions = pgTable(

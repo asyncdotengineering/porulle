@@ -61,7 +61,7 @@ describe("channel connector c74 reconciliation", () => {
     expect(result).toEqual({ ok: true, value: { imported: 1, converged: 1, archived: 1, inventoryUpdated: 1, driftAlert: true } });
 
     const [changed] = await built.db.select().from(sellableEntities).where(eq(sellableEntities.slug, "remote-kept"));
-    expect(changed?.metadata).toMatchObject({ title: "Kept changed" });
+    expect(changed?.metadata).toEqual({});
     const [archived] = await built.db.select().from(sellableEntities).where(eq(sellableEntities.id, removedEntityId));
     expect(archived?.status).toBe("archived");
     expect((await built.db.select().from(channelEntityMap).where(eq(channelEntityMap.entityId, removedEntityId)))).toHaveLength(2);

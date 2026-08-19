@@ -8,6 +8,7 @@ import type {
   ChannelCatalogItem,
   ChannelInventoryLevel,
   ChannelOrderSlice,
+  ChannelStore,
 } from "@porulle/core";
 
 export interface MockChannelConnectorOptions {
@@ -80,7 +81,7 @@ export function mockChannelConnector(options: MockChannelConnectorOptions = {}) 
       pushOrder: true,
       receiveWebhooks: true,
     },
-    async importCatalog() {
+    async importCatalog(_store?: ChannelStore) {
       return Ok({ items: options.catalog ?? defaultCatalog, nextCursor: null });
     },
     async fetchInventory(_store, ids) {

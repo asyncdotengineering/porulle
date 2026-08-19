@@ -78,8 +78,6 @@ describe("channel connector catalog metadata convergence", () => {
       platformKey: "platform-value",
       remoteKey: "remote-v2",
       removedUpstreamKey: "keep-me",
-      title: "Updated remote title",
-      description: "Remote description",
     });
 
     remoteItem.metadata = { remoteKey: "remote-v3" };
@@ -91,8 +89,6 @@ describe("channel connector catalog metadata convergence", () => {
       platformKey: "platform-value",
       remoteKey: "remote-v3",
       removedUpstreamKey: "keep-me",
-      title: "Updated remote title",
-      description: "Remote description",
     });
 
     const archived = await built.kernel.services.catalog.archive(entityId, actor);
@@ -130,8 +126,6 @@ describe("channel connector catalog metadata convergence", () => {
     expect(updated?.metadata).toEqual({
       webhookPlatformKey: "webhook-platform-value",
       webhookRemoteKey: "webhook-remote-value",
-      title: "Webhook remote title",
-      description: "Webhook remote description",
     });
   });
 });

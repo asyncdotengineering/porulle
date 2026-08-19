@@ -224,6 +224,7 @@ export class PricingService {
       entityId: input.entityId,
       currency: normalizeCurrency(input.currency),
       amount: input.amount,
+      ...(input.compareAtAmount !== undefined ? { compareAtAmount: input.compareAtAmount } : {}),
       metadata: input.metadata ?? {},
       variantId: input.variantId ?? null,
       customerGroupId: input.customerGroupId ?? null,
@@ -252,8 +253,12 @@ export class PricingService {
 
     const record = existing
       ? (await this.repo.updatePrice(
-          existing.id,
-          { amount: priceData.amount, metadata: priceData.metadata },
+        existing.id,
+          {
+            amount: priceData.amount,
+            ...(priceData.compareAtAmount !== undefined ? { compareAtAmount: priceData.compareAtAmount } : {}),
+            metadata: priceData.metadata,
+          },
           ctx,
         )) ?? existing
       : await this.repo.createPrice(priceData, ctx);

@@ -6,6 +6,8 @@ import { CatalogRepository } from "./repository/index.js";
 import {
   brands,
   categories,
+  tags,
+  entityTags,
   entityBrands,
   entityCategories,
   optionTypes,
@@ -35,6 +37,8 @@ export const catalogModule = defineModule<
     entityCategories: typeof entityCategories;
     brands: typeof brands;
     entityBrands: typeof entityBrands;
+    tags: typeof tags;
+    entityTags: typeof entityTags;
     optionTypes: typeof optionTypes;
     optionValues: typeof optionValues;
     variants: typeof variants;
@@ -55,6 +59,8 @@ export const catalogModule = defineModule<
     entityCategories,
     brands,
     entityBrands,
+    tags,
+    entityTags,
     optionTypes,
     optionValues,
     variants,
