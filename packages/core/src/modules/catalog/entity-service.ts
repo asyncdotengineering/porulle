@@ -69,6 +69,7 @@ function getCustomFieldValue(field: SellableCustomField): unknown {
   switch (field.fieldType) {
     case "text":
     case "relation":
+    case "select":
       return field.textValue;
     case "number":
       return field.numberValue;
@@ -119,13 +120,23 @@ export class EntityService {
         continue;
       }
       const type = def.type;
+      let normalized = value;
       let valid = false;
       switch (type) {
         case "text":
         case "relation":
-        case "select":
           valid = typeof value === "string";
           break;
+        case "select": {
+          if (typeof value !== "string") break;
+          const trimmed = value.trim();
+          if (def.options && !def.options.includes(trimmed)) {
+            return Err(new CommerceValidationError(`Value "${trimmed}" is not permitted for field ${name}. Allowed: ${def.options.join(", ")}`));
+          }
+          normalized = trimmed;
+          valid = true;
+          break;
+        }
         case "number":
           valid = typeof value === "number";
           break;
@@ -142,7 +153,7 @@ export class EntityService {
           valid = false;
       }
       if (!valid) return Err(new CommerceValidationError(`Custom field ${name} expected type ${type}.`));
-      const fieldType = (type === "select" ? "text" : type) as SellableCustomField["fieldType"];
+      const fieldType = type as SellableCustomField["fieldType"];
       const insertData: CustomFieldData = {
         fieldType,
         source: "merchant",
@@ -155,19 +166,20 @@ export class EntityService {
       switch (fieldType) {
         case "text":
         case "relation":
-          insertData.textValue = value as string;
+        case "select":
+          insertData.textValue = normalized as string;
           break;
         case "number":
-          insertData.numberValue = value as number;
+          insertData.numberValue = normalized as number;
           break;
         case "boolean":
-          insertData.booleanValue = value as boolean;
+          insertData.booleanValue = normalized as boolean;
           break;
         case "date":
-          insertData.dateValue = value instanceof Date ? value : new Date(value as string);
+          insertData.dateValue = normalized instanceof Date ? normalized : new Date(normalized as string);
           break;
         case "json":
-          insertData.jsonValue = value;
+          insertData.jsonValue = normalized;
           break;
       }
       validated.push({ fieldName: name, locale: "en", data: insertData });

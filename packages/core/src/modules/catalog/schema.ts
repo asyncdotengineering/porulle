@@ -78,7 +78,7 @@ export const sellableCustomFields = pgTable(
       .notNull(),
     fieldName: text("field_name").notNull(),
     fieldType: text("field_type", {
-      enum: ["text", "number", "boolean", "date", "json", "relation"],
+      enum: ["text", "number", "boolean", "date", "json", "relation", "select"],
     }).notNull(),
     source: text("source", {
       enum: ["merchant", "import", "enrichment", "rule"],
