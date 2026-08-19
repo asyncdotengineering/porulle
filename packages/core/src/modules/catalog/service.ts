@@ -22,6 +22,7 @@ import {
   type SellableEntityRevision,
   type SellableEntityInsert,
   type SellableAttributeInsert,
+  type SellableCustomField,
   type SellableCustomFieldInsert,
   type EntityFieldDefinitionRecord,
 } from "./repository/index.js";
@@ -98,6 +99,7 @@ export interface GetOptions {
   includeMedia?: boolean;
   includeCategories?: boolean;
   includeBrands?: boolean;
+  includeCustomFields?: boolean;
 }
 
 export interface VariantMatrixRule {
@@ -135,6 +137,7 @@ export type UpdateEntityFieldDefinitionInput = Partial<Omit<CreateEntityFieldDef
 
 export interface CatalogEntityHydrated extends SellableEntity {
   attributes?: SellableAttribute[];
+  customFields?: SellableCustomField[];
   variants?: Array<Variant & { optionValueIds: string[] }>;
   optionTypes?: Array<OptionType & { values: OptionValue[] }>;
   categories?: EntityCategory[];

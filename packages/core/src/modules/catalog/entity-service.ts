@@ -230,6 +230,7 @@ export class EntityService {
     }
     if (options?.includeCategories) hydrated.categories = await this.repo.findEntityCategories(entity.id, ctx);
     if (options?.includeBrands) hydrated.brands = await this.repo.findEntityBrands(entity.id, ctx);
+    if (options?.includeCustomFields) hydrated.customFields = await this.repo.findCustomFieldsByEntityId(entity.id, ctx);
     if (options?.includeMedia) {
       const mediaService = this.deps.services.media as {
         listEntityMedia?: (

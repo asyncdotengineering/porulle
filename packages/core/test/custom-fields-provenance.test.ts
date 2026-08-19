@@ -140,4 +140,36 @@ describe("catalog custom field value provenance", () => {
       expect.objectContaining({ id: rejected.id, status: "rejected", textValue: "9m" }),
     ]);
   });
+
+  it("hydrates approved custom fields on entity reads when requested", async () => {
+    const entityId = await createEntity();
+    await kernel.services.catalog.repository.createCustomField({
+      entityId,
+      fieldName: "warranty",
+      fieldType: "text",
+      textValue: "5y",
+      source: "enrichment",
+      status: "proposed",
+      locale: "en",
+    });
+
+    const withFields = await kernel.services.catalog.getById(
+      entityId,
+      { includeCustomFields: true },
+      staff,
+    );
+    expect(withFields.ok).toBe(true);
+    if (!withFields.ok) throw withFields.error;
+    expect(withFields.value.customFields).toHaveLength(1);
+    expect(withFields.value.customFields?.[0]).toMatchObject({
+      fieldName: "warranty",
+      status: "approved",
+      textValue: "1y",
+    });
+
+    const withoutFields = await kernel.services.catalog.getById(entityId, {}, staff);
+    expect(withoutFields.ok).toBe(true);
+    if (!withoutFields.ok) throw withoutFields.error;
+    expect(withoutFields.value.customFields).toBeUndefined();
+  });
 });

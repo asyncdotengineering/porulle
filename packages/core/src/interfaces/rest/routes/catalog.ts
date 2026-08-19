@@ -101,6 +101,7 @@ export function catalogRoutes(kernel: Kernel) {
           includeMedia: include.has("media"),
           includeInventory: include.has("inventory"),
           includePricing: include.has("pricing"),
+          includeCustomFields: include.has("customFields"),
         };
         const hydrated = await Promise.all(
           result.value.items.map(async (item) => {
@@ -143,6 +144,7 @@ export function catalogRoutes(kernel: Kernel) {
         includeMedia: include.has("media"),
         includeInventory: include.has("inventory"),
         includePricing: include.has("pricing"),
+        includeCustomFields: include.has("customFields"),
       };
 
       const actor = c.get("actor");
