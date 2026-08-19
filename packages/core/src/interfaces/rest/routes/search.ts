@@ -3,6 +3,8 @@ import type { Kernel } from "../../../runtime/kernel.js";
 import { searchRoute, suggestRoute } from "../schemas/search.js";
 import { type AppEnv, mapErrorToResponse, mapErrorToStatus } from "../utils.js";
 
+const SAFE_ATTRIBUTE_NAME = /^[A-Za-z0-9_-]+$/;
+
 export function searchRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
 
@@ -21,6 +23,19 @@ export function searchRoutes(kernel: Kernel) {
         .map((facet) => facet.trim())
         .filter(Boolean);
 
+      const attributes: Record<string, string | string[]> = {};
+      for (const [key, values] of Object.entries(c.req.queries())) {
+        if (!key.startsWith("attr.")) continue;
+        const name = key.slice("attr.".length);
+        if (!SAFE_ATTRIBUTE_NAME.test(name)) {
+          return c.json(
+            { error: "invalid_argument", field: key, message: `Invalid attribute filter name: ${name}` },
+            422,
+          );
+        }
+        attributes[name] = values.length === 1 ? values[0]! : values;
+      }
+
       const result = await kernel.services.search.query({
         query: q,
         page,
@@ -30,6 +45,7 @@ export function searchRoutes(kernel: Kernel) {
           ...(category ? { category } : {}),
           ...(brand ? { brand } : {}),
           ...(status ? { status } : {}),
+          ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
         },
         ...(facets.length > 0 ? { facets } : {}),
       }, { actor: c.get("actor"), tx: null, requestId: "" });

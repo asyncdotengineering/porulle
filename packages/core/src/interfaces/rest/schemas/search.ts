@@ -8,6 +8,8 @@ export const searchRoute = createRoute({
   path: "/",
   tags: ["Search"],
   summary: "Search catalog entities",
+  description:
+    "Attribute filters use repeatable `attr.<name>=<value>` query parameters: repeated values for one name are ORed, distinct names are ANDed. Attribute names must match `^[A-Za-z0-9_-]+$`; anything else returns 422. Request attribute facet counts by naming the attribute in `facets`.",
   request: {
     query: z.object({
       q: z.string().max(500).optional(),
