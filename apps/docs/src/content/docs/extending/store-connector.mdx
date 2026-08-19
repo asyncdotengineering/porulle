@@ -37,7 +37,29 @@ Every method returns `Result<T>` (`Ok(value)` / `Err({ code, message, retriable?
 
 ### `importCatalog(store, cursor?)`
 
-Return one **page** of the store's catalog as `ChannelCatalogPage` — `{ items: ChannelCatalogItem[], nextCursor?: string | null }`. Each item carries `externalId`, `slug`, `title`, and `variants[]` (each with `externalId`, `sku?`, `barcode?`). The engine walks pages via `nextCursor`, upserts by external id (idempotent), and stamps provenance. Use the platform's `updated_at` / cursor for incremental pulls. **Do not** attempt bulk-export tricks here — pagination is the contract.
+Return one **page** of the store's catalog as `ChannelCatalogPage` — `{ items: ChannelCatalogItem[], nextCursor?: string | null }`. Each item requires `externalId`, `slug`, `title`, and `variants[]` (each with `externalId`, `sku?`, `barcode?`); the shape is lossless beyond that, all optional:
+
+```ts
+interface ChannelCatalogItem {
+  externalId: string;
+  slug: string;
+  title: string;
+  description?: string;
+  variants: ChannelCatalogVariant[];   // + optionValues?, prices? per variant
+  metadata?: Record<string, unknown>;  // merged per key, never replaced
+  attributes?: ChannelCatalogLocalizedAttributes[]; // per-locale title/description/SEO
+  images?: ChannelCatalogImage[];      // role enum matches entity_media; variantExternalIds links
+  options?: ChannelCatalogOptionType[];
+  tags?: string[];
+  brand?: string;
+  categories?: string[];
+  status?: "draft" | "active" | "archived" | "discontinued";
+}
+```
+
+Variant `prices` are `{ currency, amount, compareAtAmount? }` in **integer minor units**. Fetch the store currency **once per import** (cache the promise) and omit `prices` entirely when it cannot be determined — a wrong currency is worse than none. The import shape is structurally unable to express stock, orders, customers, or fulfilment; a compile-time contract test in core enforces that boundary, so do not smuggle those through `metadata`.
+
+The engine walks pages via `nextCursor`, upserts by external id (idempotent), stamps provenance, and converges the full shape into the PIM tables under [field ownership](/building/catalog-ownership/). Use the platform's `updated_at` / cursor for incremental pulls. **Do not** attempt bulk-export tricks here — pagination is the contract.
 
 ### `fetchInventory(store, ids?)`
 

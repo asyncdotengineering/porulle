@@ -1,0 +1,77 @@
+---
+title: Catalog Field Ownership
+description: Declare, per field path, whether the platform or a connected store is authoritative — and let sync enforce it.
+---
+
+When a catalog is mirrored from a connected store, two systems can write the same field. Field ownership resolves that per field path: every path has **at most one declared owner**, and every inbound sync consults it before writing.
+
+| Owner | Inbound sync (store → platform) | Outbound push (platform → store) |
+|-------|--------------------------------|----------------------------------|
+| `platform` | **Skipped** — Porulle is authoritative | Would push |
+| `store` | Converges — the store is authoritative | Never pushed |
+| `shared` | Both may write; a both-sides change is **held** as a conflict until resolved | Would push |
+| *(unowned)* | Converges inbound | Never pushed |
+
+The outbound push path is in development; ownership already governs the inbound direction, and the `shared`/`platform` semantics are defined so existing declarations carry over unchanged when push ships.
+
+## Field paths
+
+A field path is dotted segments matching `[A-Za-z0-9_-]+` — no wildcards. Paths in use:
+
+| Path | Covers |
+|------|--------|
+| `entity.slug`, `entity.status` | Entity row columns |
+| `entity.metadata.<key>` | One metadata key |
+| `attributes.<locale>.<column>` | e.g. `attributes.en.title` |
+| `customFields.<field>.<locale>` | One custom-field value |
+| `media.<role>` | Media links by role |
+| `options` | Variant option axes |
+| `variants.sku`, `variants.barcode` | Variant identity columns |
+| `prices.<currency>` | e.g. `prices.USD` |
+
+An invalid path (wildcards, empty segments, spaces) is rejected with `422`.
+
+## Scope and precedence
+
+An ownership row is scoped by entity, optionally by variant, and optionally by store (`storeId: null` means all stores). When several rows match a field, the most specific wins, deterministically:
+
+**variant + store** > **variant + all stores** > **entity + store** > **entity + all stores**
+
+Rows live in `catalog_field_ownership` with a `UNIQUE NULLS NOT DISTINCT` constraint across the scope columns — this requires **PostgreSQL 15+**.
+
+## Setting and reading ownership
+
+| Method | Path | Permission |
+|--------|------|------------|
+| `GET` | `/api/catalog/entities/:id/field-ownership` | `catalog:read` — optional `?storeId` filter |
+| `PUT` | `/api/catalog/entities/:id/field-ownership` | `catalog:update` (+ `catalog:sync` for store-sourced entities) |
+
+**`PUT` body:**
+
+```json
+{
+  "fieldPath": "attributes.en.title",
+  "owner": "platform",
+  "storeId": null,
+  "variantId": null
+}
+```
+
+Ownership transfers **only** through this API. Two consequences:
+
+- **Importing seeds ownership.** When a store's item is first imported, every path the remote payload actually populated is seeded as `store`-owned — and only where no row already resolves. Seeding is idempotent and never flips an existing owner.
+- **Writing a value never changes ownership.** Editing a field through the catalog API does not claim it; declare `platform` ownership explicitly when Porulle should win.
+
+## Enforcement
+
+All inbound paths — catalog import, reconciliation, [backfill](/building/channel-connectors/#catalog-backfill), and product webhooks — enforce the same rules:
+
+- **`platform`-owned paths are skipped**, and each skip is recorded as an attributed `{ entityId, fieldPath }` record in the sync report.
+- **`shared` conflicts are held persistently.** When both sides changed since the last sync, the path lands in `channel_entity_map.held_field_paths`, the inbound value is not written, and the report carries a warning naming the entity, store, field, and both value summaries. The hold is sticky until an operator resolves it (e.g. re-declares the owner or aligns the values); the next clean sync clears it.
+- **An unchanged remote item writes nothing** — the per-mapping sync hash short-circuits before any table is touched.
+
+## Related
+
+- [Channel Connectors](/building/channel-connectors/) — the sync engine ownership governs
+- [Database Schema](/reference/database-schema/) — the `catalog_field_ownership` table
+- [Upgrading](/production/upgrading/) — the migration that introduces the table

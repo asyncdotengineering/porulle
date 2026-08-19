@@ -89,7 +89,9 @@ Base path: `/api/catalog`
 | `page` | `number` | Page number (default `1`) |
 | `limit` | `number` | Items per page (default `20`, max `100`) |
 | `sort` | `string` | Sort field and direction (e.g. `createdAt:desc`) |
-| `include` | `string` | Comma-separated: `attributes`, `variants`, `categories`, `brands`, `media`, `inventory`, `pricing` |
+| `include` | `string` | Comma-separated: `attributes`, `variants`, `optionTypes`, `categories`, `brands`, `media`, `inventory`, `pricing`, `customFields` |
+
+`include=customFields` returns the entity's approved custom-field rows (with provenance columns) under `data.customFields`.
 
 **`POST /catalog/entities` body:**
 
@@ -98,9 +100,30 @@ Base path: `/api/catalog`
   "type": "product",
   "slug": "blue-widget",
   "status": "draft",
-  "metadata": {}
+  "metadata": {},
+  "customFields": { "material": "linen" }
 }
 ```
+
+`customFields` is validated against the entity type's field definitions. On `PATCH`, it is a patch: an explicit `null` clears a field, omitted keys are untouched. See [Catalog Custom Fields](/building/custom-fields/).
+
+### Custom-field review
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/catalog/entities/:id/custom-fields/:fieldName/approve` | Approve the newest proposal — displaces the live value atomically (`catalog:update`) |
+| `POST` | `/catalog/entities/:id/custom-fields/:fieldName/reject` | Reject the newest proposal (`catalog:update`) |
+
+Both accept a `locale` query parameter (default `en`). The org-scoped proposal queue lives at [`GET /api/admin/custom-field-proposals`](#admin-catalog).
+
+### Field ownership
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/catalog/entities/:id/field-ownership` | List ownership rows, optional `?storeId` (`catalog:read`) |
+| `PUT` | `/catalog/entities/:id/field-ownership` | Set an owner: `{ fieldPath, owner: "platform" \| "store" \| "shared", storeId?, variantId? }` (`catalog:update`) |
+
+See [Catalog Field Ownership](/building/catalog-ownership/) for path grammar and precedence.
 
 ### Localized attributes
 
@@ -426,11 +449,16 @@ Base path: `/api/search`
 | `category` | `string` | Filter by category |
 | `brand` | `string` | Filter by brand |
 | `status` | `string` | Filter by status |
+| `attr.<name>` | `string`, repeatable | Filter by a custom-field attribute (equality only) |
 | `page` | `number` | Page number (default `1`) |
 | `limit` | `number` | Results per page (default `20`, max `100`) |
-| `facets` | `string` | Comma-separated facet fields to return |
+| `facets` | `string` | Comma-separated facet fields — built-ins (`type`, `category`, `brand`, `status`) and attribute names |
+
+Attribute filters use repeatable `attr.<name>=<value>` parameters: repeated values for one name are ORed, distinct names are ANDed, matching is equality only. Attribute names must match `^[A-Za-z0-9_-]+$` — anything else returns `422`. Only fields whose definition sets `filterable: true` are indexed, using approved `en`-locale values; facet counts are keyed by attribute name.
 
 Response includes `data` (hits array) and `meta` with `total`, `page`, `limit`, `facets`.
+
+Without a configured search adapter, the in-memory fallback requires at least a query or one filter — a facets-only request returns an empty result rather than loading the whole catalog. Both shipped adapters (`@porulle/adapter-pg-search`, `@porulle/adapter-meilisearch`) implement attribute filtering and facets.
 
 **`GET /search/suggest` query parameters:**
 
@@ -460,6 +488,10 @@ Base path: `/api/media`
 | `file` | `File` | Yes |
 | `alt` | `string` | No |
 
+Every asset carries an `origin` (`merchant` | `generated` | `imported`, default `merchant`), an optional `confidence`, and an optional `derivedFromAssetId` link to its source asset. REST uploads are always `merchant`; the service-level `media.upload()` accepts an `origin` (channel imports stamp `imported`).
+
+**`DELETE /media/:id`** — merchant-origin assets are write-guarded: deleting one requires `media:write`.
+
 **`GET /media/:id` query parameters:**
 
 | Parameter | Value | Description |
@@ -472,9 +504,13 @@ Base path: `/api/media`
 {
   "entityId": "uuid",
   "mediaAssetId": "uuid",
-  "role": "thumbnail"
+  "role": "thumbnail",
+  "variantId": "optional-uuid",
+  "sortOrder": 0
 }
 ```
+
+Attachments are unique per level: the same asset may attach once at entity level and once per variant, but a duplicate at the same level returns `409`.
 
 ---
 
@@ -655,6 +691,22 @@ Requires `jobs:admin` permission.
 
 **`POST /admin/jobs/:id/retry`** returns the updated job record.
 
+---
+
+## Admin catalog
+
+Base path: `/api/admin`. All routes require `catalog:update`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/admin/custom-field-proposals` | Org-scoped queue of proposed custom-field values, optional `?entityType`, paginated |
+| `GET` | `/admin/entity-field-definitions` | List runtime field definitions, optional `?entityType` |
+| `POST` | `/admin/entity-field-definitions` | Create a runtime field definition |
+| `PATCH` | `/admin/entity-field-definitions/:id` | Update a definition |
+| `POST` | `/admin/entity-field-definitions/:id/archive` | Archive a definition (archive-only lifecycle — no delete) |
+
+Proposal items carry the full custom-field row plus `entitySlug` and `entityType`. See [Catalog Custom Fields](/building/custom-fields/).
+
 The cron job runner endpoint:
 
 | Method | Path | Description |
@@ -757,6 +809,11 @@ Added by `@porulle/plugin-layaway`. All paths under `/api/layaways`. See [Layawa
 | `PATCH /promotions/:id`, `POST /promotions/:id/deactivate` | `promotions:update` |
 | `POST /marketplace/vendors/:id/approve`, `.../suspend` | `marketplace:admin` |
 | `GET /admin/jobs/failed`, `POST /admin/jobs/:id/retry` | `jobs:admin` |
+| `GET /admin/custom-field-proposals`, `/admin/entity-field-definitions` group | `catalog:update` |
+| Custom-field `approve`/`reject` | `catalog:update` (+ `catalog:sync` for store-sourced entities) |
+| `GET /catalog/entities/:id/field-ownership` | `catalog:read` |
+| `PUT /catalog/entities/:id/field-ownership` | `catalog:update` (+ `catalog:sync` for store-sourced entities) |
+| `DELETE /media/:id` (merchant-origin assets) | `media:write` |
 | `GET /settings`, `PATCH /settings/:group` | `settings:manage` |
 | `GET /analytics/reports`, `GET /analytics/reports/:name` | `analytics:read` |
 | `GET/POST/PATCH/DELETE /tax/classes` | `tax:manage` |

@@ -1,0 +1,42 @@
+---
+title: Entity Revisions
+description: Full-snapshot catalog history — automatic revisions on every mutation, point-in-time restore, and retention trimming.
+---
+
+Every catalog mutation writes a revision of the affected entity: a full `jsonb` snapshot captured **in the same transaction** as the change itself. If the mutation commits, so does its revision — there is no window where the catalog and its history disagree.
+
+## What a snapshot holds
+
+The snapshot in `sellable_entity_revisions` is a complete copy of the entity's catalog state:
+
+- the entity row itself (type, slug, status, visibility, tax class, metadata)
+- localized attributes
+- **all** custom-field rows — approved, proposed, and rejected, with their provenance
+- media links (`entity_media`)
+- category, brand, and tag links
+
+Variants, prices, and inventory are not part of the snapshot — they have their own lifecycles.
+
+Each entity's revisions are numbered monotonically (`revision` 1, 2, 3, …) with a unique `(entity_id, revision)` constraint. A mutation that produces a state identical to the latest revision is skipped — no-op writes do not pollute history. Every revision records a `reason` (`create`, `update`, `import`, `enrichment`, `push`, `restore`) plus the acting actor and request id.
+
+## Restore
+
+`restoreEntityRevision(entityId, revisionId, actor)` on the catalog service reapplies a snapshot as a **true restore**: the entity row is rewritten and each snapshotted collection is replaced wholesale — rows added since the revision are deleted, rows the snapshot carries come back with their original ids. The restore then appends a **new** revision with `reason: "restore"` — history is never truncated, so a restore can itself be undone by restoring forward.
+
+Two guards apply: restore requires `catalog:update`, and entities owned by a connected store (`sourceStoreId` set) additionally require `catalog:sync` — a manual restore must not silently fight [channel convergence](/building/channel-connectors/).
+
+## Recording and trimming
+
+Two further guarded service methods (both `catalog:update`):
+
+- `recordEntityRevision(entityId, actor, reason = "update")` — force a revision outside the automatic mutation paths, e.g. to record the sent state before an outbound sync (`reason: "push"` always writes, bypassing the identical-state skip).
+- `trimEntityRevisions(actor, olderThanDays = 90)` — org-scoped retention: deletes unpinned revisions older than the cutoff and returns the count. **Revision 1 and pinned revisions are always spared**, so the original state and anything an operator marks survive any retention policy. Run it from a scheduled job.
+
+There is no REST surface for revisions — they are a service-level API for operators and plugins (`kernel.services.catalog`).
+
+## Related
+
+- [Database Schema](/reference/database-schema/) — the `sellable_entity_revisions` table
+- [Catalog Custom Fields](/building/custom-fields/) — approvals write revisions too
+- [Webhooks and Audit](/production/webhooks-and-audit/) — the event-level audit log, complementary to full snapshots
+- [Upgrading](/production/upgrading/) — the migration that introduces the table

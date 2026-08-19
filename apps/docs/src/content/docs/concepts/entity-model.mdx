@@ -55,7 +55,7 @@ entities: {
 
 Four systems read this config and adjust behavior accordingly.
 
-**The catalog service** uses `fields` to validate metadata on create and update. Declaring `weight` as a number rejects strings. An undeclared field is rejected as unknown. A type with no field definitions accepts anything in metadata.
+**The catalog service** uses `fields` to validate each entity's `customFields` values on create and update. Declaring `weight` as a number rejects strings; an undeclared field name is rejected as unknown. Values land as typed rows in `sellable_custom_fields` — each carrying provenance (`source`, `status`, `confidence`, locale) — not in the metadata blob. Field definitions are not config-only: org-scoped runtime definitions layer over the code config without a deploy, and `select` fields enforce their option vocabulary. See [Catalog Custom Fields](/building/custom-fields/). The `metadata` JSONB column stays free-form for anything undeclared.
 
 **The shipping calculator** uses `fulfillment` to decide whether a line item incurs shipping cost during checkout. `"physical"` means shipping applies. `"digital"`, `"digital-download"`, `"digital-access"` mean shipping is skipped. A single checkout can contain a hoodie and a PDF — the shipping calculator charges shipping only for the physical item.
 
@@ -63,7 +63,7 @@ Four systems read this config and adjust behavior accordingly.
 
 ## The trade-off: metadata is not schema-enforced
 
-The cost of JSONB is that the database does not enforce the schema. A `weight` field declared as `number` in config is validated at the application layer, not by a PostgreSQL `CHECK` constraint or a `NUMERIC` column type. Direct SQL writes bypass this validation.
+The cost of JSONB is that the database does not enforce the schema of the `metadata` blob. Declared custom fields avoid most of this — their values live in typed columns on `sellable_custom_fields` — but validation against the field definitions still happens at the application layer, not as a PostgreSQL `CHECK` constraint. Direct SQL writes bypass it.
 
 In practice this is acceptable:
 

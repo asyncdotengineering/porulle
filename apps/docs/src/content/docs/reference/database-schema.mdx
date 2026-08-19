@@ -65,6 +65,131 @@ Index: `(entity_id, locale)`.
 | `sort_order` | `integer` | NOT NULL, default `0` |
 | `metadata` | `jsonb` | default `{}` |
 
+### sellable_custom_fields
+
+Typed custom-field values with provenance. See [Catalog Custom Fields](/building/custom-fields/).
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `uuid` | PK |
+| `entity_id` | `uuid` | NOT NULL, FK `sellable_entities.id` ON DELETE CASCADE |
+| `field_name` | `text` | NOT NULL |
+| `field_type` | `text` | NOT NULL. Enum: `text`, `number`, `boolean`, `date`, `json`, `relation`, `select` |
+| `source` | `text` | NOT NULL, default `'merchant'`. Enum: `merchant`, `import`, `enrichment`, `rule` |
+| `status` | `text` | NOT NULL, default `'approved'`. Enum: `proposed`, `approved`, `rejected` |
+| `confidence` | `numeric(4,3)` | — |
+| `evidence` | `jsonb` | — |
+| `locale` | `text` | NOT NULL, default `'en'` |
+| `approved_at` | `timestamptz` | — |
+| `approved_by` | `text` | — |
+| `text_value` / `number_value` / `boolean_value` / `date_value` / `json_value` | typed | One populated per row, by `field_type` |
+| `created_at` / `updated_at` | `timestamptz` | NOT NULL, default `now()` |
+
+Partial unique index `sellable_custom_fields_live_unique` on `(entity_id, field_name, locale)` where `status = 'approved'` — at most one live value per field and locale.
+
+### entity_field_definitions
+
+Org-scoped runtime field definitions layered over `commerce.config` fields. Archive-only lifecycle.
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `uuid` | PK |
+| `organization_id` | `text` | NOT NULL, FK `organization.id` ON DELETE CASCADE |
+| `entity_type` | `text` | NOT NULL |
+| `name` | `text` | NOT NULL |
+| `type` | `text` | NOT NULL. Enum: `text`, `number`, `boolean`, `date`, `json`, `relation`, `select` |
+| `unit` | `text` | — |
+| `options` | `jsonb` | `string[]` — `select` vocabulary |
+| `target` | `text` | — |
+| `filterable` | `boolean` | NOT NULL, default `false`. Gates search-attribute indexing |
+| `localized` | `boolean` | NOT NULL, default `false` |
+| `status` | `text` | NOT NULL, default `'active'`. Enum: `active`, `archived` |
+| `sort_order` | `integer` | NOT NULL, default `0` |
+| `created_at` / `updated_at` | `timestamptz` | NOT NULL, default `now()` |
+
+Unique: `(organization_id, entity_type, name)`.
+
+### tags · entity_tags
+
+Org-scoped tags and their entity links (written by channel convergence, usable directly).
+
+| Table | Columns |
+|-------|---------|
+| `tags` | `id` uuid PK · `organization_id` text NOT NULL FK · `slug` text NOT NULL · `display_name` text NOT NULL. Unique `(organization_id, slug)` |
+| `entity_tags` | `entity_id` uuid NOT NULL FK CASCADE · `tag_id` uuid NOT NULL FK CASCADE. Unique `(entity_id, tag_id)` |
+
+### sellable_entity_revisions
+
+Full-snapshot catalog history. See [Entity Revisions](/production/entity-revisions/).
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `uuid` | PK |
+| `organization_id` | `text` | NOT NULL, FK `organization.id` ON DELETE CASCADE |
+| `entity_id` | `uuid` | NOT NULL, FK `sellable_entities.id` ON DELETE CASCADE |
+| `revision` | `integer` | NOT NULL. Monotonic per entity |
+| `snapshot` | `jsonb` | NOT NULL. Entity row + attributes + all custom-field rows + media/category/brand/tag links |
+| `reason` | `sellable_entity_revision_reason` | NOT NULL. Enum: `create`, `update`, `import`, `enrichment`, `push`, `restore` |
+| `pinned` | `boolean` | NOT NULL, default `false`. Revision 1 is pinned; pinned rows survive trimming |
+| `actor_id` / `actor_type` / `request_id` | `text` | — |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` |
+
+Unique: `(entity_id, revision)`.
+
+### catalog_field_ownership
+
+Per-field write authority for channel sync. See [Catalog Field Ownership](/building/catalog-ownership/).
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `uuid` | PK |
+| `organization_id` | `text` | NOT NULL, FK `organization.id` ON DELETE CASCADE |
+| `entity_id` | `uuid` | NOT NULL, FK `sellable_entities.id` ON DELETE CASCADE |
+| `variant_id` | `uuid` | FK `variants.id` ON DELETE CASCADE. Null = entity level |
+| `store_id` | `text` | Null = all stores |
+| `field_path` | `text` | NOT NULL |
+| `owner` | `catalog_field_owner` | NOT NULL. Enum: `platform`, `store`, `shared` |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` |
+
+Unique: `(organization_id, entity_id, variant_id, store_id, field_path)` with `NULLS NOT DISTINCT` — requires PostgreSQL 15+.
+
+---
+
+## Media
+
+### media_assets
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `uuid` | PK |
+| `organization_id` | `text` | NOT NULL, FK `organization.id` ON DELETE CASCADE |
+| `storage_key` | `text` | NOT NULL |
+| `filename` | `text` | NOT NULL |
+| `content_type` | `text` | NOT NULL |
+| `size` | `integer` | NOT NULL |
+| `width` / `height` | `integer` | — |
+| `alt` | `text` | — |
+| `metadata` | `jsonb` | default `{}` |
+| `origin` | `media_asset_origin` | NOT NULL, default `'merchant'`. Enum: `merchant`, `generated`, `imported` |
+| `confidence` | `numeric(4,3)` | — |
+| `derived_from_asset_id` | `uuid` | Self-FK ON DELETE SET NULL |
+| `uploaded_at` | `timestamptz` | NOT NULL, default `now()` |
+
+Deleting a merchant-origin asset requires `media:write`.
+
+### entity_media
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `entity_id` | `uuid` | NOT NULL, FK `sellable_entities.id` ON DELETE CASCADE |
+| `variant_id` | `uuid` | FK `variants.id` ON DELETE CASCADE |
+| `media_asset_id` | `uuid` | NOT NULL, FK `media_assets.id` ON DELETE CASCADE |
+| `role` | `text` | NOT NULL. Enum: `primary`, `gallery`, `thumbnail`, `video`, `document` |
+| `sort_order` | `integer` | NOT NULL, default `0` |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` |
+
+Two partial unique indexes scope uniqueness per level: `(entity_id, media_asset_id)` where `variant_id IS NULL`, and `(entity_id, variant_id, media_asset_id)` where `variant_id IS NOT NULL` — the same asset may attach at entity level and per variant, duplicates are rejected per level.
+
 ---
 
 ## Inventory
@@ -282,6 +407,7 @@ Index: `(order_id)`. Listing is pinned-first, then newest-first.
 | `variant_id` | `uuid` | FK `variants.id` ON DELETE CASCADE |
 | `currency` | `text` | NOT NULL |
 | `amount` | `integer` | NOT NULL |
+| `compare_at_amount` | `integer` | — Strike-through price in minor units |
 | `customer_group_id` | `text` | — |
 | `min_quantity` | `integer` | — |
 | `max_quantity` | `integer` | — |

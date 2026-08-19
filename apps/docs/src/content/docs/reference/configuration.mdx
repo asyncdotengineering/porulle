@@ -145,7 +145,7 @@ interface EntityConfig {
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `fields` | `EntityFieldDefinition[]` | Custom field definitions. The catalog service validates entity `metadata` against these on create/update. |
+| `fields` | `EntityFieldDefinition[]` | Custom field definitions. The catalog service validates each entity's `customFields` values against these on create/update; values are stored in `sellable_custom_fields`. |
 | `variants` | `EntityVariantConfig` | Variant support configuration |
 | `fulfillment` | `string` | Fulfillment strategy: `"physical"`, `"digital"`, `"digital-download"`, `"digital-access"` |
 | `hooks` | `EntityHooks` | Lifecycle hooks scoped to this entity type |
@@ -156,10 +156,15 @@ interface EntityConfig {
 |-------|------|-------------|
 | `name` | `string` | Field identifier |
 | `type` | `"text" \| "number" \| "boolean" \| "date" \| "json" \| "relation" \| "select"` | Data type |
+| `filterable` | `boolean` | Index this field's approved `en`-locale values as search attributes. Default `false`. |
+| `localized` | `boolean` | Mark the field as per-locale. Default `false`. |
 | `unit` | `string` | Unit of measurement (for `"number"` fields, e.g., `"g"`, `"ml"`) |
 | `schema` | `unknown` | Validation schema for the field value |
 | `target` | `string` | Target entity slug (for `"relation"` fields) |
-| `options` | `string[]` | Allowed values (for `"select"` fields) |
+| `options` | `string[]` | Allowed values (for `"select"` fields). Enforced exact-match after trimming whitespace — an out-of-vocabulary value is rejected with `422` naming the allowed set. A `select` without `options` is unconstrained. |
+| `sortOrder` | `number` | Display/merge order. Default `0`. |
+
+Code-declared fields are the base layer. Runtime rows in `entity_field_definitions` (managed via `/api/admin/entity-field-definitions`) layer over them per organization — see [Catalog Custom Fields](/building/custom-fields/).
 
 ### EntityVariantConfig
 

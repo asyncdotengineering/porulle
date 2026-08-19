@@ -1,0 +1,23 @@
+---
+title: Upgrading
+description: The migration contracts to apply when upgrading a deployed store's database.
+---
+
+Porulle ships schema as Drizzle table definitions — **consumers own their migrations**. When a release adds or changes tables, the repository's `docs/migration-*.md` files are the consumer migration contracts: each one carries the exact SQL to bring an existing database forward, plus the behavioral notes that go with it. Apply them in your own migration tooling (`drizzle-kit`, raw SQL, whatever runs your deploys); fresh installs get the final shape from `drizzle-kit push` and need none of them.
+
+## Migration contracts
+
+| Contract | What it covers |
+|----------|----------------|
+| [`migration-0.1-to-0.7.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-0.1-to-0.7.md) | Upgrade path for 0.1.0 early adopters — schema diff first, then behavioral changes |
+| [`migration-sellable-custom-fields.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-sellable-custom-fields.md) | Provenance columns on `sellable_custom_fields` (`source`, `status`, `confidence`, `evidence`, `locale`, approval stamps) and the approved-only partial unique index |
+| [`migration-entity-field-definitions.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-entity-field-definitions.md) | The runtime `entity_field_definitions` table that layers over code-config fields |
+| [`migration-sellable-entity-revisions.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-sellable-entity-revisions.md) | The full-snapshot `sellable_entity_revisions` history store with reason enum and retention pin |
+| [`migration-media-origin.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-media-origin.md) | `origin`/`confidence`/`derived_from_asset_id` on `media_assets`, `created_at` on `entity_media`, and the level-scoped unique indexes |
+| [`migration-catalog-tags-and-compare-at.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-catalog-tags-and-compare-at.md) | The org-scoped `tags` / `entity_tags` tables and `prices.compare_at_amount` |
+| [`migration-catalog-field-ownership.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-catalog-field-ownership.md) | The `catalog_field_ownership` table and owner enum — requires PostgreSQL 15+ (`UNIQUE NULLS NOT DISTINCT`) |
+
+## Related
+
+- [Database Schema](/reference/database-schema/) — the current shape all contracts converge on
+- [Deploy](/production/deployment/) — where migrations fit in the deploy pipeline

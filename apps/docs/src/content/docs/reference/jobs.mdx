@@ -273,6 +273,8 @@ GROUP BY task_slug;
 
 All tasks must be registered before jobs referencing them are processed. If a job's `task_slug` has no matching task definition, the runner marks it as `failed` with "Unknown task slug".
 
+The kernel auto-registers only `webhooks/deliver` and `jobs/reap-stale`; plugins contribute their tasks through their manifests. The channel connector registers `channel/import-catalog`, `channel/backfill-catalog`, `channel/sync-inventory`, `channel/push-order`, `channel/reconcile`, `channel/reconcile-sweep`, and `channel/reap-exports` — all keyed per store via `concurrency.key`. `channel/backfill-catalog` processes one page per run and re-enqueues itself until the backfill completes (see [Catalog backfill](/building/channel-connectors/#catalog-backfill)).
+
 ```ts title="commerce.config.ts"
 import { APPOINTMENT_EMAIL_TASKS } from "@porulle/plugin-appointments";
 

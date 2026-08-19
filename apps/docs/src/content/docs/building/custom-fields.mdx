@@ -1,0 +1,96 @@
+---
+title: Catalog Custom Fields
+description: Typed custom-field values with provenance, runtime field definitions, select vocabularies, and the proposal review workflow.
+---
+
+Custom fields are the typed layer on top of the entity model. A field is **defined** (in `commerce.config.ts` or at runtime through the admin API) and then **valued** per entity in the `sellable_custom_fields` table. Every value carries provenance — who produced it, how confident they were, and whether a human has approved it — so enrichment pipelines and imports can propose values without overwriting merchant truth.
+
+## Defining fields
+
+Fields come from two layers that merge at read time:
+
+1. **Code** — `entities[].fields` in `commerce.config.ts` (see [Configuration](/reference/configuration/#entityfielddefinition)).
+2. **Runtime** — rows in the org-scoped `entity_field_definitions` table, managed over REST without a deploy.
+
+```ts title="commerce.config.ts"
+entities: {
+  product: {
+    fields: [
+      { name: "material", type: "select", options: ["cotton", "linen", "wool"], filterable: true },
+      { name: "weight", type: "number", unit: "g" },
+    ],
+  },
+}
+```
+
+Runtime definitions are unique per `(organization, entityType, name)` and layer **over** the code config: a runtime row with a new name adds a field; a runtime row shadowing a code field may override only `options`, `filterable`, `localized`, and `sortOrder` — `type`, `unit`, and `target` stay what the code declared, and omitted values are inherited from the code field. Code-defined fields cannot be archived.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/admin/entity-field-definitions` | List definitions, optional `?entityType` |
+| `POST` | `/api/admin/entity-field-definitions` | Create a definition |
+| `PATCH` | `/api/admin/entity-field-definitions/:id` | Update a definition |
+| `POST` | `/api/admin/entity-field-definitions/:id/archive` | Archive a definition |
+
+All four require `catalog:update`. Definitions are **archived, never deleted**: archiving stops new writes to the field (a write returns `422 Unknown custom field`) while values already stored stay readable. `filterable: true` is what promotes a field's approved values into the [attribute search index](/reference/rest-api/#search).
+
+## Writing values
+
+Entity create and update accept a `customFields` record. Values are validated against the merged definitions — an unknown name is rejected, a type mismatch is rejected:
+
+```json title="PATCH /api/catalog/entities/:id"
+{
+  "customFields": {
+    "material": "linen",
+    "weight": null
+  }
+}
+```
+
+Three write rules:
+
+- A plain write lands as `source: "merchant"`, `status: "approved"` — the live value, immediately.
+- An explicit `null` clears the field's approved value.
+- Omitted keys are untouched — `customFields` is a patch, never a replacement.
+
+A `select` field with `options` enforces its vocabulary: the value is trimmed of surrounding whitespace, then matched **exactly** (case-sensitive) against the allowed set. An out-of-vocabulary value fails with `422` and an error naming the allowed set (`Value "BLACK" is not permitted for field material. Allowed: cotton, linen, wool`). A `select` definition without `options` accepts any string. Values are stored with `fieldType: "select"` at rest.
+
+## Provenance
+
+Every row on `sellable_custom_fields` carries:
+
+| Column | Values | Meaning |
+|--------|--------|---------|
+| `source` | `merchant` \| `import` \| `enrichment` \| `rule` | Who produced the value |
+| `status` | `proposed` \| `approved` \| `rejected` | Review state — only `approved` rows are live |
+| `confidence` | `numeric(4,3)`, nullable | The producer's confidence (e.g. `0.912`) |
+| `evidence` | `jsonb`, nullable | Supporting material for a proposal |
+| `locale` | text, default `en` | Per-locale values |
+| `approved_at` / `approved_by` | — | Set when a proposal is approved |
+
+A partial unique index guarantees **at most one approved value per (entity, field, locale)**; any number of proposals can coexist beside it.
+
+## Reviewing proposals
+
+Imports and enrichment pipelines insert `status: "proposed"` rows instead of overwriting the live value. The review surface:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/admin/custom-field-proposals` | Org-scoped proposal queue, optional `?entityType`, paginated |
+| `POST` | `/api/catalog/entities/:id/custom-fields/:fieldName/approve` | Approve the newest proposal (`?locale`, default `en`) |
+| `POST` | `/api/catalog/entities/:id/custom-fields/:fieldName/reject` | Reject the newest proposal (`?locale`, default `en`) |
+
+All three require `catalog:update`; store-sourced entities additionally require `catalog:sync`.
+
+Approval is atomic: the existing approved value is displaced, the proposal becomes the live value keeping its `source`, `confidence`, and `evidence`, all sibling proposals for the same (entity, field, locale) are auto-rejected, and an [entity revision](/production/entity-revisions/) is written. When several proposals exist, the **newest wins** deterministically (`createdAt`, then `id`). Rejecting leaves the live value untouched and keeps the rejected row for audit.
+
+## Reading values
+
+`GET /api/catalog/entities/:idOrSlug?include=customFields` returns the entity's **approved rows only**, with full provenance columns, under `data.customFields`. The same `include` works on the list endpoint. Proposals never leak into reads — they are visible only through the admin queue.
+
+## Related
+
+- [Configuration Reference](/reference/configuration/#entityfielddefinition) — the `EntityFieldDefinition` type
+- [Database Schema](/reference/database-schema/) — `sellable_custom_fields`, `entity_field_definitions`
+- [Entity Revisions](/production/entity-revisions/) — the snapshot written on every catalog mutation
+- [The Entity Model](/concepts/entity-model/) — why one table, and where metadata still fits

@@ -148,28 +148,33 @@ interface SearchAdapter {
 
 ### SearchDocument
 
-| Field         | Type                      | Required |
-| ------------- | ------------------------- | -------- |
-| `id`          | `string`                  | Yes      |
-| `type`        | `string`                  | Yes      |
-| `slug`        | `string`                  | Yes      |
-| `title`       | `string`                  | Yes      |
-| `description` | `string`                  | No       |
-| `status`      | `string`                  | No       |
-| `categories`  | `string[]`                | Yes      |
-| `brands`      | `string[]`                | Yes      |
-| `text`        | `string`                  | Yes      |
-| `payload`     | `Record<string, unknown>` | No       |
+| Field         | Type                               | Required |
+| ------------- | ---------------------------------- | -------- |
+| `id`          | `string`                           | Yes      |
+| `type`        | `string`                           | Yes      |
+| `slug`        | `string`                           | Yes      |
+| `title`       | `string`                           | Yes      |
+| `description` | `string`                           | No       |
+| `status`      | `string`                           | No       |
+| `categories`  | `string[]`                         | Yes      |
+| `brands`      | `string[]`                         | Yes      |
+| `text`        | `string`                           | Yes      |
+| `attributes`  | `Record<string, string \| string[]>` | No       |
+| `payload`     | `Record<string, unknown>`          | No       |
+
+`attributes` holds the entity's filterable custom-field values. Only fields whose definition sets `filterable: true` are indexed, and only approved `en`-locale values. A field with one value indexes as a `string`; multiple distinct values index as a `string[]`.
 
 ### SearchQueryParams
 
-| Field     | Type                                    | Required |
-| --------- | --------------------------------------- | -------- |
-| `query`   | `string`                                | Yes      |
-| `page`    | `number`                                | No       |
-| `limit`   | `number`                                | No       |
-| `filters` | `{ type?, category?, brand?, status? }` | No       |
-| `facets`  | `string[]`                              | No       |
+| Field     | Type                                                 | Required |
+| --------- | ---------------------------------------------------- | -------- |
+| `query`   | `string`                                             | Yes      |
+| `page`    | `number`                                             | No       |
+| `limit`   | `number`                                             | No       |
+| `filters` | `{ type?, category?, brand?, status?, attributes? }` | No       |
+| `facets`  | `string[]`                                           | No       |
+
+`filters.attributes` is a `Record<string, string | string[]>`: distinct names are ANDed, repeated values for one name are ORed, and matching is equality only. `facets` accepts attribute names alongside the built-in `type`, `category`, `brand`, `status` — the result counts each entity once per distinct value. Both shipped search adapters (`@porulle/adapter-pg-search`, `@porulle/adapter-meilisearch`) implement attribute filtering and attribute facets.
 
 ### SearchQueryResult
 
