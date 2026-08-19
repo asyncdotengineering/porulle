@@ -123,6 +123,41 @@ export const sellableCustomFields = pgTable(
   }),
 );
 
+export const entityFieldDefinitions = pgTable(
+  "entity_field_definitions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    entityType: text("entity_type").notNull(),
+    name: text("name").notNull(),
+    type: text("type", {
+      enum: ["text", "number", "boolean", "date", "json", "relation", "select"],
+    }).notNull(),
+    unit: text("unit"),
+    options: jsonb("options").$type<string[]>(),
+    target: text("target"),
+    filterable: boolean("filterable").notNull().default(false),
+    localized: boolean("localized").notNull().default(false),
+    status: text("status", { enum: ["active", "archived"] })
+      .notNull()
+      .default("active"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    organizationIdx: index("idx_entity_field_definitions_organization").on(table.organizationId),
+    entityTypeIdx: index("idx_entity_field_definitions_entity_type").on(table.organizationId, table.entityType),
+    organizationEntityTypeNameUnique: uniqueIndex("entity_field_definitions_org_type_name_unique").on(
+      table.organizationId,
+      table.entityType,
+      table.name,
+    ),
+  }),
+);
+
 export const categories = pgTable(
   "categories",
   {

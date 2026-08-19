@@ -35,10 +35,12 @@ export interface EntityFieldDefinition {
   name: string;
   type: FieldType;
   filterable?: boolean;
+  localized?: boolean;
   unit?: string;
   schema?: unknown;
   target?: string;
   options?: string[];
+  sortOrder?: number;
 }
 
 export interface EntityVariantConfig {

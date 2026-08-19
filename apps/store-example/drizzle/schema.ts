@@ -242,6 +242,32 @@ export const sellableCustomFields = pgTable("sellable_custom_fields", {
 		}).onDelete("cascade"),
 	]);
 
+export const entityFieldDefinitions = pgTable("entity_field_definitions", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	organizationId: text("organization_id").notNull(),
+	entityType: text("entity_type").notNull(),
+	name: text().notNull(),
+	type: text().notNull(),
+	unit: text(),
+	options: jsonb().$type<string[]>(),
+	target: text(),
+	filterable: boolean().default(false).notNull(),
+	localized: boolean().default(false).notNull(),
+	status: text().default('active').notNull(),
+	sortOrder: integer("sort_order").default(0).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("idx_entity_field_definitions_organization").using("btree", table.organizationId.asc().nullsLast().op("text_ops")),
+	index("idx_entity_field_definitions_entity_type").using("btree", table.organizationId.asc().nullsLast().op("text_ops"), table.entityType.asc().nullsLast().op("text_ops")),
+	uniqueIndex("entity_field_definitions_org_type_name_unique").on(table.organizationId, table.entityType, table.name),
+	foreignKey({
+			columns: [table.organizationId],
+			foreignColumns: [organization.id],
+			name: "entity_field_definitions_organization_id_organization_id_fk"
+		}).onDelete("cascade"),
+	]);
+
 export const sellableEntityRevisionReason = pgEnum("sellable_entity_revision_reason", ["create", "update", "import", "enrichment", "push", "restore"])
 
 export const sellableEntityRevisions = pgTable("sellable_entity_revisions", {

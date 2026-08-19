@@ -36,6 +36,7 @@ import type {
   CreateOptionTypeInput,
   CreateOptionValueInput,
   CreateVariantInput,
+  EntityFieldDefinitionResolver,
 } from "./service.js";
 import type {
   SellableEntity,
@@ -88,7 +89,10 @@ type CustomFieldData = Omit<SellableCustomFieldInsert, "entityId" | "fieldName" 
 type ValidatedCustomField = { fieldName: string; locale: string; data: CustomFieldData | null };
 
 export class EntityService {
-  constructor(private readonly deps: CatalogServiceDeps) {}
+  constructor(
+    private readonly deps: CatalogServiceDeps,
+    private readonly resolveEntityFieldDefinitions: EntityFieldDefinitionResolver,
+  ) {}
 
   private get repo() {
     return this.deps.repository;
@@ -106,11 +110,12 @@ export class EntityService {
     if (entity.sourceStoreId != null) assertPermission(actor, "catalog:sync");
   }
 
-  private validateCustomFields(entityType: string, customFields: Record<string, unknown> | undefined): Result<ValidatedCustomField[]> {
+  private async validateCustomFields(entityType: string, customFields: Record<string, unknown> | undefined, actor: Actor | null, ctx?: TxContext): Promise<Result<ValidatedCustomField[]>> {
     if (!customFields) return Ok([]);
     const entityConfig = this.deps.config.entities?.[entityType];
-    if (!entityConfig) return Ok([]);
-    const definitionMap = new Map(entityConfig.fields.map((f) => [f.name, f]));
+    const definitions = await this.resolveEntityFieldDefinitions(entityType, actor ?? ctx?.actor ?? null, ctx);
+    if (!entityConfig && definitions.length === 0) return Ok([]);
+    const definitionMap = new Map(definitions.map((f) => [f.name, f]));
     const validated: ValidatedCustomField[] = [];
     for (const [name, value] of Object.entries(customFields)) {
       const def = definitionMap.get(name);
@@ -258,7 +263,7 @@ export class EntityService {
     const context: HookContext = createHookContext({ actor, tx: ctx?.tx ?? null, logger: createLogger("catalog.create"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database) });
     const processedInput = await runBeforeHooks(beforeHooks, input, "create", context);
     if (processedInput.sourceStoreId != null) assertPermission(actor, "catalog:sync");
-    const customFieldsResult = this.validateCustomFields(processedInput.type, processedInput.customFields);
+    const customFieldsResult = await this.validateCustomFields(processedInput.type, processedInput.customFields, actor, ctx);
     if (!customFieldsResult.ok) return customFieldsResult;
     const entity = await this.repo.createEntity({ organizationId: orgId, type: processedInput.type, slug: processedInput.slug, status: "draft", isVisible: false, ...(processedInput.sourceStoreId !== undefined ? { sourceStoreId: processedInput.sourceStoreId } : {}), ...(processedInput.taxClass !== undefined ? { taxClass: processedInput.taxClass } : {}), metadata: processedInput.metadata ?? {} }, ctx);
     if (processedInput.attributes) {
@@ -280,7 +285,7 @@ export class EntityService {
     const afterHooks = this.deps.hooks.resolve("catalog.afterUpdate") as CatalogUpdateAfterHook[];
     const context: HookContext = createHookContext({ actor, tx: ctx?.tx ?? null, logger: createLogger("catalog.update"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database) });
     const processed = await runBeforeHooks(beforeHooks, input, "update", context);
-    const customFieldsResult = this.validateCustomFields(existing.type, processed.customFields);
+    const customFieldsResult = await this.validateCustomFields(existing.type, processed.customFields, actor, ctx);
     if (!customFieldsResult.ok) return customFieldsResult;
     const updated = await this.repo.updateEntity(id, { ...(processed.slug !== undefined ? { slug: processed.slug } : {}), ...(processed.status !== undefined ? { status: processed.status as SellableEntity["status"] } : {}), ...(processed.taxClass !== undefined ? { taxClass: processed.taxClass } : {}), ...(processed.metadata !== undefined ? { metadata: processed.metadata } : {}), ...(processed.isVisible !== undefined ? { isVisible: processed.isVisible } : {}) }, ctx);
     if (!updated) return Err(new CommerceNotFoundError("Entity not found."));

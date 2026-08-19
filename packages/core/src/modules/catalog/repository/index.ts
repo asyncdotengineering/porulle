@@ -9,6 +9,7 @@ import {
   sellableEntities,
   sellableAttributes,
   sellableCustomFields,
+  entityFieldDefinitions,
   categories,
   entityCategories,
   brands,
@@ -30,6 +31,8 @@ export type SellableAttributeInsert = typeof sellableAttributes.$inferInsert;
 export type SellableCustomField = typeof sellableCustomFields.$inferSelect;
 export type SellableCustomFieldInsert =
   typeof sellableCustomFields.$inferInsert;
+export type EntityFieldDefinitionRecord = typeof entityFieldDefinitions.$inferSelect;
+export type EntityFieldDefinitionInsert = typeof entityFieldDefinitions.$inferInsert;
 export type Category = typeof categories.$inferSelect;
 export type CategoryInsert = typeof categories.$inferInsert;
 export type EntityCategory = typeof entityCategories.$inferSelect;
@@ -517,6 +520,79 @@ export class CatalogRepository {
     await db
       .delete(sellableCustomFields)
       .where(eq(sellableCustomFields.entityId, entityId));
+  }
+
+  async findEntityFieldDefinitions(
+    organizationId: string,
+    entityType?: string,
+    ctx?: TxContext,
+  ): Promise<EntityFieldDefinitionRecord[]> {
+    const db = this.getDb(ctx);
+    const conditions = [eq(entityFieldDefinitions.organizationId, organizationId)];
+    if (entityType !== undefined) {
+      conditions.push(eq(entityFieldDefinitions.entityType, entityType));
+    }
+    return db
+      .select()
+      .from(entityFieldDefinitions)
+      .where(and(...conditions))
+      .orderBy(asc(entityFieldDefinitions.entityType), asc(entityFieldDefinitions.sortOrder), asc(entityFieldDefinitions.name));
+  }
+
+  async findActiveEntityFieldDefinitions(
+    organizationId: string,
+    entityType: string,
+    ctx?: TxContext,
+  ): Promise<EntityFieldDefinitionRecord[]> {
+    const db = this.getDb(ctx);
+    return db
+      .select()
+      .from(entityFieldDefinitions)
+      .where(
+        and(
+          eq(entityFieldDefinitions.organizationId, organizationId),
+          eq(entityFieldDefinitions.entityType, entityType),
+          eq(entityFieldDefinitions.status, "active"),
+        ),
+      )
+      .orderBy(asc(entityFieldDefinitions.sortOrder), asc(entityFieldDefinitions.name));
+  }
+
+  async findEntityFieldDefinitionById(
+    organizationId: string,
+    id: string,
+    ctx?: TxContext,
+  ): Promise<EntityFieldDefinitionRecord | undefined> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .select()
+      .from(entityFieldDefinitions)
+      .where(and(eq(entityFieldDefinitions.organizationId, organizationId), eq(entityFieldDefinitions.id, id)));
+    return rows[0];
+  }
+
+  async createEntityFieldDefinition(
+    data: EntityFieldDefinitionInsert,
+    ctx?: TxContext,
+  ): Promise<EntityFieldDefinitionRecord> {
+    const db = this.getDb(ctx);
+    const rows = await db.insert(entityFieldDefinitions).values(data).returning();
+    return rows[0]!;
+  }
+
+  async updateEntityFieldDefinition(
+    organizationId: string,
+    id: string,
+    data: Partial<Omit<EntityFieldDefinitionInsert, "id" | "organizationId">>,
+    ctx?: TxContext,
+  ): Promise<EntityFieldDefinitionRecord | undefined> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .update(entityFieldDefinitions)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(entityFieldDefinitions.organizationId, organizationId), eq(entityFieldDefinitions.id, id)))
+      .returning();
+    return rows[0];
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

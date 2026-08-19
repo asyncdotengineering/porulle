@@ -15,10 +15,12 @@ import type {
   SearchQueryResult,
   SearchSuggestParams,
 } from "./adapter.js";
+import type { EntityFieldDefinitionResolver } from "../catalog/service.js";
 
 interface SearchServiceDeps {
   catalogRepository: CatalogRepository;
   entities?: CommerceConfig["entities"];
+  resolveEntityFieldDefinitions?: EntityFieldDefinitionResolver;
   adapter?: SearchAdapter;
   defaultFacets?: string[];
 }
@@ -138,8 +140,11 @@ export class SearchService {
     const description = primary?.description;
     const categories = await this.entityCategories(entity.id, ctx);
     const brands = await this.entityBrands(entity.id, ctx);
+    const definitions = this.deps.resolveEntityFieldDefinitions
+      ? await this.deps.resolveEntityFieldDefinitions(entity.type, entity.organizationId, ctx)
+      : (this.deps.entities?.[entity.type]?.fields ?? []);
     const filterableFields = new Set(
-      (this.deps.entities?.[entity.type]?.fields ?? [])
+      definitions
         .filter((field) => field.filterable === true)
         .map((field) => field.name),
     );

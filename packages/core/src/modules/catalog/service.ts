@@ -2,9 +2,10 @@ import type { Actor } from "../../auth/types.js";
 import { resolveOrgId } from "../../auth/org.js";
 import { assertPermission } from "../../auth/permissions.js";
 import type { CommerceConfig } from "../../config/types.js";
+import type { EntityFieldDefinition, FieldType } from "../../config/types.js";
 import type { HookRegistry } from "../../kernel/hooks/registry.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
-import { CommerceNotFoundError, toCommerceError } from "../../kernel/errors.js";
+import { CommerceConflictError, CommerceNotFoundError, CommerceValidationError, toCommerceError } from "../../kernel/errors.js";
 import type { Pagination } from "../../utils/pagination.js";
 import type { DatabaseAdapter } from "../../kernel/database/adapter.js";
 import { createTxContext, type TxContext } from "../../kernel/database/tx-context.js";
@@ -22,6 +23,7 @@ import {
   type SellableEntityInsert,
   type SellableAttributeInsert,
   type SellableCustomFieldInsert,
+  type EntityFieldDefinitionRecord,
 } from "./repository/index.js";
 import type { SellableEntityRevisionReason, SellableEntityRevisionSnapshot } from "./schema.js";
 import { comparableSerialize } from "./revision.js";
@@ -107,6 +109,29 @@ export type VariantGenerationStrategy =
   | { mode: "all" }
   | { mode: "manual"; combinations: string[][] }
   | { mode: "matrix"; matrix: VariantMatrixRule };
+
+export type EntityFieldDefinitionResolver = (
+  entityType: string,
+  actorOrOrg?: Actor | string | null,
+  ctx?: TxContext,
+) => Promise<EntityFieldDefinition[]>;
+
+export type CreateEntityFieldDefinitionInput = {
+  entityType: string;
+  name: string;
+  type: FieldType;
+  unit?: string | null;
+  options?: string[] | null;
+  target?: string | null;
+  filterable?: boolean;
+  localized?: boolean;
+  sortOrder?: number;
+};
+
+export type UpdateEntityFieldDefinitionInput = Partial<Omit<CreateEntityFieldDefinitionInput, "entityType" | "name">> & {
+  entityType?: string;
+  name?: string;
+};
 
 export interface CatalogEntityHydrated extends SellableEntity {
   attributes?: SellableAttribute[];
@@ -297,6 +322,28 @@ export interface CatalogService {
     olderThanDays?: number,
     ctx?: TxContext,
   ): Promise<Result<number>>;
+  listEntityFieldDefinitions(
+    actor?: Actor | null,
+    entityType?: string,
+    ctx?: TxContext,
+  ): Promise<Result<EntityFieldDefinitionRecord[]>>;
+  createEntityFieldDefinition(
+    input: CreateEntityFieldDefinitionInput,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<EntityFieldDefinitionRecord>>;
+  updateEntityFieldDefinition(
+    id: string,
+    input: UpdateEntityFieldDefinitionInput,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<EntityFieldDefinitionRecord>>;
+  archiveEntityFieldDefinition(
+    id: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<EntityFieldDefinitionRecord>>;
+  resolveEntityFieldDefinitions: EntityFieldDefinitionResolver;
 }
 
 export interface CatalogServiceDeps {
@@ -331,6 +378,7 @@ function isUniqueViolation(error: unknown): boolean {
 export class CatalogServiceImpl implements CatalogService {
   readonly repository: CatalogRepository;
   private readonly database: DatabaseAdapter;
+  private readonly config: CommerceConfig;
   private readonly entities: EntityService;
   private readonly categories: CategoryService;
   private readonly brands: BrandService;
@@ -338,9 +386,162 @@ export class CatalogServiceImpl implements CatalogService {
   constructor(deps: CatalogServiceDeps) {
     this.repository = deps.repository;
     this.database = deps.database;
-    this.entities = new EntityService(deps);
+    this.config = deps.config;
+    this.entities = new EntityService(deps, this.resolveEntityFieldDefinitions.bind(this));
     this.categories = new CategoryService(deps);
     this.brands = new BrandService(deps);
+  }
+
+  private codeFieldDefinition(entityType: string, name: string): EntityFieldDefinition | undefined {
+    return this.config.entities?.[entityType]?.fields.find((field) => field.name === name);
+  }
+
+  private runtimeFieldDefinition(row: EntityFieldDefinitionRecord): EntityFieldDefinition {
+    return {
+      name: row.name,
+      type: row.type,
+      ...(row.unit != null ? { unit: row.unit } : {}),
+      ...(row.options != null ? { options: row.options } : {}),
+      ...(row.target != null ? { target: row.target } : {}),
+      filterable: row.filterable,
+      localized: row.localized,
+      sortOrder: row.sortOrder,
+    };
+  }
+
+  async resolveEntityFieldDefinitions(
+    entityType: string,
+    actorOrOrg?: Actor | string | null,
+    ctx?: TxContext,
+  ): Promise<EntityFieldDefinition[]> {
+    const orgId = typeof actorOrOrg === "string"
+      ? actorOrOrg
+      : resolveOrgId(actorOrOrg ?? ctx?.actor ?? null);
+    const codeFields = this.config.entities?.[entityType]?.fields ?? [];
+    const merged = new Map(codeFields.map((field) => [field.name, { ...field }]));
+    const runtimeFields = await this.repository.findActiveEntityFieldDefinitions(orgId, entityType, ctx);
+
+    for (const row of runtimeFields) {
+      const codeField = merged.get(row.name);
+      if (!codeField) {
+        merged.set(row.name, this.runtimeFieldDefinition(row));
+        continue;
+      }
+      merged.set(row.name, {
+        ...codeField,
+        ...(row.options != null ? { options: row.options } : {}),
+        filterable: row.filterable,
+        localized: row.localized,
+        sortOrder: row.sortOrder,
+      });
+    }
+
+    return [...merged.values()].sort((first, second) =>
+      (first.sortOrder ?? 0) - (second.sortOrder ?? 0),
+    );
+  }
+
+  listEntityFieldDefinitions(
+    actor?: Actor | null,
+    entityType?: string,
+    ctx?: TxContext,
+  ): Promise<Result<EntityFieldDefinitionRecord[]>> {
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    return this.withMutationResult(actor ?? ctx?.actor ?? null, ctx, async (txCtx) =>
+      Ok(await this.repository.findEntityFieldDefinitions(orgId, entityType, txCtx)),
+    );
+  }
+
+  createEntityFieldDefinition(
+    input: CreateEntityFieldDefinitionInput,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<EntityFieldDefinitionRecord>> {
+    if (input.entityType.length === 0 || input.name.length === 0) {
+      return Promise.resolve(Err(new CommerceValidationError("Entity type and field name are required.")));
+    }
+    assertPermission(actor, "catalog:update");
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    return this.withMutationResult(actor, ctx, async (txCtx) => {
+      const codeField = this.codeFieldDefinition(input.entityType, input.name);
+      if (codeField && input.type !== codeField.type) {
+        return Err(new CommerceValidationError("Code-defined fields only allow options, filterable, localized, and sortOrder overrides."));
+      }
+      return Ok(await this.repository.createEntityFieldDefinition({
+        organizationId: orgId,
+        entityType: input.entityType,
+        name: input.name,
+        type: input.type,
+        // A shadow row over a code field inherits the code values for anything
+        // omitted, so creating one never silently flips a code default.
+        ...(codeField?.unit !== undefined || input.unit !== undefined
+          ? { unit: codeField ? codeField.unit ?? null : input.unit }
+          : {}),
+        ...(codeField?.target !== undefined || input.target !== undefined
+          ? { target: codeField ? codeField.target ?? null : input.target }
+          : {}),
+        ...(input.options !== undefined
+          ? { options: input.options }
+          : codeField?.options !== undefined ? { options: codeField.options } : {}),
+        ...(input.filterable !== undefined
+          ? { filterable: input.filterable }
+          : codeField?.filterable !== undefined ? { filterable: codeField.filterable } : {}),
+        ...(input.localized !== undefined ? { localized: input.localized } : {}),
+        ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+      }, txCtx));
+    });
+  }
+
+  updateEntityFieldDefinition(
+    id: string,
+    input: UpdateEntityFieldDefinitionInput,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<EntityFieldDefinitionRecord>> {
+    assertPermission(actor, "catalog:update");
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    return this.withMutationResult(actor, ctx, async (txCtx) => {
+      const existing = await this.repository.findEntityFieldDefinitionById(orgId, id, txCtx);
+      if (!existing) return Err(new CommerceNotFoundError("Entity field definition not found."));
+      const codeField = this.codeFieldDefinition(existing.entityType, existing.name);
+      if (codeField && (input.entityType !== undefined || input.name !== undefined || input.type !== undefined || input.unit !== undefined || input.target !== undefined)) {
+        return Err(new CommerceValidationError("Code-defined fields only allow options, filterable, localized, and sortOrder updates."));
+      }
+      const data = {
+        ...(input.entityType !== undefined ? { entityType: input.entityType } : {}),
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.type !== undefined ? { type: input.type } : {}),
+        ...(input.unit !== undefined ? { unit: input.unit } : {}),
+        ...(input.options !== undefined ? { options: input.options } : {}),
+        ...(input.target !== undefined ? { target: input.target } : {}),
+        ...(input.filterable !== undefined ? { filterable: input.filterable } : {}),
+        ...(input.localized !== undefined ? { localized: input.localized } : {}),
+        ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+      };
+      const updated = await this.repository.updateEntityFieldDefinition(orgId, id, data, txCtx);
+      if (!updated) return Err(new CommerceNotFoundError("Entity field definition not found."));
+      return Ok(updated);
+    });
+  }
+
+  archiveEntityFieldDefinition(
+    id: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<EntityFieldDefinitionRecord>> {
+    assertPermission(actor, "catalog:update");
+    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    return this.withMutationResult(actor, ctx, async (txCtx) => {
+      const existing = await this.repository.findEntityFieldDefinitionById(orgId, id, txCtx);
+      if (!existing) return Err(new CommerceNotFoundError("Entity field definition not found."));
+      if (this.codeFieldDefinition(existing.entityType, existing.name)) {
+        return Err(new CommerceValidationError("Code-defined fields cannot be archived."));
+      }
+      if (existing.status === "archived") return Ok(existing);
+      const updated = await this.repository.updateEntityFieldDefinition(orgId, id, { status: "archived" }, txCtx);
+      if (!updated) return Err(new CommerceNotFoundError("Entity field definition not found."));
+      return Ok(updated);
+    });
   }
 
   private async withMutation<T>(
@@ -367,6 +568,7 @@ export class CatalogServiceImpl implements CatalogService {
     try {
       return await this.withMutation(actor, ctx, fn);
     } catch (error) {
+      if (isUniqueViolation(error)) return Err(new CommerceConflictError("A resource with those values already exists."));
       return Err(toCommerceError(error));
     }
   }

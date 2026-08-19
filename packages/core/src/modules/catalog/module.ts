@@ -12,6 +12,7 @@ import {
   optionValues,
   sellableAttributes,
   sellableCustomFields,
+  entityFieldDefinitions,
   sellableEntityRevisions,
   sellableEntities,
   variantOptionValues,
@@ -28,6 +29,7 @@ export const catalogModule = defineModule<
     sellableEntities: typeof sellableEntities;
     sellableAttributes: typeof sellableAttributes;
     sellableCustomFields: typeof sellableCustomFields;
+    entityFieldDefinitions: typeof entityFieldDefinitions;
     sellableEntityRevisions: typeof sellableEntityRevisions;
     categories: typeof categories;
     entityCategories: typeof entityCategories;
@@ -47,6 +49,7 @@ export const catalogModule = defineModule<
     sellableEntities,
     sellableAttributes,
     sellableCustomFields,
+    entityFieldDefinitions,
     sellableEntityRevisions,
     categories,
     entityCategories,
