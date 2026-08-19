@@ -18,7 +18,7 @@ const actor: Actor = {
 };
 
 describe("channel connector c66 two-way sync and refunds", () => {
-  const mock = mockChannelConnector();
+  const mock = mockChannelConnector({ catalog: [] });
   let built: Awaited<ReturnType<typeof createPluginTestApp>>;
   let service: ChannelConnectorService;
 

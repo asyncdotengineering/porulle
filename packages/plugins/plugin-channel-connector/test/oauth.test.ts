@@ -18,7 +18,7 @@ function shopifyCallbackUrl(state: string): string {
 }
 
 function oauthConnector(provider: "shopify" | "woocommerce") {
-  const base = mockChannelConnector();
+  const base = mockChannelConnector({ catalog: [] });
   return {
     ...base,
     providerId: provider,

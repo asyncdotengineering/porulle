@@ -24,11 +24,48 @@ export interface ChannelStore {
   webhookSecret: string | null;
 }
 
+export interface ChannelCatalogLocalizedAttributes {
+  locale: string;
+  title: string;
+  subtitle?: string;
+  description?: string;
+  richDescription?: unknown;
+  seoTitle?: string;
+  seoDescription?: string;
+}
+
+export interface ChannelCatalogImage {
+  externalId?: string;
+  url: string;
+  alt?: string;
+  role: "primary" | "gallery" | "thumbnail" | "video" | "document";
+  sortOrder?: number;
+  variantExternalIds?: string[];
+}
+
+export interface ChannelCatalogOptionType {
+  name: string;
+  displayName: string;
+  sortOrder?: number;
+  values: Array<{
+    value: string;
+    displayValue: string;
+    sortOrder?: number;
+  }>;
+}
+
+export interface ChannelCatalogPrice {
+  currency: string;
+  amount: number;
+}
+
 export interface ChannelCatalogVariant {
   externalId: string;
   sku?: string;
   barcode?: string;
   metadata?: Record<string, unknown>;
+  optionValues?: Record<string, string>;
+  prices?: ChannelCatalogPrice[];
 }
 
 export interface ChannelCatalogItem {
@@ -38,6 +75,13 @@ export interface ChannelCatalogItem {
   description?: string;
   variants: ChannelCatalogVariant[];
   metadata?: Record<string, unknown>;
+  attributes?: ChannelCatalogLocalizedAttributes[];
+  images?: ChannelCatalogImage[];
+  options?: ChannelCatalogOptionType[];
+  tags?: string[];
+  brand?: string;
+  categories?: string[];
+  status?: "draft" | "active" | "archived" | "discontinued";
 }
 
 export interface ChannelCatalogPage {

@@ -15,7 +15,7 @@ const APP_SECRET = "shopify-app-client-secret";
 const SHARED_DOMAIN = "shared.myshopify.com";
 
 function complianceConnector() {
-  const base = mockChannelConnector();
+  const base = mockChannelConnector({ catalog: [] });
   return {
     ...base,
     providerId: "shopify",

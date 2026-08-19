@@ -141,8 +141,12 @@ export type {
 } from "./modules/payments/adapter.js";
 export { defineChannelConnector } from "./modules/channels/adapter.js";
 export type {
+  ChannelCatalogImage,
   ChannelCatalogItem,
+  ChannelCatalogLocalizedAttributes,
+  ChannelCatalogOptionType,
   ChannelCatalogPage,
+  ChannelCatalogPrice,
   ChannelCatalogVariant,
   ChannelConnector,
   ChannelConnectorCapabilities,

@@ -26,7 +26,7 @@ import { channelOrderExports } from "../src/schema.js";
 const APP_SECRET = "shopify-app-client-secret";
 
 function complianceIngressConnector() {
-  const base = mockChannelConnector();
+  const base = mockChannelConnector({ catalog: [] });
   return {
     ...base,
     providerId: "shopify",

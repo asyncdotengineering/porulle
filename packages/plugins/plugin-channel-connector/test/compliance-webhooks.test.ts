@@ -10,7 +10,7 @@ const WEBHOOK_SECRET = "shopify-compliance-secret";
 const APP_SECRET = "shopify-app-client-secret";
 
 function complianceConnector() {
-  const base = mockChannelConnector();
+  const base = mockChannelConnector({ catalog: [] });
   const registeredTopics: string[] = [];
   return {
     ...base,

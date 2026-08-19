@@ -35,7 +35,7 @@ const actor: Actor = {
 };
 
 describe("channel connector c64/c65 order injection", () => {
-  const mock = mockChannelConnector();
+  const mock = mockChannelConnector({ catalog: [] });
   let built: Awaited<ReturnType<typeof createPluginTestApp>>;
   let service: ChannelConnectorService;
 

@@ -19,6 +19,56 @@ export interface MockChannelConnectorOptions {
   onFetchInventory?: (ids: string[]) => void;
 }
 
+const defaultCatalog: ChannelCatalogItem[] = [{
+  externalId: "mock-product-1",
+  slug: "mock-channel-product",
+  title: "Mock Channel Product",
+  description: "Imported through the mock connector.",
+  attributes: [{
+    locale: "en",
+    title: "Mock Channel Product",
+    subtitle: "A complete mock catalog item",
+    description: "Imported through the mock connector.",
+    richDescription: { blocks: [{ type: "paragraph", text: "Mock product details." }] },
+    seoTitle: "Mock Channel Product | Porulle",
+    seoDescription: "A mock product with the complete channel catalog shape.",
+  }],
+  images: [
+    {
+      externalId: "mock-image-primary",
+      url: "https://mock.channel.test/images/mock-product-1-primary.jpg",
+      alt: "Mock Channel Product",
+      role: "primary",
+      sortOrder: 0,
+    },
+    {
+      externalId: "mock-image-variant",
+      url: "https://mock.channel.test/images/mock-variant-1.jpg",
+      alt: "Mock Channel Product blue variant",
+      role: "gallery",
+      sortOrder: 1,
+      variantExternalIds: ["mock-variant-1"],
+    },
+  ],
+  options: [{
+    name: "color",
+    displayName: "Color",
+    sortOrder: 0,
+    values: [{ value: "blue", displayValue: "Blue", sortOrder: 0 }],
+  }],
+  tags: ["mock", "featured"],
+  brand: "Porulle",
+  categories: ["mock-products"],
+  status: "active",
+  variants: [{
+    externalId: "mock-variant-1",
+    sku: "MOCK-SKU-1",
+    barcode: "0123456789012",
+    optionValues: { color: "blue" },
+    prices: [{ currency: "USD", amount: 2500 }],
+  }],
+}];
+
 export function mockChannelConnector(options: MockChannelConnectorOptions = {}) {
   const orders = new Map<string, ChannelOrderSlice>();
 
@@ -31,7 +81,7 @@ export function mockChannelConnector(options: MockChannelConnectorOptions = {}) 
       receiveWebhooks: true,
     },
     async importCatalog() {
-      return Ok({ items: options.catalog ?? [], nextCursor: null });
+      return Ok({ items: options.catalog ?? defaultCatalog, nextCursor: null });
     },
     async fetchInventory(_store, ids) {
       const requestedIds = ids ?? [];
