@@ -1,19 +1,22 @@
 import { resolveOrgId } from "../../auth/org.js";
+import { assertPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
 import type { CommerceConfig } from "../../config/types.js";
 import type { StorageAdapter, StoredFile } from "./adapter.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
 import {
+  CommerceConflictError,
   CommerceNotFoundError,
   CommerceValidationError,
   toCommerceError,
 } from "../../kernel/errors.js";
-import type { MediaRepository } from "./repository/index.js";
+import type { MediaRepository, MediaAsset } from "./repository/index.js";
 import type { CatalogRepository } from "../catalog/repository/index.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
 import { createTxContext } from "../../kernel/database/tx-context.js";
 import type { DatabaseAdapter } from "../../kernel/database/adapter.js";
 import { makeId } from "../../utils/id.js";
+import type { MediaAssetOrigin } from "./schema.js";
 
 export interface UploadMediaInput {
   filename: string;
@@ -21,6 +24,7 @@ export interface UploadMediaInput {
   data: ArrayBuffer;
   alt?: string;
   metadata?: Record<string, unknown>;
+  origin?: MediaAssetOrigin;
 }
 
 export interface AttachMediaInput {
@@ -57,6 +61,17 @@ const DEFAULT_ALLOWED_MIME_TYPES = [
   "image/webp",
   "application/pdf",
 ];
+
+export function assertMediaWritable(asset: Pick<MediaAsset, "origin">, actor: Actor | null): void {
+  if (asset.origin === "merchant") assertPermission(actor, "media:write");
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  if (error == null || typeof error !== "object") return false;
+  const value = error as { code?: unknown; cause?: unknown };
+  if (value.code === "23505") return true;
+  return isUniqueViolation(value.cause);
+}
 
 function isSvgOrXml(buffer: Uint8Array): boolean {
   const prefix = new TextDecoder()
@@ -163,6 +178,7 @@ export class MediaService {
         contentType: effectiveMime,
         size: input.data.byteLength,
         metadata: input.metadata ?? {},
+        origin: input.origin ?? "merchant",
         uploadedAt: new Date(),
         ...(input.alt !== undefined ? { alt: input.alt } : {}),
       },
@@ -214,6 +230,12 @@ export class MediaService {
     const asset = await this.repo.findAssetById(id, ctx, orgId);
     if (!asset) return Err(new CommerceNotFoundError("Media asset not found."));
 
+    try {
+      assertMediaWritable(asset, actor ?? ctx?.actor ?? null);
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+
     const deleted = await this.deps.storage.delete(asset.storageKey);
     if (!deleted.ok) return deleted;
 
@@ -241,6 +263,11 @@ export class MediaService {
 
         const asset = await this.repo.findAssetById(input.mediaAssetId, txCtx, orgId);
         if (!asset) return Err(new CommerceNotFoundError("Media asset not found."));
+
+        const existing = await this.repo.findEntityMedia(input.entityId, input.variantId, txCtx);
+        if (existing.some((link) => link.mediaAssetId === input.mediaAssetId)) {
+          return Err(new CommerceConflictError("Media asset is already attached at this level."));
+        }
 
         await this.repo.createEntityMedia(
           {
@@ -272,6 +299,9 @@ export class MediaService {
         return Ok(undefined);
       });
     } catch (error) {
+      if (isUniqueViolation(error)) {
+        return Err(new CommerceConflictError("Media asset is already attached at this level."));
+      }
       return Err(toCommerceError(error));
     }
   }

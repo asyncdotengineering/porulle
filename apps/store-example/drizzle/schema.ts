@@ -331,13 +331,18 @@ export const inventoryLevels = pgTable("inventory_levels", {
 		}),
 ]);
 
+export const mediaAssetOrigin = pgEnum("media_asset_origin", ["merchant", "generated", "imported"])
+
 export const entityMedia = pgTable("entity_media", {
 	entityId: uuid("entity_id").notNull(),
 	variantId: uuid("variant_id"),
 	mediaAssetId: uuid("media_asset_id").notNull(),
 	role: text().notNull(),
 	sortOrder: integer("sort_order").default(0).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
+	uniqueIndex("entity_media_entity_level_unique").on(table.entityId, table.mediaAssetId).where(sql`${table.variantId} IS NULL`),
+	uniqueIndex("entity_media_variant_level_unique").on(table.entityId, table.variantId, table.mediaAssetId).where(sql`${table.variantId} IS NOT NULL`),
 	foreignKey({
 			columns: [table.entityId],
 			foreignColumns: [sellableEntities.id],
@@ -395,8 +400,17 @@ export const mediaAssets = pgTable("media_assets", {
 	height: integer(),
 	alt: text(),
 	metadata: jsonb().default({}),
+	origin: mediaAssetOrigin("origin").default('merchant').notNull(),
+	confidence: numeric("confidence", { precision: 4, scale: 3 }),
+	derivedFromAssetId: uuid("derived_from_asset_id"),
 	uploadedAt: timestamp("uploaded_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-});
+}, (table) => [
+	foreignKey({
+			columns: [table.derivedFromAssetId],
+			foreignColumns: [mediaAssets.id],
+			name: "media_assets_derived_from_asset_id_media_assets_id_fk"
+		}).onDelete("set null"),
+]);
 
 export const carts = pgTable("carts", {
 	id: uuid().defaultRandom().primaryKey().notNull(),

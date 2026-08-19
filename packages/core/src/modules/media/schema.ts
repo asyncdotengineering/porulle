@@ -1,6 +1,11 @@
-import { index, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { organization } from "../../auth/auth-schema.js";
 import { sellableEntities, variants } from "../catalog/schema.js";
+
+export const mediaAssetOrigin = pgEnum("media_asset_origin", ["merchant", "generated", "imported"]);
+export type MediaAssetOrigin = (typeof mediaAssetOrigin.enumValues)[number];
 
 export const mediaAssets = pgTable(
   "media_assets",
@@ -17,6 +22,11 @@ export const mediaAssets = pgTable(
     height: integer("height"),
     alt: text("alt"),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+    origin: mediaAssetOrigin("origin").notNull().default("merchant"),
+    confidence: numeric("confidence", { precision: 4, scale: 3 }),
+    derivedFromAssetId: uuid("derived_from_asset_id").references((): AnyPgColumn => mediaAssets.id, {
+      onDelete: "set null",
+    }),
     uploadedAt: timestamp("uploaded_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({
@@ -38,4 +48,15 @@ export const entityMedia = pgTable("entity_media", {
     enum: ["primary", "gallery", "thumbnail", "video", "document"],
   }).notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
-});
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  // Two partial indexes instead of one NULLS DISTINCT index: Postgres treats
+  // null variant ids as distinct, so a single index cannot reject duplicate
+  // entity-level rows.
+  entityLevelUnique: uniqueIndex("entity_media_entity_level_unique")
+    .on(table.entityId, table.mediaAssetId)
+    .where(sql`${table.variantId} IS NULL`),
+  variantLevelUnique: uniqueIndex("entity_media_variant_level_unique")
+    .on(table.entityId, table.variantId, table.mediaAssetId)
+    .where(sql`${table.variantId} IS NOT NULL`),
+}));
