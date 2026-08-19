@@ -19,6 +19,8 @@ import {
   listEntitiesRoute,
   getEntityRoute,
   getEntityAttributesRoute,
+  listFieldOwnershipRoute,
+  setFieldOwnershipRoute,
   listCategoriesRoute,
   listBrandsRoute,
   deleteEntityRoute,
@@ -64,6 +66,49 @@ export function catalogRoutes(kernel: Kernel) {
 
   router.use("/entities/:id/custom-fields/:fieldName/approve", requirePerm("catalog:update"));
   router.use("/entities/:id/custom-fields/:fieldName/reject", requirePerm("catalog:update"));
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(listFieldOwnershipRoute, async (c) => {
+    const result = await kernel.services.catalog.listFieldOwnership(
+      c.req.param("id"),
+      c.get("actor"),
+      undefined,
+      c.req.query("storeId"),
+    );
+    if (!result.ok) {
+      return c.json(
+        mapErrorToResponse(result.error),
+        mapErrorToStatus(result.error),
+      );
+    }
+    return c.json({ data: result.value });
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(setFieldOwnershipRoute, async (c) => {
+    const body = c.req.valid("json") as {
+      fieldPath: string;
+      owner: "platform" | "store" | "shared";
+      storeId?: string | null;
+      variantId?: string | null;
+    };
+    const result = await kernel.services.catalog.setFieldOwner(
+      c.req.param("id"),
+      body.fieldPath,
+      body.storeId ?? null,
+      body.owner,
+      c.get("actor"),
+      undefined,
+      body.variantId ?? null,
+    );
+    if (!result.ok) {
+      return c.json(
+        mapErrorToResponse(result.error),
+        mapErrorToStatus(result.error),
+      );
+    }
+    return c.json({ data: { updated: true } });
+  });
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(listEntitiesRoute, async (c) => {

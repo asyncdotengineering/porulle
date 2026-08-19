@@ -1009,3 +1009,34 @@ export const reviews = pgTable("reviews", {
 			name: "reviews_customer_id_customers_id_fk"
 		}).onDelete("set null"),
 ]);
+
+export const catalogFieldOwner = pgEnum("catalog_field_owner", ["platform", "store", "shared"])
+
+export const catalogFieldOwnership = pgTable("catalog_field_ownership", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	organizationId: text("organization_id").notNull(),
+	entityId: uuid("entity_id").notNull(),
+	variantId: uuid("variant_id"),
+	storeId: text("store_id"),
+	fieldPath: text("field_path").notNull(),
+	owner: catalogFieldOwner("owner").notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	unique("catalog_field_ownership_key").on(table.organizationId, table.entityId, table.variantId, table.storeId, table.fieldPath).nullsNotDistinct(),
+	index("idx_catalog_field_ownership_entity_store_field").using("btree", table.entityId.asc().nullsLast().op("uuid_ops"), table.storeId.asc().nullsLast().op("text_ops"), table.variantId.asc().nullsLast().op("uuid_ops"), table.fieldPath.asc().nullsLast().op("text_ops")),
+	foreignKey({
+			columns: [table.organizationId],
+			foreignColumns: [organization.id],
+			name: "catalog_field_ownership_organization_id_organization_id_fk"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.entityId],
+			foreignColumns: [sellableEntities.id],
+			name: "catalog_field_ownership_entity_id_sellable_entities_id_fk"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.variantId],
+			foreignColumns: [variants.id],
+			name: "catalog_field_ownership_variant_id_variants_id_fk"
+		}).onDelete("cascade"),
+]);

@@ -19,6 +19,7 @@ import {
   sellableEntities,
   variantOptionValues,
   variants,
+  catalogFieldOwnership,
 } from "./schema.js";
 import { CatalogServiceImpl } from "./service.js";
 
@@ -43,6 +44,7 @@ export const catalogModule = defineModule<
     optionValues: typeof optionValues;
     variants: typeof variants;
     variantOptionValues: typeof variantOptionValues;
+    catalogFieldOwnership: typeof catalogFieldOwnership;
   },
   CatalogServiceImpl,
   CatalogModuleDeps
@@ -65,6 +67,7 @@ export const catalogModule = defineModule<
     optionValues,
     variants,
     variantOptionValues,
+    catalogFieldOwnership,
   }),
   service: (deps) =>
     new CatalogServiceImpl({

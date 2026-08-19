@@ -1,4 +1,4 @@
-import { eq, and, asc, count, desc, gt, inArray, lt, max, ne, type SQL } from "drizzle-orm";
+import { eq, and, asc, count, desc, gt, inArray, isNull, lt, max, ne, or, type SQL } from "drizzle-orm";
 import type { TxContext } from "../../../kernel/database/tx-context.js";
 import { CommerceNotFoundError } from "../../../kernel/errors.js";
 import type {
@@ -20,6 +20,7 @@ import {
   variants,
   variantOptionValues,
   sellableEntityRevisions,
+  catalogFieldOwnership,
   type SellableEntityRevisionSnapshot,
 } from "../schema.js";
 import { entityMedia } from "../../media/schema.js";
@@ -52,6 +53,8 @@ export type VariantOptionValue = typeof variantOptionValues.$inferSelect;
 export type VariantOptionValueInsert = typeof variantOptionValues.$inferInsert;
 export type SellableEntityRevision = typeof sellableEntityRevisions.$inferSelect;
 export type SellableEntityRevisionInsert = typeof sellableEntityRevisions.$inferInsert;
+export type CatalogFieldOwnership = typeof catalogFieldOwnership.$inferSelect;
+export type CatalogFieldOwnershipInsert = typeof catalogFieldOwnership.$inferInsert;
 export type ProposedCustomField = SellableCustomField & {
   entitySlug: string;
   entityType: string;
@@ -176,6 +179,76 @@ export class CatalogRepository {
       .where(eq(sellableEntities.id, id))
       .returning();
     return result.length > 0;
+  }
+
+  async findFieldOwnership(
+    entityId: string,
+    ctx?: TxContext,
+    storeId?: string,
+  ): Promise<CatalogFieldOwnership[]> {
+    const db = this.getDb(ctx);
+    const conditions = [eq(catalogFieldOwnership.entityId, entityId)];
+    if (storeId !== undefined) {
+      conditions.push(or(isNull(catalogFieldOwnership.storeId), eq(catalogFieldOwnership.storeId, storeId))!);
+    }
+    return db
+      .select()
+      .from(catalogFieldOwnership)
+      .where(and(...conditions))
+      .orderBy(asc(catalogFieldOwnership.fieldPath), asc(catalogFieldOwnership.updatedAt));
+  }
+
+  async findFieldOwnershipForResolution(
+    entityId: string,
+    storeId: string,
+    variantId: string | null,
+    ctx?: TxContext,
+  ): Promise<CatalogFieldOwnership[]> {
+    const db = this.getDb(ctx);
+    return db
+      .select()
+      .from(catalogFieldOwnership)
+      .where(and(
+        eq(catalogFieldOwnership.entityId, entityId),
+        or(isNull(catalogFieldOwnership.storeId), eq(catalogFieldOwnership.storeId, storeId)),
+        variantId == null
+          ? isNull(catalogFieldOwnership.variantId)
+          : or(isNull(catalogFieldOwnership.variantId), eq(catalogFieldOwnership.variantId, variantId)),
+      ));
+  }
+
+  async upsertFieldOwnership(
+    data: CatalogFieldOwnershipInsert,
+    ctx?: TxContext,
+  ): Promise<CatalogFieldOwnership> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .insert(catalogFieldOwnership)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [
+          catalogFieldOwnership.organizationId,
+          catalogFieldOwnership.entityId,
+          catalogFieldOwnership.variantId,
+          catalogFieldOwnership.storeId,
+          catalogFieldOwnership.fieldPath,
+        ],
+        set: {
+          owner: data.owner,
+          updatedAt: data.updatedAt ?? new Date(),
+        },
+      })
+      .returning();
+    return rows[0]!;
+  }
+
+  async seedFieldOwnership(
+    data: CatalogFieldOwnershipInsert[],
+    ctx?: TxContext,
+  ): Promise<void> {
+    if (data.length === 0) return;
+    const db = this.getDb(ctx);
+    await db.insert(catalogFieldOwnership).values(data).onConflictDoNothing();
   }
 
   async findRevisionsByEntityId(

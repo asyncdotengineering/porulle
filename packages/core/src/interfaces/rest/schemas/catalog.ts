@@ -19,6 +19,17 @@ import {
 
 const DataResponse = CatalogEntityResponse;
 const DataWithPaginationResponse = CatalogEntityListResponse;
+const FieldOwnershipSchema = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  entityId: z.string(),
+  variantId: z.string().nullable(),
+  storeId: z.string().nullable(),
+  fieldPath: z.string(),
+  owner: z.enum(["platform", "store", "shared"]),
+  updatedAt: z.string(),
+}).openapi("CatalogFieldOwnership");
+const FieldOwnershipListResponse = z.object({ data: z.array(FieldOwnershipSchema) }).openapi("CatalogFieldOwnershipListResponse");
 
 // ─── Path Params ────────────────────────────────────────────────────────────
 
@@ -109,6 +120,48 @@ export const getEntityAttributesRoute = createRoute({
   request: { params: EntityIdLocaleParam },
   responses: {
     200: { content: { "application/json": { schema: DataResponse } }, description: "Success" },
+    ...errorResponses,
+  },
+});
+
+export const listFieldOwnershipRoute = createRoute({
+  method: "get",
+  path: "/entities/{id}/field-ownership",
+  tags: ["Catalog"],
+  summary: "List field ownership for a catalog entity",
+  request: {
+    params: EntityIdParam,
+    query: z.object({ storeId: z.string().optional() }),
+  },
+  responses: {
+    200: { content: { "application/json": { schema: FieldOwnershipListResponse } }, description: "Success" },
+    ...errorResponses,
+  },
+});
+
+export const setFieldOwnershipRoute = createRoute({
+  method: "put",
+  path: "/entities/{id}/field-ownership",
+  tags: ["Catalog"],
+  summary: "Set field ownership for a catalog entity",
+  request: {
+    params: EntityIdParam,
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            fieldPath: z.string().min(1),
+            owner: z.enum(["platform", "store", "shared"]),
+            storeId: z.string().min(1).nullable().optional(),
+            variantId: z.uuid().nullable().optional(),
+          }),
+        },
+      },
+      required: true,
+    },
+  },
+  responses: {
+    200: { content: { "application/json": { schema: z.object({ data: z.object({ updated: z.literal(true) }) }) } }, description: "Updated" },
     ...errorResponses,
   },
 });

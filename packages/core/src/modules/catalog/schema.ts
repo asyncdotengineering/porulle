@@ -10,6 +10,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -359,3 +360,34 @@ export const variantOptionValues = pgTable("variant_option_values", {
 }, (table) => ({
   variantOptionValueUnique: uniqueIndex("variant_option_values_variant_option_unique").on(table.variantId, table.optionValueId),
 }));
+
+export const catalogFieldOwner = pgEnum("catalog_field_owner", ["platform", "store", "shared"]);
+
+export const catalogFieldOwnership = pgTable(
+  "catalog_field_ownership",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    entityId: uuid("entity_id")
+      .notNull()
+      .references(() => sellableEntities.id, { onDelete: "cascade" }),
+    variantId: uuid("variant_id").references(() => variants.id, { onDelete: "cascade" }),
+    storeId: text("store_id"),
+    fieldPath: text("field_path").notNull(),
+    owner: catalogFieldOwner("owner").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    ownershipUnique: unique("catalog_field_ownership_key")
+      .on(table.organizationId, table.entityId, table.variantId, table.storeId, table.fieldPath)
+      .nullsNotDistinct(),
+    entityStoreFieldIdx: index("idx_catalog_field_ownership_entity_store_field").on(
+      table.entityId,
+      table.storeId,
+      table.variantId,
+      table.fieldPath,
+    ),
+  }),
+);

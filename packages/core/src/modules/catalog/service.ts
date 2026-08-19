@@ -25,8 +25,10 @@ import {
   type SellableCustomField,
   type SellableCustomFieldInsert,
   type EntityFieldDefinitionRecord,
+  type CatalogFieldOwnership,
 } from "./repository/index.js";
 import type { SellableEntityRevisionReason, SellableEntityRevisionSnapshot } from "./schema.js";
+import { isValidFieldPath, validateFieldPath, type FieldOwner, type FieldPath } from "./ownership.js";
 import { comparableSerialize } from "./revision.js";
 
 // ─── Re-exported schema-derived types ────────────────────────────────────────
@@ -177,6 +179,41 @@ export interface CatalogService {
     ctx?: TxContext,
   ): Promise<Result<CatalogEntityHydrated>>;
   list(params: ListParams, actor?: Actor | null, ctx?: TxContext): Promise<Result<CatalogListResult>>;
+  /** Returns undefined when no concrete ownership row applies to the field. */
+  resolveFieldOwner(
+    entityId: string,
+    fieldPath: FieldPath,
+    storeId: string,
+    ctx?: TxContext,
+    variantId?: string | null,
+  ): Promise<FieldOwner | undefined>;
+  /** Entity-level bulk resolution: variant-scoped ownership rows are not consulted. */
+  resolveFieldOwners(
+    entityId: string,
+    storeId: string,
+    ctx?: TxContext,
+  ): Promise<Map<FieldPath, FieldOwner>>;
+  setFieldOwner(
+    entityId: string,
+    fieldPath: FieldPath,
+    storeId: string | null,
+    owner: FieldOwner,
+    actor: Actor | null,
+    ctx?: TxContext,
+    variantId?: string | null,
+  ): Promise<Result<void>>;
+  listFieldOwnership(
+    entityId: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+    storeId?: string,
+  ): Promise<Result<CatalogFieldOwnership[]>>;
+  seedImportedFieldOwnership(
+    entityId: string,
+    storeId: string,
+    fieldPaths: FieldPath[],
+    ctx?: TxContext,
+  ): Promise<Result<void>>;
   publish(
     id: string,
     actor: Actor | null,
@@ -816,6 +853,116 @@ export class CatalogServiceImpl implements CatalogService {
 
   list(params: ListParams, actor?: Actor | null, ctx?: TxContext): Promise<Result<CatalogListResult>> {
     return this.entities.list(params, actor, ctx);
+  }
+
+  async resolveFieldOwner(
+    entityId: string,
+    fieldPath: FieldPath,
+    storeId: string,
+    ctx?: TxContext,
+    variantId?: string | null,
+  ): Promise<FieldOwner | undefined> {
+    if (!isValidFieldPath(fieldPath)) return undefined;
+    const rows = await this.repository.findFieldOwnershipForResolution(entityId, storeId, variantId ?? null, ctx);
+    let selected: CatalogFieldOwnership | undefined;
+    let selectedPriority = -1;
+    for (const row of rows) {
+      if (row.fieldPath !== fieldPath) continue;
+      const priority = (row.variantId === variantId && variantId != null ? 2 : 0)
+        + (row.storeId === storeId ? 1 : 0);
+      if (priority > selectedPriority) {
+        selected = row;
+        selectedPriority = priority;
+      }
+    }
+    return selected?.owner;
+  }
+
+  async resolveFieldOwners(
+    entityId: string,
+    storeId: string,
+    ctx?: TxContext,
+  ): Promise<Map<FieldPath, FieldOwner>> {
+    const rows = await this.repository.findFieldOwnershipForResolution(entityId, storeId, null, ctx);
+    const resolved = new Map<FieldPath, { owner: FieldOwner; priority: number }>();
+    for (const row of rows) {
+      const priority = row.storeId === storeId ? 1 : 0;
+      const current = resolved.get(row.fieldPath);
+      if (!current || priority > current.priority) {
+        resolved.set(row.fieldPath, { owner: row.owner, priority });
+      }
+    }
+    return new Map([...resolved].map(([fieldPath, value]) => [fieldPath, value.owner]));
+  }
+
+  setFieldOwner(
+    entityId: string,
+    fieldPath: FieldPath,
+    storeId: string | null,
+    owner: FieldOwner,
+    actor: Actor | null,
+    ctx?: TxContext,
+    variantId?: string | null,
+  ): Promise<Result<void>> {
+    return this.withMutationResult(actor, ctx, async (txCtx) => {
+      const setter = actor ?? txCtx.actor;
+      assertPermission(setter, "catalog:update");
+      validateFieldPath(fieldPath);
+      const entity = await this.repository.findEntityById(entityId, txCtx);
+      if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
+      if (entity.organizationId !== resolveOrgId(setter)) {
+        return Err(new CommerceNotFoundError("Entity not found."));
+      }
+      if (entity.sourceStoreId != null) assertPermission(setter, "catalog:sync");
+      await this.repository.upsertFieldOwnership({
+        organizationId: entity.organizationId,
+        entityId,
+        ...(variantId != null ? { variantId } : {}),
+        ...(storeId != null ? { storeId } : {}),
+        fieldPath,
+        owner,
+      }, txCtx);
+      return Ok(undefined);
+    });
+  }
+
+  listFieldOwnership(
+    entityId: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+    storeId?: string,
+  ): Promise<Result<CatalogFieldOwnership[]>> {
+    return this.withMutationResult(actor, ctx, async (txCtx) => {
+      const reader = actor ?? txCtx.actor;
+      assertPermission(reader, "catalog:read");
+      const entity = await this.repository.findEntityById(entityId, txCtx);
+      if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
+      if (entity.organizationId !== resolveOrgId(reader)) {
+        return Err(new CommerceNotFoundError("Entity not found."));
+      }
+      return Ok(await this.repository.findFieldOwnership(entityId, txCtx, storeId));
+    });
+  }
+
+  seedImportedFieldOwnership(
+    entityId: string,
+    storeId: string,
+    fieldPaths: FieldPath[],
+    ctx?: TxContext,
+  ): Promise<Result<void>> {
+    return this.withMutationResult(null, ctx, async (txCtx) => {
+      const entity = await this.repository.findEntityById(entityId, txCtx);
+      if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
+      const rows = fieldPaths.map((fieldPath) => ({
+        organizationId: entity.organizationId,
+        entityId,
+        storeId,
+        fieldPath: validateFieldPath(fieldPath),
+        owner: "store" as const,
+      }));
+      await this.repository.seedFieldOwnership(rows, txCtx);
+      return Ok(undefined);
+    });
   }
 
   publish(id: string, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {

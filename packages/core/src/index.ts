@@ -173,6 +173,8 @@ export type {
   SearchSuggestParams,
 } from "./modules/search/adapter.js";
 export type { DatabaseAdapter } from "./kernel/database/adapter.js";
+export { isValidFieldPath, validateFieldPath } from "./modules/catalog/ownership.js";
+export type { FieldPath, FieldOwner } from "./modules/catalog/ownership.js";
 export {
   createTxContext,
   reuseOrCreateTxContext,
