@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -9,6 +10,7 @@ import {
   uuid,
 } from "@porulle/core/drizzle";
 import type { FieldPath } from "@porulle/core";
+import type { CatalogFieldMapping } from "./catalog-field-mapping.js";
 
 export const connectedStores = pgTable(
   "connected_stores",
@@ -21,6 +23,8 @@ export const connectedStores = pgTable(
     status: text("status", { enum: ["connected", "disconnected", "error"] })
       .notNull()
       .default("connected"),
+    catalogWriteEnabled: boolean("catalog_write_enabled").notNull().default(false),
+    catalogFieldMapping: jsonb("catalog_field_mapping").$type<CatalogFieldMapping>().notNull().default([]),
     catalogCursor: text("catalog_cursor"),
     inventoryCursor: text("inventory_cursor"),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),

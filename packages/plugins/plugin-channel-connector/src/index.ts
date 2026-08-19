@@ -41,12 +41,29 @@ export {
   ChannelConnectorService,
   canExportTransition,
 } from "./service.js";
+export {
+  isValidCatalogMappingFieldPath,
+  matchFieldPath,
+  mergeCatalogFieldMapping,
+  normalizeCatalogFieldMapping,
+  compareCatalogFieldMappingSpecificity,
+  providerCatalogFieldMappingDefaults,
+  selectCatalogFieldMapping,
+  validateCatalogMappingRow,
+} from "./catalog-field-mapping.js";
+export type {
+  CatalogFieldMapping,
+  CatalogFieldMappingInput,
+  CatalogFieldMappingRow,
+  CatalogFieldTarget,
+} from "./catalog-field-mapping.js";
 export { signState, verifyState } from "./oauth-state.js";
 export type {
   BackfillCatalogOptions,
   BackfillCatalogReport,
   CatalogFieldConflict,
   CatalogFieldSkip,
+  CatalogWriteSettings,
   ChannelComplianceData,
   ChannelConnectorPluginOptions,
   ChannelStockLine,
@@ -412,6 +429,25 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
         .summary("Get a connected channel store")
         .permission("channels:read")
         .handler(async ({ params, orgId }: ChannelRouteContext) => unwrap(await service.getStore(orgId, params.id!)));
+
+      channels.get("/stores/{storeId}/catalog-write")
+        .summary("Get catalog write settings for a channel store")
+        .permission("channels:manage")
+        .handler(async ({ params, orgId }: ChannelRouteContext) => unwrap(await service.getCatalogWriteSettings(orgId, params.storeId!)));
+
+      channels.put("/stores/{storeId}/catalog-write")
+        .summary("Update catalog write settings for a channel store")
+        .permission("channels:manage")
+        .input(z.object({
+          enabled: z.boolean().optional(),
+          overrides: z.unknown().optional(),
+        }).refine((value) => value.enabled !== undefined || value.overrides !== undefined))
+        .handler(async ({ params, orgId, input }: ChannelRouteContext) => {
+          const values = input as { enabled?: boolean; overrides?: unknown };
+          if (values.overrides !== undefined) unwrap(await service.updateCatalogFieldMapping(orgId, params.storeId!, values.overrides));
+          if (values.enabled !== undefined) unwrap(await service.updateCatalogWriteEnabled(orgId, params.storeId!, values.enabled));
+          return unwrap(await service.getCatalogWriteSettings(orgId, params.storeId!));
+        });
 
       channels.get("/stores/{storeId}/reconcile-status")
         .summary("Get channel reconciliation status")

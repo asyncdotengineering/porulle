@@ -52,6 +52,12 @@ import {
   type ChannelRefundRequest,
   type ConnectedStore,
 } from "./schema.js";
+import {
+  mergeCatalogFieldMapping,
+  normalizeCatalogFieldMapping,
+  type CatalogFieldMapping,
+  type CatalogFieldMappingInput,
+} from "./catalog-field-mapping.js";
 
 export type ExportState = ChannelOrderExport["state"];
 
@@ -83,6 +89,13 @@ export type PublicConnectedStore = Omit<ConnectedStore, "credentials" | "webhook
   credentials: "[REDACTED]";
   webhookSecret: "[REDACTED]";
 };
+
+export interface CatalogWriteSettings {
+  enabled: boolean;
+  overrides: CatalogFieldMapping;
+  merged: CatalogFieldMapping;
+  warnings?: string[];
+}
 
 export interface ChannelComplianceData {
   customer: { id?: string; email?: string };
@@ -359,6 +372,8 @@ function redactStore(store: ConnectedStore): PublicConnectedStore {
     credentials: "[REDACTED]",
     storeDomain: store.storeDomain,
     status: store.status,
+    catalogWriteEnabled: store.catalogWriteEnabled,
+    catalogFieldMapping: store.catalogFieldMapping,
     catalogCursor: store.catalogCursor,
     inventoryCursor: store.inventoryCursor,
     lastSyncAt: store.lastSyncAt,
@@ -979,6 +994,60 @@ export class ChannelConnectorService {
     return rows as ConnectedStore[];
   }
 
+  resolveCatalogFieldMapping(
+    store: Pick<ConnectedStore, "provider" | "catalogFieldMapping">,
+    filterableCustomFields?: ReadonlySet<string> | Readonly<Record<string, boolean>>,
+    warnings: string[] = [],
+  ): CatalogFieldMapping {
+    return mergeCatalogFieldMapping(store.provider, store.catalogFieldMapping, filterableCustomFields, warnings);
+  }
+
+  async getCatalogWriteSettings(orgId: string, storeId: string): Promise<PluginResult<CatalogWriteSettings>> {
+    const store = await this.getStoreRecord(orgId, storeId);
+    if (!store) return PluginErr("Connected store not found.", "NOT_FOUND");
+    const warnings: string[] = [];
+    return Ok({
+      enabled: store.catalogWriteEnabled === true,
+      overrides: store.catalogFieldMapping,
+      merged: this.resolveCatalogFieldMapping(store, undefined, warnings),
+      ...(warnings.length > 0 ? { warnings } : {}),
+    });
+  }
+
+  async updateCatalogWriteEnabled(
+    orgId: string,
+    storeId: string,
+    enabled: boolean,
+  ): Promise<PluginResult<CatalogWriteSettings>> {
+    const rows = await this.db
+      .update(connectedStores)
+      .set({ catalogWriteEnabled: enabled, updatedAt: new Date() })
+      .where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.id, storeId)))
+      .returning();
+    if (!rows[0]) return PluginErr("Connected store not found.", "NOT_FOUND");
+    return this.getCatalogWriteSettings(orgId, storeId);
+  }
+
+  async updateCatalogFieldMapping(
+    orgId: string,
+    storeId: string,
+    mapping: unknown,
+  ): Promise<PluginResult<CatalogWriteSettings>> {
+    const store = await this.getStoreRecord(orgId, storeId);
+    if (!store) return PluginErr("Connected store not found.", "NOT_FOUND");
+    let normalized: CatalogFieldMapping;
+    try {
+      normalized = normalizeCatalogFieldMapping(mapping as CatalogFieldMappingInput, store.provider);
+    } catch (error) {
+      return PluginErr(error instanceof Error ? error.message : "Catalog mapping is invalid.", "INVALID_MAPPING");
+    }
+    await this.db
+      .update(connectedStores)
+      .set({ catalogFieldMapping: normalized, updatedAt: new Date() })
+      .where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.id, storeId)));
+    return this.getCatalogWriteSettings(orgId, storeId);
+  }
+
   async connectStore(
     orgId: string,
     input: {
@@ -991,16 +1060,37 @@ export class ChannelConnectorService {
     if (!this.connectors.has(input.provider)) {
       return PluginErr(`No connector registered for provider "${input.provider}".`, "NOT_FOUND");
     }
-    const rows = await this.db
-      .insert(connectedStores)
-      .values({
-        organizationId: orgId,
-        provider: input.provider,
-        credentials: input.credentials,
-        storeDomain: input.storeDomain,
-        webhookSecret: input.webhookSecret ?? crypto.randomUUID(),
-      })
-      .returning();
+    const existingRows = await this.db
+      .select()
+      .from(connectedStores)
+      .where(and(
+        eq(connectedStores.organizationId, orgId),
+        eq(connectedStores.provider, input.provider),
+        eq(connectedStores.storeDomain, input.storeDomain),
+      ));
+    const reconnect = existingRows.find((row) => row.status !== "connected");
+    const rows = reconnect
+      ? await this.db
+        .update(connectedStores)
+        .set({
+          credentials: input.credentials,
+          status: "connected",
+          catalogWriteEnabled: false,
+          webhookSecret: input.webhookSecret ?? crypto.randomUUID(),
+          updatedAt: new Date(),
+        })
+        .where(eq(connectedStores.id, reconnect.id))
+        .returning()
+      : await this.db
+        .insert(connectedStores)
+        .values({
+          organizationId: orgId,
+          provider: input.provider,
+          credentials: input.credentials,
+          storeDomain: input.storeDomain,
+          webhookSecret: input.webhookSecret ?? crypto.randomUUID(),
+        })
+        .returning();
     const connector = this.connectors.get(input.provider)!;
     const store = rows[0] as ConnectedStore;
     if (connector.registerWebhooks) {
