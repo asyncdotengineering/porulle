@@ -4,18 +4,23 @@ import {
   CommerceValidationError,
   Ok,
   PluginErr,
+  createTxContext,
   createSystemActor,
 } from "@porulle/core";
 import type {
   Actor,
   ChannelCatalogItem,
   ChannelConnector,
-  ChannelInventoryLevel,
   ChannelOrderSlice,
+  ChannelPushCatalogField,
+  ChannelPushCatalogImage,
+  ChannelPushCatalogIntent,
+  ChannelPushCatalogItem,
   ChannelStore,
   PluginDb,
   PluginResult,
   PluginTxFn,
+  TxContext,
 } from "@porulle/core";
 import { isValidFieldPath } from "@porulle/core";
 import type { FieldOwner, FieldPath } from "@porulle/core";
@@ -36,7 +41,9 @@ import {
   orders,
   prices,
   sellableAttributes,
+  sellableCustomFields,
   sellableEntities,
+  entityFieldDefinitions,
   tags,
   variants,
   variantOptionValues,
@@ -55,6 +62,7 @@ import {
 import {
   mergeCatalogFieldMapping,
   normalizeCatalogFieldMapping,
+  selectCatalogFieldMapping,
   type CatalogFieldMapping,
   type CatalogFieldMappingInput,
 } from "./catalog-field-mapping.js";
@@ -83,6 +91,14 @@ export interface CatalogFieldConflict {
 export interface CatalogFieldSkip {
   entityId: string;
   fieldPath: FieldPath;
+}
+
+export type CatalogPushSkipReason = "no_mapping" | "held" | "entity_not_active" | "unmapped_entity";
+
+export interface CatalogPushFieldSkip {
+  entityId: string;
+  fieldPath: FieldPath;
+  reason: CatalogPushSkipReason;
 }
 
 export type PublicConnectedStore = Omit<ConnectedStore, "credentials" | "webhookSecret"> & {
@@ -158,6 +174,16 @@ export interface BackfillCatalogOptions {
   maxPages?: number;
 }
 
+export interface BuildCatalogPushItemsOptions {
+  recordRevision?: boolean;
+}
+
+export interface BuildCatalogPushItemsResult {
+  items: ChannelPushCatalogItem[];
+  skipped: CatalogPushFieldSkip[];
+  warnings: string[];
+}
+
 interface BackfillState {
   cursor: string | null;
   report: BackfillCounts;
@@ -208,7 +234,8 @@ interface CatalogService {
   recordEntityRevision(
     entityId: string,
     actor: Actor,
-    reason: "import",
+    reason: "import" | "push",
+    ctx?: TxContext<PluginDb>,
   ): Promise<{ ok: true; value: unknown } | { ok: false; error: { message: string } }>;
   resolveFieldOwners(entityId: string, storeId: string): Promise<Map<FieldPath, FieldOwner>>;
   seedImportedFieldOwnership(entityId: string, storeId: string, fieldPaths: FieldPath[]): Promise<{ ok: true; value: undefined } | { ok: false; error: { message: string } }>;
@@ -266,6 +293,18 @@ interface MediaService {
     },
     actor: Actor,
   ): Promise<ServiceResult<undefined>>;
+  listEntityMedia(
+    entityId: string,
+    opts?: { variantId?: string; orgId?: string },
+  ): Promise<ServiceResult<Array<{
+    mediaAssetId: string;
+    role: string;
+    sortOrder: number;
+    variantId: string | null;
+    url: string;
+    alt: string | null;
+    contentType: string;
+  }>>>;
 }
 
 interface PricingService {
@@ -299,6 +338,59 @@ function mergeMetadata(
 }
 
 const attributeFields = ["title", "subtitle", "description", "richDescription", "seoTitle", "seoDescription"] as const;
+const pushImageRoles = ["primary", "gallery", "thumbnail", "video", "document"] as const;
+
+function customFieldValue(field: typeof sellableCustomFields.$inferSelect): unknown {
+  switch (field.fieldType) {
+    case "text":
+    case "relation":
+    case "select":
+      return field.textValue;
+    case "number":
+      return field.numberValue;
+    case "boolean":
+      return field.booleanValue;
+    case "date":
+      return field.dateValue;
+    case "json":
+      return field.jsonValue;
+    default:
+      return null;
+  }
+}
+
+function pushCatalogIntent(
+  fieldPath: string,
+  target: "native" | "attribute" | "meta",
+): ChannelPushCatalogIntent {
+  if (fieldPath.startsWith("customFields.") && target === "attribute") return "filterable";
+  if (fieldPath.startsWith("customFields.") || fieldPath.startsWith("entity.metadata.")) return "tag";
+  return "display";
+}
+
+function pushCatalogField(
+  fieldPath: FieldPath,
+  value: unknown,
+  mapping: { target: "native" | "attribute" | "meta"; remoteKey: string },
+): ChannelPushCatalogField {
+  const segments = fieldPath.split(".");
+  const locale = fieldPath.startsWith("attributes.")
+    ? segments[1]
+    : fieldPath.startsWith("customFields.")
+      ? segments[2]
+      : undefined;
+  return {
+    fieldPath,
+    intent: pushCatalogIntent(fieldPath, mapping.target),
+    value,
+    ...(locale !== undefined ? { locale } : {}),
+    remoteKey: mapping.remoteKey,
+  };
+}
+
+function pushCatalogImageRole(value: string): ChannelPushCatalogImage["role"] | undefined {
+  return pushImageRoles.find((role) => role === value);
+}
 
 function importedFieldPaths(item: ChannelCatalogItem): FieldPath[] {
   const paths = new Set<FieldPath>(["entity.slug"]);
@@ -1000,6 +1092,149 @@ export class ChannelConnectorService {
     warnings: string[] = [],
   ): CatalogFieldMapping {
     return mergeCatalogFieldMapping(store.provider, store.catalogFieldMapping, filterableCustomFields, warnings);
+  }
+
+  async buildCatalogPushItems(
+    orgId: string,
+    storeId: string,
+    entityIds: string[],
+    options: BuildCatalogPushItemsOptions = {},
+  ): Promise<PluginResult<BuildCatalogPushItemsResult>> {
+    const store = await this.getStoreRecord(orgId, storeId);
+    if (!store || store.status !== "connected") return PluginErr("Connected store not found.", "NOT_FOUND");
+    if (!store.catalogWriteEnabled) return PluginErr("Catalog writes are disabled for this store.", "CATALOG_WRITE_DISABLED");
+    if (entityIds.length === 0) return Ok({ items: [], skipped: [], warnings: [] });
+
+    const entities = await this.db.select().from(sellableEntities).where(and(
+      eq(sellableEntities.organizationId, orgId),
+      inArray(sellableEntities.id, entityIds),
+    ));
+    const entityById = new Map(entities.map((entity) => [entity.id, entity]));
+    const mappings = await this.db.select().from(channelEntityMap).where(and(
+      eq(channelEntityMap.organizationId, orgId),
+      eq(channelEntityMap.storeId, storeId),
+      eq(channelEntityMap.kind, "entity"),
+      inArray(channelEntityMap.entityId, entityIds),
+    ));
+    const mappingByEntity = new Map(mappings.map((mapping) => [mapping.entityId, mapping]));
+    const items: ChannelPushCatalogItem[] = [];
+    const skipped: CatalogPushFieldSkip[] = [];
+    const warnings: string[] = [];
+    const revisionEntityIds: string[] = [];
+
+    for (const entityId of entityIds) {
+      const entity = entityById.get(entityId);
+      if (!entity) return PluginErr("Catalog entity not found.", "NOT_FOUND");
+      if (entity.status !== "active") {
+        skipped.push({ entityId, fieldPath: "entity.status", reason: "entity_not_active" });
+        continue;
+      }
+      const entityMapping = mappingByEntity.get(entity.id);
+      if (!entityMapping) {
+        skipped.push({ entityId, fieldPath: "entity", reason: "unmapped_entity" });
+        continue;
+      }
+      const owners = await this.catalog.resolveFieldOwners(entity.id, storeId);
+      const attributes = await this.db.select().from(sellableAttributes).where(eq(sellableAttributes.entityId, entity.id));
+      const customFields = await this.db.select().from(sellableCustomFields).where(and(
+        eq(sellableCustomFields.entityId, entity.id),
+        eq(sellableCustomFields.status, "approved"),
+      ));
+      const customFieldNames = [...new Set(customFields.map((field) => field.fieldName))];
+      const definitions = customFieldNames.length > 0
+        ? await this.db.select({ name: entityFieldDefinitions.name, filterable: entityFieldDefinitions.filterable }).from(entityFieldDefinitions).where(and(
+          eq(entityFieldDefinitions.organizationId, orgId),
+          eq(entityFieldDefinitions.entityType, entity.type),
+          inArray(entityFieldDefinitions.name, customFieldNames),
+        ))
+        : [];
+      const filterableCustomFields = Object.fromEntries(definitions.map((definition) => [
+        `customFields.${definition.name}.en`,
+        definition.filterable,
+      ]));
+      for (const field of customFields) {
+        filterableCustomFields[`customFields.${field.fieldName}.${field.locale}`] = definitions.find(
+          (definition) => definition.name === field.fieldName,
+        )?.filterable ?? false;
+      }
+      const fieldMapping = this.resolveCatalogFieldMapping(store, filterableCustomFields, warnings);
+      const heldPaths = new Set(entityMapping.heldFieldPaths ?? []);
+      const fields: ChannelPushCatalogField[] = [];
+      const appendField = (fieldPath: FieldPath, value: unknown) => {
+        if (value === undefined || owners.get(fieldPath) !== "platform") return;
+        if (heldPaths.has(fieldPath)) {
+          skipped.push({ entityId, fieldPath, reason: "held" });
+          return;
+        }
+        const mapping = selectCatalogFieldMapping(fieldMapping, fieldPath);
+        if (!mapping) {
+          skipped.push({ entityId, fieldPath, reason: "no_mapping" });
+          return;
+        }
+        fields.push(pushCatalogField(fieldPath, value, mapping));
+      };
+
+      for (const attribute of attributes) {
+        for (const field of attributeFields) {
+          appendField(`attributes.${attribute.locale}.${field}`, attribute[field]);
+        }
+      }
+      for (const [key, value] of Object.entries(entity.metadata ?? {})) {
+        const fieldPath = `entity.metadata.${key}`;
+        if (isValidFieldPath(fieldPath)) appendField(fieldPath, value);
+      }
+      for (const customField of customFields) {
+        const fieldPath = `customFields.${customField.fieldName}.${customField.locale}`;
+        if (isValidFieldPath(fieldPath)) appendField(fieldPath, customFieldValue(customField));
+      }
+
+      const media = await this.media.listEntityMedia(entity.id, { orgId });
+      if (!media.ok) return PluginErr(media.error.message);
+      const images: ChannelPushCatalogImage[] = [];
+      for (const attached of media.value) {
+        const role = pushCatalogImageRole(attached.role);
+        if (!role) continue;
+        const fieldPath = `media.${role}` as FieldPath;
+        if (owners.get(fieldPath) !== "platform") continue;
+        if (heldPaths.has(fieldPath)) {
+          skipped.push({ entityId, fieldPath, reason: "held" });
+          continue;
+        }
+        if (!selectCatalogFieldMapping(fieldMapping, fieldPath)) {
+          skipped.push({ entityId, fieldPath, reason: "no_mapping" });
+          continue;
+        }
+        images.push({
+          url: attached.url,
+          role,
+          sortOrder: attached.sortOrder,
+          ...(attached.alt !== null ? { alt: attached.alt } : {}),
+        });
+      }
+      fields.sort((left, right) => left.fieldPath.localeCompare(right.fieldPath));
+      const item: ChannelPushCatalogItem = {
+        externalId: entityMapping.externalId,
+        fields,
+        ...(images.length > 0 ? { images } : {}),
+      };
+      items.push(item);
+      if (options.recordRevision === true) revisionEntityIds.push(entity.id);
+    }
+    if (options.recordRevision === true && revisionEntityIds.length > 0) {
+      const actor = createSystemActor(orgId);
+      try {
+        await this.transact(async (tx) => {
+          const txContext = createTxContext(tx, { actor });
+          for (const entityId of revisionEntityIds) {
+            const revision = await this.catalog.recordEntityRevision(entityId, actor, "push", txContext);
+            if (!revision.ok) throw new Error(revision.error.message);
+          }
+        });
+      } catch (error) {
+        return PluginErr(error instanceof Error ? error.message : "Failed to record catalog push revisions.");
+      }
+    }
+    return Ok({ items, skipped, warnings: [...new Set(warnings)] });
   }
 
   async getCatalogWriteSettings(orgId: string, storeId: string): Promise<PluginResult<CatalogWriteSettings>> {

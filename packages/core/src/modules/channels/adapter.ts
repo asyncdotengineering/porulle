@@ -10,6 +10,7 @@ export interface ChannelConnectorCapabilities {
   readonly importCatalog: boolean;
   readonly importInventory: boolean;
   readonly pushOrder: boolean;
+  readonly pushCatalog?: boolean;
   readonly receiveWebhooks: boolean;
   readonly reserve?: boolean;
 }
@@ -121,6 +122,54 @@ export interface ChannelPushOrderResult {
   remoteUrl?: string;
 }
 
+export type ChannelPushCatalogIntent = "filterable" | "display" | "tag";
+
+export interface ChannelPushCatalogField {
+  fieldPath: string;
+  intent: ChannelPushCatalogIntent;
+  value: unknown;
+  locale?: string;
+  remoteKey?: string;
+}
+
+export interface ChannelPushCatalogImage {
+  externalId?: string;
+  url: string;
+  alt?: string;
+  role: "primary" | "gallery" | "thumbnail" | "video" | "document";
+  sortOrder?: number;
+  variantExternalIds?: string[];
+}
+
+export interface ChannelPushCatalogVariant {
+  externalId: string;
+  fields: ChannelPushCatalogField[];
+}
+
+export interface ChannelPushCatalogItem {
+  externalId: string;
+  variants?: ChannelPushCatalogVariant[];
+  fields: ChannelPushCatalogField[];
+  images?: ChannelPushCatalogImage[];
+}
+
+export interface ChannelPushCatalogPreviousField {
+  fieldPath: string;
+  value: unknown;
+}
+
+export interface ChannelPushCatalogItemOutcome {
+  externalId: string;
+  ok: boolean;
+  error?: ChannelConnectorError;
+  remoteUpdatedAt?: string;
+  previousFields?: ChannelPushCatalogPreviousField[];
+}
+
+export interface ChannelPushCatalogResult {
+  outcomes: ChannelPushCatalogItemOutcome[];
+}
+
 export interface ChannelOrderStatus {
   status: "pending" | "confirmed" | "failed" | "cancelled" | "fulfilled";
 }
@@ -158,6 +207,11 @@ export interface ChannelConnector {
   importCatalog(store: ChannelStore, cursor?: string): Promise<Result<ChannelCatalogPage>>;
   fetchInventory(store: ChannelStore, ids?: string[]): Promise<Result<ChannelInventoryLevel[]>>;
   pushOrder(store: ChannelStore, slice: ChannelOrderSlice): Promise<Result<ChannelPushOrderResult, ChannelConnectorError>>;
+  pushCatalog?(
+    store: ChannelStore,
+    items: ChannelPushCatalogItem[],
+    opts?: { dryRun?: boolean },
+  ): Promise<Result<ChannelPushCatalogResult, ChannelConnectorError>>;
   fetchOrderStatus(store: ChannelStore, remoteId: string): Promise<Result<ChannelOrderStatus, ChannelConnectorError>>;
   verifyWebhook(store: ChannelStore, request: Request): Promise<Result<ChannelWebhookEvent>>;
   verifyAppWebhook?(
@@ -180,5 +234,12 @@ export interface ChannelConnector {
 }
 
 export function defineChannelConnector<T extends ChannelConnector>(connector: T): T {
-  return connector;
+  if (connector.capabilities.pushCatalog !== undefined) return connector;
+  return {
+    ...connector,
+    capabilities: {
+      ...connector.capabilities,
+      pushCatalog: false,
+    },
+  } as T;
 }

@@ -6,8 +6,11 @@ import {
 } from "@porulle/core";
 import type {
   ChannelCatalogItem,
+  ChannelConnectorError,
   ChannelInventoryLevel,
   ChannelOrderSlice,
+  ChannelPushCatalogItem,
+  ChannelPushCatalogPreviousField,
   ChannelStore,
 } from "@porulle/core";
 
@@ -18,6 +21,9 @@ export interface MockChannelConnectorOptions {
   throwOnInventory?: boolean;
   inventoryDelayMs?: number;
   onFetchInventory?: (ids: string[]) => void;
+  pushCatalogFailures?: Record<string, ChannelConnectorError>;
+  pushCatalogTransportError?: ChannelConnectorError;
+  onPushCatalog?: (items: ChannelPushCatalogItem[]) => void;
 }
 
 const defaultCatalog: ChannelCatalogItem[] = [{
@@ -72,6 +78,7 @@ const defaultCatalog: ChannelCatalogItem[] = [{
 
 export function mockChannelConnector(options: MockChannelConnectorOptions = {}) {
   const orders = new Map<string, ChannelOrderSlice>();
+  const catalog = new Map<string, ChannelPushCatalogItem>();
 
   return defineChannelConnector({
     providerId: "mock",
@@ -79,6 +86,7 @@ export function mockChannelConnector(options: MockChannelConnectorOptions = {}) 
       importCatalog: true,
       importInventory: true,
       pushOrder: true,
+      pushCatalog: true,
       receiveWebhooks: true,
     },
     async importCatalog(_store?: ChannelStore) {
@@ -102,6 +110,26 @@ export function mockChannelConnector(options: MockChannelConnectorOptions = {}) 
         remoteOrderId,
         remoteUrl: `https://mock.channel.test/orders/${remoteOrderId}`,
       });
+    },
+    async pushCatalog(_store, items, opts?: { dryRun?: boolean }) {
+      if (options.pushCatalogTransportError) return Err(options.pushCatalogTransportError);
+      const outcomes = items.map((item) => {
+        const error = options.pushCatalogFailures?.[item.externalId];
+        if (error) return { externalId: item.externalId, ok: false, error };
+        const previous = catalog.get(item.externalId);
+        const previousFields: ChannelPushCatalogPreviousField[] = previous
+          ? [...previous.fields, ...(previous.variants ?? []).flatMap((variant) => variant.fields)]
+            .map((field) => ({ fieldPath: field.fieldPath, value: structuredClone(field.value) }))
+          : [];
+        if (opts?.dryRun !== true) catalog.set(item.externalId, structuredClone(item));
+        return {
+          externalId: item.externalId,
+          ok: true,
+          ...(previousFields.length > 0 ? { previousFields } : {}),
+        };
+      });
+      if (opts?.dryRun !== true) options.onPushCatalog?.(structuredClone(items));
+      return Ok({ outcomes });
     },
     async fetchOrderStatus(_store, remoteId) {
       if (!orders.has(remoteId)) {

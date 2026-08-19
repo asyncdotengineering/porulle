@@ -61,8 +61,12 @@ export { signState, verifyState } from "./oauth-state.js";
 export type {
   BackfillCatalogOptions,
   BackfillCatalogReport,
+  BuildCatalogPushItemsOptions,
+  BuildCatalogPushItemsResult,
   CatalogFieldConflict,
   CatalogFieldSkip,
+  CatalogPushFieldSkip,
+  CatalogPushSkipReason,
   CatalogWriteSettings,
   ChannelComplianceData,
   ChannelConnectorPluginOptions,

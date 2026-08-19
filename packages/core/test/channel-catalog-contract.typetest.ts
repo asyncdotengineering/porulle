@@ -5,6 +5,13 @@ import type {
   ChannelCatalogOptionType,
   ChannelCatalogPrice,
   ChannelCatalogVariant,
+  ChannelPushCatalogField,
+  ChannelPushCatalogImage,
+  ChannelPushCatalogItem,
+  ChannelPushCatalogItemOutcome,
+  ChannelPushCatalogPreviousField,
+  ChannelPushCatalogResult,
+  ChannelPushCatalogVariant,
 } from "../src/modules/channels/adapter.js";
 import { sellableAttributes } from "../src/modules/catalog/schema.js";
 
@@ -80,6 +87,25 @@ const legacyCatalogItem: ChannelCatalogItem = {
   variants: [{ externalId: "legacy-variant" }],
 };
 
+const pushCatalogItem: ChannelPushCatalogItem = {
+  externalId: "push-contract-product",
+  fields: [{
+    fieldPath: "attributes.en.title",
+    intent: "display",
+    value: "Push contract product",
+  } satisfies ChannelPushCatalogField],
+  images: [{
+    url: "https://example.test/push-contract-product.jpg",
+    role: "primary",
+  } satisfies ChannelPushCatalogImage],
+};
+
+const pushCatalogOutcome: ChannelPushCatalogItemOutcome = {
+  externalId: pushCatalogItem.externalId,
+  ok: true,
+};
+const pushCatalogResult: ChannelPushCatalogResult = { outcomes: [pushCatalogOutcome] };
+
 // The import shape must stay structurally unable to express checkout state.
 type CheckoutBoundaryKeys =
   | "quantity"
@@ -101,7 +127,18 @@ type BoundaryViolations = Extract<
   | keyof ChannelCatalogLocalizedAttributes,
   CheckoutBoundaryKeys
 >;
+type PushCatalogBoundaryViolations = Extract<
+  | keyof ChannelPushCatalogField
+  | keyof ChannelPushCatalogImage
+  | keyof ChannelPushCatalogItem
+  | keyof ChannelPushCatalogVariant
+  | keyof ChannelPushCatalogPreviousField
+  | keyof ChannelPushCatalogItemOutcome
+  | keyof ChannelPushCatalogResult,
+  CheckoutBoundaryKeys | "price" | "prices" | "amount" | "unitPrice" | "totalPrice"
+>;
 const checkoutBoundaryHolds: BoundaryViolations extends never ? true : never = true;
+const pushCatalogBoundaryHolds: PushCatalogBoundaryViolations extends never ? true : never = true;
 
 void localizedAttributesCoverSellableAttributeColumns;
 void newItemFieldsAreOptional;
@@ -109,3 +146,6 @@ void newVariantFieldsAreOptional;
 void fullCatalogItem;
 void legacyCatalogItem;
 void checkoutBoundaryHolds;
+void pushCatalogItem;
+void pushCatalogResult;
+void pushCatalogBoundaryHolds;
