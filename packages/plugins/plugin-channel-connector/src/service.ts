@@ -113,6 +113,13 @@ function hash(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+function mergeMetadata(
+  existing: Record<string, unknown> | null | undefined,
+  remote: Record<string, unknown>,
+): Record<string, unknown> {
+  return { ...(existing ?? {}), ...remote };
+}
+
 function stockFailure(line: ChannelStockLine, reason: string): string {
   return `Cannot checkout line "${line.title ?? line.entityId}": ${reason}.`;
 }
@@ -423,14 +430,15 @@ export class ChannelConnectorService {
           eq(sellableEntities.organizationId, orgId),
           eq(sellableEntities.id, entityMapping.entityId),
         ));
+        const remoteMetadata = {
+          ...(item.metadata ?? {}),
+          title: item.title,
+          ...(item.description !== undefined ? { description: item.description } : {}),
+        };
         if (entityMapping.syncHash !== hash(item) || entity?.status === "archived") {
           const updated = await this.catalog.update(entityMapping.entityId, {
             slug: item.slug,
-            metadata: {
-              ...(item.metadata ?? {}),
-              title: item.title,
-              ...(item.description !== undefined ? { description: item.description } : {}),
-            },
+            metadata: mergeMetadata(entity?.metadata, remoteMetadata),
             ...(entity?.status === "archived" ? { status: "active", isVisible: true } : {}),
           }, actor);
           if (!updated.ok) return PluginErr(updated.error.message);
@@ -445,11 +453,11 @@ export class ChannelConnectorService {
           type: "product",
           slug: item.slug,
           sourceStoreId: storeId,
-          metadata: {
+          metadata: mergeMetadata(undefined, {
             ...(item.metadata ?? {}),
             title: item.title,
             ...(item.description !== undefined ? { description: item.description } : {}),
-          },
+          }),
         },
         actor,
       );
@@ -737,6 +745,18 @@ export class ChannelConnectorService {
 
   private async convergeCatalogItem(orgId: string, storeId: string, entityId: string, data: Record<string, unknown>, actor: Actor): Promise<void> {
     const product = data.product && typeof data.product === "object" ? data.product as Record<string, unknown> : data;
+    const remoteMetadata = {
+      ...(product.metadata && typeof product.metadata === "object" && !Array.isArray(product.metadata) ? product.metadata as Record<string, unknown> : {}),
+      ...(typeof product.title === "string" ? { title: product.title } : {}),
+      ...(product.description !== undefined ? { description: product.description } : {}),
+    };
+    if (Object.keys(remoteMetadata).length > 0) {
+      const [entity] = await this.db.select().from(sellableEntities).where(and(
+        eq(sellableEntities.organizationId, orgId),
+        eq(sellableEntities.id, entityId),
+      ));
+      if (entity) await this.catalog.update(entityId, { metadata: mergeMetadata(entity.metadata, remoteMetadata) }, actor);
+    }
     const levels = Array.isArray(product.variants) ? product.variants as Array<Record<string, unknown>> : [];
     for (const variant of levels) {
       const externalId = String(variant.id ?? variant.variation_id ?? "");
