@@ -43,6 +43,8 @@ export {
 } from "./service.js";
 export { signState, verifyState } from "./oauth-state.js";
 export type {
+  BackfillCatalogOptions,
+  BackfillCatalogReport,
   ChannelComplianceData,
   ChannelConnectorPluginOptions,
   ChannelStockLine,
@@ -145,6 +147,31 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
             ...(result.value.warnings ? { warnings: result.value.warnings } : {}),
           },
         };
+      },
+    },
+    {
+      slug: "channel/backfill-catalog",
+      concurrency: { key: (input: Record<string, unknown>) => String(input.storeId) },
+      handler: async ({ input, ctx }: { input: Record<string, unknown>; ctx: import("@porulle/core").TaskContext }) => {
+        const service = new ChannelConnectorService(ctx.db, ctx.services, options);
+        const orgId = String(input.orgId);
+        const storeId = String(input.storeId);
+        const dryRun = input.dryRun === true;
+        const result = await service.backfillCatalog(orgId, storeId, createSystemActor(orgId), {
+          dryRun,
+          ...(input.restart === true ? { resume: false } : {}),
+          ...(!dryRun ? { maxPages: 1 } : {}),
+        });
+        if (!result.ok) throw new Error(result.error);
+        if (!result.value.complete && !dryRun) {
+          const jobs = ctx.services.jobs as JobsAdapter;
+          await jobs.enqueue("channel/backfill-catalog", { orgId, storeId, dryRun }, {
+            organizationId: orgId,
+            concurrencyKey: storeId,
+            supersedes: false,
+          });
+        }
+        return { output: result.value };
       },
     },
     {
@@ -388,6 +415,28 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
         .summary("Get channel reconciliation status")
         .permission("channels:read")
         .handler(async ({ params, orgId }: ChannelRouteContext) => unwrap(await service.getReconcileStatus(orgId, params.storeId!)));
+
+      channels.post("/stores/{storeId}/backfill")
+        .summary("Backfill a channel catalog into the PIM")
+        .permission("channels:manage")
+        .input(z.object({ dryRun: z.boolean().optional(), restart: z.boolean().optional() }))
+        .handler(async ({ params, orgId, input }: ChannelRouteContext) => {
+          const values = input as { dryRun?: boolean; restart?: boolean };
+          if (values.dryRun === true) {
+            return unwrap(await service.backfillCatalog(orgId, params.storeId!, createSystemActor(orgId), { dryRun: true }));
+          }
+          const jobs = ctx.services.jobs as JobsAdapter;
+          await jobs.enqueue("channel/backfill-catalog", {
+            orgId,
+            storeId: params.storeId!,
+            ...(values.restart === true ? { restart: true } : {}),
+          }, {
+            organizationId: orgId,
+            concurrencyKey: params.storeId!,
+            supersedes: false,
+          });
+          return { enqueued: true, storeId: params.storeId! };
+        });
 
       channels.post("/stores/{id}/disconnect")
         .summary("Disconnect a channel store")

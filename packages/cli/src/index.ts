@@ -8,6 +8,7 @@ import { deployCommand } from "./commands/deploy.js";
 import { importCommand } from "./commands/import.js";
 import { apiKeyCommand } from "./commands/api-key.js";
 import { doctorCommand } from "./commands/doctor.js";
+import { channelBackfillCommand } from "./commands/channel-backfill.js";
 
 const main = defineCommand({
   meta: {
@@ -23,6 +24,7 @@ const main = defineCommand({
     import: importCommand,
     "api-key": apiKeyCommand,
     doctor: doctorCommand,
+    "channel:backfill": channelBackfillCommand,
     generate: defineCommand({
       subCommands: {
         migration: generateMigrationCommand,

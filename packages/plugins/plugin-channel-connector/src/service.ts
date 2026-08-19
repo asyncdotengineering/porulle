@@ -32,8 +32,10 @@ import {
   optionValues,
   orderLineItems,
   orders,
+  sellableAttributes,
   sellableEntities,
   tags,
+  variantOptionValues,
 } from "@porulle/core/schema";
 import {
   channelEntityMap,
@@ -89,6 +91,42 @@ export interface ChannelStockLine {
   variantId?: string;
   title?: string;
   quantity: number;
+}
+
+interface BackfillCounts {
+  entitiesTouched: number;
+  attributesCreated: number;
+  mediaImported: number;
+  variantsGivenOptionValues: number;
+}
+
+export interface BackfillCatalogReport extends BackfillCounts, Record<string, unknown> {
+  cursor: string | null;
+  complete: boolean;
+  warnings?: string[];
+}
+
+interface CatalogConvergenceStats {
+  imported: number;
+  converged: number;
+  entitiesTouched: number;
+  attributesCreated: number;
+  mediaImported: number;
+  variantsGivenOptionValues: number;
+  warnings: string[];
+}
+
+export interface BackfillCatalogOptions {
+  dryRun?: boolean;
+  resume?: boolean;
+  maxPages?: number;
+}
+
+interface BackfillState {
+  cursor: string | null;
+  report: BackfillCounts;
+  warnings?: string[];
+  completedAt?: string;
 }
 
 interface CatalogService {
@@ -293,7 +331,7 @@ export class ChannelConnectorService {
     entityId: string,
     item: ChannelCatalogItem,
     actor: Actor,
-  ): Promise<PluginResult<void>> {
+  ): Promise<PluginResult<{ created: number }>> {
     const attributes = item.attributes?.length
       ? item.attributes
       : [{
@@ -301,20 +339,24 @@ export class ChannelConnectorService {
         title: item.title,
         ...(item.description !== undefined ? { description: item.description } : {}),
       }];
+    const existing = await this.db.select().from(sellableAttributes).where(eq(sellableAttributes.entityId, entityId));
+    let created = 0;
     for (const attribute of attributes) {
+      if (!existing.some((row) => row.locale === attribute.locale)) created += 1;
       const result = await this.catalog.setAttributes(entityId, attribute.locale, attribute, actor);
       if (!result.ok) return PluginErr(result.error.message);
     }
-    return Ok(undefined);
+    return Ok({ created });
   }
 
   private async upsertOptionAxes(
     entityId: string,
     item: ChannelCatalogItem,
     actor: Actor,
-  ): Promise<PluginResult<Map<string, Map<string, string>>>> {
+  ): Promise<PluginResult<{ value: Map<string, Map<string, string>>; changed: boolean }>> {
     const optionValueIds = new Map<string, Map<string, string>>();
     const existingTypes = await this.db.select().from(optionTypes).where(eq(optionTypes.entityId, entityId));
+    let changed = false;
     for (const [typeIndex, sourceType] of (item.options ?? []).entries()) {
       let optionType = existingTypes.find((row) => row.name === sourceType.name);
       if (!optionType) {
@@ -324,6 +366,7 @@ export class ChannelConnectorService {
         if (!createdType) return PluginErr(`Option type "${sourceType.name}" was not persisted.`);
         optionType = createdType;
         existingTypes.push(optionType);
+        changed = true;
       }
       await this.db.update(optionTypes).set({
         displayName: sourceType.displayName,
@@ -341,6 +384,7 @@ export class ChannelConnectorService {
           if (!createdValue) return PluginErr(`Option value "${sourceValue.value}" was not persisted.`);
           optionValue = createdValue;
           existingValues.push(optionValue);
+          changed = true;
         }
         await this.db.update(optionValues).set({
           displayValue: sourceValue.displayValue,
@@ -350,7 +394,7 @@ export class ChannelConnectorService {
       }
       optionValueIds.set(sourceType.name, valueIds);
     }
-    return Ok(optionValueIds);
+    return Ok({ value: optionValueIds, changed });
   }
 
   private async upsertVariants(
@@ -361,8 +405,10 @@ export class ChannelConnectorService {
     optionValueIds: Map<string, Map<string, string>>,
     actor: Actor,
     warnings: string[],
-  ): Promise<PluginResult<Map<string, string>>> {
+  ): Promise<PluginResult<{ value: Map<string, string>; repaired: number; changed: boolean }>> {
     const variantIds = new Map<string, string>();
+    let repaired = 0;
+    let changed = false;
     const mappings = await this.db.select().from(channelEntityMap).where(and(
       eq(channelEntityMap.organizationId, orgId),
       eq(channelEntityMap.storeId, storeId),
@@ -372,6 +418,7 @@ export class ChannelConnectorService {
     for (const sourceVariant of item.variants) {
       let mapping = mappings.find((row) => row.externalId === sourceVariant.externalId);
       let variantId = mapping?.variantId;
+      const createdVariant = !variantId;
       if (!variantId) {
         const options: Record<string, string> = {};
         for (const [name, value] of Object.entries(sourceVariant.optionValues ?? {})) {
@@ -407,6 +454,24 @@ export class ChannelConnectorService {
         continue;
       }
       variantIds.set(sourceVariant.externalId, variantId);
+      const desiredOptionValueIds = Object.entries(sourceVariant.optionValues ?? {})
+        .map(([name, value]) => optionValueIds.get(name)?.get(value))
+        .filter((optionValueId): optionValueId is string => optionValueId !== undefined);
+      const currentOptionValues = await this.db.select().from(variantOptionValues).where(eq(variantOptionValues.variantId, variantId));
+      const currentIds = currentOptionValues.map((row) => row.optionValueId).sort();
+      const desiredIds = [...new Set(desiredOptionValueIds)].sort();
+      if (currentIds.length !== desiredIds.length || currentIds.some((id, index) => id !== desiredIds[index])) {
+        await this.db.delete(variantOptionValues).where(eq(variantOptionValues.variantId, variantId));
+        if (desiredIds.length > 0) {
+          await this.db.insert(variantOptionValues).values(desiredIds.map((optionValueId) => ({ variantId, optionValueId }))).onConflictDoNothing();
+          repaired += 1;
+        }
+        changed = true;
+      }
+      if (createdVariant && desiredIds.length > 0) {
+        repaired += 1;
+        changed = true;
+      }
       for (const price of sourceVariant.prices ?? []) {
         const priced = await this.pricing.setBasePrice({
           entityId,
@@ -424,7 +489,7 @@ export class ChannelConnectorService {
         }).where(eq(channelEntityMap.id, mapping.id));
       }
     }
-    return Ok(variantIds);
+    return Ok({ value: variantIds, repaired, changed });
   }
 
   private async applyTaxonomy(
@@ -492,9 +557,11 @@ export class ChannelConnectorService {
     variantIds: Map<string, string>,
     actor: Actor,
     warnings: string[],
-  ): Promise<PluginResult<void>> {
+  ): Promise<PluginResult<{ imported: number; changed: boolean }>> {
     const assets = await this.db.select().from(mediaAssets).where(eq(mediaAssets.organizationId, orgId));
     const links = await this.db.select().from(entityMedia).where(eq(entityMedia.entityId, entityId));
+    let imported = 0;
+    let changed = false;
     for (const image of item.images ?? []) {
       const urlHash = hash(image.url);
       const asset = assets.find((row) => {
@@ -533,6 +600,8 @@ export class ChannelConnectorService {
           continue;
         }
         mediaAssetId = uploaded.value.id;
+        imported += 1;
+        changed = true;
         const [createdAsset] = await this.db.select().from(mediaAssets).where(eq(mediaAssets.id, mediaAssetId));
         if (createdAsset) assets.push(createdAsset);
       }
@@ -557,6 +626,7 @@ export class ChannelConnectorService {
               eq(entityMedia.mediaAssetId, mediaAssetId),
               target.variantId === undefined ? isNull(entityMedia.variantId) : eq(entityMedia.variantId, target.variantId),
             ));
+            changed = true;
           }
           continue;
         }
@@ -568,6 +638,7 @@ export class ChannelConnectorService {
           ...(target.variantId !== undefined ? { variantId: target.variantId } : {}),
         }, actor);
         if (!attached.ok) return PluginErr(attached.error.message);
+        changed = true;
         links.push({
           entityId,
           mediaAssetId,
@@ -578,7 +649,7 @@ export class ChannelConnectorService {
         });
       }
     }
-    return Ok(undefined);
+    return Ok({ imported, changed });
   }
 
   private async getStoreRecord(orgId: string, id: string): Promise<ConnectedStore | undefined> {
@@ -798,8 +869,279 @@ export class ChannelConnectorService {
     return Ok({
       imported: result.value.imported,
       cursor: null,
-      ...(result.value.warnings ? { warnings: result.value.warnings } : {}),
+      ...(result.value.warnings.length > 0 ? { warnings: result.value.warnings } : {}),
     });
+  }
+
+  private async promoteLegacyAttributes(
+    orgId: string,
+    storeId: string,
+    actor: Actor,
+    dryRun: boolean,
+  ): Promise<PluginResult<number>> {
+    const mappings = await this.db.select().from(channelEntityMap).where(and(
+      eq(channelEntityMap.organizationId, orgId),
+      eq(channelEntityMap.storeId, storeId),
+      eq(channelEntityMap.kind, "entity"),
+    ));
+    let created = 0;
+    for (const entityId of new Set(mappings.map((mapping) => mapping.entityId))) {
+      const [entity] = await this.db.select().from(sellableEntities).where(and(
+        eq(sellableEntities.organizationId, orgId),
+        eq(sellableEntities.id, entityId),
+      ));
+      if (!entity) continue;
+      const attributes = await this.db.select().from(sellableAttributes).where(eq(sellableAttributes.entityId, entity.id));
+      if (attributes.length > 0) continue;
+      const metadata = entity.metadata ?? {};
+      if (typeof metadata.title !== "string") continue;
+      if (dryRun) {
+        created += 1;
+        continue;
+      }
+      const promoted = await this.catalog.setAttributes(entity.id, "en", {
+        title: metadata.title,
+        ...(typeof metadata.description === "string" ? { description: metadata.description } : {}),
+      }, actor);
+      if (!promoted.ok) return PluginErr(promoted.error.message);
+      const [confirmed] = await this.db.select({ id: sellableAttributes.id, title: sellableAttributes.title, description: sellableAttributes.description }).from(sellableAttributes).where(and(
+        eq(sellableAttributes.entityId, entity.id),
+        eq(sellableAttributes.locale, "en"),
+      ));
+      if (!confirmed || confirmed.title !== metadata.title || (typeof metadata.description === "string" && confirmed.description !== metadata.description)) {
+        return PluginErr(`Legacy attributes for entity "${entity.id}" were not persisted.`);
+      }
+      const nextMetadata = { ...metadata };
+      delete nextMetadata.title;
+      if (typeof metadata.description === "string") delete nextMetadata.description;
+      await this.db.update(sellableEntities).set({ metadata: nextMetadata, updatedAt: new Date() }).where(and(
+        eq(sellableEntities.organizationId, orgId),
+        eq(sellableEntities.id, entity.id),
+      ));
+      created += 1;
+    }
+    return Ok(created);
+  }
+
+  private async saveBackfillState(orgId: string, storeId: string, state: BackfillState): Promise<void> {
+    const [store] = await this.db.select({ breakerState: connectedStores.breakerState }).from(connectedStores).where(and(
+      eq(connectedStores.organizationId, orgId),
+      eq(connectedStores.id, storeId),
+    ));
+    await this.db.update(connectedStores).set({
+      breakerState: { ...(store?.breakerState ?? {}), catalogBackfill: state },
+      updatedAt: new Date(),
+    }).where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.id, storeId)));
+  }
+
+  async backfillCatalog(
+    orgId: string,
+    storeId: string,
+    actor: Actor,
+    options: BackfillCatalogOptions = {},
+  ): Promise<PluginResult<BackfillCatalogReport>> {
+    const store = await this.getStoreRecord(orgId, storeId);
+    if (!store || store.status !== "connected") return PluginErr("Connected store not found.", "NOT_FOUND");
+    const connector = this.connectors.get(store.provider);
+    if (!connector) return PluginErr(`No connector registered for provider "${store.provider}".`);
+    const dryRun = options.dryRun === true;
+    const saved = store.breakerState.catalogBackfill;
+    const savedState = saved && typeof saved === "object" ? saved as unknown as BackfillState : undefined;
+    // Undefined resume derives from persisted state, so a retried job or a
+    // re-triggered run continues an unfinished backfill instead of restarting.
+    const resume = options.resume ?? (savedState !== undefined && !savedState.completedAt);
+    if (resume && savedState?.completedAt && savedState.cursor === null) {
+      return Ok({ ...savedState.report, cursor: null, complete: true, ...(savedState.warnings?.length ? { warnings: savedState.warnings } : {}) });
+    }
+    const report = resume && savedState ? { ...savedState.report } : {
+      entitiesTouched: 0,
+      attributesCreated: 0,
+      mediaImported: 0,
+      variantsGivenOptionValues: 0,
+    };
+    const warnings = resume && savedState?.warnings ? [...savedState.warnings] : [];
+    const promoted = await this.promoteLegacyAttributes(orgId, storeId, actor, dryRun);
+    if (!promoted.ok) return promoted;
+    report.attributesCreated += promoted.value;
+    let cursor = resume && savedState?.cursor ? savedState.cursor : undefined;
+    let pages = 0;
+    if (!dryRun) {
+      await this.saveBackfillState(orgId, storeId, {
+        cursor: cursor ?? null,
+        report,
+        ...(warnings.length > 0 ? { warnings } : {}),
+      });
+    }
+    do {
+      const page = await connector.importCatalog(store as ChannelStore, cursor);
+      if (!page.ok) return PluginErr(page.error.message);
+      const converged = await this.convergeCatalogItems(orgId, storeId, page.value.items, actor, true, dryRun);
+      if (!converged.ok) return converged;
+      report.entitiesTouched += converged.value.entitiesTouched;
+      report.attributesCreated += converged.value.attributesCreated;
+      report.mediaImported += converged.value.mediaImported;
+      report.variantsGivenOptionValues += converged.value.variantsGivenOptionValues;
+      warnings.push(...converged.value.warnings);
+      cursor = page.value.nextCursor ?? undefined;
+      pages += 1;
+      // The final state is written once with completedAt below; a cursor-null
+      // checkpoint without it would read as a fresh start after a crash.
+      if (!dryRun && cursor) {
+        await this.saveBackfillState(orgId, storeId, {
+          cursor,
+          report,
+          ...(warnings.length > 0 ? { warnings } : {}),
+        });
+      }
+      if (options.maxPages !== undefined && pages >= options.maxPages && cursor) {
+        return Ok({ ...report, cursor, complete: false, ...(warnings.length > 0 ? { warnings } : {}) });
+      }
+    } while (cursor);
+    if (!dryRun) {
+      await this.saveBackfillState(orgId, storeId, {
+        cursor: null,
+        report,
+        ...(warnings.length > 0 ? { warnings } : {}),
+        completedAt: new Date().toISOString(),
+      });
+    }
+    return Ok({ ...report, cursor: null, complete: true, ...(warnings.length > 0 ? { warnings } : {}) });
+  }
+
+  private async estimateCatalogItems(
+    orgId: string,
+    storeId: string,
+    items: ChannelCatalogItem[],
+  ): Promise<PluginResult<CatalogConvergenceStats>> {
+    const stats: CatalogConvergenceStats = {
+      imported: 0,
+      converged: 0,
+      entitiesTouched: 0,
+      attributesCreated: 0,
+      mediaImported: 0,
+      variantsGivenOptionValues: 0,
+      warnings: [],
+    };
+    const assets = await this.db.select().from(mediaAssets).where(eq(mediaAssets.organizationId, orgId));
+    for (const item of items) {
+      const [entityMapping] = await this.db.select().from(channelEntityMap).where(and(
+        eq(channelEntityMap.organizationId, orgId),
+        eq(channelEntityMap.storeId, storeId),
+        eq(channelEntityMap.kind, "entity"),
+        eq(channelEntityMap.externalId, item.externalId),
+      ));
+      if (!entityMapping) {
+        stats.imported += 1;
+        stats.entitiesTouched += 1;
+        stats.attributesCreated += item.attributes?.length || 1;
+        stats.variantsGivenOptionValues += item.variants.filter((variant) => Object.keys(variant.optionValues ?? {}).some((name) => item.options?.some((option) => option.name === name))).length;
+        stats.mediaImported += item.images?.length ?? 0;
+        continue;
+      }
+      const [entity] = await this.db.select().from(sellableEntities).where(and(
+        eq(sellableEntities.organizationId, orgId),
+        eq(sellableEntities.id, entityMapping.entityId),
+      ));
+      if (!entity) continue;
+      let touched = false;
+      const attributes = await this.db.select().from(sellableAttributes).where(eq(sellableAttributes.entityId, entity.id));
+      const locales = new Set(attributes.map((attribute) => attribute.locale));
+      const metadata = entity.metadata ?? {};
+      if (attributes.length === 0 && typeof metadata.title === "string") {
+        locales.add("en");
+        touched = true;
+      }
+      const sourceAttributes = item.attributes?.length
+        ? item.attributes
+        : [{ locale: "en", title: item.title, ...(item.description !== undefined ? { description: item.description } : {}) }];
+      for (const attribute of sourceAttributes) {
+        if (!locales.has(attribute.locale)) {
+          stats.attributesCreated += 1;
+          locales.add(attribute.locale);
+          touched = true;
+        }
+      }
+      const remoteMetadata = mergeMetadata(entity.metadata, item.metadata ?? {});
+      const remoteStatus = item.status ?? (entity.status === "archived" ? "active" : undefined);
+      const entityChanged = entity.slug !== item.slug
+        || hash(remoteMetadata) !== hash(entity.metadata ?? {})
+        || (remoteStatus !== undefined && remoteStatus !== entity.status);
+      if (entityChanged) {
+        stats.converged += 1;
+        touched = true;
+      }
+
+      const optionValueIds = new Map<string, Map<string, string>>();
+      const existingTypes = await this.db.select().from(optionTypes).where(eq(optionTypes.entityId, entity.id));
+      for (const sourceType of item.options ?? []) {
+        const existingType = existingTypes.find((optionType) => optionType.name === sourceType.name);
+        if (!existingType) {
+          touched = true;
+          optionValueIds.set(sourceType.name, new Map(sourceType.values.map((value) => [value.value, `new:${sourceType.name}:${value.value}`])));
+          continue;
+        }
+        const existingValues = await this.db.select().from(optionValues).where(eq(optionValues.optionTypeId, existingType.id));
+        const valueIds = new Map<string, string>();
+        for (const sourceValue of sourceType.values) {
+          const existingValue = existingValues.find((value) => value.value === sourceValue.value);
+          if (!existingValue) touched = true;
+          valueIds.set(sourceValue.value, existingValue?.id ?? `new:${sourceType.name}:${sourceValue.value}`);
+        }
+        optionValueIds.set(sourceType.name, valueIds);
+      }
+
+      const variantMappings = await this.db.select().from(channelEntityMap).where(and(
+        eq(channelEntityMap.organizationId, orgId),
+        eq(channelEntityMap.storeId, storeId),
+        eq(channelEntityMap.kind, "variant"),
+        eq(channelEntityMap.entityId, entity.id),
+      ));
+      const variantIds = new Map<string, string>();
+      for (const sourceVariant of item.variants) {
+        const mapping = variantMappings.find((row) => row.externalId === sourceVariant.externalId);
+        const variantId = mapping?.variantId ?? `new:${sourceVariant.externalId}`;
+        variantIds.set(sourceVariant.externalId, variantId);
+        const desiredIds = [...new Set(Object.entries(sourceVariant.optionValues ?? {})
+          .map(([name, value]) => optionValueIds.get(name)?.get(value))
+          .filter((optionValueId): optionValueId is string => optionValueId !== undefined))].sort();
+        if (!mapping?.variantId) {
+          if (desiredIds.length > 0) stats.variantsGivenOptionValues += 1;
+          touched = true;
+          continue;
+        }
+        const current = await this.db.select().from(variantOptionValues).where(eq(variantOptionValues.variantId, mapping.variantId));
+        const currentIds = current.map((row) => row.optionValueId).sort();
+        if (currentIds.length !== desiredIds.length || currentIds.some((id, index) => id !== desiredIds[index])) {
+          if (desiredIds.length > 0) stats.variantsGivenOptionValues += 1;
+          touched = true;
+        }
+      }
+
+      const links = await this.db.select().from(entityMedia).where(eq(entityMedia.entityId, entity.id));
+      for (const image of item.images ?? []) {
+        const urlHash = hash(image.url);
+        const asset = assets.find((row) => {
+          const assetMetadata = row.metadata ?? {};
+          return (image.externalId != null && assetMetadata.channelImageExternalId === image.externalId)
+            || assetMetadata.channelImageUrlHash === urlHash;
+        });
+        const mediaAssetId = asset?.id ?? `new:${urlHash}`;
+        if (!asset) stats.mediaImported += 1;
+        const targets = image.variantExternalIds?.length
+          ? image.variantExternalIds.map((externalId) => ({ externalId, variantId: variantIds.get(externalId) }))
+          : [{ externalId: undefined, variantId: undefined }];
+        for (const target of targets) {
+          if (image.variantExternalIds?.length && !target.variantId) {
+            stats.warnings.push(`Skipped image "${image.externalId ?? image.url}" for unmapped variant "${target.externalId}".`);
+            continue;
+          }
+          const existingLink = links.find((link) => link.mediaAssetId === mediaAssetId && (target.variantId === undefined ? link.variantId === null : link.variantId === target.variantId));
+          if (!existingLink) touched = true;
+        }
+      }
+      if (touched) stats.entitiesTouched += 1;
+    }
+    return Ok(stats);
   }
 
   private async convergeCatalogItems(
@@ -807,9 +1149,16 @@ export class ChannelConnectorService {
     storeId: string,
     items: ChannelCatalogItem[],
     actor: Actor,
-  ): Promise<PluginResult<{ imported: number; converged: number; warnings?: string[] }>> {
+    force = false,
+    dryRun = false,
+  ): Promise<PluginResult<CatalogConvergenceStats>> {
+    if (dryRun) return this.estimateCatalogItems(orgId, storeId, items);
     let imported = 0;
     let converged = 0;
+    let entitiesTouched = 0;
+    let attributesCreated = 0;
+    let mediaImported = 0;
+    let variantsGivenOptionValues = 0;
     const warnings: string[] = [];
     for (const item of items) {
       const existing = await this.db
@@ -824,6 +1173,7 @@ export class ChannelConnectorService {
       const entityMapping = existing.find((entry) => entry.kind === "entity");
       let entityId: string;
       let isNew = false;
+      let entityTouched = false;
       if (entityMapping) {
         const [entity] = await this.db.select().from(sellableEntities).where(and(
           eq(sellableEntities.organizationId, orgId),
@@ -834,15 +1184,22 @@ export class ChannelConnectorService {
           continue;
         }
         entityId = entityMapping.entityId;
-        if (entityMapping.syncHash !== hash(item) || entity?.status === "archived") {
-          const status = item.status ?? (entity?.status === "archived" ? "active" : undefined);
+        const remoteMetadata = mergeMetadata(entity?.metadata, item.metadata ?? {});
+        const remoteStatus = item.status ?? (entity?.status === "archived" ? "active" : undefined);
+        const shouldUpdate = force
+          ? entity.slug !== item.slug
+            || hash(remoteMetadata) !== hash(entity.metadata ?? {})
+            || (remoteStatus !== undefined && remoteStatus !== entity.status)
+          : entityMapping.syncHash !== hash(item) || entity?.status === "archived";
+        if (shouldUpdate) {
           const updated = await this.catalog.update(entityMapping.entityId, {
             slug: item.slug,
-            metadata: mergeMetadata(entity?.metadata, item.metadata ?? {}),
-            ...(status !== undefined ? { status, isVisible: status === "active" } : {}),
+            metadata: remoteMetadata,
+            ...(remoteStatus !== undefined ? { status: remoteStatus, isVisible: remoteStatus === "active" } : {}),
           }, actor);
           if (!updated.ok) return PluginErr(updated.error.message);
           converged += 1;
+          entityTouched = true;
         }
       } else {
         const status = item.status;
@@ -857,18 +1214,24 @@ export class ChannelConnectorService {
         entityId = entity.value.id;
         isNew = true;
         imported += 1;
+        entityTouched = true;
       }
 
       const optionAxes = await this.upsertOptionAxes(entityId, item, actor);
       if (!optionAxes.ok) return optionAxes;
       const attributes = await this.setCatalogAttributes(entityId, item, actor);
       if (!attributes.ok) return attributes;
-      const variantIds = await this.upsertVariants(orgId, storeId, entityId, item, optionAxes.value, actor, warnings);
+      const variantIds = await this.upsertVariants(orgId, storeId, entityId, item, optionAxes.value.value, actor, warnings);
       if (!variantIds.ok) return variantIds;
       const taxonomy = await this.applyTaxonomy(orgId, entityId, item, actor, warnings);
       if (!taxonomy.ok) return taxonomy;
-      const media = await this.applyMedia(orgId, entityId, item, variantIds.value, actor, warnings);
+      const media = await this.applyMedia(orgId, entityId, item, variantIds.value.value, actor, warnings);
       if (!media.ok) return media;
+      attributesCreated += attributes.value.created;
+      mediaImported += media.value.imported;
+      variantsGivenOptionValues += variantIds.value.repaired;
+      entityTouched = entityTouched || optionAxes.value.changed || variantIds.value.changed || media.value.changed || attributes.value.created > 0;
+      if (entityTouched) entitiesTouched += 1;
 
       if (isNew) {
         await this.db.insert(channelEntityMap).values({
@@ -889,7 +1252,11 @@ export class ChannelConnectorService {
     return Ok({
       imported,
       converged,
-      ...(warnings.length > 0 ? { warnings } : {}),
+      entitiesTouched,
+      attributesCreated,
+      mediaImported,
+      variantsGivenOptionValues,
+      warnings,
     });
   }
 
@@ -959,7 +1326,7 @@ export class ChannelConnectorService {
       archived,
       inventoryUpdated,
       driftAlert: converged.value.imported + converged.value.converged + archived > threshold,
-      ...(converged.value.warnings ? { warnings: converged.value.warnings } : {}),
+      ...(converged.value.warnings.length > 0 ? { warnings: converged.value.warnings } : {}),
     };
     await this.db.update(connectedStores).set({
       lastReconcileAt: new Date(),
