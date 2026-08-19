@@ -35,6 +35,15 @@ const EntityIdLocaleParam = z.object({
   locale: z.string().min(1).openapi({ example: "en" }),
 });
 
+const EntityCustomFieldParam = z.object({
+  id: z.uuid().openapi({ example: "550e8400-e29b-41d4-a716-446655440000" }),
+  fieldName: z.string().min(1).openapi({ example: "warranty" }),
+});
+
+const CustomFieldReviewQuery = z.object({
+  locale: z.string().min(1).optional().openapi({ example: "en" }),
+});
+
 const CategoryIdParam = z.object({
   categoryId: z.uuid().openapi({ example: "550e8400-e29b-41d4-a716-446655440000" }),
 });
@@ -308,6 +317,36 @@ export const setEntityAttributesRoute = createRoute({
   },
   responses: {
     200: { content: { "application/json": { schema: z.object({ data: z.object({ updated: z.literal(true) }) }) } }, description: "Updated" },
+    ...errorResponses,
+  },
+});
+
+export const approveCustomFieldRoute = createRoute({
+  method: "post",
+  path: "/entities/{id}/custom-fields/{fieldName}/approve",
+  tags: ["Catalog"],
+  summary: "Approve a proposed custom-field value",
+  request: {
+    params: EntityCustomFieldParam,
+    query: CustomFieldReviewQuery,
+  },
+  responses: {
+    200: { content: { "application/json": { schema: DataResponse } }, description: "Approved" },
+    ...errorResponses,
+  },
+});
+
+export const rejectCustomFieldRoute = createRoute({
+  method: "post",
+  path: "/entities/{id}/custom-fields/{fieldName}/reject",
+  tags: ["Catalog"],
+  summary: "Reject a proposed custom-field value",
+  request: {
+    params: EntityCustomFieldParam,
+    query: CustomFieldReviewQuery,
+  },
+  responses: {
+    200: { content: { "application/json": { schema: DataResponse } }, description: "Rejected" },
     ...errorResponses,
   },
 });

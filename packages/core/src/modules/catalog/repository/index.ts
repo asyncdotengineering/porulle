@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, gt, inArray, lt, max, type SQL } from "drizzle-orm";
+import { eq, and, asc, count, desc, gt, inArray, lt, max, ne, type SQL } from "drizzle-orm";
 import type { TxContext } from "../../../kernel/database/tx-context.js";
 import { CommerceNotFoundError } from "../../../kernel/errors.js";
 import type {
@@ -51,6 +51,10 @@ export type VariantOptionValue = typeof variantOptionValues.$inferSelect;
 export type VariantOptionValueInsert = typeof variantOptionValues.$inferInsert;
 export type SellableEntityRevision = typeof sellableEntityRevisions.$inferSelect;
 export type SellableEntityRevisionInsert = typeof sellableEntityRevisions.$inferInsert;
+export type ProposedCustomField = SellableCustomField & {
+  entitySlug: string;
+  entityType: string;
+};
 
 /**
  * CatalogRepository provides type-safe database operations for catalog entities.
@@ -432,6 +436,116 @@ export class CatalogRepository {
       .select()
       .from(sellableCustomFields)
       .where(eq(sellableCustomFields.entityId, entityId));
+  }
+
+  async findProposedCustomField(
+    entityId: string,
+    fieldName: string,
+    locale = "en",
+    ctx?: TxContext,
+  ): Promise<SellableCustomField | undefined> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .select()
+      .from(sellableCustomFields)
+      .where(
+        and(
+          eq(sellableCustomFields.entityId, entityId),
+          eq(sellableCustomFields.fieldName, fieldName),
+          eq(sellableCustomFields.locale, locale),
+          eq(sellableCustomFields.status, "proposed"),
+        ),
+      )
+      .orderBy(desc(sellableCustomFields.createdAt), desc(sellableCustomFields.id))
+      .limit(1);
+    return rows[0];
+  }
+
+  async updateProposedCustomField(
+    id: string,
+    data: Partial<Omit<SellableCustomFieldInsert, "id">>,
+    ctx?: TxContext,
+  ): Promise<SellableCustomField | undefined> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .update(sellableCustomFields)
+      .set({ ...data, updatedAt: new Date() })
+      .where(
+        and(
+          eq(sellableCustomFields.id, id),
+          eq(sellableCustomFields.status, "proposed"),
+        ),
+      )
+      .returning();
+    return rows[0];
+  }
+
+  async rejectOtherProposedCustomFields(
+    entityId: string,
+    fieldName: string,
+    locale: string,
+    excludeId: string,
+    ctx?: TxContext,
+  ): Promise<number> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .update(sellableCustomFields)
+      .set({ status: "rejected", updatedAt: new Date() })
+      .where(
+        and(
+          eq(sellableCustomFields.entityId, entityId),
+          eq(sellableCustomFields.fieldName, fieldName),
+          eq(sellableCustomFields.locale, locale),
+          eq(sellableCustomFields.status, "proposed"),
+          ne(sellableCustomFields.id, excludeId),
+        ),
+      )
+      .returning({ id: sellableCustomFields.id });
+    return rows.length;
+  }
+
+  async listProposedCustomFields(
+    organizationId: string,
+    pagination: { page: number; limit: number },
+    filter?: { entityType?: string },
+    ctx?: TxContext,
+  ): Promise<{ items: ProposedCustomField[]; total: number }> {
+    const db = this.getDb(ctx);
+    const page = Math.max(1, pagination.page);
+    const limit = Math.max(1, pagination.limit);
+    const conditions: SQL[] = [
+      eq(sellableCustomFields.status, "proposed"),
+      eq(sellableEntities.organizationId, organizationId),
+    ];
+    if (filter?.entityType !== undefined) {
+      conditions.push(eq(sellableEntities.type, filter.entityType));
+    }
+    const where = and(...conditions);
+    const rows = await db
+      .select({
+        customField: sellableCustomFields,
+        entitySlug: sellableEntities.slug,
+        entityType: sellableEntities.type,
+      })
+      .from(sellableCustomFields)
+      .innerJoin(sellableEntities, eq(sellableCustomFields.entityId, sellableEntities.id))
+      .where(where)
+      .orderBy(asc(sellableCustomFields.createdAt), asc(sellableCustomFields.id))
+      .limit(limit)
+      .offset((page - 1) * limit);
+    const totalRows = await db
+      .select({ count: count() })
+      .from(sellableCustomFields)
+      .innerJoin(sellableEntities, eq(sellableCustomFields.entityId, sellableEntities.id))
+      .where(where);
+    return {
+      items: rows.map(({ customField, entitySlug, entityType }) => ({
+        ...customField,
+        entitySlug,
+        entityType,
+      })),
+      total: totalRows[0]?.count ?? 0,
+    };
   }
 
   async findCustomFieldByName(

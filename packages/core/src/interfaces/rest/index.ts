@@ -22,6 +22,7 @@ import { compensationFailureAdminRoutes } from "./routes/admin/compensation-fail
 import { adminPermissionsRoutes } from "./routes/admin/permissions.js";
 import { adminStaffRoutes } from "./routes/admin/staff.js";
 import { adminEntityFieldDefinitionRoutes } from "./routes/admin/entity-field-definitions.js";
+import { adminCustomFieldProposalRoutes } from "./routes/admin/custom-field-proposals.js";
 import { customerRoutes } from "./routes/customers.js";
 import { documentRoutes } from "./routes/documents.js";
 import { settingsRoutes } from "./routes/settings.js";
@@ -96,6 +97,7 @@ export function createRestRoutes(kernel: Kernel) {
   router.route("/admin", adminPermissionsRoutes(kernel));
   router.route("/admin", adminStaffRoutes(kernel));
   router.route("/admin", adminEntityFieldDefinitionRoutes(kernel));
+  router.route("/admin", adminCustomFieldProposalRoutes(kernel));
 
   // API Reference (Scalar) — disabled in production unless config.exposeOpenApiSpec is true
   const exposeSpec = kernel.config.exposeOpenApiSpec ?? (process.env.NODE_ENV !== "production");

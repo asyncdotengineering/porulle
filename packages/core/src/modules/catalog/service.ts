@@ -199,6 +199,20 @@ export interface CatalogService {
     actor: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<void>>;
+  approveCustomField(
+    entityId: string,
+    fieldName: string,
+    locale: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<SellableCustomField>>;
+  rejectCustomField(
+    entityId: string,
+    fieldName: string,
+    locale: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<SellableCustomField>>;
   getAttributes(
     entityId: string,
     locale: string,
@@ -825,6 +839,66 @@ export class CatalogServiceImpl implements CatalogService {
       if (result.ok) await this.captureRevision(entityId, actor, "update", txCtx);
       return result;
     });
+  }
+
+  private reviewCustomField(
+    status: "approved" | "rejected",
+    entityId: string,
+    fieldName: string,
+    locale: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<SellableCustomField>> {
+    return this.withMutationResult(actor, ctx, async (txCtx) => {
+      const reviewer = actor ?? txCtx.actor;
+      assertPermission(reviewer, "catalog:update");
+      const entity = await this.repository.findEntityById(entityId, txCtx);
+      if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
+      if (entity.organizationId !== resolveOrgId(reviewer)) {
+        return Err(new CommerceNotFoundError("Entity not found."));
+      }
+      if (entity.sourceStoreId != null) assertPermission(reviewer, "catalog:sync");
+      const proposal = await this.repository.findProposedCustomField(entityId, fieldName, locale, txCtx);
+      if (!proposal) return Err(new CommerceNotFoundError("Custom field proposal not found."));
+      if (status === "approved") {
+        await this.repository.deleteCustomField(entityId, fieldName, locale, txCtx);
+      }
+      const updated = await this.repository.updateProposedCustomField(proposal.id, {
+        status,
+        ...(status === "approved"
+          ? { approvedAt: new Date(), approvedBy: reviewer?.userId ?? null }
+          : {}),
+      }, txCtx);
+      // Throw, never return Err, past this point: the approved-row delete above
+      // must roll back when the proposal was already resolved by a concurrent
+      // reviewer, or the live value is lost with no replacement.
+      if (!updated) throw new CommerceNotFoundError("Custom field proposal not found.");
+      if (status === "approved") {
+        await this.repository.rejectOtherProposedCustomFields(entityId, fieldName, locale, updated.id, txCtx);
+      }
+      await this.captureRevision(entityId, reviewer, "update", txCtx);
+      return Ok(updated);
+    });
+  }
+
+  approveCustomField(
+    entityId: string,
+    fieldName: string,
+    locale: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<SellableCustomField>> {
+    return this.reviewCustomField("approved", entityId, fieldName, locale, actor, ctx);
+  }
+
+  rejectCustomField(
+    entityId: string,
+    fieldName: string,
+    locale: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<SellableCustomField>> {
+    return this.reviewCustomField("rejected", entityId, fieldName, locale, actor, ctx);
   }
 
   getAttributes(entityId: string, locale: string, ctx?: TxContext): Promise<Result<SellableAttribute>> {

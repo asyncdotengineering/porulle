@@ -34,6 +34,8 @@ import {
   createEntityRoute,
   updateEntityRoute,
   setEntityAttributesRoute,
+  approveCustomFieldRoute,
+  rejectCustomFieldRoute,
   createCategoryRoute,
   archiveCategoryRoute,
   restoreCategoryRoute,
@@ -54,10 +56,14 @@ import {
   parseInclude,
   parsePagination,
   parseSort,
+  requirePerm,
 } from "../utils.js";
 
 export function catalogRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
+
+  router.use("/entities/:id/custom-fields/:fieldName/approve", requirePerm("catalog:update"));
+  router.use("/entities/:id/custom-fields/:fieldName/reject", requirePerm("catalog:update"));
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(listEntitiesRoute, async (c) => {
@@ -268,6 +274,38 @@ export function catalogRoutes(kernel: Kernel) {
         mapErrorToStatus(result.error),
       );
     return c.json({ data: { updated: true } });
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(approveCustomFieldRoute, async (c) => {
+    const result = await kernel.services.catalog.approveCustomField(
+      c.req.param("id"),
+      c.req.param("fieldName"),
+      c.req.query("locale") ?? "en",
+      c.get("actor"),
+    );
+    if (!result.ok)
+      return c.json(
+        mapErrorToResponse(result.error),
+        mapErrorToStatus(result.error),
+      );
+    return c.json({ data: result.value });
+  });
+
+  // @ts-expect-error -- openapi handler union return type
+  router.openapi(rejectCustomFieldRoute, async (c) => {
+    const result = await kernel.services.catalog.rejectCustomField(
+      c.req.param("id"),
+      c.req.param("fieldName"),
+      c.req.query("locale") ?? "en",
+      c.get("actor"),
+    );
+    if (!result.ok)
+      return c.json(
+        mapErrorToResponse(result.error),
+        mapErrorToStatus(result.error),
+      );
+    return c.json({ data: result.value });
   });
 
   // @ts-expect-error -- openapi handler union return type
