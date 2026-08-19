@@ -230,9 +230,10 @@ export class EntityService {
         listEntityMedia?: (
           entityId: string,
           opts?: { orgId?: string },
+          ctx?: TxContext,
         ) => Promise<{ ok: boolean; value?: CatalogEntityHydrated["media"] }>;
       } | undefined;
-      const mediaResult = await mediaService?.listEntityMedia?.(entity.id, { orgId: entity.organizationId });
+      const mediaResult = await mediaService?.listEntityMedia?.(entity.id, { orgId: entity.organizationId }, ctx);
       hydrated.media = mediaResult?.ok && mediaResult.value ? mediaResult.value : [];
     }
     if (options?.includePricing) {
@@ -257,12 +258,12 @@ export class EntityService {
     const context: HookContext = createHookContext({ actor, tx: ctx?.tx ?? null, logger: createLogger("catalog.create"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database) });
     const processedInput = await runBeforeHooks(beforeHooks, input, "create", context);
     if (processedInput.sourceStoreId != null) assertPermission(actor, "catalog:sync");
+    const customFieldsResult = this.validateCustomFields(processedInput.type, processedInput.customFields);
+    if (!customFieldsResult.ok) return customFieldsResult;
     const entity = await this.repo.createEntity({ organizationId: orgId, type: processedInput.type, slug: processedInput.slug, status: "draft", isVisible: false, ...(processedInput.sourceStoreId !== undefined ? { sourceStoreId: processedInput.sourceStoreId } : {}), ...(processedInput.taxClass !== undefined ? { taxClass: processedInput.taxClass } : {}), metadata: processedInput.metadata ?? {} }, ctx);
     if (processedInput.attributes) {
       await this.repo.createAttribute({ entityId: entity.id, locale: processedInput.attributes.locale ?? "en", title: processedInput.attributes.title, subtitle: processedInput.attributes.subtitle, description: processedInput.attributes.description, richDescription: processedInput.attributes.richDescription, seoTitle: processedInput.attributes.seoTitle, seoDescription: processedInput.attributes.seoDescription }, ctx);
     }
-    const customFieldsResult = this.validateCustomFields(entity.type, processedInput.customFields);
-    if (!customFieldsResult.ok) return customFieldsResult;
     await this.writeCustomFields(entity.id, customFieldsResult.value, ctx);
     const hookReport = await runAfterHooks(afterHooks, null, entity, "create", context);
     const hydrated = await this.hydrateEntity(entity, undefined, ctx);

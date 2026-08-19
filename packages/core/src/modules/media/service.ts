@@ -6,10 +6,13 @@ import { Err, Ok, type Result } from "../../kernel/result.js";
 import {
   CommerceNotFoundError,
   CommerceValidationError,
+  toCommerceError,
 } from "../../kernel/errors.js";
 import type { MediaRepository } from "./repository/index.js";
 import type { CatalogRepository } from "../catalog/repository/index.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
+import { createTxContext } from "../../kernel/database/tx-context.js";
+import type { DatabaseAdapter } from "../../kernel/database/adapter.js";
 import { makeId } from "../../utils/id.js";
 
 export interface UploadMediaInput {
@@ -43,6 +46,8 @@ interface MediaServiceDeps {
   catalogRepository: CatalogRepository;
   storage: StorageAdapter;
   config: CommerceConfig;
+  database?: DatabaseAdapter;
+  services?: Record<string, unknown>;
 }
 
 const DEFAULT_ALLOWED_MIME_TYPES = [
@@ -95,6 +100,16 @@ export class MediaService {
   constructor(private deps: MediaServiceDeps) {
     this.repo = deps.repository;
     this.catalogRepo = deps.catalogRepository;
+  }
+
+  private async withTransaction<T>(
+    actor: Actor | null,
+    ctx: TxContext | undefined,
+    fn: (txCtx: TxContext) => Promise<T>,
+  ): Promise<T> {
+    if (ctx?.tx != null) return fn(ctx);
+    if (this.deps.database == null) throw new Error("Database is required for media mutations.");
+    return this.deps.database.transaction(async (tx) => fn(createTxContext(tx, { actor })));
   }
 
   async upload(
@@ -218,31 +233,47 @@ export class MediaService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<void>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
-    const entity = await this.catalogRepo.findEntityById(input.entityId, ctx, orgId);
-    if (!entity) {
-      return Err(new CommerceNotFoundError("Entity not found."));
+    try {
+      return await this.withTransaction(actor ?? ctx?.actor ?? null, ctx, async (txCtx) => {
+        const orgId = resolveOrgId(actor ?? txCtx.actor);
+        const entity = await this.catalogRepo.findEntityById(input.entityId, txCtx, orgId);
+        if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
+
+        const asset = await this.repo.findAssetById(input.mediaAssetId, txCtx, orgId);
+        if (!asset) return Err(new CommerceNotFoundError("Media asset not found."));
+
+        await this.repo.createEntityMedia(
+          {
+            entityId: input.entityId,
+            mediaAssetId: input.mediaAssetId,
+            role: input.role,
+            sortOrder: input.sortOrder ?? 0,
+            ...(input.variantId !== undefined
+              ? { variantId: input.variantId }
+              : {}),
+          },
+          txCtx,
+        );
+
+        const catalog = this.deps.services?.catalog;
+        if (catalog == null || typeof catalog !== "object") {
+          throw new Error("Catalog service is required for media revision capture.");
+        }
+        const catalogService = catalog as {
+          recordEntityRevision: (
+            entityId: string,
+            actor: Actor | null,
+            reason?: "create" | "update" | "import" | "enrichment" | "push" | "restore",
+            ctx?: TxContext,
+          ) => Promise<Result<unknown>>;
+        };
+        const revision = await catalogService.recordEntityRevision(input.entityId, actor ?? txCtx.actor, "update", txCtx);
+        if (!revision.ok) throw revision.error;
+        return Ok(undefined);
+      });
+    } catch (error) {
+      return Err(toCommerceError(error));
     }
-
-    const asset = await this.repo.findAssetById(input.mediaAssetId, ctx, orgId);
-    if (!asset) {
-      return Err(new CommerceNotFoundError("Media asset not found."));
-    }
-
-    await this.repo.createEntityMedia(
-      {
-        entityId: input.entityId,
-        mediaAssetId: input.mediaAssetId,
-        role: input.role,
-        sortOrder: input.sortOrder ?? 0,
-        ...(input.variantId !== undefined
-          ? { variantId: input.variantId }
-          : {}),
-      },
-      ctx,
-    );
-
-    return Ok(undefined);
   }
 
   /**

@@ -6,6 +6,7 @@ import {
   integer,
   jsonb,
   numeric,
+  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -181,6 +182,58 @@ export const entityBrands = pgTable("entity_brands", {
 }, (table) => ({
   entityBrandUnique: uniqueIndex("entity_brands_entity_brand_unique").on(table.entityId, table.brandId),
 }));
+
+export const sellableEntityRevisionReason = pgEnum("sellable_entity_revision_reason", [
+  "create",
+  "update",
+  "import",
+  "enrichment",
+  "push",
+  "restore",
+]);
+
+export type SellableEntityRevisionReason = (typeof sellableEntityRevisionReason.enumValues)[number];
+
+export type SellableEntityRevisionSnapshot = {
+  entity: Record<string, unknown>;
+  attributes: Array<Record<string, unknown>>;
+  customFields: Array<Record<string, unknown>>;
+  media: Array<Record<string, unknown>>;
+  categories: Array<Record<string, unknown>>;
+  brands: Array<Record<string, unknown>>;
+};
+
+export const sellableEntityRevisions = pgTable(
+  "sellable_entity_revisions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id")
+      .references(() => organization.id, { onDelete: "cascade" })
+      .notNull(),
+    entityId: uuid("entity_id")
+      .references(() => sellableEntities.id, { onDelete: "cascade" })
+      .notNull(),
+    revision: integer("revision").notNull(),
+    snapshot: jsonb("snapshot").$type<SellableEntityRevisionSnapshot>().notNull(),
+    reason: sellableEntityRevisionReason("reason").notNull(),
+    pinned: boolean("pinned").notNull().default(false),
+    actorId: text("actor_id"),
+    actorType: text("actor_type"),
+    requestId: text("request_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    entityRevisionUnique: uniqueIndex("sellable_entity_revisions_entity_revision_unique").on(
+      table.entityId,
+      table.revision,
+    ),
+    entityCreatedIdx: index("idx_sellable_entity_revisions_entity_created").on(
+      table.entityId,
+      table.createdAt,
+    ),
+    organizationIdx: index("idx_sellable_entity_revisions_organization").on(table.organizationId),
+  }),
+);
 
 export const optionTypes = pgTable("option_types", {
   id: uuid("id").defaultRandom().primaryKey(),

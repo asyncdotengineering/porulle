@@ -20,6 +20,8 @@ export const mediaModule = defineModule({
       catalogRepository: new CatalogRepository(db),
       storage,
       config: deps.config as CommerceConfig,
+      database: deps.db,
+      services: deps.services,
     });
   },
 });

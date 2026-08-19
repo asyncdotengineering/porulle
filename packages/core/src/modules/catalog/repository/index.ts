@@ -1,4 +1,4 @@
-import { eq, and, inArray, type SQL } from "drizzle-orm";
+import { eq, and, asc, desc, gt, inArray, lt, max, type SQL } from "drizzle-orm";
 import type { TxContext } from "../../../kernel/database/tx-context.js";
 import { CommerceNotFoundError } from "../../../kernel/errors.js";
 import type {
@@ -17,7 +17,10 @@ import {
   optionValues,
   variants,
   variantOptionValues,
+  sellableEntityRevisions,
+  type SellableEntityRevisionSnapshot,
 } from "../schema.js";
+import { entityMedia } from "../../media/schema.js";
 
 // Infer types from Drizzle schema
 export type SellableEntity = typeof sellableEntities.$inferSelect;
@@ -43,6 +46,8 @@ export type Variant = typeof variants.$inferSelect;
 export type VariantInsert = typeof variants.$inferInsert;
 export type VariantOptionValue = typeof variantOptionValues.$inferSelect;
 export type VariantOptionValueInsert = typeof variantOptionValues.$inferInsert;
+export type SellableEntityRevision = typeof sellableEntityRevisions.$inferSelect;
+export type SellableEntityRevisionInsert = typeof sellableEntityRevisions.$inferInsert;
 
 /**
  * CatalogRepository provides type-safe database operations for catalog entities.
@@ -163,6 +168,156 @@ export class CatalogRepository {
       .where(eq(sellableEntities.id, id))
       .returning();
     return result.length > 0;
+  }
+
+  async findRevisionsByEntityId(
+    entityId: string,
+    ctx?: TxContext,
+  ): Promise<SellableEntityRevision[]> {
+    const db = this.getDb(ctx);
+    return db
+      .select()
+      .from(sellableEntityRevisions)
+      .where(eq(sellableEntityRevisions.entityId, entityId))
+      .orderBy(asc(sellableEntityRevisions.revision));
+  }
+
+  async findLatestRevision(
+    entityId: string,
+    ctx?: TxContext,
+  ): Promise<SellableEntityRevision | undefined> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .select()
+      .from(sellableEntityRevisions)
+      .where(eq(sellableEntityRevisions.entityId, entityId))
+      .orderBy(desc(sellableEntityRevisions.revision))
+      .limit(1);
+    return rows[0];
+  }
+
+  async findRevisionById(
+    entityId: string,
+    id: string,
+    ctx?: TxContext,
+  ): Promise<SellableEntityRevision | undefined> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .select()
+      .from(sellableEntityRevisions)
+      .where(
+        and(
+          eq(sellableEntityRevisions.entityId, entityId),
+          eq(sellableEntityRevisions.id, id),
+        ),
+      );
+    return rows[0];
+  }
+
+  async createRevision(
+    data: Omit<SellableEntityRevisionInsert, "id" | "revision" | "pinned">,
+    ctx?: TxContext,
+  ): Promise<SellableEntityRevision> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .select({ revision: max(sellableEntityRevisions.revision) })
+      .from(sellableEntityRevisions)
+      .where(eq(sellableEntityRevisions.entityId, data.entityId));
+    const revision = (rows[0]?.revision ?? 0) + 1;
+    const inserted = await db
+      .insert(sellableEntityRevisions)
+      .values({
+        ...data,
+        revision,
+        pinned: revision === 1,
+      })
+      .returning();
+    return inserted[0]!;
+  }
+
+  async updateRevision(
+    id: string,
+    data: Partial<Pick<SellableEntityRevisionInsert, "createdAt" | "pinned">>,
+    ctx?: TxContext,
+  ): Promise<SellableEntityRevision | undefined> {
+    const db = this.getDb(ctx);
+    const rows = await db
+      .update(sellableEntityRevisions)
+      .set(data)
+      .where(eq(sellableEntityRevisions.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteRevisionsOlderThan(
+    organizationId: string,
+    cutoff: Date,
+    ctx?: TxContext,
+  ): Promise<number> {
+    const db = this.getDb(ctx);
+    const deleted = await db
+      .delete(sellableEntityRevisions)
+      .where(
+        and(
+          eq(sellableEntityRevisions.organizationId, organizationId),
+          lt(sellableEntityRevisions.createdAt, cutoff),
+          eq(sellableEntityRevisions.pinned, false),
+          gt(sellableEntityRevisions.revision, 1),
+        ),
+      )
+      .returning({ id: sellableEntityRevisions.id });
+    return deleted.length;
+  }
+
+  async snapshotEntity(
+    entityId: string,
+    ctx?: TxContext,
+  ): Promise<SellableEntityRevisionSnapshot> {
+    const entity = await this.findEntityById(entityId, ctx);
+    if (!entity) throw new CommerceNotFoundError("Entity not found.");
+    const [attributes, customFields, categoriesForEntity, brandsForEntity, media] = await Promise.all([
+      this.findAttributesByEntityId(entityId, ctx),
+      this.findAllCustomFieldsByEntityId(entityId, ctx),
+      this.findEntityCategories(entityId, ctx),
+      this.findEntityBrands(entityId, ctx),
+      this.findEntityMedia(entityId, ctx),
+    ]);
+    return {
+      entity: entity as unknown as Record<string, unknown>,
+      attributes: attributes.sort((a, b) => a.locale.localeCompare(b.locale) || a.id.localeCompare(b.id)) as unknown as Array<Record<string, unknown>>,
+      customFields: customFields.sort((a, b) => a.locale.localeCompare(b.locale) || a.fieldName.localeCompare(b.fieldName) || a.id.localeCompare(b.id)) as unknown as Array<Record<string, unknown>>,
+      media: media.sort((a, b) => a.mediaAssetId.localeCompare(b.mediaAssetId) || (a.variantId ?? "").localeCompare(b.variantId ?? "")) as unknown as Array<Record<string, unknown>>,
+      categories: categoriesForEntity.sort((a, b) => a.categoryId.localeCompare(b.categoryId)) as unknown as Array<Record<string, unknown>>,
+      brands: brandsForEntity.sort((a, b) => a.brandId.localeCompare(b.brandId)) as unknown as Array<Record<string, unknown>>,
+    };
+  }
+
+  async findEntityMedia(
+    entityId: string,
+    ctx?: TxContext,
+  ): Promise<Array<typeof entityMedia.$inferSelect>> {
+    const db = this.getDb(ctx);
+    return db
+      .select()
+      .from(entityMedia)
+      .where(eq(entityMedia.entityId, entityId));
+  }
+
+  async deleteEntityMediaByEntityId(
+    entityId: string,
+    ctx?: TxContext,
+  ): Promise<void> {
+    const db = this.getDb(ctx);
+    await db.delete(entityMedia).where(eq(entityMedia.entityId, entityId));
+  }
+
+  async createEntityMedia(
+    data: typeof entityMedia.$inferInsert,
+    ctx?: TxContext,
+  ): Promise<typeof entityMedia.$inferSelect> {
+    const db = this.getDb(ctx);
+    const rows = await db.insert(entityMedia).values(data).returning();
+    return rows[0]!;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { pgTable, unique, text, timestamp, integer, boolean, foreignKey, uuid, jsonb, index, uniqueIndex, numeric } from "drizzle-orm/pg-core"
+import { pgEnum, pgTable, unique, text, timestamp, integer, boolean, foreignKey, uuid, jsonb, index, uniqueIndex, numeric } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 
@@ -239,6 +239,36 @@ export const sellableCustomFields = pgTable("sellable_custom_fields", {
 			columns: [table.entityId],
 			foreignColumns: [sellableEntities.id],
 			name: "sellable_custom_fields_entity_id_sellable_entities_id_fk"
+		}).onDelete("cascade"),
+	]);
+
+export const sellableEntityRevisionReason = pgEnum("sellable_entity_revision_reason", ["create", "update", "import", "enrichment", "push", "restore"])
+
+export const sellableEntityRevisions = pgTable("sellable_entity_revisions", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	organizationId: text("organization_id").notNull(),
+	entityId: uuid("entity_id").notNull(),
+	revision: integer().notNull(),
+	snapshot: jsonb().notNull(),
+	reason: sellableEntityRevisionReason("reason").notNull(),
+	pinned: boolean().default(false).notNull(),
+	actorId: text("actor_id"),
+	actorType: text("actor_type"),
+	requestId: text("request_id"),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("sellable_entity_revisions_entity_revision_unique").on(table.entityId, table.revision),
+	index("idx_sellable_entity_revisions_entity_created").using("btree", table.entityId.asc().nullsLast().op("uuid_ops"), table.createdAt.asc().nullsLast().op("timestamptz_ops")),
+	index("idx_sellable_entity_revisions_organization").using("btree", table.organizationId.asc().nullsLast().op("text_ops")),
+	foreignKey({
+			columns: [table.organizationId],
+			foreignColumns: [organization.id],
+			name: "sellable_entity_revisions_organization_id_organization_id_fk"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.entityId],
+			foreignColumns: [sellableEntities.id],
+			name: "sellable_entity_revisions_entity_id_sellable_entities_id_fk"
 		}).onDelete("cascade"),
 ]);
 
