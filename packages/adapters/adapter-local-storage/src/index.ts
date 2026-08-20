@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { Err, Ok, type Result, type StorageAdapter } from "@porulle/core";
 
@@ -16,11 +16,11 @@ export interface LocalStorageAdapterOptions {
 
 /**
  * Resolves a key against basePath and verifies the result stays inside
- * basePath. Rejects path-traversal payloads like `../../etc/passwd`,
- * absolute paths, and any other input that would escape the storage root.
+ * basePath. Rejects parent-directory traversal, absolute paths, and any
+ * other input that would escape the storage root.
  *
- * Without this guard an upload with key `../../something` would write
- * outside the storage root (CVE-class: arbitrary file write).
+ * Without this guard an upload whose key walks up out of the root would
+ * write outside it (CVE-class: arbitrary file write).
  */
 function resolveSafePath(basePath: string, key: string): string {
   if (typeof key !== "string" || key.length === 0) {
@@ -89,7 +89,12 @@ export function localStorageAdapter(options: LocalStorageAdapterOptions): Storag
 
     async delete(key: string): Promise<Result<void>> {
       const path = resolveSafePath(options.basePath, key);
-      await rm(path, { force: true });
+      try {
+        await unlink(path);
+      } catch (error) {
+        // Deleting an absent key stays a no-op, as it was under rm({ force: true }).
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
       return Ok(undefined);
     },
 
@@ -104,12 +109,11 @@ export function localStorageAdapter(options: LocalStorageAdapterOptions): Storag
           const info = await stat(filePath);
           if (info.isDirectory()) continue;
 
-          const content = await readFile(filePath);
           output.push({
             key: file,
             url: `${baseUrl}/${prefix}/${file}`,
             contentType: "application/octet-stream",
-            size: content.byteLength,
+            size: info.size,
           });
         }
 

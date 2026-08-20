@@ -39,7 +39,7 @@ Every key passes through `resolveSafePath()` which:
 - Verifies the result stays inside `basePath`
 - Rejects `..`, NUL bytes, absolute paths, and any input that would escape the storage root
 
-This closed a CVE-class arbitrary-file-write surface (a key like `../../../../etc/passwd` would otherwise write outside the storage root). See `packages/core/test/` for the regression tests.
+This closed a CVE-class arbitrary-file-write surface (a key that walks up out of the root would otherwise write outside it). See `packages/core/test/` for the regression tests.
 
 ## What it implements
 
@@ -47,5 +47,5 @@ This closed a CVE-class arbitrary-file-write surface (a key like `../../../../et
 
 ## See also
 
-- [`SECURITY.md`](../../../SECURITY.md) — storage hardening
+- [`SECURITY.md`](https://github.com/asyncdotengineering/porulle/blob/main/SECURITY.md) — storage hardening
 - `@porulle/adapter-s3`, `@porulle/adapter-r2` — production storage adapters
