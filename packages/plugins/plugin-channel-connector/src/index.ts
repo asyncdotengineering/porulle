@@ -73,6 +73,15 @@ export type {
   BackfillCatalogReport,
   BuildCatalogPushItemsOptions,
   BuildCatalogPushItemsResult,
+  CatalogPushAssemblyField,
+  CatalogPushAssemblyImage,
+  CatalogPushAssemblyItem,
+  CatalogPushPreviewBefore,
+  CatalogPushPreviewBeforeStatus,
+  CatalogPushPreviewDiff,
+  CatalogPushPreviewItem,
+  CatalogPushPreviewResult,
+  CatalogPushPreviewUnavailable,
   PushCatalogToStoreResult,
   CatalogPushJobResult,
   CatalogFieldConflict,
@@ -539,6 +548,16 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
             supersedes: true,
           });
           return { enqueued: true, storeId: params.storeId! };
+        });
+
+      channels.post("/stores/{storeId}/push-catalog/preview")
+        .summary("Preview a catalog push for a connected store")
+        .permission("channels:manage")
+        .input(z.object({ entityIds: z.array(z.string()).optional() }))
+        .handler(async ({ params, orgId, input }: ChannelRouteContext) => {
+          unwrap(await service.getStore(orgId, params.storeId!));
+          const values = input as { entityIds?: string[] };
+          return unwrap(await service.previewCatalogPush(orgId, params.storeId!, values.entityIds));
         });
 
       channels.post("/stores/{id}/disconnect")

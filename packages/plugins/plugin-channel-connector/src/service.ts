@@ -72,6 +72,7 @@ import {
   selectCatalogFieldMapping,
   type CatalogFieldMapping,
   type CatalogFieldMappingInput,
+  type CatalogFieldTarget,
 } from "./catalog-field-mapping.js";
 
 export type ExportState = ChannelOrderExport["state"];
@@ -154,12 +155,16 @@ export interface CatalogFieldSkip {
   fieldPath: FieldPath;
 }
 
-export type CatalogPushSkipReason = "no_mapping" | "held" | "entity_not_active" | "unmapped_entity";
+export type CatalogPushSkipReason = "no_mapping" | "held" | "store_owned" | "entity_not_active" | "unmapped_entity";
 
 export interface CatalogPushFieldSkip {
   entityId: string;
   fieldPath: FieldPath;
   reason: CatalogPushSkipReason;
+  value?: unknown;
+  owner?: FieldOwner;
+  target?: CatalogFieldTarget;
+  remoteKey?: string;
 }
 
 export type PublicConnectedStore = Omit<ConnectedStore, "credentials" | "webhookSecret"> & {
@@ -239,13 +244,58 @@ export interface BuildCatalogPushItemsOptions {
   recordRevision?: boolean;
 }
 
+export interface CatalogPushAssemblyField extends ChannelPushCatalogField {
+  target: CatalogFieldTarget;
+}
+
+export interface CatalogPushAssemblyImage extends ChannelPushCatalogImage {
+  fieldPath: FieldPath;
+  target: CatalogFieldTarget;
+  remoteKey: string;
+}
+
+export interface CatalogPushAssemblyItem extends Omit<ChannelPushCatalogItem, "fields" | "images"> {
+  fields: CatalogPushAssemblyField[];
+  images?: CatalogPushAssemblyImage[];
+}
+
 export interface BuildCatalogPushItemsResult {
-  items: ChannelPushCatalogItem[];
+  items: CatalogPushAssemblyItem[];
   skipped: CatalogPushFieldSkip[];
   warnings: string[];
 }
 
 export interface PushCatalogToStoreResult extends ChannelPushCatalogResult {
+  skipped: CatalogPushFieldSkip[];
+  warnings: string[];
+}
+
+export interface CatalogPushPreviewUnavailable {
+  status: "unavailable";
+}
+
+export type CatalogPushPreviewBefore = unknown | CatalogPushPreviewUnavailable;
+export type CatalogPushPreviewBeforeStatus = "value" | "missing" | "unavailable";
+
+export interface CatalogPushPreviewDiff {
+  fieldPath: FieldPath;
+  target: CatalogFieldTarget | null;
+  remoteKey: string | null;
+  before: CatalogPushPreviewBefore;
+  beforeStatus: CatalogPushPreviewBeforeStatus;
+  after: unknown;
+  owner: FieldOwner;
+  willWrite: boolean;
+  reason?: CatalogPushSkipReason;
+}
+
+export interface CatalogPushPreviewItem {
+  externalId: string;
+  diffs: CatalogPushPreviewDiff[];
+}
+
+export interface CatalogPushPreviewResult {
+  items: CatalogPushPreviewItem[];
   skipped: CatalogPushFieldSkip[];
   warnings: string[];
 }
@@ -514,7 +564,7 @@ function pushCatalogField(
   fieldPath: FieldPath,
   value: unknown,
   mapping: { target: "native" | "attribute" | "meta"; remoteKey: string },
-): ChannelPushCatalogField {
+): CatalogPushAssemblyField {
   const segments = fieldPath.split(".");
   const locale = fieldPath.startsWith("attributes.")
     ? segments[1]
@@ -527,6 +577,7 @@ function pushCatalogField(
     value,
     ...(locale !== undefined ? { locale } : {}),
     remoteKey: mapping.remoteKey,
+    target: mapping.target,
   };
 }
 
@@ -1323,7 +1374,7 @@ export class ChannelConnectorService {
       inArray(channelEntityMap.entityId, entityIds),
     ));
     const mappingByEntity = new Map(mappings.map((mapping) => [mapping.entityId, mapping]));
-    const items: ChannelPushCatalogItem[] = [];
+    const items: CatalogPushAssemblyItem[] = [];
     const skipped: CatalogPushFieldSkip[] = [];
     const warnings: string[] = [];
     const revisionEntityIds: string[] = [];
@@ -1365,16 +1416,36 @@ export class ChannelConnectorService {
       }
       const fieldMapping = this.resolveCatalogFieldMapping(store, filterableCustomFields, warnings);
       const heldPaths = new Set(entityMapping.heldFieldPaths ?? []);
-      const fields: ChannelPushCatalogField[] = [];
+      const fields: CatalogPushAssemblyField[] = [];
       const appendField = (fieldPath: FieldPath, value: unknown) => {
-        if (value === undefined || owners.get(fieldPath) !== "platform") return;
-        if (heldPaths.has(fieldPath)) {
-          skipped.push({ entityId, fieldPath, reason: "held" });
+        if (value === undefined) return;
+        const owner = owners.get(fieldPath);
+        const mapping = selectCatalogFieldMapping(fieldMapping, fieldPath);
+        if (owner === "store") {
+          skipped.push({
+            entityId,
+            fieldPath,
+            reason: "store_owned",
+            value,
+            owner,
+            ...(mapping ? { target: mapping.target, remoteKey: mapping.remoteKey } : {}),
+          });
           return;
         }
-        const mapping = selectCatalogFieldMapping(fieldMapping, fieldPath);
+        if (owner !== "platform") return;
+        if (heldPaths.has(fieldPath)) {
+          skipped.push({
+            entityId,
+            fieldPath,
+            reason: "held",
+            value,
+            owner,
+            ...(mapping ? { target: mapping.target, remoteKey: mapping.remoteKey } : {}),
+          });
+          return;
+        }
         if (!mapping) {
-          skipped.push({ entityId, fieldPath, reason: "no_mapping" });
+          skipped.push({ entityId, fieldPath, reason: "no_mapping", value, owner });
           return;
         }
         fields.push(pushCatalogField(fieldPath, value, mapping));
@@ -1396,21 +1467,45 @@ export class ChannelConnectorService {
 
       const media = await this.media.listEntityMedia(entity.id, { orgId });
       if (!media.ok) return PluginErr(media.error.message);
-      const images: ChannelPushCatalogImage[] = [];
+      const images: CatalogPushAssemblyImage[] = [];
       for (const attached of media.value) {
         const role = pushCatalogImageRole(attached.role);
         if (!role) continue;
         const fieldPath = `media.${role}` as FieldPath;
-        if (owners.get(fieldPath) !== "platform") continue;
-        if (heldPaths.has(fieldPath)) {
-          skipped.push({ entityId, fieldPath, reason: "held" });
+        const owner = owners.get(fieldPath);
+        const mapping = selectCatalogFieldMapping(fieldMapping, fieldPath);
+        const imageValue = [{ url: attached.url, role }];
+        if (owner === "store") {
+          skipped.push({
+            entityId,
+            fieldPath,
+            reason: "store_owned",
+            value: imageValue,
+            owner,
+            ...(mapping ? { target: mapping.target, remoteKey: mapping.remoteKey } : {}),
+          });
           continue;
         }
-        if (!selectCatalogFieldMapping(fieldMapping, fieldPath)) {
-          skipped.push({ entityId, fieldPath, reason: "no_mapping" });
+        if (owner !== "platform") continue;
+        if (heldPaths.has(fieldPath)) {
+          skipped.push({
+            entityId,
+            fieldPath,
+            reason: "held",
+            value: imageValue,
+            owner,
+            ...(mapping ? { target: mapping.target, remoteKey: mapping.remoteKey } : {}),
+          });
+          continue;
+        }
+        if (!mapping) {
+          skipped.push({ entityId, fieldPath, reason: "no_mapping", value: imageValue, owner });
           continue;
         }
         images.push({
+          fieldPath,
+          target: mapping.target,
+          remoteKey: mapping.remoteKey,
           url: attached.url,
           role,
           sortOrder: attached.sortOrder,
@@ -1418,7 +1513,7 @@ export class ChannelConnectorService {
         });
       }
       fields.sort((left, right) => left.fieldPath.localeCompare(right.fieldPath));
-      const item: ChannelPushCatalogItem = {
+      const item: CatalogPushAssemblyItem = {
         externalId: entityMapping.externalId,
         fields,
         ...(images.length > 0 ? { images } : {}),
@@ -1562,6 +1657,108 @@ export class ChannelConnectorService {
       skipped: assembled.value.skipped,
       warnings: assembled.value.warnings,
     });
+  }
+
+  async previewCatalogPush(
+    orgId: string,
+    storeId: string,
+    entityIds?: string[],
+  ): Promise<PluginResult<CatalogPushPreviewResult>> {
+    const assembledEntityIds = await this.resolveCatalogPushEntityIds(orgId, storeId, entityIds);
+    const assembled = await this.buildCatalogPushItems(orgId, storeId, assembledEntityIds);
+    if (!assembled.ok) return assembled;
+    const store = await this.getStoreRecord(orgId, storeId);
+    if (!store || store.status !== "connected") return PluginErr("Connected store not found.", "NOT_FOUND");
+    const connector = this.connectors.get(store.provider);
+    if (!connector?.pushCatalog) return PluginErr(`Catalog push is not supported by provider "${store.provider}".`);
+    if (assembled.value.items.length === 0) {
+      return Ok({ items: [], skipped: assembled.value.skipped, warnings: assembled.value.warnings });
+    }
+
+    let result: Awaited<ReturnType<NonNullable<typeof connector.pushCatalog>>>;
+    try {
+      result = await connector.pushCatalog(store as ChannelStore, assembled.value.items, { dryRun: true });
+    } catch (error) {
+      return PluginErr(
+        error instanceof Error ? error.message : "Catalog push preview failed.",
+        "CATALOG_PREVIEW_THROWN",
+      );
+    }
+    if (!result.ok) return PluginErr(result.error.message, result.error.code);
+    const failed = result.value.outcomes.find((outcome) => !outcome.ok);
+    if (failed) return PluginErr(
+      failed.error?.message ?? `Catalog push preview failed for item "${failed.externalId}".`,
+      failed.error?.code ?? "CATALOG_PREVIEW_FAILED",
+    );
+
+    const mappings = assembledEntityIds.length === 0
+      ? []
+      : await this.db.select({ entityId: channelEntityMap.entityId, externalId: channelEntityMap.externalId }).from(channelEntityMap).where(and(
+        eq(channelEntityMap.organizationId, orgId),
+        eq(channelEntityMap.storeId, storeId),
+        eq(channelEntityMap.kind, "entity"),
+        inArray(channelEntityMap.entityId, assembledEntityIds),
+      ));
+    const externalByEntity = new Map(mappings.map((mapping) => [mapping.entityId, mapping.externalId]));
+    const skippedByExternal = new Map<string, CatalogPushFieldSkip[]>();
+    for (const skipped of assembled.value.skipped) {
+      const externalId = externalByEntity.get(skipped.entityId);
+      if (!externalId) continue;
+      const existing = skippedByExternal.get(externalId) ?? [];
+      existing.push(skipped);
+      skippedByExternal.set(externalId, existing);
+    }
+    const outcomeByExternalId = new Map(result.value.outcomes.map((outcome) => [outcome.externalId, outcome]));
+    const beforeFor = (externalId: string, fieldPath: FieldPath): {
+      before: CatalogPushPreviewBefore;
+      beforeStatus: CatalogPushPreviewBeforeStatus;
+    } => {
+      const previousFields = outcomeByExternalId.get(externalId)?.previousFields;
+      if (previousFields === undefined) {
+        return { before: { status: "unavailable" }, beforeStatus: "unavailable" };
+      }
+      const previous = previousFields.find((field) => field.fieldPath === fieldPath);
+      if (!previous) return { before: null, beforeStatus: "missing" };
+      return { before: previous.value, beforeStatus: "value" };
+    };
+
+    const items = assembled.value.items.map((item) => {
+      const diffs: CatalogPushPreviewDiff[] = item.fields.map((field) => ({
+        fieldPath: field.fieldPath,
+        target: field.target,
+        remoteKey: field.remoteKey ?? null,
+        ...beforeFor(item.externalId, field.fieldPath),
+        after: field.value,
+        owner: "platform",
+        willWrite: true,
+      }));
+      for (const image of item.images ?? []) {
+        diffs.push({
+          fieldPath: image.fieldPath,
+          target: image.target,
+          remoteKey: image.remoteKey,
+          ...beforeFor(item.externalId, image.fieldPath),
+          after: pushFieldValue(item, image.fieldPath),
+          owner: "platform",
+          willWrite: true,
+        });
+      }
+      for (const skipped of skippedByExternal.get(item.externalId) ?? []) {
+        if (skipped.value === undefined || skipped.owner === undefined) continue;
+        diffs.push({
+          fieldPath: skipped.fieldPath,
+          target: skipped.target ?? null,
+          remoteKey: skipped.remoteKey ?? null,
+          ...beforeFor(item.externalId, skipped.fieldPath),
+          after: skipped.value,
+          owner: skipped.owner,
+          willWrite: false,
+          reason: skipped.reason,
+        });
+      }
+      return { externalId: item.externalId, diffs };
+    });
+    return Ok({ items, skipped: assembled.value.skipped, warnings: assembled.value.warnings });
   }
 
   async getCatalogWriteSettings(orgId: string, storeId: string): Promise<PluginResult<CatalogWriteSettings>> {
