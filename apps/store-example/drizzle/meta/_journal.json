@@ -15,6 +15,13 @@
       "when": 1778429092940,
       "tag": "0001_add-orders-amount-captured",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787230466757,
+      "tag": "0002_add-account-issuer",
+      "breakpoints": true
     }
   ]
 }

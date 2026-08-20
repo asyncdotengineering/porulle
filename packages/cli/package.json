@@ -4,6 +4,7 @@
   "license": "MIT",
   "type": "module",
   "bin": {
+    "porulle": "./dist/index.js",
     "unifiedcommerce": "./dist/index.js"
   },
   "scripts": {

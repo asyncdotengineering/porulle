@@ -5,7 +5,10 @@ import type { AuthInstance } from "./setup.js";
 import { DEFAULT_ORG_ID } from "./org.js";
 import { isStrictOrgResolution } from "./strict-org-resolution.js";
 
-const DEFAULT_CUSTOMER_PERMISSIONS = [
+// Exported so the storefront contract can be pinned by a test: an anonymous
+// visitor resolved by `storeResolver` gets these permissions, so dropping
+// `catalog:read` here would 401 every public storefront read.
+export const DEFAULT_CUSTOMER_PERMISSIONS = [
   "catalog:read",
   "cart:create",
   "cart:read",

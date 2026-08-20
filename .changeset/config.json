@@ -20,7 +20,6 @@
     "@porulle/eslint-config",
     "@porulle/typescript-config",
     "@porulle/docs",
-    "@porulle/adapter-local-storage",
     "store-example",
     "restaurant-example",
     "saas-example",

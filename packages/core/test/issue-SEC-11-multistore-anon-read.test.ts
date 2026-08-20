@@ -3,12 +3,9 @@ import type { Actor } from "../src/auth/types.js";
 import { createTestKernel } from "../src/test-utils/create-test-kernel.js";
 
 /**
- * SEC-11 (multi-store) — anonymous storefront reads are scoped to the request's
- * store. The auth middleware resolves the org for anonymous requests via
- * `config.auth.storeResolver` and sets a minimal anonymous actor carrying that
- * org; `getById` → `assertSameOrg` must therefore let a visitor read their own
- * store's product but not another store's. This locks the store-awareness the
- * grok Slice-2 fix relies on (kimi WBS R-03).
+ * SEC-11 (multi-store) — authenticated catalog reads are scoped to the
+ * request's store. The entity service must allow a reader to read their own
+ * store's product but not another store's.
  */
 const ORG_A = "org_sec11ms_a";
 const ORG_B = "org_sec11ms_b";
@@ -17,13 +14,12 @@ const admin = (org: string): Actor => ({
   type: "user", userId: `admin_${org}`, email: `a@${org}.test`, name: "admin",
   vendorId: null, organizationId: org, role: "admin", permissions: ["*:*"],
 });
-// The org-bearing anonymous actor that storeResolver middleware sets.
-const anon = (org: string): Actor => ({
-  type: "user", userId: "anonymous", email: null, name: "anon",
-  vendorId: null, organizationId: org, role: "customer", permissions: [],
+const reader = (org: string): Actor => ({
+  type: "user", userId: `reader_${org}`, email: `${org}@test.local`, name: "reader",
+  vendorId: null, organizationId: org, role: "staff", permissions: ["catalog:read"],
 });
 
-describe("SEC-11 — anonymous reads are store-scoped (storeResolver path)", () => {
+describe("SEC-11 — authenticated reads are store-scoped", () => {
   let services: Awaited<ReturnType<typeof createTestKernel>>["services"];
   let entA: string;
   let entB: string;
@@ -40,13 +36,13 @@ describe("SEC-11 — anonymous reads are store-scoped (storeResolver path)", () 
     entB = b.value.id;
   });
 
-  it("anonymous visitor to store B reads store B's product", async () => {
-    const r = await services.catalog.getById(entB, undefined, anon(ORG_B));
+  it("a reader in store B reads store B's product", async () => {
+    const r = await services.catalog.getById(entB, undefined, reader(ORG_B));
     expect(r.ok).toBe(true);
   });
 
-  it("anonymous visitor to store B CANNOT read store A's product", async () => {
-    const r = await services.catalog.getById(entA, undefined, anon(ORG_B));
+  it("a reader in store B cannot read store A's product", async () => {
+    const r = await services.catalog.getById(entA, undefined, reader(ORG_B));
     expect(r.ok).toBe(false);
   });
 });

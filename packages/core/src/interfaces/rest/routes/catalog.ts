@@ -64,6 +64,10 @@ import {
 export function catalogRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
 
+  router.use("/entities/*", requirePerm("catalog:read"));
+  router.use("/categories", requirePerm("catalog:read"));
+  router.use("/brands", requirePerm("catalog:read"));
+
   router.use("/entities/:id/custom-fields/:fieldName/approve", requirePerm("catalog:update"));
   router.use("/entities/:id/custom-fields/:fieldName/reject", requirePerm("catalog:update"));
 

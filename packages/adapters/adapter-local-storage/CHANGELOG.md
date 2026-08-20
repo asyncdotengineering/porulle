@@ -1,5 +1,14 @@
 # @porulle/adapter-local-storage
 
+## 0.12.0
+
+### Patch Changes
+
+- Rejoin the release train so `@porulle/*` can be pinned to a single version. This package had been excluded and left at 0.10.7 while the family moved on, which also broke `porulle init`: the scaffolded project pins every `@porulle/*` dependency to the CLI's own version, and the starter template imports this adapter.
+
+- Updated dependencies []:
+  - @porulle/core@0.12.0
+
 ## 0.10.6
 
 ### Patch Changes

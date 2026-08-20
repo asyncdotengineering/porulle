@@ -338,23 +338,24 @@ export class EntityService {
   } catch (error) { return Err(toCommerceError(error)); } }
 
   async getById(id: string, options?: GetOptions, actor?: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
-    const context: HookContext = createHookContext({ actor: actor ?? null, tx: ctx?.tx ?? null, logger: createLogger("catalog.read"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database) });
+    const resolvedActor = actor ?? ctx?.actor ?? null;
+    const orgId = resolveOrgId(resolvedActor);
+    const context: HookContext = createHookContext({ actor: resolvedActor, tx: ctx?.tx ?? null, logger: createLogger("catalog.read"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database) });
     const globalBeforeHooks = this.deps.hooks.resolve("catalog.beforeRead") as CatalogReadBeforeHook[];
     const globalAfterHooks = this.deps.hooks.resolve("catalog.afterRead") as CatalogReadAfterHook[];
     let processed = await runBeforeHooks(globalBeforeHooks, { id, ...(options !== undefined ? { options } : {}) }, "read", context);
-    let entity = await this.repo.findEntityById(processed.id ?? id, ctx);
+    let entity = await this.repo.findEntityById(processed.id ?? id, ctx, orgId);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
     const entityBeforeHooks = this.deps.hooks.resolve(`catalog.${entity.type}.beforeRead`) as CatalogReadBeforeHook[];
     if (entityBeforeHooks.length > 0) {
       processed = await runBeforeHooks(entityBeforeHooks, { ...processed, id: entity.id }, "read", context);
       const resolvedId = processed.id ?? entity.id;
       if (resolvedId !== entity.id) {
-        const refetched = await this.repo.findEntityById(resolvedId, ctx);
+        const refetched = await this.repo.findEntityById(resolvedId, ctx, orgId);
         if (!refetched) return Err(new CommerceNotFoundError("Entity not found."));
         entity = refetched;
       }
     }
-    const resolvedActor = actor ?? ctx?.actor ?? null;
     try {
       this.assertSameOrg(entity, resolvedActor);
     } catch (error) {

@@ -17,7 +17,7 @@ const adminOther: Actor = {
   permissions: ["*:*"],
 };
 
-describe("SEC-11 — anonymous catalog getById enforces org context", () => {
+describe("SEC-11 — catalog getById enforces org context", () => {
   let kernel: Awaited<ReturnType<typeof createTestKernel>>;
   let entityIdInOther: string;
 
@@ -44,7 +44,7 @@ describe("SEC-11 — anonymous catalog getById enforces org context", () => {
     expect(entity.value.organizationId).toBe(ORG_OTHER);
   });
 
-  it("rejects anonymous read of another org's entity by id", async () => {
+  it("rejects a default-org service context from reading another org's entity by id", async () => {
     const result = await kernel.services.catalog.getById(entityIdInOther, undefined, null);
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -61,24 +61,25 @@ describe("SEC-11 — anonymous catalog getById enforces org context", () => {
     }
   });
 
-  it("allows anonymous read within default org context only", async () => {
+  it("allows the owning organization's authorized actor to read the default-org entity", async () => {
+    const adminDefault: Actor = {
+      type: "user",
+      userId: "sec11-default-admin",
+      email: "default@sec11.test",
+      name: "Default Admin",
+      vendorId: null,
+      organizationId: ORG_DEFAULT,
+      role: "admin",
+      permissions: ["catalog:read", "catalog:create"],
+    };
     const localEntity = await kernel.services.catalog.create(
       { type: "product", slug: "sec11-default-product", metadata: {} },
-      {
-        type: "user",
-        userId: "sec11-default-admin",
-        email: "default@sec11.test",
-        name: "Default Admin",
-        vendorId: null,
-        organizationId: ORG_DEFAULT,
-        role: "admin",
-        permissions: ["*:*"],
-      },
+      adminDefault,
     );
     expect(localEntity.ok).toBe(true);
     if (!localEntity.ok) return;
 
-    const result = await kernel.services.catalog.getById(localEntity.value.id, undefined, null);
+    const result = await kernel.services.catalog.getById(localEntity.value.id, undefined, adminDefault);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.organizationId).toBe(ORG_DEFAULT);
