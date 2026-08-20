@@ -22,11 +22,13 @@ import type {
   PluginDb,
   PluginResult,
   PluginTxFn,
+  CatalogWriteContext,
   TxContext,
 } from "@porulle/core";
 import { isValidFieldPath } from "@porulle/core";
 import type { FieldOwner, FieldPath } from "@porulle/core";
 import type { JobsAdapter } from "@porulle/core";
+import { CHANNEL_CONVERGENCE_CTX } from "./catalog-push-trigger.js";
 import { and, eq, inArray, isNull } from "@porulle/core/drizzle";
 import {
   brands,
@@ -265,6 +267,7 @@ interface CatalogService {
     id: string,
     input: { slug?: string; status?: string; metadata?: Record<string, unknown>; isVisible?: boolean },
     actor: Actor,
+    ctx?: CatalogWriteContext,
   ): Promise<{ ok: true; value: unknown } | { ok: false; error: { message: string } }>;
   archive(id: string, actor: Actor): Promise<{ ok: true; value: unknown } | { ok: false; error: { message: string } }>;
   create(
@@ -294,6 +297,7 @@ interface CatalogService {
       seoDescription?: string;
     },
     actor: Actor,
+    ctx?: CatalogWriteContext,
   ): Promise<{ ok: true; value: undefined } | { ok: false; error: { message: string } }>;
   recordEntityRevision(
     entityId: string,
@@ -890,6 +894,7 @@ export class ChannelConnectorService {
     item: ChannelCatalogItem,
     actor: Actor,
     blockedPaths: ReadonlySet<FieldPath> = new Set<FieldPath>(),
+    catalogCtx?: CatalogWriteContext,
   ): Promise<PluginResult<{ created: number; changed: boolean }>> {
     const attributes = item.attributes ?? [{
       locale: "en",
@@ -919,7 +924,7 @@ export class ChannelConnectorService {
       } else if (attributeFields.some((field) => (current[field] == null ? null : current[field]) !== (writeAttribute[field] == null ? null : writeAttribute[field]))) {
         changed = true;
       }
-      const result = await this.catalog.setAttributes(entityId, attribute.locale, writeAttribute, actor);
+      const result = await this.catalog.setAttributes(entityId, attribute.locale, writeAttribute, actor, catalogCtx);
       if (!result.ok) return PluginErr(result.error.message);
     }
     return Ok({ created, changed });
@@ -930,6 +935,7 @@ export class ChannelConnectorService {
     item: ChannelCatalogItem,
     actor: Actor,
     blockedPaths: ReadonlySet<FieldPath>,
+    catalogCtx?: CatalogWriteContext,
   ): Promise<PluginResult<{ created: number; changed: boolean }>> {
     const attributes = item.attributes ?? [{
       locale: "en",
@@ -940,7 +946,7 @@ export class ChannelConnectorService {
       attribute[field] !== undefined && !blockedPaths.has(`attributes.${attribute.locale}.${field}`)
     )));
     if (!writable) return Ok({ created: 0, changed: false });
-    return this.setCatalogAttributes(entityId, item, actor, blockedPaths);
+    return this.setCatalogAttributes(entityId, item, actor, blockedPaths, catalogCtx);
   }
 
   private async upsertOptionAxes(
@@ -1853,7 +1859,7 @@ export class ChannelConnectorService {
       const promoted = await this.catalog.setAttributes(entity.id, "en", {
         title: metadata.title,
         ...(typeof metadata.description === "string" ? { description: metadata.description } : {}),
-      }, actor);
+      }, actor, CHANNEL_CONVERGENCE_CTX);
       if (!promoted.ok) return PluginErr(promoted.error.message);
       const [confirmed] = await this.db.select({ id: sellableAttributes.id, title: sellableAttributes.title, description: sellableAttributes.description }).from(sellableAttributes).where(and(
         eq(sellableAttributes.entityId, entity.id),
@@ -2250,7 +2256,7 @@ export class ChannelConnectorService {
         if (shouldUpdate) {
           converged += 1;
           if (Object.keys(updateInput).length > 0) {
-            const updated = await this.catalog.update(entityMapping.entityId, updateInput, actor);
+            const updated = await this.catalog.update(entityMapping.entityId, updateInput, actor, CHANNEL_CONVERGENCE_CTX);
             if (!updated.ok) return PluginErr(updated.error.message);
             entityTouched = true;
           }
@@ -2259,7 +2265,7 @@ export class ChannelConnectorService {
 
       const optionAxes = await this.upsertOptionAxes(entityId, writable, actor);
       if (!optionAxes.ok) return optionAxes;
-      const attributes = await this.setCatalogAttributesIfWritable(entityId, writable, actor, blockedPaths);
+      const attributes = await this.setCatalogAttributesIfWritable(entityId, writable, actor, blockedPaths, CHANNEL_CONVERGENCE_CTX);
       if (!attributes.ok) return attributes;
       const variantIds = await this.upsertVariants(
         orgId,
@@ -2727,10 +2733,10 @@ export class ChannelConnectorService {
       updateInput.isVisible = writable.status === "active";
     }
     if (Object.keys(updateInput).length > 0) {
-      const updated = await this.catalog.update(entityId, updateInput, actor);
+      const updated = await this.catalog.update(entityId, updateInput, actor, CHANNEL_CONVERGENCE_CTX);
       if (!updated.ok) return PluginErr(updated.error.message);
     }
-    const attributes = await this.setCatalogAttributesIfWritable(entityId, writable, actor, blockedPaths);
+    const attributes = await this.setCatalogAttributesIfWritable(entityId, writable, actor, blockedPaths, CHANNEL_CONVERGENCE_CTX);
     if (!attributes.ok) return attributes;
     const levels = Array.isArray(product.variants) ? product.variants as Array<Record<string, unknown>> : [];
     for (const variant of levels) {

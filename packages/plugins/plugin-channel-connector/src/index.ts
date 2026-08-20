@@ -518,6 +518,29 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           return { enqueued: true, storeId: params.storeId! };
         });
 
+      channels.post("/stores/{storeId}/push-catalog")
+        .summary("Enqueue a catalog push for a connected store")
+        .permission("channels:manage")
+        .input(z.object({ entityIds: z.array(z.string()).optional() }))
+        .handler(async ({ params, orgId, input }: ChannelRouteContext) => {
+          unwrap(await service.getStore(orgId, params.storeId!));
+          const values = input as { entityIds?: string[] };
+          const jobs = ctx.services.jobs as JobsAdapter;
+          await jobs.enqueue("channel/push-catalog", {
+            organizationId: orgId,
+            storeId: params.storeId!,
+            ...(values.entityIds ? { entityIds: values.entityIds } : {}),
+          }, {
+            organizationId: orgId,
+            concurrencyKey: catalogPushConcurrencyKey({
+              storeId: params.storeId!,
+              ...(values.entityIds ? { entityIds: values.entityIds } : {}),
+            }),
+            supersedes: true,
+          });
+          return { enqueued: true, storeId: params.storeId! };
+        });
+
       channels.post("/stores/{id}/disconnect")
         .summary("Disconnect a channel store")
         .permission("channels:manage")

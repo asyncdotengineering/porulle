@@ -7,6 +7,10 @@ import {
   type ChannelConnectorPluginOptions,
   type ChannelStockLine,
 } from "./service.js";
+import {
+  handleCatalogAfterUpdate,
+  recordUpdateFieldPaths,
+} from "./catalog-push-trigger.js";
 
 export function buildHooks(options: ChannelConnectorPluginOptions): PluginHookRegistration[] {
   return [{
@@ -39,6 +43,24 @@ export function buildHooks(options: ChannelConnectorPluginOptions): PluginHookRe
       const entities = await context.db.select({ id: sellableEntities.id, sourceStoreId: sellableEntities.sourceStoreId }).from(sellableEntities).where(and(eq(sellableEntities.organizationId, orgId), inArray(sellableEntities.id, (result.lineItems ?? []).map((line) => line.entityId))));
       const stores = new Set(entities.map((entity) => entity.sourceStoreId).filter((storeId): storeId is string => storeId !== null));
       await Promise.all([...stores].map((storeId) => context.jobs.enqueue("channel/push-order", { orgId, storeId, orderId: result.id }, { organizationId: orgId, concurrencyKey: `push:${result.id}:${storeId}`, supersedes: true })));
+    },
+  }, {
+    key: "catalog.beforeUpdate",
+    handler(args: unknown) {
+      const { data, context } = args as {
+        data: Parameters<typeof recordUpdateFieldPaths>[0];
+        context: Parameters<typeof recordUpdateFieldPaths>[1];
+      };
+      return recordUpdateFieldPaths(data, context);
+    },
+  }, {
+    key: "catalog.afterUpdate",
+    async handler(args: unknown) {
+      const { result, context } = args as {
+        result: { id: string };
+        context: Parameters<typeof handleCatalogAfterUpdate>[0]["context"];
+      };
+      await handleCatalogAfterUpdate({ result, context });
     },
   }];
 }

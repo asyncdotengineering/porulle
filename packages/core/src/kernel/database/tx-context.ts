@@ -6,11 +6,19 @@ export interface TxContext<TTx = unknown> {
   tx: TTx;
   actor: Actor | null;
   requestId: string;
+  hookContext?: Record<string, unknown>;
 }
+
+export interface HookContextCarrier {
+  hookContext?: Record<string, unknown>;
+}
+
+export type CatalogWriteContext<TTx = unknown> = TxContext<TTx> | HookContextCarrier;
 
 export interface WithTransactionOptions {
   actor: Actor | null;
   requestId?: string;
+  hookContext?: Record<string, unknown>;
 }
 
 export function createTxContext<TTx>(
@@ -21,6 +29,7 @@ export function createTxContext<TTx>(
     tx,
     actor: options.actor,
     requestId: options.requestId ?? randomUUID(),
+    ...(options.hookContext ? { hookContext: options.hookContext } : {}),
   };
 }
 
@@ -43,4 +52,20 @@ export function reuseOrCreateTxContext<TTx>(
     return existing;
   }
   return createTxContext(tx, options);
+}
+
+function hookContextFromWriteContext(ctx?: CatalogWriteContext): Record<string, unknown> | undefined {
+  return ctx?.hookContext;
+}
+
+function isTransactionalWriteContext<TTx>(ctx: CatalogWriteContext<TTx>): ctx is TxContext<TTx> {
+  return "tx" in ctx && ctx.tx != null;
+}
+
+export function resolveWriteContextHookContext(ctx?: CatalogWriteContext): Record<string, unknown> | undefined {
+  return hookContextFromWriteContext(ctx);
+}
+
+export function isWriteContextTransactional<TTx>(ctx?: CatalogWriteContext<TTx>): ctx is TxContext<TTx> {
+  return ctx != null && isTransactionalWriteContext(ctx);
 }

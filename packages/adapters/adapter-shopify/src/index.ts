@@ -6,11 +6,26 @@ import type {
   ChannelConnector,
   ChannelConnectorError,
   ChannelInventoryLevel,
+  ChannelPushCatalogItem,
+  ChannelPushCatalogResult,
   ChannelStore,
   ChannelOrderSlice,
   ChannelOrderStatus,
   Result,
 } from "@porulle/core";
+import {
+  pushCatalog as executePushCatalog,
+} from "./push-catalog.js";
+
+export {
+  PORULLE_METAFIELD_NAMESPACE,
+  PUSH_CATALOG_SCOPE,
+  SHOPIFY_NATIVE_PRODUCT_FIELDS,
+  SHOPIFY_NATIVE_VARIANT_FIELDS,
+  shopifyGrantedScopes,
+  shopifyPushCatalogEnabled,
+  shopifyWriteProductsScopeMissingError,
+} from "./push-catalog.js";
 
 export interface ShopifyConnectorOptions {
   fetchImpl?: typeof fetch;
@@ -27,6 +42,7 @@ export const REQUIRED_SCOPES = [
   "read_orders",
   "write_orders",
   "read_fulfillments",
+  "write_products",
 ] as const;
 
 type ShopifyProduct = {
@@ -126,6 +142,16 @@ function apiBase(store: ChannelStore, version: string): string {
   return `https://${store.storeDomain.replace(/^https?:\/\//, "").replace(/\/$/, "")}/admin/api/${version}`;
 }
 
+function shopifyOAuthStartUrl(appUrl: string, storeDomain: string): string | undefined {
+  try {
+    const url = new URL("/api/channels/oauth/shopify/start", appUrl);
+    url.searchParams.set("shop", storeDomain);
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
 async function request<T>(fetchImpl: typeof fetch, url: string, accessToken: string, init?: RequestInit): Promise<Result<{ data: T; response: Response }>> {
   try {
     const response = await fetchImpl(url, {
@@ -183,13 +209,29 @@ function oauthError(code: string, message: string): Result<never, ChannelConnect
   return Err({ code, message, retriable: false });
 }
 
+export function shopifyReauthorizeUrl(
+  options: ShopifyConnectorOptions,
+  params: {
+    storeDomain: string;
+    state: string;
+    redirectUri: string;
+    callbackUri: string;
+    scopes?: string[];
+  },
+): Result<string, ChannelConnectorError> {
+  return shopifyConnector(options).buildAuthUrl!({
+    ...params,
+    scopes: params.scopes ?? [],
+  });
+}
+
 export function shopifyConnector(options: ShopifyConnectorOptions = {}): ChannelConnector {
   const fetchImpl = options.fetchImpl ?? fetch;
   const version = options.apiVersion ?? "2024-10";
   const currencyCache = new Map<string, Promise<string | undefined>>();
   return defineChannelConnector({
     providerId: "shopify",
-    capabilities: { importCatalog: true, importInventory: true, pushOrder: true, receiveWebhooks: true },
+    capabilities: { importCatalog: true, importInventory: true, pushOrder: true, pushCatalog: true, receiveWebhooks: true },
     buildAuthUrl(params) {
       if (!options.clientId || !options.clientSecret || !options.appUrl) {
         return oauthError("SHOPIFY_OAUTH_NOT_CONFIGURED", "Shopify OAuth requires clientId, clientSecret, and appUrl.");
@@ -230,9 +272,12 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
           body: JSON.stringify({ client_id: options.clientId, client_secret: options.clientSecret, code }),
         });
         if (!response.ok) return oauthError("SHOPIFY_TOKEN_EXCHANGE_FAILED", `Shopify token exchange failed (${response.status}).`);
-        const body = await response.json() as { access_token?: unknown };
+        const body = await response.json() as { access_token?: unknown; scope?: unknown };
         if (typeof body.access_token !== "string" || !body.access_token) return oauthError("SHOPIFY_TOKEN_INVALID", "Shopify token exchange did not return an access token.");
-        return Ok({ credentials: { accessToken: body.access_token }, storeDomain: shopDomain });
+        const grantedScopes = typeof body.scope === "string"
+          ? body.scope.split(",").map((scope) => scope.trim()).filter(Boolean)
+          : [];
+        return Ok({ credentials: { accessToken: body.access_token, grantedScopes }, storeDomain: shopDomain });
       } catch (error) {
         return Err({ code: "SHOPIFY_TOKEN_EXCHANGE_FAILED", message: error instanceof Error ? error.message : "Shopify token exchange failed.", retriable: true });
       }
@@ -312,6 +357,17 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
       const result = await request<{ inventory_levels: Array<{ inventory_item_id: number | string; available: number | null }> }>(fetchImpl, `${apiBase(store, version)}/inventory_levels.json?${params}`, token);
       if (!result.ok) return result;
       return Ok(result.value.data.inventory_levels.map((level) => ({ externalId: String(level.inventory_item_id), available: level.available ?? 0 })));
+    },
+    async pushCatalog(store: ChannelStore, items: ChannelPushCatalogItem[], opts?: { dryRun?: boolean }): Promise<Result<ChannelPushCatalogResult, ChannelConnectorError>> {
+      const oauthStartUrl = options.appUrl ? shopifyOAuthStartUrl(options.appUrl, store.storeDomain) : undefined;
+      return executePushCatalog({
+        fetchImpl,
+        apiBase: (target) => apiBase(target, version),
+        credentials,
+      }, store, items, {
+        ...(opts?.dryRun === true ? { dryRun: true } : {}),
+        ...(oauthStartUrl ? { reauthorizeUrl: oauthStartUrl } : {}),
+      });
     },
     async pushOrder(store, slice: ChannelOrderSlice) {
       const token = credentials(store);

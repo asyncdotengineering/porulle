@@ -21,8 +21,11 @@ import type {
 import { Err, Ok, type Result } from "../../kernel/result.js";
 import { createLogger } from "../../utils/logger.js";
 import { paginate } from "../../utils/pagination.js";
+import type { JobsAdapter } from "../../kernel/jobs/adapter.js";
 import type { PluginDb } from "../../kernel/database/plugin-types.js";
-import type { TxContext } from "../../kernel/database/tx-context.js";
+import type { CatalogWriteContext, TxContext } from "../../kernel/database/tx-context.js";
+import { isWriteContextTransactional } from "../../kernel/database/tx-context.js";
+import { isValidFieldPath } from "./ownership.js";
 import type {
   CatalogServiceDeps,
   CatalogEntityHydrated,
@@ -50,6 +53,25 @@ import type {
 
 function hookDatabaseArg(database: CatalogServiceDeps["database"]): { database: { db: PluginDb } } {
   return { database: { db: database.db as PluginDb } };
+}
+
+const attributeFields = ["title", "subtitle", "description", "richDescription", "seoTitle", "seoDescription"] as const;
+
+function catalogHookContext(
+  deps: CatalogServiceDeps,
+  actor: Actor | null,
+  ctx: CatalogWriteContext | undefined,
+  operation: string,
+): HookContext {
+  return createHookContext({
+    actor,
+    tx: isWriteContextTransactional(ctx) ? ctx.tx : null,
+    logger: createLogger(`catalog.${operation}`),
+    services: deps.services,
+    ...(deps.services.jobs ? { jobs: deps.services.jobs as JobsAdapter } : {}),
+    context: { moduleName: "catalog", ...(ctx?.hookContext ?? {}) },
+    ...hookDatabaseArg(deps.database),
+  });
 }
 
 type CatalogCreateBeforeHook = BeforeHook<CreateEntityInput>;
@@ -278,23 +300,24 @@ export class EntityService {
     return Ok(hydrated, hookReport.hasErrors ? { hookErrors: hookReport.errors } : undefined);
   } catch (error) { return Err(toCommerceError(error)); } }
 
-  async update(id: string, input: UpdateEntityInput, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> { try {
+  async update(id: string, input: UpdateEntityInput, actor: Actor | null, ctx?: CatalogWriteContext): Promise<Result<CatalogEntityHydrated>> { try {
+    const txCtx = isWriteContextTransactional(ctx) ? ctx : undefined;
     assertPermission(actor, "catalog:update");
-    const existing = await this.repo.findEntityById(id, ctx);
+    const existing = await this.repo.findEntityById(id, txCtx);
     if (!existing) return Err(new CommerceNotFoundError("Entity not found."));
     this.assertSameOrg(existing, actor);
     this.assertEntityWritable(existing, actor);
     const beforeHooks = this.deps.hooks.resolve("catalog.beforeUpdate") as CatalogUpdateBeforeHook[];
     const afterHooks = this.deps.hooks.resolve("catalog.afterUpdate") as CatalogUpdateAfterHook[];
-    const context: HookContext = createHookContext({ actor, tx: ctx?.tx ?? null, logger: createLogger("catalog.update"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database) });
+    const context: HookContext = catalogHookContext(this.deps, actor, ctx, "update");
     const processed = await runBeforeHooks(beforeHooks, input, "update", context);
-    const customFieldsResult = await this.validateCustomFields(existing.type, processed.customFields, actor, ctx);
+    const customFieldsResult = await this.validateCustomFields(existing.type, processed.customFields, actor, txCtx);
     if (!customFieldsResult.ok) return customFieldsResult;
-    const updated = await this.repo.updateEntity(id, { ...(processed.slug !== undefined ? { slug: processed.slug } : {}), ...(processed.status !== undefined ? { status: processed.status as SellableEntity["status"] } : {}), ...(processed.taxClass !== undefined ? { taxClass: processed.taxClass } : {}), ...(processed.metadata !== undefined ? { metadata: processed.metadata } : {}), ...(processed.isVisible !== undefined ? { isVisible: processed.isVisible } : {}) }, ctx);
+    const updated = await this.repo.updateEntity(id, { ...(processed.slug !== undefined ? { slug: processed.slug } : {}), ...(processed.status !== undefined ? { status: processed.status as SellableEntity["status"] } : {}), ...(processed.taxClass !== undefined ? { taxClass: processed.taxClass } : {}), ...(processed.metadata !== undefined ? { metadata: processed.metadata } : {}), ...(processed.isVisible !== undefined ? { isVisible: processed.isVisible } : {}) }, txCtx);
     if (!updated) return Err(new CommerceNotFoundError("Entity not found."));
-    await this.writeCustomFields(existing.id, customFieldsResult.value, ctx, true);
+    await this.writeCustomFields(existing.id, customFieldsResult.value, txCtx, true);
     const hookReport = await runAfterHooks(afterHooks, existing, updated, "update", context);
-    const hydrated = await this.hydrateEntity(updated, undefined, ctx);
+    const hydrated = await this.hydrateEntity(updated, undefined, txCtx);
     return Ok(hydrated, hookReport.hasErrors ? { hookErrors: hookReport.errors } : undefined);
   } catch (error) { return Err(toCommerceError(error)); } }
 
@@ -454,12 +477,30 @@ export class EntityService {
   archive(id: string, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> { return this.changeStatus(id, "archived", actor, ctx); }
   discontinue(id: string, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> { return this.changeStatus(id, "discontinued", actor, ctx); }
 
-  async setAttributes(entityId: string, locale: string, attrs: SetAttributesInput, actor: Actor | null, ctx?: TxContext): Promise<Result<void>> {
+  async setAttributes(entityId: string, locale: string, attrs: SetAttributesInput, actor: Actor | null, ctx?: CatalogWriteContext): Promise<Result<void>> {
     try { assertPermission(actor, "catalog:update"); } catch (error) { return Err(toCommerceError(error)); }
-    const entity = await this.repo.findEntityById(entityId, ctx);
+    const txCtx = isWriteContextTransactional(ctx) ? ctx : undefined;
+    const entity = await this.repo.findEntityById(entityId, txCtx);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
     try { this.assertSameOrg(entity, actor); } catch (error) { return Err(toCommerceError(error)); }
-    await this.repo.upsertAttribute(entityId, locale, { title: attrs.title, subtitle: attrs.subtitle, description: attrs.description, richDescription: attrs.richDescription, seoTitle: attrs.seoTitle, seoDescription: attrs.seoDescription }, ctx);
+    const beforeAttr = await this.repo.findAttributeByLocale(entityId, locale, txCtx);
+    const changedFieldPaths: string[] = [];
+    for (const field of attributeFields) {
+      if (attrs[field] === undefined) continue;
+      const before = beforeAttr?.[field] ?? null;
+      const after = attrs[field] ?? null;
+      if (before !== after) {
+        const path = `attributes.${locale}.${field}`;
+        if (isValidFieldPath(path)) changedFieldPaths.push(path);
+      }
+    }
+    await this.repo.upsertAttribute(entityId, locale, { title: attrs.title, subtitle: attrs.subtitle, description: attrs.description, richDescription: attrs.richDescription, seoTitle: attrs.seoTitle, seoDescription: attrs.seoDescription }, txCtx);
+    if (changedFieldPaths.length > 0) {
+      const afterHooks = this.deps.hooks.resolve("catalog.afterUpdate") as CatalogUpdateAfterHook[];
+      const context = catalogHookContext(this.deps, actor, ctx, "update");
+      context.context.changedFieldPaths = changedFieldPaths;
+      await runAfterHooks(afterHooks, entity, entity, "update", context);
+    }
     return Ok(undefined);
   }
 

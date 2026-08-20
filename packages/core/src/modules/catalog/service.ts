@@ -8,7 +8,7 @@ import { Err, Ok, type Result } from "../../kernel/result.js";
 import { CommerceConflictError, CommerceNotFoundError, CommerceValidationError, toCommerceError } from "../../kernel/errors.js";
 import type { Pagination } from "../../utils/pagination.js";
 import type { DatabaseAdapter } from "../../kernel/database/adapter.js";
-import { createTxContext, type TxContext } from "../../kernel/database/tx-context.js";
+import { createTxContext, type CatalogWriteContext, isWriteContextTransactional, resolveWriteContextHookContext, type TxContext } from "../../kernel/database/tx-context.js";
 import {
   CatalogRepository,
   type SellableEntity,
@@ -159,7 +159,7 @@ export interface CatalogService {
     id: string,
     input: UpdateEntityInput,
     actor: Actor | null,
-    ctx?: TxContext,
+    ctx?: CatalogWriteContext,
   ): Promise<Result<CatalogEntityHydrated>>;
   delete(
     id: string,
@@ -234,7 +234,7 @@ export interface CatalogService {
     locale: string,
     attrs: SetAttributesInput,
     actor: Actor | null,
-    ctx?: TxContext,
+    ctx?: CatalogWriteContext,
   ): Promise<Result<void>>;
   approveCustomField(
     entityId: string,
@@ -600,13 +600,17 @@ export class CatalogServiceImpl implements CatalogService {
 
   private async withMutation<T>(
     actor: Actor | null,
-    ctx: TxContext | undefined,
+    ctx: CatalogWriteContext | undefined,
     fn: (txCtx: TxContext) => Promise<T>,
   ): Promise<T> {
-    if (ctx?.tx != null) return fn(ctx);
+    if (isWriteContextTransactional(ctx)) return fn(ctx);
+    const hookContext = resolveWriteContextHookContext(ctx);
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        return await this.database.transaction(async (tx) => fn(createTxContext(tx, { actor })));
+        return await this.database.transaction(async (tx) => fn(createTxContext(tx, {
+          actor,
+          ...(hookContext ? { hookContext } : {}),
+        })));
       } catch (error) {
         if (!isUniqueViolation(error) || attempt === 2) throw error;
       }
@@ -616,7 +620,7 @@ export class CatalogServiceImpl implements CatalogService {
 
   private async withMutationResult<T>(
     actor: Actor | null,
-    ctx: TxContext | undefined,
+    ctx: CatalogWriteContext | undefined,
     fn: (txCtx: TxContext) => Promise<Result<T>>,
   ): Promise<Result<T>> {
     try {
@@ -831,7 +835,7 @@ export class CatalogServiceImpl implements CatalogService {
     });
   }
 
-  update(id: string, input: UpdateEntityInput, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
+  update(id: string, input: UpdateEntityInput, actor: Actor | null, ctx?: CatalogWriteContext): Promise<Result<CatalogEntityHydrated>> {
     return this.withMutationResult(actor, ctx, async (txCtx) => {
       const result = await this.entities.update(id, input, actor, txCtx);
       if (result.ok) await this.captureRevision(id, actor, "update", txCtx);
@@ -989,7 +993,7 @@ export class CatalogServiceImpl implements CatalogService {
     });
   }
 
-  setAttributes(entityId: string, locale: string, attrs: SetAttributesInput, actor: Actor | null, ctx?: TxContext): Promise<Result<void>> {
+  setAttributes(entityId: string, locale: string, attrs: SetAttributesInput, actor: Actor | null, ctx?: CatalogWriteContext): Promise<Result<void>> {
     return this.withMutationResult(actor, ctx, async (txCtx) => {
       const result = await this.entities.setAttributes(entityId, locale, attrs, actor, txCtx);
       if (result.ok) await this.captureRevision(entityId, actor, "update", txCtx);

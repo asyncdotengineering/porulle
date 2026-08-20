@@ -55,3 +55,8 @@ RENAME-*-CLOSED.md
 .claude/
 .plandesk/token
 .plandesk/server.json
+
+# Factory run artifacts: transient machine state. The metrics ledger is the
+# exception — it is the evidence routing and lane decisions cite, so it is tracked.
+runs/*
+!runs/metrics.jsonl

@@ -183,14 +183,18 @@ export type {
 export type { DatabaseAdapter } from "./kernel/database/adapter.js";
 export { isValidFieldPath, validateFieldPath } from "./modules/catalog/ownership.js";
 export type { FieldPath, FieldOwner } from "./modules/catalog/ownership.js";
+export type {
+  TxContext,
+  WithTransactionOptions,
+  CatalogWriteContext,
+  HookContextCarrier,
+} from "./kernel/database/tx-context.js";
 export {
   createTxContext,
   reuseOrCreateTxContext,
   withTransaction,
-} from "./kernel/database/tx-context.js";
-export type {
-  TxContext,
-  WithTransactionOptions,
+  isWriteContextTransactional,
+  resolveWriteContextHookContext,
 } from "./kernel/database/tx-context.js";
 export type {
   TaxAdapter,

@@ -84,12 +84,18 @@ describe("shopify connector", () => {
         expect(String(input)).toBe("https://acme.myshopify.com/admin/oauth/access_token");
         expect(init?.method).toBe("POST");
         expect(JSON.parse(String(init?.body))).toEqual({ client_id: "client-id", client_secret: secret, code: "oauth-code" });
-        return new Response(JSON.stringify({ access_token: "shpat_oauth" }));
+        return new Response(JSON.stringify({ access_token: "shpat_oauth", scope: "read_products,write_products,read_orders" }));
       },
     });
     expect(await connector.completeAuth!(buildRequest(timestamp), { storeDomain: "acme.myshopify.com" })).toEqual({
       ok: true,
-      value: { credentials: { accessToken: "shpat_oauth" }, storeDomain: "acme.myshopify.com" },
+      value: {
+        credentials: {
+          accessToken: "shpat_oauth",
+          grantedScopes: ["read_products", "write_products", "read_orders"],
+        },
+        storeDomain: "acme.myshopify.com",
+      },
     });
     const invalid = await connector.completeAuth!(buildRequest(timestamp, "wrong-secret"), { storeDomain: "acme.myshopify.com" });
     expect(invalid.ok).toBe(false);
@@ -222,5 +228,464 @@ describe("shopify connector", () => {
     expect(await connector.verifyWebhook(store, new Request("http://test", { method: "POST", body, headers: { "x-shopify-hmac-sha256": signature, "x-shopify-event-id": "evt-1", "x-shopify-topic": "refunds/create" } }))).toEqual({ ok: true, value: { id: "evt-1", type: "refunds/create", data: { id: 1 } } });
     expect((await connector.verifyWebhook(store, new Request("http://test", { method: "POST", body: `${body}x`, headers: { "x-shopify-hmac-sha256": signature, "x-shopify-event-id": "evt-1", "x-shopify-topic": "refunds/create" } }))).ok).toBe(false);
     expect(await connector.registerWebhooks!(store, ["refunds/create"], "/api/channels/webhooks/store-1")).toEqual({ ok: true, value: { registered: 1 } });
+  });
+
+  it("writes native product fields and Porulle metafields with per-item outcomes", async () => {
+    const requests: Array<{ url: string; method: string; body?: unknown }> = [];
+    const pushStore = {
+      ...store,
+      credentials: {
+        accessToken: "token",
+        grantedScopes: ["read_products", "write_products"],
+      },
+    };
+    const connector = shopifyConnector({
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        requests.push({ url, method, body });
+        if (url.endsWith("/products/101.json") && method === "GET") {
+          return new Response(JSON.stringify({
+            product: {
+              id: 101,
+              title: "Old title",
+              tags: "existing",
+              updated_at: "2026-01-01T00:00:00Z",
+            },
+          }), { headers: { "x-shopify-shop-api-call-limit": "1/40" } });
+        }
+        if (url.includes("/products/101/metafields.json") && method === "GET") {
+          return new Response(JSON.stringify({ metafields: [] }), { headers: { "x-shopify-shop-api-call-limit": "2/40" } });
+        }
+        if (url.endsWith("/products/101.json") && method === "PUT") {
+          return new Response(JSON.stringify({ product: { id: 101, updated_at: "2026-01-02T00:00:00Z" } }), { headers: { "x-shopify-shop-api-call-limit": "3/40" } });
+        }
+        if (url.endsWith("/products/101/metafields.json") && method === "POST") {
+          return new Response(JSON.stringify({ metafield: { id: 9001, namespace: "porulle", key: "seo_title", value: "SEO title" } }), { headers: { "x-shopify-shop-api-call-limit": "4/40" } });
+        }
+        if (url.endsWith("/products/102.json") && method === "GET") {
+          return new Response("", { status: 422 });
+        }
+        return new Response("", { status: 404 });
+      },
+    });
+
+    const result = await connector.pushCatalog!(pushStore, [
+      {
+        externalId: "101",
+        fields: [
+          { fieldPath: "attributes.en.title", intent: "display", value: "Trail Boot", remoteKey: "title" },
+          { fieldPath: "attributes.en.seoTitle", intent: "display", value: "SEO title", remoteKey: "seo_title" },
+          { fieldPath: "entity.metadata.featured", intent: "tag", value: "featured" },
+        ],
+      },
+      {
+        externalId: "102",
+        fields: [{ fieldPath: "attributes.en.title", intent: "display", value: "Broken", remoteKey: "title" }],
+      },
+    ]);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.outcomes).toEqual([
+      {
+        externalId: "101",
+        ok: true,
+        remoteUpdatedAt: "2026-01-02T00:00:00Z",
+        previousFields: [
+          { fieldPath: "attributes.en.title", value: "Old title" },
+          { fieldPath: "attributes.en.seoTitle", value: null },
+          { fieldPath: "entity.metadata.featured", value: null },
+        ],
+      },
+      {
+        externalId: "102",
+        ok: false,
+        error: {
+          code: "SHOPIFY_API_FAILED",
+          message: expect.stringContaining("422"),
+          retriable: false,
+        },
+      },
+    ]);
+    expect(requests.find((request) => request.method === "PUT" && request.url.endsWith("/products/101.json"))?.body).toEqual({
+      product: {
+        id: "101",
+        title: "Trail Boot",
+        tags: "existing, featured",
+      },
+    });
+    expect(requests.find((request) => request.method === "POST" && request.url.endsWith("/products/101/metafields.json"))?.body).toEqual({
+      metafield: {
+        namespace: "porulle",
+        key: "seo_title",
+        value: "SEO title",
+        type: "single_line_text_field",
+      },
+    });
+  });
+
+  it("reports a missing remote key without writing a guessed native field", async () => {
+    const requests: Array<{ url: string; method: string; body?: unknown }> = [];
+    const pushStore = {
+      ...store,
+      credentials: { accessToken: "token", grantedScopes: ["write_products"] },
+    };
+    const connector = shopifyConnector({
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        requests.push({ url, method, body });
+        if (url.endsWith("/products/101.json") && method === "GET") {
+          return new Response(JSON.stringify({ product: { id: 101, title: "Old title" } }));
+        }
+        if (url.includes("/products/101/metafields.json") && method === "GET") {
+          return new Response(JSON.stringify({ metafields: [] }));
+        }
+        if (url.endsWith("/products/101.json") && method === "PUT") {
+          return new Response(JSON.stringify({ product: { id: 101, title: "Derived" } }));
+        }
+        return new Response("", { status: 404 });
+      },
+    });
+
+    const result = await connector.pushCatalog!(pushStore, [{
+      externalId: "101",
+      fields: [{ fieldPath: "attributes.en.title", intent: "display", value: "Derived" }],
+    }]);
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        outcomes: [{
+          externalId: "101",
+          ok: false,
+          error: {
+            code: "SHOPIFY_REMOTE_KEY_REQUIRED",
+            message: "Shopify catalog field attributes.en.title requires a remoteKey.",
+            retriable: false,
+          },
+        }],
+      },
+    });
+    expect(requests.filter((request) => request.method !== "GET")).toEqual([]);
+  });
+
+  it("uses an explicit non-native remote key as a metafield name", async () => {
+    const requests: Array<{ url: string; method: string; body?: unknown }> = [];
+    const pushStore = {
+      ...store,
+      credentials: { accessToken: "token", grantedScopes: ["write_products"] },
+    };
+    const connector = shopifyConnector({
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        requests.push({ url, method, body });
+        if (url.endsWith("/products/101.json") && method === "GET") {
+          return new Response(JSON.stringify({ product: { id: 101, title: "Old title" } }));
+        }
+        if (url.includes("/products/101/metafields.json") && method === "GET") {
+          return new Response(JSON.stringify({ metafields: [] }));
+        }
+        if (url.endsWith("/products/101/metafields.json") && method === "POST") {
+          return new Response(JSON.stringify({ metafield: { id: 9002, namespace: "porulle", key: "custom_title", value: "Remapped title" } }));
+        }
+        if (url.endsWith("/products/101.json") && method === "PUT") {
+          return new Response(JSON.stringify({ product: { id: 101, title: "Unexpected native title" } }));
+        }
+        return new Response("", { status: 404 });
+      },
+    });
+
+    const result = await connector.pushCatalog!(pushStore, [{
+      externalId: "101",
+      fields: [{ fieldPath: "attributes.en.title", intent: "display", value: "Remapped title", remoteKey: "custom_title" }],
+    }]);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.outcomes[0]).toMatchObject({ externalId: "101", ok: true });
+    expect(requests.find((request) => request.method === "POST")?.body).toEqual({
+      metafield: {
+        namespace: "porulle",
+        key: "custom_title",
+        value: "Remapped title",
+        type: "single_line_text_field",
+      },
+    });
+    expect(requests.some((request) => request.method === "PUT" && request.url.endsWith("/products/101.json"))).toBe(false);
+  });
+
+  it("writes variant native fields once and scopes variant metafields to the variant", async () => {
+    const requests: Array<{ url: string; method: string; body?: unknown }> = [];
+    const pushStore = {
+      ...store,
+      credentials: { accessToken: "token", grantedScopes: ["write_products"] },
+    };
+    const connector = shopifyConnector({
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        requests.push({ url, method, body });
+        if (url.endsWith("/products/101.json") && method === "GET") {
+          return new Response(JSON.stringify({
+            product: {
+              id: 101,
+              variants: [{ id: 201, sku: "OLD-SKU", barcode: "OLD-BARCODE" }],
+            },
+          }));
+        }
+        if (url.includes("/products/101/metafields.json") && method === "GET") {
+          return new Response(JSON.stringify({ metafields: [] }));
+        }
+        if (url.includes("/variants/201/metafields.json") && method === "GET") {
+          return new Response(JSON.stringify({ metafields: [] }));
+        }
+        if (url.endsWith("/variants/201.json") && method === "PUT") {
+          return new Response(JSON.stringify({ variant: { id: 201, sku: "NEW-SKU" } }));
+        }
+        if (url.endsWith("/products/101/metafields.json") && method === "POST") {
+          return new Response(JSON.stringify({ metafield: { id: 9101, namespace: "porulle", key: "variant_note", value: "New note" } }));
+        }
+        if (url.endsWith("/variants/201/metafields.json") && method === "POST") {
+          return new Response(JSON.stringify({ metafield: { id: 9101, namespace: "porulle", key: "variant_note", value: "New note" } }));
+        }
+        return new Response("", { status: 404 });
+      },
+    });
+
+    const result = await connector.pushCatalog!(pushStore, [{
+      externalId: "101",
+      fields: [],
+      variants: [{
+        externalId: "201",
+        fields: [
+          { fieldPath: "variants.sku", intent: "display", value: "NEW-SKU", remoteKey: "sku" },
+          { fieldPath: "variants.metadata.note", intent: "display", value: "New note", remoteKey: "variant_note" },
+        ],
+      }],
+    }]);
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        outcomes: [{
+          externalId: "101",
+          ok: true,
+          previousFields: [
+            { fieldPath: "variants.sku", value: "OLD-SKU" },
+            { fieldPath: "variants.metadata.note", value: null },
+          ],
+        }],
+      },
+    });
+    expect(requests.filter((request) => request.method === "PUT" && request.url.endsWith("/variants/201.json"))).toHaveLength(1);
+    expect(requests.find((request) => request.method === "PUT" && request.url.endsWith("/variants/201.json"))?.body).toEqual({ variant: { id: "201", sku: "NEW-SKU" } });
+    expect(requests.find((request) => request.method === "POST" && request.url.endsWith("/variants/201/metafields.json"))?.body).toEqual({
+      metafield: {
+        namespace: "porulle",
+        key: "variant_note",
+        value: "New note",
+        type: "single_line_text_field",
+      },
+    });
+    expect(requests.some((request) => request.method === "POST" && request.url.endsWith("/products/101/metafields.json"))).toBe(false);
+  });
+
+  it("reports product images as not written instead of confirming the item", async () => {
+    const requests: Array<{ url: string; method: string }> = [];
+    const pushStore = {
+      ...store,
+      credentials: { accessToken: "token", grantedScopes: ["write_products"] },
+    };
+    const connector = shopifyConnector({
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        requests.push({ url, method });
+        if (url.endsWith("/products/101.json") && method === "GET") {
+          return new Response(JSON.stringify({ product: { id: 101 } }));
+        }
+        if (url.includes("/products/101/metafields.json") && method === "GET") {
+          return new Response(JSON.stringify({ metafields: [] }));
+        }
+        return new Response("", { status: 404 });
+      },
+    });
+
+    const result = await connector.pushCatalog!(pushStore, [{
+      externalId: "101",
+      fields: [],
+      images: [{ url: "https://cdn.shop.example/boot.jpg", role: "primary" }],
+    }]);
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        outcomes: [{
+          externalId: "101",
+          ok: false,
+          error: {
+            code: "SHOPIFY_IMAGES_NOT_WRITTEN",
+            message: "Shopify catalog image pushes are not written by this adapter.",
+            retriable: false,
+          },
+        }],
+      },
+    });
+    expect(requests.filter((request) => request.method !== "GET")).toEqual([]);
+  });
+
+  it("does not update a foreign-namespace metafield with the same key", async () => {
+    const requests: Array<{ url: string; method: string; body?: unknown }> = [];
+    const pushStore = {
+      ...store,
+      credentials: { accessToken: "token", grantedScopes: ["write_products"] },
+    };
+    const connector = shopifyConnector({
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        requests.push({ url, method, body });
+        if (url.endsWith("/products/101.json") && method === "GET") {
+          return new Response(JSON.stringify({ product: { id: 101 } }));
+        }
+        if (url.includes("/products/101/metafields.json") && method === "GET") {
+          return new Response(JSON.stringify({ metafields: [{ id: 9900, namespace: "merchant", key: "seo_title", value: "Merchant SEO" }] }));
+        }
+        if (url.endsWith("/metafields/9900.json") && method === "PUT") {
+          return new Response(JSON.stringify({ metafield: { id: 9900, namespace: "merchant", key: "seo_title", value: "Overwritten" } }));
+        }
+        if (url.endsWith("/products/101/metafields.json") && method === "POST") {
+          return new Response(JSON.stringify({ metafield: { id: 9901, namespace: "porulle", key: "seo_title", value: "Porulle SEO" } }));
+        }
+        return new Response("", { status: 404 });
+      },
+    });
+
+    const result = await connector.pushCatalog!(pushStore, [{
+      externalId: "101",
+      fields: [{ fieldPath: "attributes.en.seoTitle", intent: "display", value: "Porulle SEO", remoteKey: "seo_title" }],
+    }]);
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        outcomes: [{
+          externalId: "101",
+          ok: true,
+          previousFields: [{ fieldPath: "attributes.en.seoTitle", value: null }],
+        }],
+      },
+    });
+    expect(requests.some((request) => request.method === "PUT" && request.url.endsWith("/metafields/9900.json"))).toBe(false);
+    expect(requests.find((request) => request.method === "POST" && request.url.endsWith("/products/101/metafields.json"))?.body).toMatchObject({
+      metafield: { namespace: "porulle", key: "seo_title" },
+    });
+  });
+
+  it("returns a scope error for stores missing write_products and supports dry-run", async () => {
+    const requests: string[] = [];
+    const scopelessStore = {
+      ...store,
+      storeDomain: "acme.myshopify.com",
+      credentials: { accessToken: "token", grantedScopes: ["read_products"] },
+    };
+    const connector = shopifyConnector({
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      appUrl: "https://app.example",
+      fetchImpl: async (input) => {
+        requests.push(String(input));
+        return new Response(JSON.stringify({ product: { id: 101, title: "Old" } }));
+      },
+    });
+
+    const blocked = await connector.pushCatalog!(scopelessStore, [{
+      externalId: "101",
+      fields: [{ fieldPath: "attributes.en.title", intent: "display", value: "New", remoteKey: "title" }],
+    }]);
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) {
+      expect(blocked.error).toMatchObject({
+        code: "SHOPIFY_WRITE_PRODUCTS_SCOPE_MISSING",
+        retriable: false,
+      });
+      expect(blocked.error.message).toContain("https://app.example/api/channels/oauth/shopify/start?shop=acme.myshopify.com");
+      expect(blocked.error.message).not.toContain("/admin/oauth/authorize");
+    }
+    expect(requests).toEqual([]);
+
+    const authorizedStore = {
+      ...scopelessStore,
+      credentials: { accessToken: "token", grantedScopes: ["write_products"] },
+    };
+    const dryRun = await connector.pushCatalog!(authorizedStore, [{
+      externalId: "101",
+      fields: [{ fieldPath: "attributes.en.title", intent: "display", value: "New", remoteKey: "title" }],
+    }], { dryRun: true });
+    expect(dryRun.ok).toBe(true);
+    if (dryRun.ok) expect(dryRun.value.outcomes).toEqual([{ externalId: "101", ok: true, previousFields: [{ fieldPath: "attributes.en.title", value: "Old" }] }]);
+    expect(requests.filter((url) => url.includes("/products/101.json") && !url.includes("metafields"))).toHaveLength(1);
+  });
+
+  it("maps Shopify 403 and 429 responses to scope and rate-limit errors", async () => {
+    const connector = shopifyConnector({
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.endsWith("/products/403.json")) return new Response("", { status: 403 });
+        if (url.endsWith("/products/403-write.json") && method === "PUT") return new Response("", { status: 403 });
+        if (url.endsWith("/products/429.json") && method !== "GET") return new Response("", { status: 429 });
+        if (url.includes("/metafields.json")) return new Response(JSON.stringify({ metafields: [] }));
+        return new Response(JSON.stringify({ product: { id: 429, title: "Old" } }));
+      },
+    });
+    const pushStore = {
+      ...store,
+      credentials: { accessToken: "token", grantedScopes: ["write_products"] },
+    };
+
+    const forbidden = await connector.pushCatalog!(pushStore, [{
+      externalId: "403",
+      fields: [{ fieldPath: "attributes.en.title", intent: "display", value: "New", remoteKey: "title" }],
+    }]);
+    expect(forbidden.ok).toBe(true);
+    if (forbidden.ok) {
+      expect(forbidden.value.outcomes[0]).toMatchObject({
+        ok: false,
+        error: { code: "SHOPIFY_API_FAILED", retriable: false },
+      });
+    }
+
+    const mutatingForbidden = await connector.pushCatalog!(pushStore, [{
+      externalId: "403-write",
+      fields: [{ fieldPath: "attributes.en.title", intent: "display", value: "New", remoteKey: "title" }],
+    }]);
+    expect(mutatingForbidden.ok).toBe(true);
+    if (mutatingForbidden.ok) {
+      expect(mutatingForbidden.value.outcomes[0]).toMatchObject({
+        ok: false,
+        error: { code: "SHOPIFY_WRITE_PRODUCTS_SCOPE_MISSING", retriable: false },
+      });
+    }
+
+    const limited = await connector.pushCatalog!(pushStore, [{
+      externalId: "429",
+      fields: [{ fieldPath: "attributes.en.title", intent: "display", value: "New", remoteKey: "title" }],
+    }]);
+    expect(limited.ok).toBe(true);
+    if (limited.ok) {
+      expect(limited.value.outcomes[0]).toMatchObject({
+        ok: false,
+        error: { code: "SHOPIFY_RATE_LIMITED", retriable: true },
+      });
+    }
   });
 });
