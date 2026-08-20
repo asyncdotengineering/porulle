@@ -279,7 +279,6 @@ describe("channel catalog write settings", () => {
       type: "product",
       slug,
       status,
-      isVisible: status === "active",
       metadata: {
         collection: "summer",
         color: "red",
@@ -622,6 +621,57 @@ describe("channel catalog write settings", () => {
       eq(sellableEntityRevisions.entityId, firstEntityId),
     );
     expect(revisions.some((revision) => revision.reason === "push")).toBe(false);
+  });
+
+  it("records outbound suppression per confirmed item and clears failed items", async () => {
+    const storeId = (await connect("shopify", "push-outbound-per-item.myshopify.com")).id;
+    await service.updateCatalogWriteEnabled(TEST_ORG_ID, storeId, true);
+    const firstEntityId = await createPushEntity("push-outbound-per-item-first");
+    const failedEntityId = await createPushEntity("push-outbound-per-item-failed");
+    await mapPushEntity(firstEntityId, storeId);
+    await mapPushEntity(failedEntityId, storeId);
+    await setPushPlatformOwner(firstEntityId, storeId, "attributes.en.title");
+    await setPushPlatformOwner(failedEntityId, storeId, "attributes.en.title");
+    const failingConnector = {
+      ...mockChannelConnector({ pushCatalogFailures: { [failedEntityId]: { code: "REMOTE_VALIDATION", message: "Rejected." } } }),
+      providerId: "shopify",
+    };
+    const pushService = new ChannelConnectorService(
+      built.db,
+      built.kernel.services,
+      { connectors: [failingConnector] },
+      built.kernel.database.transaction as PluginTxFn,
+    );
+
+    const result = await pushService.pushCatalogToStore(TEST_ORG_ID, storeId, [firstEntityId, failedEntityId]);
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        outcomes: [
+          { externalId: firstEntityId, ok: true },
+          { externalId: failedEntityId, ok: false },
+        ],
+      },
+    });
+    const mappings = await built.db.select({
+      externalId: channelEntityMap.externalId,
+      outboundHash: channelEntityMap.outboundHash,
+      outboundPushedAt: channelEntityMap.outboundPushedAt,
+      outboundFieldPaths: channelEntityMap.outboundFieldPaths,
+      syncHash: channelEntityMap.syncHash,
+    }).from(channelEntityMap).where(eq(channelEntityMap.storeId, storeId));
+    expect(mappings.find((mapping) => mapping.externalId === firstEntityId)).toMatchObject({
+      outboundHash: expect.any(String),
+      outboundPushedAt: expect.any(Date),
+      outboundFieldPaths: ["attributes.en.title"],
+    });
+    expect(mappings.find((mapping) => mapping.externalId === failedEntityId)).toMatchObject({
+      outboundHash: null,
+      outboundPushedAt: null,
+      outboundFieldPaths: [],
+      syncHash: "",
+    });
   });
 
   describe("mock connector catalog push", () => {

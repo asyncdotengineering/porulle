@@ -53,6 +53,9 @@ export const channelEntityMap = pgTable(
     variantId: uuid("variant_id"),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }).defaultNow().notNull(),
     syncHash: text("sync_hash").notNull(),
+    outboundHash: text("outbound_hash"),
+    outboundPushedAt: timestamp("outbound_pushed_at", { withTimezone: true }),
+    outboundFieldPaths: jsonb("outbound_field_paths").$type<FieldPath[]>().notNull().default([]),
     heldFieldPaths: jsonb("held_field_paths").$type<FieldPath[]>().notNull().default([]),
   },
   (table) => ({

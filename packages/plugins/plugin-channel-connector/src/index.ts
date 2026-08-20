@@ -39,6 +39,7 @@ export { mockChannelConnector } from "./mock-connector.js";
 export type { MockChannelConnectorOptions } from "./mock-connector.js";
 export {
   ChannelConnectorService,
+  CATALOG_OUTBOUND_SUPPRESSION_WINDOW_MS,
   canExportTransition,
 } from "./service.js";
 export {
@@ -63,6 +64,7 @@ export type {
   BackfillCatalogReport,
   BuildCatalogPushItemsOptions,
   BuildCatalogPushItemsResult,
+  PushCatalogToStoreResult,
   CatalogFieldConflict,
   CatalogFieldSkip,
   CatalogPushFieldSkip,
