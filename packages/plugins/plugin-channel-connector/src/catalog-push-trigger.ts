@@ -53,19 +53,23 @@ export async function maybeEnqueueCatalogPush(args: {
       eq(channelEntityMap.kind, "entity"),
     ));
 
-  const storesToPush = new Set<string>();
+  const forceFieldPathsByStore = new Map<string, string[]>();
   for (const mapping of mappings) {
     const owners = await catalog.resolveFieldOwners(args.entityId, mapping.storeId);
-    const hasPlatformChange = args.changedFieldPaths.some((path) => owners.get(path) === "platform");
-    if (hasPlatformChange) storesToPush.add(mapping.storeId);
+    const changedPaths = args.changedFieldPaths.filter((path) => {
+      const owner = owners.get(path);
+      return owner === "platform" || owner === "shared";
+    });
+    if (changedPaths.length > 0) forceFieldPathsByStore.set(mapping.storeId, changedPaths);
   }
 
-  await Promise.all([...storesToPush].map((storeId) => args.context.jobs.enqueue(
+  await Promise.all([...forceFieldPathsByStore].map(([storeId, forceFieldPaths]) => args.context.jobs.enqueue(
     "channel/push-catalog",
     {
       organizationId: orgId,
       storeId,
       entityIds: [args.entityId],
+      forceFieldPaths: { [args.entityId]: forceFieldPaths },
     },
     {
       organizationId: orgId,

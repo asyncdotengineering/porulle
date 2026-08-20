@@ -7,14 +7,17 @@ import {
   defineCommercePlugin,
   router,
   createSystemActor,
+  isValidFieldPath,
 } from "@porulle/core";
-import type { JobsAdapter, PluginResult, PluginRouteRegistration, TaskDefinition } from "@porulle/core";
+import type { FieldPath, JobsAdapter, PluginResult, PluginRouteRegistration, TaskDefinition } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
 import { and, eq } from "@porulle/core/drizzle";
 import { processedWebhookEvents } from "@porulle/core/schema";
 import {
   channelCatalogPushEvents,
   channelCatalogPushes,
+  channelCatalogConflicts,
+  channelCatalogConflictEvents,
   channelEntityMap,
   channelExportEvents,
   channelOrderExports,
@@ -25,6 +28,7 @@ import {
 import {
   ChannelConnectorService,
   catalogPushConcurrencyKey,
+  type CatalogConflictState,
   type ChannelComplianceData,
   type ChannelConnectorPluginOptions,
 } from "./service.js";
@@ -33,6 +37,7 @@ import { oauthStateEventId, signState, verifyState } from "./oauth-state.js";
 
 type ChannelRouteContext = {
   input: unknown;
+  query?: unknown;
   params: Record<string, string>;
   orgId: string;
   actor: { userId: string } | null;
@@ -88,6 +93,7 @@ export type {
   CatalogFieldSkip,
   CatalogPushFieldSkip,
   CatalogPushSkipReason,
+  CatalogConflictState,
   CatalogWriteSettings,
   ChannelComplianceData,
   ChannelConnectorPluginOptions,
@@ -100,6 +106,8 @@ export type { OAuthStatePayload, OAuthStateResult } from "./oauth-state.js";
 export type {
   ChannelCatalogPush,
   ChannelCatalogPushEvent,
+  ChannelCatalogConflict,
+  ChannelCatalogConflictEvent,
   ChannelEntityMapEntry,
   ChannelExportEvent,
   ChannelOrderExport,
@@ -261,11 +269,20 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
         const entityIds = Array.isArray(input.entityIds)
           ? input.entityIds.map(String)
           : undefined;
+        const forceFieldPaths = typeof input.forceFieldPaths === "object" && input.forceFieldPaths !== null
+          ? Object.fromEntries(Object.entries(input.forceFieldPaths).flatMap(([entityId, paths]) => [
+            [entityId, Array.isArray(paths) ? paths.filter((path): path is FieldPath => typeof path === "string" && isValidFieldPath(path)) : []],
+          ]))
+          : undefined;
         const cursor = typeof input.cursor === "string" ? input.cursor : undefined;
         const result = await service.executeCatalogPushJob(
           orgId,
           storeId,
-          { ...(entityIds ? { entityIds } : {}), ...(cursor ? { cursor } : {}) },
+          {
+            ...(entityIds ? { entityIds } : {}),
+            ...(forceFieldPaths ? { forceFieldPaths } : {}),
+            ...(cursor ? { cursor } : {}),
+          },
           createSystemActor(orgId),
           { jobs: ctx.services.jobs as JobsAdapter },
         );
@@ -297,6 +314,8 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
       channelEntityMap,
       channelCatalogPushes,
       channelCatalogPushEvents,
+      channelCatalogConflicts,
+      channelCatalogConflictEvents,
       channelOrderExports,
       channelExportEvents,
       channelRefundRequests,
@@ -504,6 +523,25 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
         .summary("Get channel reconciliation status")
         .permission("channels:read")
         .handler(async ({ params, orgId }: ChannelRouteContext) => unwrap(await service.getReconcileStatus(orgId, params.storeId!)));
+
+      channels.get("/conflicts")
+        .summary("List channel catalog conflicts")
+        .permission("channels:read")
+        .query(z.object({ storeId: z.string().min(1).optional(), state: z.enum(["open", "resolved"]).optional() }))
+        .handler(async ({ query, orgId }: ChannelRouteContext) => {
+          const values = query as { storeId?: string; state?: CatalogConflictState };
+          return unwrap(await service.listCatalogConflicts(orgId, values.storeId, values.state));
+        });
+
+      channels.post("/conflicts/{id}/resolve")
+        .summary("Resolve a channel catalog conflict")
+        .permission("channels:manage")
+        .params(z.object({ id: z.string().min(1) }))
+        .input(z.object({ choose: z.enum(["platform", "store"]) }))
+        .handler(async ({ params, orgId, input, actor }: ChannelRouteContext) => {
+          const values = input as { choose: "platform" | "store" };
+          return unwrap(await service.resolveCatalogConflict(orgId, params.id!, values.choose, actor!));
+        });
 
       channels.post("/stores/{storeId}/backfill")
         .summary("Backfill a channel catalog into the PIM")

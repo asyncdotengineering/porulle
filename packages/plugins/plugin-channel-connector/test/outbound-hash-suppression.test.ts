@@ -422,7 +422,8 @@ describe("channel outbound hash suppression", () => {
     expect(cleared).toEqual({ syncHash: "", outboundHash: null, outboundPushedAt: null, outboundFieldPaths: [], heldFieldPaths: [] });
     await scenario.built.kernel.services.catalog.setAttributes(scenario.entityId, "en", { title: "Local after failed push" }, testAdminActor);
     const reconciled = await scenario.service.reconcile(TEST_ORG_ID, scenario.storeId, createSystemActor(TEST_ORG_ID));
-    expect(reconciled).toMatchObject({ ok: true, value: { conflicts: [expect.objectContaining({ fieldPath: "attributes.en.title" })] } });
+    expect(reconciled).toMatchObject({ ok: true, value: { openConflicts: 0 } });
+    if (reconciled.ok) expect(reconciled.value.conflicts ?? []).toEqual([]);
   }, 30_000);
 
   it("clears write-ahead state when the connector throws", async () => {

@@ -58,7 +58,7 @@ describe("channel connector c74 reconciliation", () => {
     mockOptions.catalog = [item("remote-kept", "Kept changed"), item("remote-added", "Added")];
     mockOptions.inventory = [{ externalId: "remote-kept-variant", available: 9 }];
     const result = await service.reconcile(TEST_ORG_ID, storeId, createSystemActor(TEST_ORG_ID));
-    expect(result).toEqual({ ok: true, value: { imported: 1, converged: 1, archived: 1, inventoryUpdated: 1, driftAlert: true } });
+    expect(result).toEqual({ ok: true, value: { imported: 1, converged: 1, archived: 1, inventoryUpdated: 1, openConflicts: 0, driftAlert: true } });
 
     const [changed] = await built.db.select().from(sellableEntities).where(eq(sellableEntities.slug, "remote-kept"));
     expect(changed?.metadata).toEqual({});
@@ -69,12 +69,12 @@ describe("channel connector c74 reconciliation", () => {
       headers: { "x-test-actor": JSON.stringify(actor) },
     });
     expect(status.status).toBe(200);
-    expect((await status.json()).data).toMatchObject({ report: { imported: 1, converged: 1, archived: 1, inventoryUpdated: 1, driftAlert: true }, driftAlert: true });
+    expect((await status.json()).data).toMatchObject({ report: { imported: 1, converged: 1, archived: 1, inventoryUpdated: 1, openConflicts: 0, driftAlert: true }, driftAlert: true });
   });
 
   it("is idempotent and reactivates the original mapped entity", async () => {
     const second = await service.reconcile(TEST_ORG_ID, storeId, createSystemActor(TEST_ORG_ID));
-    expect(second).toEqual({ ok: true, value: { imported: 0, converged: 0, archived: 0, inventoryUpdated: 0, driftAlert: false } });
+    expect(second).toEqual({ ok: true, value: { imported: 0, converged: 0, archived: 0, inventoryUpdated: 0, openConflicts: 0, driftAlert: false } });
     mockOptions.catalog = [item("remote-kept", "Kept changed"), item("remote-added", "Added"), item("remote-removed", "Removed")];
     mockOptions.inventory.push({ externalId: "remote-removed-variant", available: 2 });
     const reappeared = await service.reconcile(TEST_ORG_ID, storeId, createSystemActor(TEST_ORG_ID));

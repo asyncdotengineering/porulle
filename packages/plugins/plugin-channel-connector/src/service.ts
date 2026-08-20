@@ -29,7 +29,7 @@ import { isValidFieldPath } from "@porulle/core";
 import type { FieldOwner, FieldPath } from "@porulle/core";
 import type { JobsAdapter } from "@porulle/core";
 import { CHANNEL_CONVERGENCE_CTX } from "./catalog-push-trigger.js";
-import { and, eq, inArray, isNull } from "@porulle/core/drizzle";
+import { and, desc, eq, inArray, isNull, lte } from "@porulle/core/drizzle";
 import {
   brands,
   categories,
@@ -47,14 +47,18 @@ import {
   sellableAttributes,
   sellableCustomFields,
   sellableEntities,
+  sellableEntityRevisions,
   entityFieldDefinitions,
   tags,
   variants,
   variantOptionValues,
 } from "@porulle/core/schema";
+import type { SellableEntityRevisionSnapshot } from "@porulle/core/schema";
 import {
   channelCatalogPushEvents,
   channelCatalogPushes,
+  channelCatalogConflicts,
+  channelCatalogConflictEvents,
   channelEntityMap,
   channelExportEvents,
   channelOrderExports,
@@ -62,6 +66,7 @@ import {
   channelRefundEvents,
   channelRefundRequests,
   type ChannelCatalogPush,
+  type ChannelCatalogConflict,
   type ChannelOrderExport,
   type ChannelRefundRequest,
   type ConnectedStore,
@@ -77,6 +82,7 @@ import {
 
 export type ExportState = ChannelOrderExport["state"];
 export type CatalogPushState = ChannelCatalogPush["state"];
+export type CatalogConflictState = ChannelCatalogConflict["state"];
 
 export const CATALOG_PUSH_BATCH_SIZES: Record<string, number> = {
   mock: 100,
@@ -136,6 +142,7 @@ export interface ReconcileReport extends Record<string, unknown> {
   converged: number;
   archived: number;
   inventoryUpdated: number;
+  openConflicts: number;
   driftAlert: boolean;
   skipped?: CatalogFieldSkip[];
   conflicts?: CatalogFieldConflict[];
@@ -148,6 +155,11 @@ export interface CatalogFieldConflict {
   fieldPath: FieldPath;
   localValueSummary: string;
   remoteValueSummary: string;
+}
+
+interface DetectedCatalogFieldConflict extends CatalogFieldConflict {
+  platformValue: unknown;
+  storeValue: unknown;
 }
 
 export interface CatalogFieldSkip {
@@ -242,6 +254,7 @@ export interface BackfillCatalogOptions {
 
 export interface BuildCatalogPushItemsOptions {
   recordRevision?: boolean;
+  forceFieldPaths?: Record<string, FieldPath[]>;
 }
 
 export interface CatalogPushAssemblyField extends ChannelPushCatalogField {
@@ -315,7 +328,7 @@ interface CatalogService {
   };
   update(
     id: string,
-    input: { slug?: string; status?: string; metadata?: Record<string, unknown>; isVisible?: boolean },
+    input: { slug?: string; status?: string; metadata?: Record<string, unknown>; isVisible?: boolean; customFields?: Record<string, unknown | null> },
     actor: Actor,
     ctx?: CatalogWriteContext,
   ): Promise<{ ok: true; value: unknown } | { ok: false; error: { message: string } }>;
@@ -356,6 +369,13 @@ interface CatalogService {
     ctx?: TxContext<PluginDb>,
   ): Promise<{ ok: true; value: unknown } | { ok: false; error: { message: string } }>;
   resolveFieldOwners(entityId: string, storeId: string): Promise<Map<FieldPath, FieldOwner>>;
+  setFieldOwner(
+    entityId: string,
+    fieldPath: FieldPath,
+    storeId: string | null,
+    owner: FieldOwner,
+    actor: Actor | null,
+  ): Promise<{ ok: true; value: undefined } | { ok: false; error: { message: string } }>;
   seedImportedFieldOwnership(entityId: string, storeId: string, fieldPaths: FieldPath[]): Promise<{ ok: true; value: undefined } | { ok: false; error: { message: string } }>;
   createOptionType(
     input: { entityId: string; name: string; values?: string[] },
@@ -472,6 +492,49 @@ function normalizeCanonicalValue(value: unknown): unknown {
       .map(([key, nested]) => [key, normalizeCanonicalValue(nested)]));
   }
   return value;
+}
+
+function normalizedValuesEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(normalizeCanonicalValue(left)) === JSON.stringify(normalizeCanonicalValue(right));
+}
+
+function snapshotCustomFieldValue(field: Record<string, unknown>): unknown {
+  if (field.textValue !== null && field.textValue !== undefined) return field.textValue;
+  if (field.numberValue !== null && field.numberValue !== undefined) return field.numberValue;
+  if (field.booleanValue !== null && field.booleanValue !== undefined) return field.booleanValue;
+  if (field.dateValue !== null && field.dateValue !== undefined) return field.dateValue;
+  return field.jsonValue;
+}
+
+function snapshotFieldValue(
+  snapshot: SellableEntityRevisionSnapshot,
+  path: FieldPath,
+): { found: boolean; value: unknown } {
+  const [root, segment, field] = path.split(".");
+  if (root === "entity" && segment === "slug") return { found: true, value: snapshot.entity.slug };
+  if (root === "entity" && segment === "status") return { found: true, value: snapshot.entity.status };
+  if (root === "entity" && segment === "metadata") {
+    const metadata = snapshot.entity.metadata;
+    return {
+      found: true,
+      value: metadata && typeof metadata === "object" ? (metadata as Record<string, unknown>)[field ?? ""] : undefined,
+    };
+  }
+  if (root === "attributes" && segment && field) {
+    const attribute = snapshot.attributes.find((row) => row.locale === segment);
+    return { found: true, value: attribute?.[field] };
+  }
+  if (root === "customFields" && segment && field) {
+    const customField = snapshot.customFields.find((row) => row.fieldName === segment && row.locale === field && row.status === "approved");
+    return { found: true, value: customField ? snapshotCustomFieldValue(customField) : undefined };
+  }
+  if (root === "media" && segment) {
+    return {
+      found: true,
+      value: snapshot.media.filter((row) => row.role === segment).map((row) => row.mediaAssetId),
+    };
+  }
+  return { found: false, value: undefined };
 }
 
 interface CanonicalOutboundField {
@@ -872,6 +935,15 @@ export class ChannelConnectorService {
         : {};
       return values[field];
     }
+    if (root === "customFields" && segment && field) {
+      const [customField] = await this.db.select().from(sellableCustomFields).where(and(
+        eq(sellableCustomFields.entityId, entityId),
+        eq(sellableCustomFields.fieldName, segment),
+        eq(sellableCustomFields.locale, field),
+        eq(sellableCustomFields.status, "approved"),
+      ));
+      return customField ? customFieldValue(customField) : undefined;
+    }
     if (root === "media" && segment) {
       const links = await this.db.select({ id: entityMedia.mediaAssetId }).from(entityMedia).where(and(
         eq(entityMedia.entityId, entityId),
@@ -901,6 +973,17 @@ export class ChannelConnectorService {
     return undefined;
   }
 
+  private async lastSyncedSnapshot(
+    entityId: string,
+    lastSyncedAt: Date,
+  ): Promise<SellableEntityRevisionSnapshot | undefined> {
+    const [revision] = await this.db.select({ snapshot: sellableEntityRevisions.snapshot }).from(sellableEntityRevisions).where(and(
+      eq(sellableEntityRevisions.entityId, entityId),
+      lte(sellableEntityRevisions.createdAt, lastSyncedAt),
+    )).orderBy(desc(sellableEntityRevisions.createdAt)).limit(1);
+    return revision?.snapshot;
+  }
+
   private async detectSharedConflicts(
     entityId: string,
     storeId: string,
@@ -911,33 +994,108 @@ export class ChannelConnectorService {
     fieldPaths: FieldPath[] = importedFieldPaths(item),
     remoteHash = hash(item),
     echo?: { certifiedPaths: ReadonlySet<FieldPath> },
-  ): Promise<{ paths: FieldPath[]; conflicts: CatalogFieldConflict[] }> {
+  ): Promise<{ paths: FieldPath[]; conflicts: DetectedCatalogFieldConflict[] }> {
     if (!mapping || mapping.syncHash === remoteHash) return { paths: [], conflicts: [] };
     const revisions = await this.catalog.repository.findRevisionMarkers(entityId, mapping.lastSyncedAt);
     const localChanged = revisions.some((revision) => revision.reason !== "import");
-    if (!localChanged) return { paths: [], conflicts: [] };
-    let paths = fieldPaths.filter((path) => owners.get(path) === "shared");
-    if (echo) {
-      // The outbound hash certifies only the pushed paths; a shared path
-      // outside that set carrying a genuinely different remote value is a
-      // real store edit even inside an echo payload.
-      const candidates = paths.filter((path) => !echo.certifiedPaths.has(path));
-      const changed: FieldPath[] = [];
-      for (const path of candidates) {
-        const remoteValue = JSON.stringify(normalizeCanonicalValue(this.remoteFieldValue(item, path)));
-        const localValue = JSON.stringify(normalizeCanonicalValue(await this.localFieldValue(entityId, entity, path)));
-        if (remoteValue !== localValue) changed.push(path);
+    const paths = fieldPaths.filter((path) => owners.get(path) === "shared");
+    const openRows = await this.db.select({
+      fieldPath: channelCatalogConflicts.fieldPath,
+      storeValue: channelCatalogConflicts.storeValue,
+    }).from(channelCatalogConflicts).where(and(
+      eq(channelCatalogConflicts.storeId, storeId),
+      eq(channelCatalogConflicts.entityId, entityId),
+      eq(channelCatalogConflicts.state, "open"),
+    ));
+    if (!localChanged && openRows.length === 0) return { paths: [], conflicts: [] };
+    const openByPath = new Map(openRows.map((row) => [row.fieldPath as FieldPath, row.storeValue]));
+    const baseline = await this.lastSyncedSnapshot(entityId, mapping.lastSyncedAt);
+    const changed: FieldPath[] = [];
+    for (const path of paths) {
+      const localValue = await this.localFieldValue(entityId, entity, path);
+      const remoteValue = this.remoteFieldValue(item, path);
+      let diverged = false;
+      if (echo) {
+        // The outbound hash certifies only the pushed paths; a shared path
+        // outside that set carrying a genuinely different remote value is a
+        // real store edit even inside an echo payload.
+        diverged = !echo.certifiedPaths.has(path) && !normalizedValuesEqual(remoteValue, localValue);
+      } else if (openByPath.has(path)) {
+        diverged = !normalizedValuesEqual(remoteValue, openByPath.get(path));
+      } else if (baseline) {
+        const baselineValue = snapshotFieldValue(baseline, path);
+        diverged = baselineValue.found
+          && !normalizedValuesEqual(localValue, baselineValue.value)
+          && !normalizedValuesEqual(remoteValue, baselineValue.value)
+          && !normalizedValuesEqual(localValue, remoteValue);
+      } else {
+        diverged = !normalizedValuesEqual(remoteValue, localValue);
       }
-      paths = changed;
+      if (diverged) changed.push(path);
     }
-    const conflicts = await Promise.all(paths.map(async (fieldPath) => ({
-      entityId,
-      storeId,
-      fieldPath,
-      localValueSummary: summarizeValue(await this.localFieldValue(entityId, entity, fieldPath)),
-      remoteValueSummary: summarizeValue(this.remoteFieldValue(item, fieldPath)),
-    })));
-    return { paths, conflicts };
+    const conflicts = await Promise.all(changed.map(async (fieldPath) => {
+      const platformValue = await this.localFieldValue(entityId, entity, fieldPath);
+      const storeValue = this.remoteFieldValue(item, fieldPath);
+      return {
+        entityId,
+        storeId,
+        fieldPath,
+        platformValue: platformValue === undefined ? null : platformValue,
+        storeValue: storeValue === undefined ? null : storeValue,
+        localValueSummary: summarizeValue(platformValue),
+        remoteValueSummary: summarizeValue(storeValue),
+      };
+    }));
+    return { paths: changed, conflicts };
+  }
+
+  private async persistCatalogConflicts(
+    orgId: string,
+    conflicts: DetectedCatalogFieldConflict[],
+    changedBy: string,
+  ): Promise<PluginResult<void>> {
+    for (const conflict of conflicts) {
+      const [inserted] = await this.db.insert(channelCatalogConflicts).values({
+        organizationId: orgId,
+        storeId: conflict.storeId,
+        entityId: conflict.entityId,
+        fieldPath: conflict.fieldPath,
+        platformValue: conflict.platformValue,
+        storeValue: conflict.storeValue,
+      }).onConflictDoNothing().returning();
+      if (!inserted) {
+        const [existing] = await this.db.select({
+          id: channelCatalogConflicts.id,
+          storeValue: channelCatalogConflicts.storeValue,
+          platformValue: channelCatalogConflicts.platformValue,
+        }).from(channelCatalogConflicts).where(and(
+          eq(channelCatalogConflicts.organizationId, orgId),
+          eq(channelCatalogConflicts.storeId, conflict.storeId),
+          eq(channelCatalogConflicts.entityId, conflict.entityId),
+          eq(channelCatalogConflicts.fieldPath, conflict.fieldPath),
+          eq(channelCatalogConflicts.state, "open"),
+        ));
+        const storeMoved = existing !== undefined && !normalizedValuesEqual(existing.storeValue, conflict.storeValue);
+        const platformMoved = existing !== undefined && !normalizedValuesEqual(existing.platformValue, conflict.platformValue);
+        if (existing && (storeMoved || platformMoved)) {
+          await this.db.update(channelCatalogConflicts).set({
+            storeValue: conflict.storeValue,
+            platformValue: conflict.platformValue,
+            updatedAt: new Date(),
+          }).where(eq(channelCatalogConflicts.id, existing.id));
+        }
+        continue;
+      }
+      await this.db.insert(channelCatalogConflictEvents).values({
+        organizationId: orgId,
+        conflictId: inserted.id,
+        fromState: null,
+        toState: "open",
+        reason: "Shared catalog field changed on both sides.",
+        changedBy,
+      });
+    }
+    return Ok(undefined);
   }
 
   private async setCatalogAttributes(
@@ -1416,6 +1574,10 @@ export class ChannelConnectorService {
       }
       const fieldMapping = this.resolveCatalogFieldMapping(store, filterableCustomFields, warnings);
       const heldPaths = new Set(entityMapping.heldFieldPaths ?? []);
+      const forcedPushPaths = new Set([
+        ...(entityMapping.forcedPushFieldPaths ?? []),
+        ...(options.forceFieldPaths?.[entity.id] ?? []),
+      ]);
       const fields: CatalogPushAssemblyField[] = [];
       const appendField = (fieldPath: FieldPath, value: unknown) => {
         if (value === undefined) return;
@@ -1432,7 +1594,9 @@ export class ChannelConnectorService {
           });
           return;
         }
-        if (owner !== "platform") return;
+        if (owner === undefined) return;
+        const forced = forcedPushPaths.has(fieldPath);
+        if (owner !== "platform" && !forced) return;
         if (heldPaths.has(fieldPath)) {
           skipped.push({
             entityId,
@@ -1486,7 +1650,9 @@ export class ChannelConnectorService {
           });
           continue;
         }
-        if (owner !== "platform") continue;
+        if (owner === undefined) continue;
+        const forced = forcedPushPaths.has(fieldPath);
+        if (owner !== "platform" && !forced) continue;
         if (heldPaths.has(fieldPath)) {
           skipped.push({
             entityId,
@@ -1543,12 +1709,17 @@ export class ChannelConnectorService {
     storeId: string,
     outcomes: ChannelPushCatalogItemOutcome[],
     items: ChannelPushCatalogItem[],
+    phase: "write-ahead" | "settle" = "settle",
   ): Promise<PluginResult<void>> {
     const outcomeByExternalId = new Map(outcomes.map((outcome) => [outcome.externalId, outcome]));
     const now = new Date();
     for (const item of items) {
       const outcome = outcomeByExternalId.get(item.externalId);
-      const mapping = await this.db.select({ id: channelEntityMap.id, externalId: channelEntityMap.externalId }).from(channelEntityMap).where(and(
+      const mapping = await this.db.select({
+        id: channelEntityMap.id,
+        externalId: channelEntityMap.externalId,
+        forcedPushFieldPaths: channelEntityMap.forcedPushFieldPaths,
+      }).from(channelEntityMap).where(and(
         eq(channelEntityMap.organizationId, orgId),
         eq(channelEntityMap.storeId, storeId),
         eq(channelEntityMap.kind, "entity"),
@@ -1561,6 +1732,13 @@ export class ChannelConnectorService {
           outboundHash: canonicalOutboundHash(mapping[0].externalId, item, fieldPaths),
           outboundPushedAt: now,
           outboundFieldPaths: fieldPaths,
+          // A force is an operator's conflict resolution. The write-ahead runs
+          // before the connector is called and its outcomes are optimistic, so
+          // consuming the force there would discard the resolution on a failed
+          // push and the retry would silently omit the field.
+          ...(phase === "settle"
+            ? { forcedPushFieldPaths: (mapping[0].forcedPushFieldPaths ?? []).filter((path) => !fieldPaths.includes(path)) }
+            : {}),
         }).where(eq(channelEntityMap.id, mapping[0].id));
       } else {
         await this.db.update(channelEntityMap).set({
@@ -1596,6 +1774,7 @@ export class ChannelConnectorService {
       storeId,
       assembled.value.items.map((item) => ({ externalId: item.externalId, ok: true })),
       assembled.value.items,
+      "write-ahead",
     );
     if (!writeAhead.ok) return writeAhead;
 
@@ -2417,13 +2596,21 @@ export class ChannelConnectorService {
             outboundEcho ? { certifiedPaths: new Set(entityMapping?.outboundFieldPaths ?? []) } : undefined,
           )
         : { paths: [], conflicts: [] };
+      const persistedConflicts = await this.persistCatalogConflicts(orgId, shared.conflicts, actor.userId);
+      if (!persistedConflicts.ok) return persistedConflicts;
       const owned = this.filterOwnedFields(item, owners);
       const heldSharedPaths = [...new Set([...(entityMapping?.heldFieldPaths ?? []), ...shared.paths])];
+      // A newly held path revokes any force left from an earlier resolution of
+      // that same path: the force was the operator's answer to a question that
+      // has since been asked again, and it must not pre-empt the new one.
+      const survivingForcedPaths = (entityMapping?.forcedPushFieldPaths ?? []).filter(
+        (path) => !heldSharedPaths.includes(path),
+      );
       const held = this.filterConflictingFields(owned.writable, heldSharedPaths);
       const writable = held.writable;
       const blockedPaths = new Set<FieldPath>([...owned.skipped, ...heldSharedPaths]);
       skipped.push(...owned.skipped.map((fieldPath) => ({ entityId, fieldPath })));
-      conflicts.push(...shared.conflicts);
+      conflicts.push(...shared.conflicts.map(({ platformValue: _platformValue, storeValue: _storeValue, ...conflict }) => conflict));
       for (const conflict of shared.conflicts) {
         warnings.push(`Held shared field conflict for entity "${conflict.entityId}", store "${conflict.storeId}", field "${conflict.fieldPath}" (local ${conflict.localValueSummary}, remote ${conflict.remoteValueSummary}).`);
       }
@@ -2506,12 +2693,14 @@ export class ChannelConnectorService {
           syncHash: remoteHash,
           lastSyncedAt,
           heldFieldPaths: heldSharedPaths,
+          forcedPushFieldPaths: survivingForcedPaths,
         });
       } else if (entityMapping) {
         await this.db.update(channelEntityMap).set({
           syncHash: remoteHash,
           lastSyncedAt,
           heldFieldPaths: heldSharedPaths,
+          forcedPushFieldPaths: survivingForcedPaths,
         }).where(eq(channelEntityMap.id, entityMapping.id));
       }
       await this.db.update(channelEntityMap).set({ lastSyncedAt }).where(and(
@@ -2600,11 +2789,17 @@ export class ChannelConnectorService {
       inventoryUpdated += 1;
     }
     const threshold = this.options.driftAlertThreshold ?? 25;
+    const openConflictRows = await this.db.select({ id: channelCatalogConflicts.id }).from(channelCatalogConflicts).where(and(
+      eq(channelCatalogConflicts.organizationId, orgId),
+      eq(channelCatalogConflicts.storeId, storeId),
+      eq(channelCatalogConflicts.state, "open"),
+    ));
     const report: ReconcileReport = {
       imported: converged.value.imported,
       converged: converged.value.converged,
       archived,
       inventoryUpdated,
+      openConflicts: openConflictRows.length,
       driftAlert: converged.value.imported + converged.value.converged + archived > threshold,
       ...(skipped.length > 0 ? { skipped: uniqueSkipped(skipped) } : {}),
       ...(converged.value.conflicts.length > 0 ? { conflicts: converged.value.conflicts } : {}),
@@ -2624,6 +2819,152 @@ export class ChannelConnectorService {
     if (!store) return PluginErr("Connected store not found.", "NOT_FOUND");
     const report = store.lastReconcileReport as ReconcileReport | null;
     return Ok({ lastReconcileAt: store.lastReconcileAt, report, driftAlert: report?.driftAlert ?? false });
+  }
+
+  async listCatalogConflicts(
+    orgId: string,
+    storeId?: string,
+    state: ChannelCatalogConflict["state"] = "open",
+  ): Promise<PluginResult<ChannelCatalogConflict[]>> {
+    const conditions = [eq(channelCatalogConflicts.organizationId, orgId), eq(channelCatalogConflicts.state, state)];
+    if (storeId !== undefined) conditions.push(eq(channelCatalogConflicts.storeId, storeId));
+    return Ok(await this.db.select().from(channelCatalogConflicts).where(and(...conditions)) as ChannelCatalogConflict[]);
+  }
+
+  async resolveCatalogConflict(
+    orgId: string,
+    id: string,
+    choose: "platform" | "store",
+    actor: Pick<Actor, "userId">,
+  ): Promise<PluginResult<ChannelCatalogConflict>> {
+    const [conflict] = await this.db.select().from(channelCatalogConflicts).where(and(
+      eq(channelCatalogConflicts.organizationId, orgId),
+      eq(channelCatalogConflicts.id, id),
+      eq(channelCatalogConflicts.state, "open"),
+    ));
+    if (!conflict) return PluginErr("Catalog conflict not found or already resolved.", "NOT_FOUND");
+    if (choose === "platform" && !this.jobs) return PluginErr("Jobs are not configured.", "JOBS_UNAVAILABLE");
+    const [mapping] = await this.db.select().from(channelEntityMap).where(and(
+      eq(channelEntityMap.organizationId, orgId),
+      eq(channelEntityMap.storeId, conflict.storeId),
+      eq(channelEntityMap.kind, "entity"),
+      eq(channelEntityMap.entityId, conflict.entityId),
+    ));
+    if (!mapping) return PluginErr("Catalog conflict mapping not found.", "NOT_FOUND");
+    const systemActor = createSystemActor(orgId);
+    let resolutionBaselineAt: Date | undefined;
+    if (choose === "store") {
+      const applied = await this.applyStoreConflictValue(orgId, conflict as ChannelCatalogConflict, systemActor);
+      if (!applied.ok) return PluginErr(applied.error, applied.code);
+      const revisions = await this.catalog.repository.findRevisionMarkers(conflict.entityId);
+      resolutionBaselineAt = revisions.at(-1)?.createdAt;
+    }
+    const heldFieldPaths = (mapping.heldFieldPaths ?? []).filter((path) => path !== conflict.fieldPath);
+    const forcedPushFieldPaths = choose === "platform"
+      ? [...new Set([...(mapping.forcedPushFieldPaths ?? []), conflict.fieldPath as FieldPath])]
+      : mapping.forcedPushFieldPaths ?? [];
+    const [resolved] = await this.db.update(channelCatalogConflicts).set({
+      state: "resolved",
+      resolvedBy: actor.userId,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(channelCatalogConflicts.organizationId, orgId),
+      eq(channelCatalogConflicts.id, id),
+      eq(channelCatalogConflicts.state, "open"),
+    )).returning();
+    if (!resolved) return PluginErr("Catalog conflict not found or already resolved.", "NOT_FOUND");
+    await this.db.update(channelEntityMap).set({
+      heldFieldPaths,
+      forcedPushFieldPaths,
+      ...(resolutionBaselineAt ? { lastSyncedAt: resolutionBaselineAt } : {}),
+    }).where(and(
+      eq(channelEntityMap.organizationId, orgId),
+      eq(channelEntityMap.id, mapping.id),
+    ));
+    await this.db.insert(channelCatalogConflictEvents).values({
+      organizationId: orgId,
+      conflictId: conflict.id,
+      fromState: "open",
+      toState: "resolved",
+      reason: `Operator chose the ${choose} value.`,
+      changedBy: actor.userId,
+    });
+    if (choose === "platform") {
+      await this.jobs!.enqueue("channel/push-catalog", {
+        organizationId: orgId,
+        storeId: conflict.storeId,
+        entityIds: [conflict.entityId],
+      }, {
+        organizationId: orgId,
+        concurrencyKey: catalogPushConcurrencyKey({ storeId: conflict.storeId, entityIds: [conflict.entityId] }),
+        supersedes: true,
+      });
+    }
+    return Ok(resolved as ChannelCatalogConflict);
+  }
+
+  private async applyStoreConflictValue(
+    orgId: string,
+    conflict: ChannelCatalogConflict,
+    actor: Actor,
+  ): Promise<PluginResult<void>> {
+    const [root, segment, field] = conflict.fieldPath.split(".");
+    if (root === "entity" && segment === "slug") {
+      if (typeof conflict.storeValue !== "string") return PluginErr("The stored catalog value is not a valid slug.", "INVALID_CONFLICT_VALUE");
+      const updated = await this.catalog.update(conflict.entityId, { slug: conflict.storeValue }, actor, CHANNEL_CONVERGENCE_CTX);
+      return updated.ok ? Ok(undefined) : PluginErr(updated.error.message);
+    }
+    if (root === "entity" && segment === "status") {
+      if (typeof conflict.storeValue !== "string") return PluginErr("The stored catalog value is not a valid status.", "INVALID_CONFLICT_VALUE");
+      const status = ["draft", "active", "archived", "discontinued"].find((value) => value === conflict.storeValue);
+      if (!status) return PluginErr("The stored catalog value is not a valid status.", "INVALID_CONFLICT_VALUE");
+      const updated = await this.catalog.update(conflict.entityId, { status, isVisible: status === "active" }, actor, CHANNEL_CONVERGENCE_CTX);
+      return updated.ok ? Ok(undefined) : PluginErr(updated.error.message);
+    }
+    if (root === "entity" && segment === "metadata" && field) {
+      const [entity] = await this.db.select().from(sellableEntities).where(and(
+        eq(sellableEntities.organizationId, orgId),
+        eq(sellableEntities.id, conflict.entityId),
+      ));
+      if (!entity) return PluginErr("Catalog entity not found.", "NOT_FOUND");
+      const updated = await this.catalog.update(conflict.entityId, {
+        metadata: { ...(entity.metadata ?? {}), [field]: conflict.storeValue },
+      }, actor, CHANNEL_CONVERGENCE_CTX);
+      return updated.ok ? Ok(undefined) : PluginErr(updated.error.message);
+    }
+    if (root === "attributes" && segment && field && attributeFields.some((attributeField) => attributeField === field)) {
+      const [attribute] = await this.db.select().from(sellableAttributes).where(and(
+        eq(sellableAttributes.entityId, conflict.entityId),
+        eq(sellableAttributes.locale, segment),
+      ));
+      const title = attribute?.title ?? "";
+      const attrs: Parameters<CatalogService["setAttributes"]>[2] = { title };
+      if (field === "title") {
+        if (typeof conflict.storeValue !== "string") return PluginErr("The stored catalog value is not valid text.", "INVALID_CONFLICT_VALUE");
+        attrs.title = conflict.storeValue;
+      } else if (field === "subtitle") {
+        if (typeof conflict.storeValue !== "string") return PluginErr("The stored catalog value is not valid text.", "INVALID_CONFLICT_VALUE");
+        attrs.subtitle = conflict.storeValue;
+      } else if (field === "description") {
+        if (typeof conflict.storeValue !== "string") return PluginErr("The stored catalog value is not valid text.", "INVALID_CONFLICT_VALUE");
+        attrs.description = conflict.storeValue;
+      } else if (field === "richDescription") {
+        attrs.richDescription = conflict.storeValue;
+      } else if (field === "seoTitle") {
+        if (typeof conflict.storeValue !== "string") return PluginErr("The stored catalog value is not valid text.", "INVALID_CONFLICT_VALUE");
+        attrs.seoTitle = conflict.storeValue;
+      } else if (field === "seoDescription") {
+        if (typeof conflict.storeValue !== "string") return PluginErr("The stored catalog value is not valid text.", "INVALID_CONFLICT_VALUE");
+        attrs.seoDescription = conflict.storeValue;
+      }
+      const updated = await this.catalog.setAttributes(conflict.entityId, segment, attrs, actor, CHANNEL_CONVERGENCE_CTX);
+      return updated.ok ? Ok(undefined) : PluginErr(updated.error.message);
+    }
+    if (root === "customFields" && segment && field === "en") {
+      const updated = await this.catalog.update(conflict.entityId, { customFields: { [segment]: conflict.storeValue } }, actor, CHANNEL_CONVERGENCE_CTX);
+      return updated.ok ? Ok(undefined) : PluginErr(updated.error.message);
+    }
+    return PluginErr(`Conflict field path "${conflict.fieldPath}" cannot be resolved to the store value.`, "UNSUPPORTED_CONFLICT_FIELD");
   }
 
   async syncInventory(
@@ -2900,8 +3241,16 @@ export class ChannelConnectorService {
       entityId, storeId, entity, mapping, remoteItem, owners, fieldPaths, remoteHash,
       outboundEcho ? { certifiedPaths: new Set(mapping.outboundFieldPaths ?? []) } : undefined,
     );
+    const persistedConflicts = await this.persistCatalogConflicts(orgId, shared.conflicts, actor.userId);
+    if (!persistedConflicts.ok) return persistedConflicts;
     const owned = this.filterOwnedFieldsAtPaths(remoteItem, owners, fieldPaths);
     const heldPaths = [...new Set([...(mapping.heldFieldPaths ?? []), ...shared.paths])];
+    // Same revocation as the reconcile path: a newly held path cancels any force
+    // left from an earlier resolution, so a webhook-raised conflict cannot be
+    // pre-empted by an operator's answer to a previous one.
+    const survivingForcedPaths = (mapping.forcedPushFieldPaths ?? []).filter(
+      (path) => !heldPaths.includes(path),
+    );
     const held = this.filterConflictingFields(owned.writable, heldPaths);
     const blockedPaths = new Set<FieldPath>([
       ...owned.skipped,
@@ -2909,7 +3258,7 @@ export class ChannelConnectorService {
       ...(!fieldPaths.includes("attributes.en.title") ? ["attributes.en.title" as FieldPath] : []),
     ]);
     const skipped = owned.skipped.map((fieldPath) => ({ entityId, fieldPath }));
-    const conflicts = shared.conflicts;
+    const conflicts = shared.conflicts.map(({ platformValue: _platformValue, storeValue: _storeValue, ...conflict }) => conflict);
     const warnings = conflicts.map((conflict) => `Held shared field conflict for entity "${conflict.entityId}", store "${conflict.storeId}", field "${conflict.fieldPath}" (local ${conflict.localValueSummary}, remote ${conflict.remoteValueSummary}).`);
     const writable = held.writable;
     const updateInput: {
@@ -2947,6 +3296,7 @@ export class ChannelConnectorService {
       syncHash: remoteHash,
       lastSyncedAt,
       heldFieldPaths: heldPaths,
+      forcedPushFieldPaths: survivingForcedPaths,
     }).where(eq(channelEntityMap.id, mapping.id));
     return Ok({ skipped, conflicts, warnings });
   }
@@ -3424,7 +3774,7 @@ export class ChannelConnectorService {
   async executeCatalogPushJob(
     orgId: string,
     storeId: string,
-    options: { entityIds?: string[]; cursor?: string },
+    options: { entityIds?: string[]; cursor?: string; forceFieldPaths?: Record<string, FieldPath[]> },
     actor: Actor,
     runtime: { jobs: JobsAdapter },
   ): Promise<PluginResult<CatalogPushJobResult>> {
@@ -3438,6 +3788,7 @@ export class ChannelConnectorService {
         organizationId: orgId,
         storeId,
         ...(options.entityIds ? { entityIds: options.entityIds } : {}),
+        ...(options.forceFieldPaths ? { forceFieldPaths: options.forceFieldPaths } : {}),
         ...(options.cursor ? { cursor: options.cursor } : {}),
       }, {
         organizationId: orgId,
@@ -3473,6 +3824,7 @@ export class ChannelConnectorService {
         organizationId: orgId,
         storeId,
         ...(options.entityIds ? { entityIds: options.entityIds } : {}),
+        ...(options.forceFieldPaths ? { forceFieldPaths: options.forceFieldPaths } : {}),
         cursor: batchCursor,
       }, {
         organizationId: orgId,
@@ -3482,7 +3834,9 @@ export class ChannelConnectorService {
       return Ok({ complete: false, cursor: batchCursor, pushed: 0, failed: 0 });
     }
 
-    const assembled = await this.buildCatalogPushItems(orgId, storeId, batchEntityIds);
+    const assembled = await this.buildCatalogPushItems(orgId, storeId, batchEntityIds, {
+      ...(options.forceFieldPaths ? { forceFieldPaths: options.forceFieldPaths } : {}),
+    });
     if (!assembled.ok) return assembled;
 
     const mappings = await this.db.select({
@@ -3553,6 +3907,7 @@ export class ChannelConnectorService {
         storeId,
         items.map((item) => ({ externalId: item.externalId, ok: true })),
         items,
+        "write-ahead",
       );
       if (!writeAhead.ok) return writeAhead;
 
@@ -3601,6 +3956,7 @@ export class ChannelConnectorService {
             organizationId: orgId,
             storeId,
             ...(options.entityIds ? { entityIds: options.entityIds } : {}),
+            ...(options.forceFieldPaths ? { forceFieldPaths: options.forceFieldPaths } : {}),
             ...(options.cursor ? { cursor: options.cursor } : {}),
           }, {
             organizationId: orgId,
@@ -3652,6 +4008,7 @@ export class ChannelConnectorService {
               organizationId: orgId,
               storeId,
               ...(options.entityIds ? { entityIds: options.entityIds } : {}),
+              ...(options.forceFieldPaths ? { forceFieldPaths: options.forceFieldPaths } : {}),
               ...(options.cursor ? { cursor: options.cursor } : {}),
             }, {
               organizationId: orgId,
@@ -3720,6 +4077,9 @@ export class ChannelConnectorService {
               organizationId: orgId,
               storeId,
               entityIds: [entityId],
+              ...(options.forceFieldPaths?.[entityId]
+                ? { forceFieldPaths: { [entityId]: options.forceFieldPaths[entityId] } }
+                : {}),
             }, {
               organizationId: orgId,
               concurrencyKey: catalogPushConcurrencyKey({ storeId, entityIds: [entityId] }),
@@ -3742,6 +4102,7 @@ export class ChannelConnectorService {
         organizationId: orgId,
         storeId,
         ...(options.entityIds ? { entityIds: options.entityIds } : {}),
+        ...(options.forceFieldPaths ? { forceFieldPaths: options.forceFieldPaths } : {}),
         cursor: batchCursor,
       }, {
         organizationId: orgId,

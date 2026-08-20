@@ -8,6 +8,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  sql,
 } from "@porulle/core/drizzle";
 import type { ChannelPushCatalogItem, FieldPath } from "@porulle/core";
 import type { CatalogFieldMapping } from "./catalog-field-mapping.js";
@@ -57,6 +58,7 @@ export const channelEntityMap = pgTable(
     outboundPushedAt: timestamp("outbound_pushed_at", { withTimezone: true }),
     outboundFieldPaths: jsonb("outbound_field_paths").$type<FieldPath[]>().notNull().default([]),
     heldFieldPaths: jsonb("held_field_paths").$type<FieldPath[]>().notNull().default([]),
+    forcedPushFieldPaths: jsonb("forced_push_field_paths").$type<FieldPath[]>().notNull().default([]),
   },
   (table) => ({
     orgIdx: index("idx_channel_entity_map_org").on(table.organizationId),
@@ -66,6 +68,48 @@ export const channelEntityMap = pgTable(
       table.kind,
       table.externalId,
     ),
+  }),
+);
+
+export const channelCatalogConflicts = pgTable(
+  "channel_catalog_conflicts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id").notNull(),
+    storeId: uuid("store_id").references(() => connectedStores.id, { onDelete: "cascade" }).notNull(),
+    entityId: uuid("entity_id").notNull(),
+    fieldPath: text("field_path").notNull(),
+    platformValue: jsonb("platform_value").$type<unknown>().notNull(),
+    storeValue: jsonb("store_value").$type<unknown>().notNull(),
+    state: text("state", { enum: ["open", "resolved"] }).notNull().default("open"),
+    resolvedBy: text("resolved_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    orgIdx: index("idx_channel_catalog_conflicts_org").on(table.organizationId),
+    stateIdx: index("idx_channel_catalog_conflicts_org_state").on(table.organizationId, table.state),
+    openUnique: uniqueIndex("channel_catalog_conflicts_open_unique")
+      .on(table.storeId, table.entityId, table.fieldPath)
+      .where(sql`${table.state} = 'open'`),
+  }),
+);
+
+export const channelCatalogConflictEvents = pgTable(
+  "channel_catalog_conflict_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id").notNull(),
+    conflictId: uuid("conflict_id").references(() => channelCatalogConflicts.id, { onDelete: "cascade" }).notNull(),
+    fromState: text("from_state"),
+    toState: text("to_state").notNull(),
+    reason: text("reason"),
+    changedBy: text("changed_by").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    orgIdx: index("idx_channel_catalog_conflict_events_org").on(table.organizationId),
+    conflictIdx: index("idx_channel_catalog_conflict_events_conflict").on(table.conflictId),
   }),
 );
 
@@ -210,6 +254,8 @@ export const channelRefundEvents = pgTable(
 
 export type ConnectedStore = typeof connectedStores.$inferSelect;
 export type ChannelEntityMapEntry = typeof channelEntityMap.$inferSelect;
+export type ChannelCatalogConflict = typeof channelCatalogConflicts.$inferSelect;
+export type ChannelCatalogConflictEvent = typeof channelCatalogConflictEvents.$inferSelect;
 export type ChannelCatalogPush = typeof channelCatalogPushes.$inferSelect;
 export type ChannelCatalogPushEvent = typeof channelCatalogPushEvents.$inferSelect;
 export type ChannelOrderExport = typeof channelOrderExports.$inferSelect;
