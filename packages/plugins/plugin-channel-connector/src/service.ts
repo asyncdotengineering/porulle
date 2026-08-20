@@ -51,12 +51,15 @@ import {
   variantOptionValues,
 } from "@porulle/core/schema";
 import {
+  channelCatalogPushEvents,
+  channelCatalogPushes,
   channelEntityMap,
   channelExportEvents,
   channelOrderExports,
   connectedStores,
   channelRefundEvents,
   channelRefundRequests,
+  type ChannelCatalogPush,
   type ChannelOrderExport,
   type ChannelRefundRequest,
   type ConnectedStore,
@@ -70,6 +73,60 @@ import {
 } from "./catalog-field-mapping.js";
 
 export type ExportState = ChannelOrderExport["state"];
+export type CatalogPushState = ChannelCatalogPush["state"];
+
+export const CATALOG_PUSH_BATCH_SIZES: Record<string, number> = {
+  mock: 100,
+  shopify: 50,
+  woocommerce: 100,
+};
+
+const DEFAULT_CATALOG_PUSH_BATCH_SIZE = 50;
+const CATALOG_PUSH_BREAKER_RETRY_MS = 60_000;
+export const CATALOG_PUSH_MAX_ATTEMPTS = 8;
+const CATALOG_PUSH_RETRY_BASE_MS = 60_000;
+const CATALOG_PUSH_RETRY_MAX_MS = 60 * 60 * 1000;
+
+export function catalogPushRetryDelayMs(attempts: number): number {
+  const exponent = Math.max(0, attempts - 1);
+  return Math.min(CATALOG_PUSH_RETRY_BASE_MS * (2 ** exponent), CATALOG_PUSH_RETRY_MAX_MS);
+}
+
+export interface CatalogPushJobResult extends Record<string, unknown> {
+  noop?: boolean;
+  rescheduled?: boolean;
+  complete?: boolean;
+  cursor?: string;
+  pushed?: number;
+  failed?: number;
+}
+
+export function catalogPushConcurrencyKey(input: Record<string, unknown>): string {
+  const storeId = String(input.storeId);
+  const entityIds = input.entityIds;
+  if (Array.isArray(entityIds) && entityIds.length === 1) {
+    return `push:${String(entityIds[0])}:${storeId}`;
+  }
+  return `push-catalog:${storeId}`;
+}
+
+export function isCatalogPushBreakerOpen(breakerState: Record<string, unknown>): boolean {
+  if (breakerState.open === true) {
+    const openUntil = breakerState.openUntil;
+    if (typeof openUntil === "string" && new Date(openUntil) <= new Date()) return false;
+    return true;
+  }
+  const catalogPush = breakerState.catalogPush;
+  if (!catalogPush || typeof catalogPush !== "object") return false;
+  const state = catalogPush as { open?: boolean; openUntil?: string };
+  if (state.open !== true) return false;
+  if (typeof state.openUntil === "string" && new Date(state.openUntil) <= new Date()) return false;
+  return true;
+}
+
+function catalogPushBatchSize(provider: string): number {
+  return CATALOG_PUSH_BATCH_SIZES[provider] ?? DEFAULT_CATALOG_PUSH_BATCH_SIZE;
+}
 
 export interface ReconcileReport extends Record<string, unknown> {
   imported: number;
@@ -331,6 +388,19 @@ const exportTransitions: Record<ExportState, readonly ExportState[]> = {
 
 export function canExportTransition(from: ExportState, to: ExportState): boolean {
   return exportTransitions[from].includes(to);
+}
+
+// Catalog pushes recur; confirmed/failed rows re-arm through exported, and rows with nothing to push resolve directly.
+const catalogPushTransitions: Record<CatalogPushState, readonly CatalogPushState[]> = {
+  pending: ["exported", "confirmed", "abandoned"],
+  exported: ["confirmed", "failed", "abandoned"],
+  confirmed: ["exported", "abandoned"],
+  failed: ["exported", "confirmed", "abandoned"],
+  abandoned: [],
+};
+
+export function canCatalogPushTransition(from: CatalogPushState, to: CatalogPushState): boolean {
+  return catalogPushTransitions[from].includes(to);
 }
 
 function hash(value: unknown): string {
@@ -3027,5 +3097,457 @@ export class ChannelConnectorService {
     reason?: string,
   ): Promise<PluginResult<ChannelOrderExport>> {
     return this.transitionExport(orgId, exportId, "abandoned", changedBy, reason);
+  }
+
+  async resolveCatalogPushEntityIds(
+    orgId: string,
+    storeId: string,
+    entityIds?: string[],
+  ): Promise<string[]> {
+    if (entityIds !== undefined) return [...new Set(entityIds)].sort();
+    const mappings = await this.db.select({ entityId: channelEntityMap.entityId }).from(channelEntityMap).where(and(
+      eq(channelEntityMap.organizationId, orgId),
+      eq(channelEntityMap.storeId, storeId),
+      eq(channelEntityMap.kind, "entity"),
+    ));
+    return [...new Set(mappings.map((mapping) => mapping.entityId))].sort();
+  }
+
+  async createCatalogPush(
+    orgId: string,
+    storeId: string,
+    entityId: string,
+  ): Promise<PluginResult<ChannelCatalogPush>> {
+    const store = await this.getStoreRecord(orgId, storeId);
+    if (!store || store.status !== "connected") {
+      return PluginErr("Connected store not found.", "NOT_FOUND");
+    }
+    const rows = await this.db
+      .insert(channelCatalogPushes)
+      .values({ organizationId: orgId, storeId, entityId })
+      .onConflictDoNothing({ target: [channelCatalogPushes.storeId, channelCatalogPushes.entityId] })
+      .returning();
+    if (rows[0]) return Ok(rows[0] as ChannelCatalogPush);
+    const existing = await this.db
+      .select()
+      .from(channelCatalogPushes)
+      .where(and(
+        eq(channelCatalogPushes.organizationId, orgId),
+        eq(channelCatalogPushes.storeId, storeId),
+        eq(channelCatalogPushes.entityId, entityId),
+      ));
+    if (!existing[0]) return PluginErr("Failed to create channel catalog push.");
+    return Ok(existing[0] as ChannelCatalogPush);
+  }
+
+  async transitionCatalogPush(
+    orgId: string,
+    pushId: string,
+    toState: CatalogPushState,
+    changedBy: string,
+    reason?: string,
+    failureKind?: "definitive" | "transient",
+    payloadSnapshot?: ChannelPushCatalogItem | null,
+  ): Promise<PluginResult<ChannelCatalogPush>> {
+    return this.transact(async (tx) => {
+      const currentRows = await tx
+        .select()
+        .from(channelCatalogPushes)
+        .where(and(
+          eq(channelCatalogPushes.organizationId, orgId),
+          eq(channelCatalogPushes.id, pushId),
+        ));
+      const current = currentRows[0] as ChannelCatalogPush | undefined;
+      if (!current) return PluginErr("Channel catalog push not found.", "NOT_FOUND");
+      if (!canCatalogPushTransition(current.state, toState)) {
+        const error = new CommerceInvalidTransitionError(
+          `Cannot transition channel catalog push from ${current.state} to ${toState}.`,
+        );
+        return PluginErr(error.message, error.code);
+      }
+
+      const updatedRows = await tx
+        .update(channelCatalogPushes)
+        .set({
+          state: toState,
+          updatedAt: new Date(),
+          ...(payloadSnapshot !== undefined ? { payloadSnapshot } : {}),
+          ...(toState === "exported" ? { attempts: current.attempts + 1, lastError: null, failureKind: null } : {}),
+          ...(toState === "failed" ? { lastError: reason ?? "Catalog push failed." } : {}),
+          ...(toState === "failed" ? { failureKind: failureKind ?? "definitive" } : {}),
+          ...(toState === "confirmed" ? { lastError: null, failureKind: null } : {}),
+        })
+        .where(and(
+          eq(channelCatalogPushes.organizationId, orgId),
+          eq(channelCatalogPushes.id, pushId),
+          eq(channelCatalogPushes.state, current.state),
+        ))
+        .returning();
+      const updated = updatedRows[0] as ChannelCatalogPush | undefined;
+      if (!updated) return PluginErr("Channel catalog push changed concurrently.", "CONFLICT");
+
+      await tx.insert(channelCatalogPushEvents).values({
+        organizationId: orgId,
+        pushId,
+        fromState: current.state,
+        toState,
+        reason: reason ?? null,
+        changedBy,
+      });
+      return Ok(updated);
+    });
+  }
+
+  private async recordCatalogPushRevisions(
+    orgId: string,
+    entityIds: string[],
+    actor: Actor,
+  ): Promise<PluginResult<void>> {
+    if (entityIds.length === 0) return Ok(undefined);
+    try {
+      await this.transact(async (tx) => {
+        const txContext = createTxContext(tx, { actor });
+        for (const entityId of [...new Set(entityIds)]) {
+          const revision = await this.catalog.recordEntityRevision(entityId, actor, "push", txContext);
+          if (!revision.ok) throw new Error(revision.error.message);
+        }
+      });
+    } catch (error) {
+      return PluginErr(error instanceof Error ? error.message : "Failed to record catalog push revisions.");
+    }
+    return Ok(undefined);
+  }
+
+  async executeCatalogPushJob(
+    orgId: string,
+    storeId: string,
+    options: { entityIds?: string[]; cursor?: string },
+    actor: Actor,
+    runtime: { jobs: JobsAdapter },
+  ): Promise<PluginResult<CatalogPushJobResult>> {
+    const store = await this.getStoreRecord(orgId, storeId);
+    if (!store || store.status !== "connected") return PluginErr("Connected store not found.", "NOT_FOUND");
+    if (!store.catalogWriteEnabled) return Ok({ noop: true });
+    const connector = this.connectors.get(store.provider);
+    if (!connector?.pushCatalog) return Ok({ noop: true });
+    if (isCatalogPushBreakerOpen(store.breakerState)) {
+      await runtime.jobs.enqueue("channel/push-catalog", {
+        organizationId: orgId,
+        storeId,
+        ...(options.entityIds ? { entityIds: options.entityIds } : {}),
+        ...(options.cursor ? { cursor: options.cursor } : {}),
+      }, {
+        organizationId: orgId,
+        concurrencyKey: catalogPushConcurrencyKey({ storeId, entityIds: options.entityIds }),
+        supersedes: false,
+        delayMs: CATALOG_PUSH_BREAKER_RETRY_MS,
+      });
+      return Ok({ rescheduled: true });
+    }
+
+    const allEntityIds = await this.resolveCatalogPushEntityIds(orgId, storeId, options.entityIds);
+    const batchSize = catalogPushBatchSize(store.provider);
+    const pageEntityIds = options.cursor
+      ? allEntityIds.filter((entityId) => entityId > options.cursor!).slice(0, batchSize)
+      : allEntityIds.slice(0, batchSize);
+    if (pageEntityIds.length === 0) return Ok({ complete: true, pushed: 0, failed: 0 });
+
+    // Abandoned is terminal: a row that exhausted its attempts stays out of
+    // every later sweep until an operator re-arms it.
+    const abandonedRows = await this.db.select({ entityId: channelCatalogPushes.entityId }).from(channelCatalogPushes).where(and(
+      eq(channelCatalogPushes.organizationId, orgId),
+      eq(channelCatalogPushes.storeId, storeId),
+      eq(channelCatalogPushes.state, "abandoned"),
+      inArray(channelCatalogPushes.entityId, pageEntityIds),
+    ));
+    const abandonedEntityIds = new Set(abandonedRows.map((row) => row.entityId));
+    const batchEntityIds = pageEntityIds.filter((entityId) => !abandonedEntityIds.has(entityId));
+    if (batchEntityIds.length === 0) {
+      const batchCursor = pageEntityIds[pageEntityIds.length - 1]!;
+      const hasMore = allEntityIds.some((entityId) => entityId > batchCursor);
+      if (!hasMore) return Ok({ complete: true, pushed: 0, failed: 0 });
+      await runtime.jobs.enqueue("channel/push-catalog", {
+        organizationId: orgId,
+        storeId,
+        ...(options.entityIds ? { entityIds: options.entityIds } : {}),
+        cursor: batchCursor,
+      }, {
+        organizationId: orgId,
+        concurrencyKey: catalogPushConcurrencyKey({ storeId, entityIds: options.entityIds }),
+        supersedes: false,
+      });
+      return Ok({ complete: false, cursor: batchCursor, pushed: 0, failed: 0 });
+    }
+
+    const assembled = await this.buildCatalogPushItems(orgId, storeId, batchEntityIds);
+    if (!assembled.ok) return assembled;
+
+    const mappings = await this.db.select({
+      entityId: channelEntityMap.entityId,
+      externalId: channelEntityMap.externalId,
+    }).from(channelEntityMap).where(and(
+      eq(channelEntityMap.organizationId, orgId),
+      eq(channelEntityMap.storeId, storeId),
+      eq(channelEntityMap.kind, "entity"),
+      inArray(channelEntityMap.entityId, batchEntityIds),
+    ));
+    const externalByEntity = new Map(mappings.map((mapping) => [mapping.entityId, mapping.externalId]));
+    const entityByExternal = new Map(mappings.map((mapping) => [mapping.externalId, mapping.entityId]));
+    const itemByExternal = new Map(assembled.value.items.map((item) => [item.externalId, item]));
+
+    let pushed = 0;
+    let failed = 0;
+
+    if (assembled.value.items.length === 0) {
+      for (const entityId of batchEntityIds) {
+        const created = await this.createCatalogPush(orgId, storeId, entityId);
+        if (!created.ok) return created;
+        if (created.value.state === "confirmed" || created.value.state === "abandoned") {
+          if (created.value.state === "confirmed") pushed += 1;
+          continue;
+        }
+        const confirmed = await this.transitionCatalogPush(
+          orgId,
+          created.value.id,
+          "confirmed",
+          actor.userId,
+          "No platform-owned fields to push.",
+          undefined,
+          null,
+        );
+        if (!confirmed.ok) return confirmed;
+        pushed += 1;
+      }
+    } else {
+      const pushIds = new Map<string, string>();
+      const pushAttempts = new Map<string, number>();
+      for (const entityId of batchEntityIds) {
+        const externalId = externalByEntity.get(entityId);
+        const item = externalId ? itemByExternal.get(externalId) : undefined;
+        if (!item) continue;
+        const created = await this.createCatalogPush(orgId, storeId, entityId);
+        if (!created.ok) return created;
+        pushIds.set(item.externalId, created.value.id);
+        pushAttempts.set(item.externalId, created.value.attempts);
+        if (created.value.state === "pending" || created.value.state === "confirmed" || created.value.state === "failed") {
+          const exported = await this.transitionCatalogPush(
+            orgId,
+            created.value.id,
+            "exported",
+            actor.userId,
+            "Catalog push attempt started.",
+            undefined,
+            item,
+          );
+          if (!exported.ok) return exported;
+          pushAttempts.set(item.externalId, exported.value.attempts);
+        }
+      }
+
+      const items = assembled.value.items;
+      const writeAhead = await this.recordOutboundPush(
+        orgId,
+        storeId,
+        items.map((item) => ({ externalId: item.externalId, ok: true })),
+        items,
+      );
+      if (!writeAhead.ok) return writeAhead;
+
+      let result: Awaited<ReturnType<NonNullable<typeof connector.pushCatalog>>>;
+      try {
+        result = await connector.pushCatalog(store as ChannelStore, items);
+      } catch (error) {
+        const connectorError = {
+          code: "CATALOG_PUSH_THROWN",
+          message: error instanceof Error ? error.message : "Catalog push failed.",
+        };
+        const cleared = await this.recordOutboundPush(
+          orgId,
+          storeId,
+          items.map((item) => ({ externalId: item.externalId, ok: false, error: connectorError })),
+          items,
+        );
+        if (!cleared.ok) return cleared;
+        for (const item of items) {
+          const pushId = pushIds.get(item.externalId);
+          if (!pushId) continue;
+          const attempts = pushAttempts.get(item.externalId) ?? 0;
+          if (attempts >= CATALOG_PUSH_MAX_ATTEMPTS) {
+            await this.transitionCatalogPush(
+              orgId,
+              pushId,
+              "abandoned",
+              actor.userId,
+              connectorError.message,
+            );
+          } else {
+            await this.transitionCatalogPush(
+              orgId,
+              pushId,
+              "failed",
+              actor.userId,
+              connectorError.message,
+              "transient",
+            );
+          }
+          failed += 1;
+        }
+        const maxAttempts = Math.max(0, ...items.map((item) => pushAttempts.get(item.externalId) ?? 0));
+        if (maxAttempts < CATALOG_PUSH_MAX_ATTEMPTS) {
+          await runtime.jobs.enqueue("channel/push-catalog", {
+            organizationId: orgId,
+            storeId,
+            ...(options.entityIds ? { entityIds: options.entityIds } : {}),
+            ...(options.cursor ? { cursor: options.cursor } : {}),
+          }, {
+            organizationId: orgId,
+            concurrencyKey: catalogPushConcurrencyKey({ storeId, entityIds: options.entityIds }),
+            supersedes: false,
+            delayMs: catalogPushRetryDelayMs(maxAttempts),
+          });
+        }
+        return Ok({ rescheduled: true, pushed, failed });
+      }
+
+      if (!result.ok) {
+        const cleared = await this.recordOutboundPush(
+          orgId,
+          storeId,
+          items.map((item) => ({ externalId: item.externalId, ok: false, error: result.error })),
+          items,
+        );
+        if (!cleared.ok) return cleared;
+        for (const item of items) {
+          const pushId = pushIds.get(item.externalId);
+          if (!pushId) continue;
+          const attempts = pushAttempts.get(item.externalId) ?? 0;
+          const failureKind = result.error.retriable === true ? "transient" as const : "definitive" as const;
+          if (failureKind === "transient" && attempts >= CATALOG_PUSH_MAX_ATTEMPTS) {
+            await this.transitionCatalogPush(
+              orgId,
+              pushId,
+              "abandoned",
+              actor.userId,
+              result.error.message,
+            );
+          } else {
+            await this.transitionCatalogPush(
+              orgId,
+              pushId,
+              "failed",
+              actor.userId,
+              result.error.message,
+              failureKind,
+            );
+          }
+          failed += 1;
+        }
+        if (result.error.retriable === true) {
+          const maxAttempts = Math.max(0, ...items.map((item) => pushAttempts.get(item.externalId) ?? 0));
+          if (maxAttempts < CATALOG_PUSH_MAX_ATTEMPTS) {
+            await runtime.jobs.enqueue("channel/push-catalog", {
+              organizationId: orgId,
+              storeId,
+              ...(options.entityIds ? { entityIds: options.entityIds } : {}),
+              ...(options.cursor ? { cursor: options.cursor } : {}),
+            }, {
+              organizationId: orgId,
+              concurrencyKey: catalogPushConcurrencyKey({ storeId, entityIds: options.entityIds }),
+              supersedes: false,
+              delayMs: catalogPushRetryDelayMs(maxAttempts),
+            });
+          }
+          return Ok({ rescheduled: true, pushed, failed });
+        }
+        const batchCursor = pageEntityIds[pageEntityIds.length - 1]!;
+        const hasMore = allEntityIds.some((entityId) => entityId > batchCursor);
+        return Ok({ complete: !hasMore, pushed, failed });
+      }
+
+      const recorded = await this.recordOutboundPush(orgId, storeId, result.value.outcomes, items);
+      if (!recorded.ok) return recorded;
+
+      const successfulEntityIds: string[] = [];
+      for (const outcome of result.value.outcomes) {
+        const pushId = pushIds.get(outcome.externalId);
+        const entityId = entityByExternal.get(outcome.externalId);
+        if (!pushId || !entityId) continue;
+        const item = itemByExternal.get(outcome.externalId);
+        if (outcome.ok) {
+          const confirmed = await this.transitionCatalogPush(
+            orgId,
+            pushId,
+            "confirmed",
+            actor.userId,
+            "Remote catalog confirmed item.",
+            undefined,
+            item ?? null,
+          );
+          if (!confirmed.ok) return confirmed;
+          successfulEntityIds.push(entityId);
+          pushed += 1;
+          continue;
+        }
+        const failureKind = outcome.error?.retriable === true ? "transient" : "definitive";
+        const attempts = pushAttempts.get(outcome.externalId) ?? 0;
+        if (failureKind === "transient" && attempts >= CATALOG_PUSH_MAX_ATTEMPTS) {
+          const abandoned = await this.transitionCatalogPush(
+            orgId,
+            pushId,
+            "abandoned",
+            actor.userId,
+            outcome.error?.message ?? "Catalog push failed.",
+            undefined,
+            item ?? null,
+          );
+          if (!abandoned.ok) return abandoned;
+        } else {
+          const failedPush = await this.transitionCatalogPush(
+            orgId,
+            pushId,
+            "failed",
+            actor.userId,
+            outcome.error?.message ?? "Catalog push failed.",
+            failureKind,
+            item ?? null,
+          );
+          if (!failedPush.ok) return failedPush;
+          if (failureKind === "transient") {
+            await runtime.jobs.enqueue("channel/push-catalog", {
+              organizationId: orgId,
+              storeId,
+              entityIds: [entityId],
+            }, {
+              organizationId: orgId,
+              concurrencyKey: catalogPushConcurrencyKey({ storeId, entityIds: [entityId] }),
+              supersedes: true,
+              delayMs: catalogPushRetryDelayMs(attempts),
+            });
+          }
+        }
+        failed += 1;
+      }
+
+      const revisions = await this.recordCatalogPushRevisions(orgId, successfulEntityIds, actor);
+      if (!revisions.ok) return revisions;
+    }
+
+    const batchCursor = pageEntityIds[pageEntityIds.length - 1]!;
+    const hasMore = allEntityIds.some((entityId) => entityId > batchCursor);
+    if (hasMore) {
+      await runtime.jobs.enqueue("channel/push-catalog", {
+        organizationId: orgId,
+        storeId,
+        ...(options.entityIds ? { entityIds: options.entityIds } : {}),
+        cursor: batchCursor,
+      }, {
+        organizationId: orgId,
+        concurrencyKey: catalogPushConcurrencyKey({ storeId, entityIds: options.entityIds }),
+        supersedes: false,
+      });
+      return Ok({ complete: false, cursor: batchCursor, pushed, failed });
+    }
+
+    return Ok({ complete: true, pushed, failed });
   }
 }

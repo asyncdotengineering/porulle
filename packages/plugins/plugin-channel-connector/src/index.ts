@@ -13,6 +13,8 @@ import { z } from "@hono/zod-openapi";
 import { and, eq } from "@porulle/core/drizzle";
 import { processedWebhookEvents } from "@porulle/core/schema";
 import {
+  channelCatalogPushEvents,
+  channelCatalogPushes,
   channelEntityMap,
   channelExportEvents,
   channelOrderExports,
@@ -22,6 +24,7 @@ import {
 } from "./schema.js";
 import {
   ChannelConnectorService,
+  catalogPushConcurrencyKey,
   type ChannelComplianceData,
   type ChannelConnectorPluginOptions,
 } from "./service.js";
@@ -40,7 +43,13 @@ export type { MockChannelConnectorOptions } from "./mock-connector.js";
 export {
   ChannelConnectorService,
   CATALOG_OUTBOUND_SUPPRESSION_WINDOW_MS,
+  CATALOG_PUSH_BATCH_SIZES,
+  CATALOG_PUSH_MAX_ATTEMPTS,
+  canCatalogPushTransition,
   canExportTransition,
+  catalogPushConcurrencyKey,
+  catalogPushRetryDelayMs,
+  isCatalogPushBreakerOpen,
 } from "./service.js";
 export {
   isValidCatalogMappingFieldPath,
@@ -65,6 +74,7 @@ export type {
   BuildCatalogPushItemsOptions,
   BuildCatalogPushItemsResult,
   PushCatalogToStoreResult,
+  CatalogPushJobResult,
   CatalogFieldConflict,
   CatalogFieldSkip,
   CatalogPushFieldSkip,
@@ -79,6 +89,8 @@ export type {
 } from "./service.js";
 export type { OAuthStatePayload, OAuthStateResult } from "./oauth-state.js";
 export type {
+  ChannelCatalogPush,
+  ChannelCatalogPushEvent,
   ChannelEntityMapEntry,
   ChannelExportEvent,
   ChannelOrderExport,
@@ -231,6 +243,28 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
       },
     },
     {
+      slug: "channel/push-catalog",
+      concurrency: { key: catalogPushConcurrencyKey, supersedes: true },
+      handler: async ({ input, ctx }: { input: Record<string, unknown>; ctx: import("@porulle/core").TaskContext }) => {
+        const service = new ChannelConnectorService(ctx.db, ctx.services, options);
+        const orgId = String(input.organizationId ?? input.orgId);
+        const storeId = String(input.storeId);
+        const entityIds = Array.isArray(input.entityIds)
+          ? input.entityIds.map(String)
+          : undefined;
+        const cursor = typeof input.cursor === "string" ? input.cursor : undefined;
+        const result = await service.executeCatalogPushJob(
+          orgId,
+          storeId,
+          { ...(entityIds ? { entityIds } : {}), ...(cursor ? { cursor } : {}) },
+          createSystemActor(orgId),
+          { jobs: ctx.services.jobs as JobsAdapter },
+        );
+        if (!result.ok) throw new Error(result.error);
+        return { output: result.value };
+      },
+    },
+    {
       slug: "channel/reap-exports",
       handler: async ({ input, ctx }: { input: Record<string, unknown>; ctx: import("@porulle/core").TaskContext }) => {
         const service = new ChannelConnectorService(ctx.db, ctx.services, options);
@@ -252,6 +286,8 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
     schema: () => ({
       connectedStores,
       channelEntityMap,
+      channelCatalogPushes,
+      channelCatalogPushEvents,
       channelOrderExports,
       channelExportEvents,
       channelRefundRequests,

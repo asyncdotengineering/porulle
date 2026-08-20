@@ -9,7 +9,7 @@ import {
   uniqueIndex,
   uuid,
 } from "@porulle/core/drizzle";
-import type { FieldPath } from "@porulle/core";
+import type { ChannelPushCatalogItem, FieldPath } from "@porulle/core";
 import type { CatalogFieldMapping } from "./catalog-field-mapping.js";
 
 export const connectedStores = pgTable(
@@ -100,6 +100,55 @@ export const channelOrderExports = pgTable(
   }),
 );
 
+export const channelCatalogPushes = pgTable(
+  "channel_catalog_pushes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id").notNull(),
+    storeId: uuid("store_id").references(() => connectedStores.id, { onDelete: "cascade" }).notNull(),
+    entityId: uuid("entity_id").notNull(),
+    payloadSnapshot: jsonb("payload_snapshot").$type<ChannelPushCatalogItem | null>(),
+    state: text("state", { enum: ["pending", "exported", "confirmed", "failed", "abandoned"] })
+      .notNull()
+      .default("pending"),
+    failureKind: text("failure_kind", { enum: ["definitive", "transient"] }),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    orgIdx: index("idx_channel_catalog_pushes_org").on(table.organizationId),
+    storeIdx: index("idx_channel_catalog_pushes_store").on(table.storeId),
+    stateIdx: index("idx_channel_catalog_pushes_state").on(table.organizationId, table.state),
+    entityIdx: index("idx_channel_catalog_pushes_entity").on(table.organizationId, table.entityId),
+    storeEntityUnique: uniqueIndex("channel_catalog_pushes_store_entity_unique").on(
+      table.storeId,
+      table.entityId,
+    ),
+  }),
+);
+
+export const channelCatalogPushEvents = pgTable(
+  "channel_catalog_push_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id").notNull(),
+    pushId: uuid("push_id")
+      .references(() => channelCatalogPushes.id, { onDelete: "cascade" })
+      .notNull(),
+    fromState: text("from_state").notNull(),
+    toState: text("to_state").notNull(),
+    reason: text("reason"),
+    changedBy: text("changed_by").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    orgIdx: index("idx_channel_catalog_push_events_org").on(table.organizationId),
+    pushIdx: index("idx_channel_catalog_push_events_push").on(table.pushId),
+  }),
+);
+
 export const channelExportEvents = pgTable(
   "channel_export_events",
   {
@@ -161,6 +210,8 @@ export const channelRefundEvents = pgTable(
 
 export type ConnectedStore = typeof connectedStores.$inferSelect;
 export type ChannelEntityMapEntry = typeof channelEntityMap.$inferSelect;
+export type ChannelCatalogPush = typeof channelCatalogPushes.$inferSelect;
+export type ChannelCatalogPushEvent = typeof channelCatalogPushEvents.$inferSelect;
 export type ChannelOrderExport = typeof channelOrderExports.$inferSelect;
 export type ChannelExportEvent = typeof channelExportEvents.$inferSelect;
 export type ChannelRefundRequest = typeof channelRefundRequests.$inferSelect;
