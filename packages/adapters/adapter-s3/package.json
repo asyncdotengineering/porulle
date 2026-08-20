@@ -1,6 +1,6 @@
 {
   "name": "@porulle/adapter-s3",
-  "version": "0.10.8",
+  "version": "0.11.0",
   "license": "MIT",
   "type": "module",
   "exports": {
