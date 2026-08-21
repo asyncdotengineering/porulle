@@ -28,7 +28,7 @@
 
 import { createRoute, z } from "@hono/zod-openapi";
 import { ErrorSchema } from "./schemas/shared.js";
-import { mapErrorToResponse, mapErrorToStatus } from "./utils.js";
+import { mapErrorToResponse, mapErrorToStatus, markRoutePermissionGuard } from "./utils.js";
 import type { PluginRouteRegistration } from "../../kernel/plugin/manifest.js";
 import { createScopedDb } from "../../kernel/database/scoped-db.js";
 import { resolveOrgId } from "../../auth/org.js";
@@ -61,7 +61,7 @@ export interface RouteHandlerContext {
   /** Path parameters, auto-extracted from {id} segments. */
   params: Record<string, string>;
   /** Authenticated actor. Guaranteed non-null if .auth() or .permission() was called. */
-  actor: { userId: string; role: string; permissions: string[]; vendorId?: string | null; [key: string]: unknown } | null;
+  actor: { userId: string | null; role: string; permissions: string[]; vendorId?: string | null; [key: string]: unknown } | null;
   /** Resolved organization ID. Derived from actor.organizationId, falls back to DEFAULT_ORG_ID. */
   orgId: string;
   /** Kernel services (orders, cart, inventory, etc.) */
@@ -262,7 +262,10 @@ class RouteChain {
       }
     };
 
-    this.routesList.push({ openapi: routeConfig, handler: honoHandler as (...args: unknown[]) => unknown });
+    const registeredHandler = requireAuth || requiredPermission
+      ? markRoutePermissionGuard(honoHandler)
+      : honoHandler;
+    this.routesList.push({ openapi: routeConfig, handler: registeredHandler as (...args: unknown[]) => unknown });
   }
 }
 

@@ -106,7 +106,8 @@ describe("Issue #43 — cart list + abandoned-checkout recovery", () => {
     // The secret gates guest access to resume the cart
     const resume = await makeRequest(server, {
       method: "GET",
-      url: `http://localhost/api/carts/${cart.id}?secret=${recovery.secret}`,
+      url: `http://localhost/api/carts/${cart.id}`,
+      headers: { "x-cart-secret": recovery.secret },
     });
     expect(resume.status).toBe(200);
     const resumed = (await parseJsonResponse<{ data: any }>(resume)).data;

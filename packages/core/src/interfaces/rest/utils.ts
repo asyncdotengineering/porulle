@@ -3,6 +3,25 @@ import { mapErrorToStatus } from "../../kernel/error-mapper.js";
 import { toCommerceError } from "../../kernel/errors.js";
 import type { Actor } from "../../auth/types.js";
 
+export const ROUTE_PERMISSION_GUARD = Symbol("porulle.routePermissionGuard");
+
+type RouteGuardHandler = {
+  [ROUTE_PERMISSION_GUARD]?: { methods?: readonly string[] };
+};
+
+export function markRoutePermissionGuard<T>(handler: T, methods?: readonly string[]): T {
+  if (typeof handler === "function") {
+    Object.defineProperty(handler, ROUTE_PERMISSION_GUARD, { value: { methods } });
+  }
+  return handler;
+}
+
+type PermissionContext = {
+  get(key: string): unknown;
+  json(data: unknown, status: number): unknown;
+  req: { method: string };
+};
+
 /**
  * Shared Hono environment type for all sub-routers.
  * Matches the Variables set by middleware in the top-level server app.
@@ -61,7 +80,7 @@ export { mapErrorToStatus };
  * Usage: router.post("/", requirePerm("webhooks:manage"), handler);
  */
 export function requirePerm(permission: string) {
-  return async (c: { get(key: string): unknown; json(data: unknown, status: number): unknown }, next: () => Promise<void>) => {
+  const middleware = async (c: { get(key: string): unknown; json(data: unknown, status: number): unknown }, next: () => Promise<void>) => {
     const actor = c.get("actor") as { permissions?: string[] } | null;
     if (!actor) {
       return c.json({ error: { code: "UNAUTHORIZED", message: "Authentication required." } }, 401);
@@ -79,6 +98,46 @@ export function requirePerm(permission: string) {
     }
     return c.json({ error: { code: "FORBIDDEN", message: `Permission '${permission}' is required.` } }, 403);
   };
+  return markRoutePermissionGuard(middleware);
+}
+
+export function requireAnyPerm(permissions: readonly string[]) {
+  const middleware = async (c: { get(key: string): unknown; json(data: unknown, status: number): unknown }, next: () => Promise<void>) => {
+    const actor = c.get("actor") as { permissions?: string[] } | null;
+    const granted = actor?.permissions ?? [];
+    const allowed = permissions.some((permission) =>
+      granted.includes(permission) ||
+      granted.includes("*:*") ||
+      granted.includes(`${permission.split(":")[0]}:*`),
+    );
+    if (!actor) {
+      return c.json({ error: { code: "UNAUTHORIZED", message: "Authentication required." } }, 401);
+    }
+    if (allowed) {
+      await next();
+      return;
+    }
+    return c.json({ error: { code: "FORBIDDEN", message: `One of these permissions is required: ${permissions.join(", ")}.` } }, 403);
+  };
+  return markRoutePermissionGuard(middleware);
+}
+
+export function requireMethodPerm(methods: readonly string[], permission: string) {
+  const permissionGuard = requirePerm(permission);
+  const middleware = async (c: PermissionContext, next: () => Promise<void>) => {
+    if (!methods.includes(c.req.method)) {
+      await next();
+      return;
+    }
+    return permissionGuard(c, next);
+  };
+  return markRoutePermissionGuard(middleware, methods);
+}
+
+export function isRoutePermissionGuard(handler: unknown, method?: string): boolean {
+  if (typeof handler !== "function") return false;
+  const guard = (handler as unknown as RouteGuardHandler)[ROUTE_PERMISSION_GUARD];
+  return Boolean(guard && (!method || !guard.methods || guard.methods.includes(method)));
 }
 
 export function parseSort(
@@ -100,5 +159,5 @@ export function parseSort(
 }
 
 export function isUUID(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }

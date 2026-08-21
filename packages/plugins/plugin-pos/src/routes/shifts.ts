@@ -1,4 +1,4 @@
-import { router } from "@porulle/core";
+import { requireUserId, router } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
 import type { ShiftService } from "../services/shift-service.js";
 import type { PluginRouteRegistration } from "@porulle/core";
@@ -20,7 +20,7 @@ export function buildShiftRoutes(
       const body = input as { terminalId: string; openingFloat: number };
       const result = await service.open(orgId, {
         ...body,
-        operatorId: actor!.userId,
+        operatorId: requireUserId(actor),
       });
       if (!result.ok) throw new Error(result.error);
       return result.value;
@@ -43,7 +43,7 @@ export function buildShiftRoutes(
     .summary("Get current open shift")
     .permission("pos:operate")
     .handler(async ({ actor, orgId }) => {
-      const result = await service.getCurrent(orgId, actor!.userId);
+      const result = await service.getCurrent(orgId, requireUserId(actor));
       if (!result.ok) throw new Error(result.error);
       return result.value;
     });
@@ -80,7 +80,7 @@ export function buildShiftRoutes(
       const body = input as { type: "drop" | "pickup" | "paid_in" | "paid_out"; amount: number; reason?: string };
       const result = await service.addCashEvent(params.id!, {
         ...body,
-        performedBy: actor!.userId,
+        performedBy: requireUserId(actor),
       });
 
       if (!result.ok) throw new Error(result.error);

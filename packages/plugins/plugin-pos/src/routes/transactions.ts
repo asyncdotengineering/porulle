@@ -1,4 +1,4 @@
-import { router } from "@porulle/core";
+import { requireUserId, router } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
 import type { TransactionService } from "../services/transaction-service.js";
 import type { PluginRouteRegistration } from "@porulle/core";
@@ -35,7 +35,7 @@ export function buildTransactionRoutes(
       const result = await service.create(orgId, {
         shiftId: body.shiftId,
         terminalId: body.terminalId,
-        operatorId: actor!.userId,
+        operatorId: requireUserId(actor),
         cartId: cartResult.value.id,
         ...(body.type != null ? { type: body.type } : {}),
         ...(body.customerId != null ? { customerId: body.customerId } : {}),

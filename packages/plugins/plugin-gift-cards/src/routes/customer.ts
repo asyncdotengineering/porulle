@@ -1,4 +1,4 @@
-import { router } from "@porulle/core";
+import { requireUserId, router } from "@porulle/core";
 import type { GiftCardService } from "../services/gift-card-service.js";
 import type { PluginRouteRegistration } from "@porulle/core";
 import { formatCode } from "../code-generator.js";
@@ -16,7 +16,7 @@ export function buildCustomerRoutes(
     .auth()
     .handler(async ({ actor, orgId }) => {
       if (!actor) throw new Error("Unauthorized");
-      const result = await service.list(orgId, { purchaserId: actor.userId });
+      const result = await service.list(orgId, { purchaserId: requireUserId(actor) });
       if (!result.ok) throw new Error("Failed to list gift cards");
       return result.value.map((card) => ({
         ...card,

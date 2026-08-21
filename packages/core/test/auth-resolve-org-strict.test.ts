@@ -65,9 +65,21 @@ describe("resolveOrgId strict org resolution (MT-2)", () => {
     expect(() => resolveOrgId(null, undefined, cfg)).toThrow(OrgResolutionError);
   });
 
+  it('throws for a null actor by default, without any strict configuration', () => {
+    // The security property: with no actor there is no tenant. Before this
+    // default flipped, a null actor silently resolved to a real organization,
+    // which served one merchant's data to unauthenticated callers on every
+    // unguarded or allowlisted read path.
+    expect(() => resolveOrgId(null)).toThrow(OrgResolutionError);
+  });
+
   it('returns deprecated DEFAULT_ORG_ID in legacy mode with rate-limited warn', () => {
+    // Strict org resolution defaults ON, so legacy mode must be opted into.
+    // A null actor without this opt-out now throws rather than borrowing a
+    // real tenant's organization.
+    const legacy = { auth: { strictOrgResolution: false } } as CommerceConfig;
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect(resolveOrgId(null)).toBe(DEFAULT_ORG_ID);
+    expect(resolveOrgId(null, undefined, legacy)).toBe(DEFAULT_ORG_ID);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0])).toContain("org_default");
   });

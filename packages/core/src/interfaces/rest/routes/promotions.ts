@@ -3,8 +3,9 @@ import { rateLimiter } from "hono-rate-limiter";
 import type { Kernel } from "../../../runtime/kernel.js";
 import { createPromotionRoute, updatePromotionRoute, validatePromotionRoute, deactivatePromotionRoute, listPromotionsRoute } from "../schemas/promotions.js";
 import type { PromotionStatusFilter } from "../../../modules/promotions/service.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requirePerm } from "../utils.js";
+import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requireMethodPerm, requirePerm } from "../utils.js";
 import { resolveOrgId } from "../../../auth/org.js";
+import { assertPermission } from "../../../auth/permissions.js";
 
 export function promotionRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -84,10 +85,7 @@ export function promotionRoutes(kernel: Kernel) {
 
   // Guard inline (not via router.use("/:id")) because a "/:id" middleware
   // would also match single-segment routes like POST /validate.
-  router.use("/:id", async (c, next) => {
-    if (c.req.method !== "PATCH") return next();
-    return requirePerm("promotions:manage")(c, next);
-  });
+  router.use("/:id", requireMethodPerm(["PATCH"], "promotions:manage"));
 
   // @ts-expect-error -- openapi() enforces strict response typing but our handler
   // returns union responses (200 | 400 | 404 | 422). The route definition
@@ -95,6 +93,11 @@ export function promotionRoutes(kernel: Kernel) {
   router.openapi(updatePromotionRoute, async (c) => {
     const body = c.req.valid("json");
     const actor = c.get("actor");
+    try {
+      assertPermission(actor, "promotions:manage");
+    } catch (error) {
+      return c.json(mapErrorToResponse(error), mapErrorToStatus(error));
+    }
     const orgId = resolveOrgId(actor);
     const result = await kernel.services.promotions.update(orgId, c.req.param("id"), body, actor);
     if (!result.ok) {

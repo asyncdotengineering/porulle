@@ -94,8 +94,15 @@ function attributeValues(document: SearchDocument, name: string): string[] {
 
 function toDocument(row: PgSearchQueryResultRow): SearchDocument {
   const attributes = parseAttributes(row.attributes);
+  const payload = row.payload && typeof row.payload === "object"
+    ? row.payload as Record<string, unknown>
+    : {};
+  const organizationId = typeof payload.organizationId === "string"
+    ? payload.organizationId
+    : undefined;
   return {
     id: String(row.id ?? ""),
+    ...(organizationId ? { organizationId } : {}),
     type: String(row.type ?? ""),
     slug: String(row.slug ?? ""),
     title: String(row.title ?? ""),
@@ -105,7 +112,7 @@ function toDocument(row: PgSearchQueryResultRow): SearchDocument {
     brands: parseBrands(row.brands),
     text: String(row.text ?? ""),
     ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
-    ...(row.payload && typeof row.payload === "object" ? { payload: row.payload as Record<string, unknown> } : {}),
+    ...(Object.keys(payload).length > 0 ? { payload } : {}),
   };
 }
 
@@ -124,6 +131,11 @@ function buildWhere(
   if (params.filters?.type) {
     values.push(params.filters.type);
     clauses.push(`type = $${values.length}`);
+  }
+
+  if (params.filters?.organizationId) {
+    values.push(params.filters.organizationId);
+    clauses.push(`payload ->> 'organizationId' = $${values.length}`);
   }
 
   if (params.filters?.status) {
@@ -256,7 +268,10 @@ export function pgSearchAdapter(options: PgSearchAdapterOptions): SearchAdapter 
               document.brands,
               document.text,
               JSON.stringify(document.attributes ?? {}),
-              JSON.stringify(document.payload ?? {}),
+              JSON.stringify({
+                ...(document.payload ?? {}),
+                ...(document.organizationId ? { organizationId: document.organizationId } : {}),
+              }),
             ],
           );
         }
@@ -351,6 +366,11 @@ export function pgSearchAdapter(options: PgSearchAdapterOptions): SearchAdapter 
         if (params.type) {
           values.push(params.type);
           conditions.push(`type = $${values.length}`);
+        }
+
+        if (params.organizationId) {
+          values.push(params.organizationId);
+          conditions.push(`payload ->> 'organizationId' = $${values.length}`);
         }
 
         values.push(limit);

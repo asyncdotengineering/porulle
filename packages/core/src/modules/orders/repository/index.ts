@@ -166,6 +166,7 @@ export class OrdersRepository {
   async findByIdempotencyKey(
     orgId: string,
     idempotencyKey: string,
+    idempotencyScope: string,
     ctx?: TxContext,
   ): Promise<Order | undefined> {
     const db = this.getDb(ctx);
@@ -175,6 +176,7 @@ export class OrdersRepository {
       .where(
         and(
           eq(orders.organizationId, orgId),
+          eq(orders.idempotencyScope, idempotencyScope),
           eq(orders.idempotencyKey, idempotencyKey),
         ),
       );

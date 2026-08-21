@@ -1,23 +1,26 @@
 import { describe, expect, it } from "vitest";
+import { Hono } from "hono";
 import { createKernel } from "../src/runtime/kernel.js";
 import { createTestConfig } from "../src/test-utils/create-test-config.js";
 import { createRestRoutes } from "../src/interfaces/rest/index.js";
 import type { SearchAdapter, SearchDocument, SearchQueryParams, SearchSuggestParams } from "../src/modules/search/adapter.js";
+import type { Actor } from "../src/auth/types.js";
+import type { AppEnv } from "../src/interfaces/rest/utils.js";
 
-const actor = {
+const actor: Actor = {
   type: "user",
   userId: "staff-1",
   email: "staff@example.com",
   name: "Staff",
   vendorId: null,
-  organizationId: null,
+  organizationId: "org_default",
   role: "staff",
   permissions: [
     "catalog:create",
     "catalog:update",
     "catalog:read",
   ],
-} as any;
+};
 
 describe("phase 5 search", () => {
   it("supports REST search and suggest with facets", async () => {
@@ -54,7 +57,12 @@ describe("phase 5 search", () => {
     await kernel.services.catalog.addToBrand(first.value.id, "acme", actor);
     await kernel.services.catalog.addToBrand(second.value.id, "globex", actor);
 
-    const app = createRestRoutes(kernel);
+    const app = new Hono<AppEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", actor);
+      await next();
+    });
+    app.route("/", createRestRoutes(kernel));
 
     const searchResponse = await app.request(
       "http://localhost/search?q=trail&category=outerwear&brand=acme&facets=type,category,brand",
@@ -149,14 +157,17 @@ describe("phase 5 search", () => {
       page: 1,
       limit: 5,
       filters: { type: "product" },
-    });
+    }, { actor, tx: null, requestId: "phase5-search" });
     expect(searchResult.ok).toBe(true);
     if (!searchResult.ok) return;
     expect(searchCalls.length).toBe(1);
     expect(searchCalls[0]?.query).toBe("search");
     expect(searchResult.value.hits[0]?.document?.slug).toBe("search-hook-product");
 
-    const suggest = await kernel.services.search.suggest({ prefix: "se" });
+    const suggest = await kernel.services.search.suggest(
+      { prefix: "se" },
+      { actor, tx: null, requestId: "phase5-suggest" },
+    );
     expect(suggest.ok).toBe(true);
     if (!suggest.ok) return;
     expect(suggest.value).toContain("Search Hook Product");

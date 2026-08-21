@@ -2,13 +2,14 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
 import type { AttachMediaInput } from "../../../modules/media/service.js";
 import { attachMediaRoute, getMediaRoute, deleteMediaRoute } from "../schemas/media.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requirePerm } from "../utils.js";
+import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requireMethodPerm, requirePerm } from "../utils.js";
 
 export function mediaRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
 
   // Upload requires authentication + media:write permission
   router.use("/upload", requirePerm("media:write"));
+  router.use("/:id", requireMethodPerm(["DELETE"], "media:write"));
 
   router.post("/upload", async (c) => {
     // No storage configured (the default no-op adapter) → media is disabled.
@@ -43,16 +44,20 @@ export function mediaRoutes(kernel: Kernel) {
 
   router.openapi(getMediaRoute, async (c) => {
     const signed = c.req.query("signed") === "true";
+    const actor = c.get("actor");
+
+    if (!actor && !signed) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Media not found." } }, 404);
+    }
 
     // Signed URLs require authentication
-    if (signed && !c.get("actor")) {
+    if (signed && !actor) {
       return c.json(
         { error: { code: "UNAUTHORIZED", message: "Authentication required for signed URLs." } },
         401,
       );
     }
 
-    const actor = c.get("actor");
     const result = signed
       ? await kernel.services.media.getSignedUrl(c.req.param("id"), undefined, actor)
       : await kernel.services.media.getUrl(c.req.param("id"), actor);

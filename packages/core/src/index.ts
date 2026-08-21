@@ -36,7 +36,7 @@ export { createSystemActor } from "./auth/system-actor.js";
 export { OrganizationService } from "./modules/organization/service.js";
 export { createScopedDb } from "./kernel/database/scoped-db.js";
 export type { ScopedOrganizationId } from "./kernel/database/scoped-db.js";
-export { assertOwnership, assertPermission } from "./auth/permissions.js";
+export { assertOwnership, assertPermission, requireUserId } from "./auth/permissions.js";
 export type { AccessResult, AccessContext, AccessFn, WhereClause } from "./auth/access.js";
 export {
   accessOR,

@@ -145,6 +145,7 @@ export class CartService {
       }
     }
 
+    const guestSecret = resolvedCustomerId === null ? crypto.randomUUID() : undefined;
     const cart = await this.repo.create(
       {
         organizationId: orgId,
@@ -153,6 +154,7 @@ export class CartService {
         metadata: input.metadata ?? {},
         expiresAt: new Date(now.getTime() + ttlMinutes * 60 * 1000),
         ...(resolvedCustomerId !== null ? { customerId: resolvedCustomerId } : {}),
+        ...(guestSecret !== undefined ? { secret: guestSecret } : {}),
         ...(input.email !== undefined ? { email: input.email } : {}),
       },
       ctx,
@@ -195,10 +197,31 @@ export class CartService {
     });
   }
 
+  /**
+   * Reads a cart for a trusted server pipeline after the request boundary has
+   * already authenticated the caller. Organization scope is explicit; caller
+   * identity and guest secrets are intentionally not consulted here.
+   */
+  async getByIdForInternalUse(
+    id: string,
+    organizationId: string,
+    ctx?: TxContext,
+  ): Promise<Result<Cart & { lineItems: CartLineItem[] }>> {
+    const cart = await this.repo.findById(organizationId, id, ctx);
+    if (!cart) return Err(new CommerceNotFoundError("Cart not found."));
+
+    const lineItems = await this.repo.findLineItemsByCartId(id, ctx);
+    return Ok({
+      ...cart,
+      lineItems,
+    });
+  }
+
   async addItem(
     input: AddCartItemInput,
     actor?: Actor | null,
     ctx?: TxContext,
+    presentedSecret?: string,
   ): Promise<Result<CartLineItem>> {
     try {
       assertPermission(actor ?? null, "cart:update");
@@ -211,7 +234,7 @@ export class CartService {
     if (!cart) return Err(new CommerceNotFoundError("Cart not found."));
 
     try {
-      await this.assertCartOwnership(actor ?? null, cart, ctx);
+      await this.assertCartOwnership(actor ?? null, cart, ctx, presentedSecret);
     } catch (error) {
       return Err(toCommerceError(error));
     }
@@ -319,6 +342,7 @@ export class CartService {
     itemId: string,
     actor?: Actor | null,
     ctx?: TxContext,
+    presentedSecret?: string,
   ): Promise<Result<void>> {
     try {
       assertPermission(actor ?? null, "cart:update");
@@ -331,7 +355,7 @@ export class CartService {
     if (!cart) return Err(new CommerceNotFoundError("Cart not found."));
 
     try {
-      await this.assertCartOwnership(actor ?? null, cart, ctx);
+      await this.assertCartOwnership(actor ?? null, cart, ctx, presentedSecret);
     } catch (error) {
       return Err(toCommerceError(error));
     }
@@ -360,6 +384,7 @@ export class CartService {
     input: UpdateCartItemInput,
     actor?: Actor | null,
     ctx?: TxContext,
+    presentedSecret?: string,
   ): Promise<Result<CartLineItem>> {
     try {
       assertPermission(actor ?? null, "cart:update");
@@ -372,7 +397,7 @@ export class CartService {
     if (!cart) return Err(new CommerceNotFoundError("Cart not found."));
 
     try {
-      await this.assertCartOwnership(actor ?? null, cart, ctx);
+      await this.assertCartOwnership(actor ?? null, cart, ctx, presentedSecret);
     } catch (error) {
       return Err(toCommerceError(error));
     }

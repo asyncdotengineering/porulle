@@ -3,6 +3,7 @@ import type { OpenAPIHono, RouteConfig } from "@hono/zod-openapi";
 import type { PluginDb } from "../database/plugin-types.js";
 import type { DatabaseAdapter } from "../database/adapter.js";
 import { resolveOrgId } from "../../auth/org.js";
+import { isRoutePermissionGuard, markRoutePermissionGuard } from "../../interfaces/rest/utils.js";
 import { createScopedDb } from "../database/scoped-db.js";
 import {
   getPluginDatabaseScopeOrganizationId,
@@ -305,19 +306,22 @@ export function defineCommercePlugin(
                 throw err; // re-throw so global handler still catches
               }
             };
+            const registeredHandler = isRoutePermissionGuard(originalHandler)
+              ? markRoutePermissionGuard(wrappedHandler)
+              : wrappedHandler;
 
             if ("openapi" in route) {
               // OpenAPI route: validated by Zod, appears in /api/doc
               // Hono type interop — OpenAPIHono.openapi() expects strict RouteConfig+Handler
               // generics that can't be statically resolved for dynamic plugin routes.
               // @ts-expect-error -- dynamic plugin routes cannot satisfy Hono's strict handler generics
-              (app as OpenAPIHono).openapi(route.openapi, wrappedHandler);
+              (app as OpenAPIHono).openapi(route.openapi, registeredHandler);
             } else {
               // Legacy route: raw handler, invisible to OpenAPI spec.
               // Explicit dispatch avoids casting Hono to a Record.
               // Handler cast is a single `as any` (Hono's overloaded method
               // signatures can't unify with our generic handler shape).
-              const h = wrappedHandler as any;
+              const h = registeredHandler as any;
               switch (route.method.toLowerCase()) {
                 case "get":     app.get(route.path, h); break;
                 case "post":    app.post(route.path, h); break;

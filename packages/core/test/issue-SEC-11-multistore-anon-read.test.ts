@@ -29,8 +29,8 @@ describe("SEC-11 — authenticated reads are store-scoped", () => {
     services = kernel.services;
     await services.organization.create({ id: ORG_A, name: "Store A", slug: "sec11ms-a" });
     await services.organization.create({ id: ORG_B, name: "Store B", slug: "sec11ms-b" });
-    const a = await services.catalog.create({ type: "product", slug: "ms-a" }, admin(ORG_A));
-    const b = await services.catalog.create({ type: "product", slug: "ms-b" }, admin(ORG_B));
+    const a = await services.catalog.create({ type: "product", slug: "ms-a", status: "active" }, admin(ORG_A));
+    const b = await services.catalog.create({ type: "product", slug: "ms-b", status: "active" }, admin(ORG_B));
     if (!a.ok || !b.ok) throw new Error(`seed failed: ${JSON.stringify([a, b])}`);
     entA = a.value.id;
     entB = b.value.id;

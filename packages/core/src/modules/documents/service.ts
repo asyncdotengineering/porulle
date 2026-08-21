@@ -90,16 +90,18 @@ export class DocumentsService {
     orderId: string,
     actor: Actor | null,
     ctx?: TxContext,
+    guestCredential?: string,
   ): Promise<Result<HydratedOrder>> {
-    return this.orders.getById(orderId, actor, ctx);
+    return this.orders.getById(orderId, actor, ctx, guestCredential);
   }
 
   async renderInvoiceHtml(
     orderId: string,
     actor: Actor | null,
     ctx?: TxContext,
+    guestCredential?: string,
   ): Promise<Result<{ html: string; invoiceNumber: string }>> {
-    const order = await this.loadOrder(orderId, actor, ctx);
+    const order = await this.loadOrder(orderId, actor, ctx, guestCredential);
     if (!order.ok) return order;
     const branding = await this.brandingFor(order.value.organizationId, ctx);
     const doc = await this.issueInvoiceNumber(order.value, ctx);
@@ -113,8 +115,9 @@ export class DocumentsService {
     orderId: string,
     actor: Actor | null,
     ctx?: TxContext,
+    guestCredential?: string,
   ): Promise<Result<{ pdf: Uint8Array; invoiceNumber: string }>> {
-    const order = await this.loadOrder(orderId, actor, ctx);
+    const order = await this.loadOrder(orderId, actor, ctx, guestCredential);
     if (!order.ok) return order;
     const branding = await this.brandingFor(order.value.organizationId, ctx);
     const doc = await this.issueInvoiceNumber(order.value, ctx);
@@ -130,8 +133,9 @@ export class DocumentsService {
     orderId: string,
     actor: Actor | null,
     ctx?: TxContext,
+    guestCredential?: string,
   ): Promise<Result<{ html: string }>> {
-    const order = await this.loadOrder(orderId, actor, ctx);
+    const order = await this.loadOrder(orderId, actor, ctx, guestCredential);
     if (!order.ok) return order;
     const branding = await this.brandingFor(order.value.organizationId, ctx);
     return Ok({ html: receiptHtml({ order: order.value, branding }) });
@@ -147,15 +151,16 @@ export class DocumentsService {
     to: string,
     actor: Actor | null,
     ctx?: TxContext,
+    guestCredential?: string,
   ): Promise<Result<{ sent: true; invoiceNumber: string; to: string }>> {
     const email = this.services.email as EmailAdapter | undefined;
     if (!email) {
       return Err(new CommerceValidationError("No email adapter is configured."));
     }
-    const rendered = await this.renderInvoiceHtml(orderId, actor, ctx);
+    const rendered = await this.renderInvoiceHtml(orderId, actor, ctx, guestCredential);
     if (!rendered.ok) return rendered;
 
-    const order = await this.loadOrder(orderId, actor, ctx);
+    const order = await this.loadOrder(orderId, actor, ctx, guestCredential);
     if (!order.ok) return order;
 
     await email.send({

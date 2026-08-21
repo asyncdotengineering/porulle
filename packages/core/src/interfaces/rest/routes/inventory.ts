@@ -24,6 +24,8 @@ export function inventoryRoutes(kernel: Kernel) {
   router.use("/warehouses", requirePerm("inventory:read"));
   router.use("/reserve", requirePerm("inventory:adjust"));
   router.use("/release", requirePerm("inventory:adjust"));
+  router.use("/check", requirePerm("inventory:read"));
+  router.use("/adjust", requirePerm("inventory:adjust"));
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(listInventoryLevelsRoute, async (c) => {

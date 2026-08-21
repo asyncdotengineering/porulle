@@ -16,27 +16,35 @@ import {
   updateProfileRoute,
   createAddressRoute,
 } from "./schemas/customer-portal.js";
-import { isUUID, mapErrorToStatus } from "./utils.js";
+import { isUUID, mapErrorToStatus, markRoutePermissionGuard } from "./utils.js";
+
+type AuthenticatedActor = Actor & { userId: string };
 
 export function createCustomerPortalRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
 
-  router.use("*", async (c, next) => {
-    if (!c.get("actor")) {
+  router.use("*", markRoutePermissionGuard(async (c, next) => {
+    const actor = c.get("actor") as Actor | null;
+    if (!actor?.userId) {
       return c.json(
         { error: { code: "FORBIDDEN", message: "Authentication required." } },
         401,
       );
     }
     await next();
-  });
+  }));
+
+  function requireUserId(actor: Actor): string {
+    if (!actor.userId) throw new Error("Authenticated customer actor required.");
+    return actor.userId;
+  }
 
   /**
    * Resolves an actor whose userId is the customer profile UUID (not the Better Auth user ID).
    * Required so that `assertOwnership(actor, order.customerId)` compares UUIDs correctly,
    * since orders.customer_id stores the customer profile UUID, not the Better Auth string ID.
    */
-  async function resolveCustomerActor(actor: Actor): Promise<Actor | null> {
+  async function resolveCustomerActor(actor: AuthenticatedActor): Promise<AuthenticatedActor | null> {
     const customer = await kernel.services.customers.getByUserId(actor.userId, actor);
     if (!customer.ok) return null;
     return { ...actor, userId: customer.value.id };
@@ -44,7 +52,7 @@ export function createCustomerPortalRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(getProfileRoute, async (c) => {
-    const actor = c.get("actor") as Actor;
+    const actor = c.get("actor") as AuthenticatedActor;
     const customer = await kernel.services.customers.getByUserId(actor.userId, actor);
     if (!customer.ok) return c.json({ error: customer.error }, 404);
     return c.json({ data: customer.value });
@@ -52,7 +60,7 @@ export function createCustomerPortalRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(updateProfileRoute, async (c) => {
-    const actor = c.get("actor") as Actor;
+    const actor = c.get("actor") as AuthenticatedActor;
     assertPermission(actor, "customers:update:self");
     const result = await kernel.services.customers.updateByUserId(
       actor.userId,
@@ -64,7 +72,7 @@ export function createCustomerPortalRoutes(kernel: Kernel) {
   });
 
   router.openapi(listAddressesRoute, async (c) => {
-    const actor = c.get("actor") as Actor;
+    const actor = c.get("actor") as AuthenticatedActor;
     const addresses = await kernel.services.customers.getAddresses(
       actor.userId,
       actor,
@@ -74,7 +82,7 @@ export function createCustomerPortalRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(createAddressRoute, async (c) => {
-    const actor = c.get("actor") as Actor;
+    const actor = c.get("actor") as AuthenticatedActor;
     const result = await kernel.services.customers.addAddress(
       actor.userId,
       c.req.valid("json") as Parameters<typeof kernel.services.customers.addAddress>[1],
@@ -86,7 +94,7 @@ export function createCustomerPortalRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(deleteAddressRoute, async (c) => {
-    const actor = c.get("actor") as Actor;
+    const actor = c.get("actor") as AuthenticatedActor;
     const result = await kernel.services.customers.deleteAddress(
       actor.userId,
       c.req.param("id"),
@@ -98,23 +106,27 @@ export function createCustomerPortalRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(listCustomerOrdersRoute, async (c) => {
-    const actor = c.get("actor") as Actor;
+    const actor = c.get("actor") as AuthenticatedActor;
     const status = c.req.query("status");
     // Resolve customer profile UUID from Better Auth userId
     const customerResult = await kernel.services.customers.getByUserId(actor.userId, actor);
     if (!customerResult.ok) return c.json({ data: [], meta: { total: 0, page: 1, limit: 20, totalPages: 0 } });
-    const result = await kernel.services.orders.listByCustomer(customerResult.value.id, {
-      page: Number.parseInt(c.req.query("page") ?? "1", 10),
-      limit: Number.parseInt(c.req.query("limit") ?? "20", 10),
-      ...(status !== undefined ? { status } : {}),
-    });
-    if (!result.ok) return c.json({ error: result.error }, 500);
+    const result = await kernel.services.orders.listByCustomer(
+      customerResult.value.id,
+      {
+        page: Number.parseInt(c.req.query("page") ?? "1", 10),
+        limit: Number.parseInt(c.req.query("limit") ?? "20", 10),
+        ...(status !== undefined ? { status } : {}),
+      },
+      actor,
+    );
+    if (!result.ok) return c.json({ error: result.error }, mapErrorToStatus(result.error));
     return c.json({ data: result.value.items, meta: result.value.pagination });
   });
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(getCustomerOrderRoute, async (c) => {
-    const actor = c.get("actor") as Actor;
+    const actor = c.get("actor") as AuthenticatedActor;
     const id = c.req.param("idOrNumber");
     const customerActor = await resolveCustomerActor(actor);
     if (!customerActor) return c.json({ error: { code: "NOT_FOUND", message: "Customer profile not found." } }, 404);
@@ -129,7 +141,7 @@ export function createCustomerPortalRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(getOrderTrackingRoute, async (c) => {
-    const actor = c.get("actor") as Actor;
+    const actor = c.get("actor") as AuthenticatedActor;
     const id = c.req.param("idOrNumber");
     const customerActor = await resolveCustomerActor(actor);
     if (!customerActor) return c.json({ error: { code: "NOT_FOUND", message: "Customer profile not found." } }, 404);
@@ -167,7 +179,7 @@ export function createCustomerPortalRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(getOrderDownloadsRoute, async (c) => {
-    const actor = c.get("actor") as Actor;
+    const actor = c.get("actor") as AuthenticatedActor;
     const customerActor = await resolveCustomerActor(actor);
     if (!customerActor) return c.json({ error: { code: "NOT_FOUND", message: "Customer profile not found." } }, 404);
     const orderResult = await kernel.services.orders.getById(
@@ -209,7 +221,7 @@ export function createCustomerPortalRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(listCoursesRoute, async (c) => {
-    const actor = c.get("actor") as Actor;
+    const actor = c.get("actor") as AuthenticatedActor;
     const result = await kernel.services.fulfillment.getDigitalAccess(
       actor.userId,
       "course",
@@ -230,7 +242,7 @@ export function createCustomerPortalRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(reorderRoute, async (c) => {
-    const actor = c.get("actor") as Actor;
+    const actor = c.get("actor") as AuthenticatedActor;
     const customerActor = await resolveCustomerActor(actor);
     if (!customerActor) return c.json({ error: { code: "NOT_FOUND", message: "Customer profile not found." } }, 404);
     const orderResult = await kernel.services.orders.getById(
@@ -246,7 +258,7 @@ export function createCustomerPortalRoutes(kernel: Kernel) {
 
     const cartResult = await kernel.services.cart.create(
       {
-        customerId: actor.userId,
+        customerId: requireUserId(actor),
         currency: orderResult.value.currency,
       },
       actor,

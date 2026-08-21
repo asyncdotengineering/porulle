@@ -9,7 +9,7 @@ import {
   listCompensationFailuresRoute,
   resolveCompensationFailureRoute,
 } from "../../schemas/compensation-failures.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus } from "../../utils.js";
+import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requirePerm } from "../../utils.js";
 
 function toIso(d: Date | null | undefined): string | null {
   if (d == null) return null;
@@ -66,6 +66,9 @@ function parseResolvedFilter(
 
 export function compensationFailureAdminRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
+
+  router.use("/compensation-failures", requirePerm("compensation:admin"));
+  router.use("/compensation-failures/*", requirePerm("compensation:admin"));
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(listCompensationFailuresRoute, async (c) => {
@@ -147,7 +150,7 @@ export function compensationFailureAdminRoutes(kernel: Kernel) {
     const resolved = await kernel.services.compensationFailures.markResolved({
       id,
       organizationId: orgId,
-      resolvedBy: (actor as Actor).userId,
+      resolvedBy: (actor as Actor).userId ?? "system",
       ...(body.notes !== undefined ? { notes: body.notes } : {}),
     });
     if (!resolved.ok) {

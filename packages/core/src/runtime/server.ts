@@ -20,6 +20,8 @@ import { createLogger, type Logger } from "./logger.js";
 import { createCommerce, type CommerceInstance } from "./commerce.js";
 import { rewriteCommerceAliasRequest } from "./url-alias-rewrite.js";
 import { mapErrorToResponse } from "../kernel/error-mapper.js";
+import { assertRouteCoverage } from "../interfaces/rest/route-coverage.js";
+import { markRoutePermissionGuard } from "../interfaces/rest/utils.js";
 
 type ServerEnv = {
   Variables: {
@@ -433,7 +435,7 @@ export async function createServer(config: CommerceConfig) {
   // Strategy 1: Built-in cron endpoint for serverless deployments.
   // Point Vercel Cron or Cloudflare Cron Trigger at GET /api/jobs/run
   // Optional query params: ?queue=emails&limit=20
-  app.get("/api/jobs/run", async (c) => {
+  app.get("/api/jobs/run", markRoutePermissionGuard(async (c) => {
     // Always require admin — cron triggers must authenticate
     const actor = c.get("actor") as { permissions?: string[] } | null;
     if (!actor?.permissions?.includes("*:*")) {
@@ -450,7 +452,7 @@ export async function createServer(config: CommerceConfig) {
       logger.error({ err }, "Job runner endpoint failed");
       return c.json({ error: { code: "INTERNAL_ERROR", message: "Job processing failed" } }, 500);
     }
-  });
+  }));
 
   // Strategy 2: In-process polling for long-running servers (ECS, Cloud Run, Docker).
   // Enable via config.jobs.autorun.enabled = true
@@ -487,6 +489,8 @@ export async function createServer(config: CommerceConfig) {
       );
     }
   }
+
+  assertRouteCoverage(app);
 
   const dispatchFetch = app.fetch.bind(app);
   app.fetch = ((input: RequestInfo | URL, env?: unknown, executionCtx?: unknown) => {

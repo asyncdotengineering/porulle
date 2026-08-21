@@ -1,4 +1,4 @@
-import { router } from "@porulle/core";
+import { requireUserId, router } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
 import type { WishlistService } from "../services/wishlist-service.js";
 import type { PluginRouteRegistration } from "@porulle/core";
@@ -11,7 +11,7 @@ export function buildWishlistRoutes(
 
   r.get("/").summary("List my wishlist").auth()
     .handler(async ({ actor, orgId }) => {
-      const result = await service.list(orgId, actor!.userId);
+      const result = await service.list(orgId, requireUserId(actor));
       if (!result.ok) throw new Error(result.error);
       return result.value;
     });
@@ -20,14 +20,14 @@ export function buildWishlistRoutes(
     .input(z.object({ entityId: z.string().uuid(), note: z.string().max(500).optional() }))
     .handler(async ({ input, actor, orgId }) => {
       const body = input as { entityId: string; note?: string };
-      const result = await service.add(orgId, actor!.userId, body);
+      const result = await service.add(orgId, requireUserId(actor), body);
       if (!result.ok) throw new Error(result.error);
       return result.value;
     });
 
   r.delete("/{id}").summary("Remove from wishlist").auth()
     .handler(async ({ params, actor, orgId }) => {
-      const result = await service.remove(orgId, actor!.userId, params.id!);
+      const result = await service.remove(orgId, requireUserId(actor), params.id!);
       if (!result.ok) throw new Error(result.error);
       return result.value;
     });

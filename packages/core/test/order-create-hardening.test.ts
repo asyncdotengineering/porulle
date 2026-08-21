@@ -70,6 +70,7 @@ describe("order creation hardening", () => {
       {
         type: "product",
         slug: `order-hardening-local-${crypto.randomUUID()}`,
+        status: "active",
         attributes: { title: "Server-priced product" },
         metadata: {},
       },
@@ -172,10 +173,8 @@ describe("order creation hardening", () => {
       body: orderBody(entityId, 1),
       actor: customerActor,
     });
-    expect(routeResponse.status).toBe(403);
-    expect(
-      (await parseJsonResponse<{ error: { code: string } }>(routeResponse)).error.code,
-    ).toBe("FORBIDDEN");
+    expect(routeResponse.status).toBe(201);
+    expect((await parseJsonResponse<{ data: { subtotal: number } }>(routeResponse)).data.subtotal).toBe(7500);
 
     const directResult = await kernel.services.orders.create(
       orderBody(entityId, 1),

@@ -141,7 +141,7 @@ describe("import-woocommerce", () => {
     expect(result.value.mediaImported + result.value.errors.filter(e => e.scope === "media").length).toBe(1);
     expect(result.value.customersImported).toBe(1);
 
-    const catalog = await kernel.services.catalog.list({ pagination: { page: 1, limit: 20 } });
+    const catalog = await kernel.services.catalog.list({ pagination: { page: 1, limit: 20 } }, actor);
     expect(catalog.ok).toBe(true);
     if (!catalog.ok) return;
 

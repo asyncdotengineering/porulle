@@ -164,7 +164,7 @@ export function adminStaffRoutes(kernel: Kernel) {
         role: body.role,
         status: "pending",
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        inviterId: actor!.userId,
+        inviterId: actor?.userId ?? "system",
       })
       .returning();
     return c.json({ data: rows[0] }, 201);

@@ -1,12 +1,14 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
 import { searchRoute, suggestRoute } from "../schemas/search.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus } from "../utils.js";
+import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requirePerm } from "../utils.js";
 
 const SAFE_ATTRIBUTE_NAME = /^[A-Za-z0-9_-]+$/;
 
 export function searchRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
+
+  router.use("/*", requirePerm("catalog:read"));
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(searchRoute, async (c) => {

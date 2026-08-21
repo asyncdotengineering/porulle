@@ -5,9 +5,14 @@ import type { AuthInstance } from "./setup.js";
 import { DEFAULT_ORG_ID } from "./org.js";
 import { isStrictOrgResolution } from "./strict-org-resolution.js";
 
+function emptyToNull(value: string | null | undefined): string | null {
+  return value == null || value === "" ? null : value;
+}
+
 // Exported so the storefront contract can be pinned by a test: an anonymous
 // visitor resolved by `storeResolver` gets these permissions, so dropping
 // `catalog:read` here would 401 every public storefront read.
+
 export const DEFAULT_CUSTOMER_PERMISSIONS = [
   "catalog:read",
   "cart:create",
@@ -195,9 +200,13 @@ export function authMiddleware(
                 : null;
           const metaOrg = typeof meta?.organizationId === "string" ? meta.organizationId : undefined;
           const orgId = (metaOrg ?? apiKey.organizationId ?? defaultOrgId) as string;
-          const userId = ((typeof meta?.operatorId === "string" ? meta.operatorId : undefined)
-            ?? apiKey.referenceId
-            ?? "") as string;
+          // No operator and no reference means the key carries no user
+          // identity. Leave it absent rather than substituting a shared
+          // placeholder, which would make every such key look like one person.
+          const userId = emptyToNull(
+            (typeof meta?.operatorId === "string" ? meta.operatorId : undefined) ??
+              (typeof apiKey.referenceId === "string" ? apiKey.referenceId : undefined),
+          );
 
           // Better Auth stores permissions as Record<string, string[]>
           // (e.g. {"catalog":["read","create"]}).  Flatten to the
@@ -248,7 +257,7 @@ export function authMiddleware(
             // services can scope queries correctly.
             c.set("actor", {
               type: "user",
-              userId: "anonymous",
+              userId: null,
               email: null,
               name: "Anonymous",
               vendorId: null,

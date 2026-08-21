@@ -1,5 +1,6 @@
-import { Ok, type Result } from "../../kernel/result.js";
+import { Err, Ok, type Result } from "../../kernel/result.js";
 import { resolveOrgId } from "../../auth/org.js";
+import { OrgResolutionError } from "../../kernel/errors.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
 import type { CommerceConfig } from "../../config/types.js";
 import type {
@@ -16,6 +17,7 @@ import type {
   SearchSuggestParams,
 } from "./adapter.js";
 import type { EntityFieldDefinitionResolver } from "../catalog/service.js";
+import { canReadUnpublishedCatalog } from "../catalog/read-policy.js";
 
 interface SearchServiceDeps {
   catalogRepository: CatalogRepository;
@@ -180,11 +182,13 @@ export class SearchService {
 
     return {
       id: entity.id,
+      organizationId: entity.organizationId,
       type: entity.type,
       slug: entity.slug,
       title,
       ...(description ? { description } : {}),
       status: entity.status,
+      isVisible: entity.isVisible,
       categories,
       brands,
       text: textParts.join(" ").trim(),
@@ -196,10 +200,14 @@ export class SearchService {
   }
 
   private async allDocuments(ctx?: TxContext): Promise<SearchDocument[]> {
-    const orgId = resolveOrgId(ctx?.actor ?? null);
+    const actor = ctx?.actor;
+    if (!actor) {
+      throw new OrgResolutionError("Organization could not be resolved for a search read.");
+    }
+    const orgId = resolveOrgId(actor);
     const entities = await this.deps.catalogRepository.findEntities(
       orgId,
-      undefined,
+      canReadUnpublishedCatalog(actor) ? undefined : { status: "active", isVisible: true },
       ctx,
     );
     return Promise.all(
@@ -212,6 +220,7 @@ export class SearchService {
     filters: SearchFilters | undefined,
   ): boolean {
     if (!filters) return true;
+    if (filters.organizationId && document.organizationId !== filters.organizationId) return false;
     if (filters.type && document.type !== filters.type) return false;
     if (filters.status && document.status !== filters.status) return false;
     if (filters.category && !document.categories.includes(filters.category))
@@ -318,11 +327,31 @@ export class SearchService {
     const safeQuery = (params.query ?? "").slice(0, 500);
 
     if (this.deps.adapter) {
-      return this.deps.adapter.search({
+      const actor = ctx?.actor ?? null;
+      if (!actor) return Err(new OrgResolutionError("Organization could not be resolved for a search read."));
+      const organizationId = resolveOrgId(actor);
+      const result = await this.deps.adapter.search({
         ...params,
         query: safeQuery,
         page,
         limit,
+        filters: {
+          ...params.filters,
+          organizationId,
+          ...(!canReadUnpublishedCatalog(actor) ? { status: "active" } : {}),
+        },
+      });
+      if (!result.ok) return result;
+      const hits = result.value.hits.filter((hit) =>
+        hit.document.organizationId === organizationId &&
+        (canReadUnpublishedCatalog(actor) ||
+          (hit.document.status === "active" && hit.document.isVisible !== false)),
+      );
+      return Ok({
+        ...result.value,
+        hits,
+        total: hits.length,
+        facets: this.computeFacets(hits.map((hit) => hit.document), params.facets),
       });
     }
 
@@ -390,11 +419,18 @@ export class SearchService {
     if (prefix.length === 0) return Ok([]);
 
     if (this.deps.adapter) {
-      return this.deps.adapter.suggest({
+      const actor = ctx?.actor ?? null;
+      if (!actor) return Err(new OrgResolutionError("Organization could not be resolved for a search read."));
+      const organizationId = resolveOrgId(actor);
+      const result = await this.deps.adapter.suggest({
         ...params,
         prefix,
         limit,
+        organizationId,
       });
+      if (!result.ok) return result;
+      const visibleTitles = new Set((await this.allDocuments(ctx)).map((document) => document.title));
+      return Ok(result.value.filter((title) => visibleTitles.has(title)));
     }
 
     // In-memory fallback: require prefix >= 2 chars to avoid loading all entities

@@ -97,7 +97,7 @@ export const validateCartNotEmpty: BeforeHook<CheckoutData> = async ({
   context,
 }) => {
   const cartService = context.services.cart as {
-    getById(id: string, actor?: unknown): Promise<
+    getByIdForInternalUse(id: string, organizationId: string, ctx?: TxContext): Promise<
       | {
           ok: true;
           value: {
@@ -123,6 +123,8 @@ export const validateCartNotEmpty: BeforeHook<CheckoutData> = async ({
     getById(
       id: string,
       options?: { includeAttributes?: boolean },
+      actor?: unknown,
+      ctx?: TxContext,
     ): Promise<
       | {
           ok: true;
@@ -144,7 +146,11 @@ export const validateCartNotEmpty: BeforeHook<CheckoutData> = async ({
     );
   }
 
-  const cart = await cartService.getById(data.cartId, context.actor);
+  const cart = await cartService.getByIdForInternalUse(
+    data.cartId,
+    resolveOrgId(context.actor),
+    context.tx as TxContext | undefined,
+  );
   if (!cart.ok || cart.value.lineItems.length === 0) {
     throw new CommerceValidationError("Cannot checkout an empty cart.");
   }
@@ -174,7 +180,7 @@ export const validateCartNotEmpty: BeforeHook<CheckoutData> = async ({
     cart.value.lineItems.map(async (item) => {
       const entity = await catalogService.getById(item.entityId, {
         includeAttributes: true,
-      });
+      }, context.actor, context.tx as TxContext | undefined);
       const title = entity.ok
         ? (entity.value.attributes?.[0]?.title ?? item.entityId)
         : item.entityId;

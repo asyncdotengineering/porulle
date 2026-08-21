@@ -9,7 +9,7 @@ const staff: Actor = {
   email: "search-attributes-staff@example.com",
   name: "Search Attributes Staff",
   vendorId: null,
-  organizationId: null,
+  organizationId: "org_default",
   role: "staff",
   permissions: ["catalog:create", "catalog:update", "catalog:read"],
 };
@@ -49,7 +49,7 @@ describe("search custom attributes", () => {
     customFields: Record<string, string>,
   ): Promise<string> {
     const result = await kernel.services.catalog.create(
-      { type: "product", slug, customFields },
+      { type: "product", slug, status: "active", customFields },
       staff,
     );
     expect(result.ok).toBe(true);
@@ -84,7 +84,7 @@ describe("search custom attributes", () => {
           occasion: ["resort", "wedding"],
         },
       },
-    });
+    }, { actor: staff, tx: null, requestId: "search-attributes-filter" });
 
     expect(result.ok).toBe(true);
     if (!result.ok) throw result.error;
@@ -130,7 +130,7 @@ describe("search custom attributes", () => {
       query: "",
       filters: { type: "product" },
       facets: ["material", "occasion", "bookkeeping"],
-    });
+    }, { actor: staff, tx: null, requestId: "search-attributes-facets" });
 
     expect(result.ok).toBe(true);
     if (!result.ok) throw result.error;
@@ -148,7 +148,7 @@ describe("search custom attributes", () => {
     const nonFilterable = await kernel.services.search.query({
       query: "",
       filters: { type: "product", attributes: { bookkeeping: "internal-only" } },
-    });
+    }, { actor: staff, tx: null, requestId: "search-attributes-nonfilterable" });
     expect(nonFilterable.ok).toBe(true);
     if (!nonFilterable.ok) throw nonFilterable.error;
     expect(nonFilterable.value.total).toBe(0);

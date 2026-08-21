@@ -34,7 +34,7 @@ describe("SEC-11 — catalog getById enforces org context", () => {
     ]).onConflictDoNothing();
 
     const entity = await kernel.services.catalog.create(
-      { type: "product", slug: "sec11-private-product", metadata: { secret: true } },
+      { type: "product", slug: "sec11-private-product", status: "active", metadata: { secret: true } },
       adminOther,
     );
     if (!entity.ok) {
@@ -73,7 +73,7 @@ describe("SEC-11 — catalog getById enforces org context", () => {
       permissions: ["catalog:read", "catalog:create"],
     };
     const localEntity = await kernel.services.catalog.create(
-      { type: "product", slug: "sec11-default-product", metadata: {} },
+      { type: "product", slug: "sec11-default-product", status: "active", metadata: {} },
       adminDefault,
     );
     expect(localEntity.ok).toBe(true);

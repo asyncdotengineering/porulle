@@ -1,7 +1,9 @@
 import { resolveOrgId } from "../../auth/org.js";
 import { assertOwnership, assertPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
+import { isCatalogEntityVisible } from "../catalog/read-policy.js";
 import {
+  CommerceConflictError,
   CommerceForbiddenError,
   CommerceInvalidTransitionError,
   CommerceNotFoundError,
@@ -25,6 +27,7 @@ import {
 } from "../../kernel/state-machine/machine.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
 import { createLogger } from "../../utils/logger.js";
+import { makeIdempotencyScope } from "../../utils/id.js";
 import { paginate, type Pagination } from "../../utils/pagination.js";
 import {
   withTransaction,
@@ -105,6 +108,13 @@ export interface OrderServiceDeps {
   database: DatabaseAdapter;
 }
 
+export interface CreateOrderOptions {
+  trustedPricing?: boolean;
+  stockPolicy?: "reserve" | "backorder";
+  /** Credential presented by a guest cart owner for idempotent replay. */
+  guestCredential?: string;
+}
+
 export type HydratedOrder = Order & { lineItems: OrderLineItem[] };
 type OrderListResult = {
   items: HydratedOrder[];
@@ -137,6 +147,27 @@ function context(
     context: { moduleName: "orders" },
     database: { db: database.db as PluginDb },
   });
+}
+
+const PRIVILEGED_ORDER_ROLES = new Set([
+  "staff",
+  "admin",
+  "owner",
+  "ai_agent",
+  "service",
+]);
+
+/**
+ * Actors that transact on behalf of the organization rather than for
+ * themselves: they may name a foreign customer and sell catalog entities the
+ * storefront does not publish.
+ */
+function isPrivilegedOrderActor(actor: Actor | null): boolean {
+  if (!actor) return false;
+  return (
+    actor.permissions.includes("*:*") ||
+    (actor.role != null && PRIVILEGED_ORDER_ROLES.has(actor.role))
+  );
 }
 
 export class OrderService {
@@ -182,14 +213,18 @@ export class OrderService {
       }
     }
     const catalog = this.deps.services.catalog as {
-      getById(
+      getByIdForInternalUse(
         id: string,
-        options: Record<string, unknown>,
-        actor?: Actor | null,
+        organizationId: string,
+        options?: Record<string, unknown>,
         ctx?: TxContext,
       ): Promise<{
         ok: boolean;
-        value?: { variants?: Array<{ id: string }> };
+        value?: {
+          status?: string;
+          isVisible?: boolean;
+          variants?: Array<{ id: string }>;
+        };
       }>;
     };
     const pricing = this.deps.services.pricing as {
@@ -210,13 +245,26 @@ export class OrderService {
     > = [];
     for (const item of input.lineItems) {
       // Org-integrity — the referenced entity must belong to this order's org.
-      const owned = await catalog.getById(
+      // This is an internal invariant check, so it reads past the storefront
+      // visibility policy; unprivileged buyers are gated in the same branch.
+      const owned = await catalog.getByIdForInternalUse(
         item.entityId,
+        resolveOrgId(actor),
         { includeVariants: item.variantId !== undefined },
-        actor,
         ctx,
       );
-      if (!owned.ok) {
+      if (
+        !owned.ok ||
+        !owned.value ||
+        (!isPrivilegedOrderActor(actor) &&
+          !isCatalogEntityVisible(
+            {
+              status: owned.value.status ?? "draft",
+              isVisible: owned.value.isVisible ?? false,
+            },
+            actor,
+          ))
+      ) {
         return Err(
           new CommerceValidationError(
             `Line item entity ${item.entityId} does not belong to this organization.`,
@@ -266,11 +314,147 @@ export class OrderService {
     return Ok(resolved);
   }
 
+  private async resolveCreateCustomerId(
+    requestedCustomerId: string | undefined,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<string | undefined> {
+    // API keys are the documented POS operator actor. Keep this as an actor
+    // type predicate so self-service user actors remain unable to choose a
+    // foreign customerId even when they are authenticated.
+    const isOperator = actor?.type === "api_key";
+    if (isOperator) {
+      if (requestedCustomerId === undefined) return undefined;
+      const customers = this.deps.services.customers as
+        | {
+            getById(
+              id: string,
+              actor?: Actor | null,
+              ctx?: TxContext,
+            ): Promise<{ ok: boolean; value?: { id: string } }>;
+          }
+        | undefined;
+      const customer = await customers?.getById(requestedCustomerId, actor, ctx);
+      if (!customer?.ok || !customer.value) {
+        throw new CommerceValidationError(
+          "customerId must reference a customer in this organization.",
+        );
+      }
+      return customer.value.id;
+    }
+
+    if (isPrivilegedOrderActor(actor)) return requestedCustomerId;
+
+    if (!actor?.userId) return undefined;
+    const customers = this.deps.services.customers as
+      | {
+          getByUserId(
+            userId: string,
+            actor?: Actor | null,
+            ctx?: TxContext,
+          ): Promise<{ ok: boolean; value?: { id: string } }>;
+        }
+      | undefined;
+    if (!customers?.getByUserId) return undefined;
+    const own = await customers.getByUserId(actor.userId, actor, ctx);
+    return own.ok ? own.value?.id : undefined;
+  }
+
+  private async authorizeOrderRead(
+    order: Order,
+    actor: Actor | null,
+    ctx?: TxContext,
+    guestCredential?: string,
+  ): Promise<Result<void>> {
+    try {
+      if (
+        actor?.permissions.includes("orders:read") ||
+        actor?.permissions.includes("*:*")
+      ) {
+        // no-op
+      } else if (actor?.permissions.includes("orders:read:own")) {
+        if (order.customerId == null) {
+          const cartId =
+            typeof order.metadata?.cartId === "string"
+              ? order.metadata.cartId
+              : undefined;
+          const cart = this.deps.services.cart as
+            | {
+                getById(
+                  id: string,
+                  actor?: Actor | null,
+                  ctx?: TxContext,
+                  secret?: string,
+                ): Promise<{ ok: boolean }>;
+              }
+            | undefined;
+          if (!cartId || !guestCredential || !cart?.getById) {
+            throw new CommerceForbiddenError("You do not have access to this resource.");
+          }
+          const guestCart = await cart.getById(
+            cartId,
+            actor,
+            ctx,
+            guestCredential,
+          );
+          if (!guestCart.ok) {
+            throw new CommerceForbiddenError("You do not have access to this resource.");
+          }
+        } else {
+          // Older integrations may have stored the auth user ID directly as
+          // customerId. Keep that valid ownership shape while resolving the
+          // normal auth-user -> customer-profile relationship below.
+          let ownerActor = actor;
+          if (actor.userId !== order.customerId) {
+            const customers = this.deps.services.customers as
+              | {
+                  getByUserId(
+                    userId: string,
+                    actor?: Actor | null,
+                    ctx?: TxContext,
+                  ): Promise<{ ok: boolean; value?: { id: string } }>;
+                }
+              | undefined;
+            const profile = actor.userId && customers?.getByUserId
+              ? await customers.getByUserId(actor.userId, actor, ctx)
+              : { ok: false as const };
+            ownerActor = profile.ok
+              ? { ...actor, userId: profile.value!.id }
+              : actor;
+          }
+          assertOwnership(ownerActor, order.customerId);
+        }
+      } else {
+        assertPermission(actor, "orders:read");
+      }
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+    return Ok(undefined);
+  }
+
+  private async authorizedReplay(
+    order: Order,
+    actor: Actor | null,
+    ctx?: TxContext,
+    guestCredential?: string,
+  ): Promise<Result<HydratedOrder>> {
+    const access = await this.authorizeOrderRead(order, actor, ctx, guestCredential);
+    if (!access.ok) {
+      return Err(
+        new CommerceConflictError(
+          "Idempotency key does not belong to this account.",
+        ),
+      );
+    }
+    return Ok(await this.hydrateOrder(order, ctx));
+  }
+
   async create(
     input: CreateOrderInput,
     actor: Actor | null,
     ctx?: TxContext,
-    opts?: { trustedPricing?: boolean; stockPolicy?: "reserve" | "backorder" },
+    opts?: CreateOrderOptions,
   ): Promise<Result<HydratedOrder>> {
     if (opts?.stockPolicy === "reserve" && !ctx) {
       return withTransaction(this.deps.database, { actor }, (txCtx) =>
@@ -290,6 +474,24 @@ export class OrderService {
       );
     }
 
+    let resolvedCustomerId: string | undefined;
+    try {
+      resolvedCustomerId = await this.resolveCreateCustomerId(
+        input.customerId,
+        actor,
+        ctx,
+      );
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+    const serviceInput: CreateOrderInput = {
+      ...input,
+      ...(resolvedCustomerId !== undefined
+        ? { customerId: resolvedCustomerId }
+        : {}),
+    };
+    if (resolvedCustomerId === undefined) delete serviceInput.customerId;
+
     const beforeHooks = this.deps.hooks.resolve(
       "orders.beforeCreate",
     ) as BeforeCreateOrderHook[];
@@ -300,12 +502,21 @@ export class OrderService {
 
     const processed = await runBeforeHooks(
       beforeHooks,
-      input,
+      serviceInput,
       "create",
       hookCtx,
     );
 
     const orgId = resolveOrgId(actor);
+    const idempotencyScope = processed.idempotencyKey
+      ? await makeIdempotencyScope(
+          actor,
+          opts?.guestCredential,
+          typeof processed.metadata?.cartId === "string"
+            ? processed.metadata.cartId
+            : undefined,
+        )
+      : undefined;
 
     // Idempotent replay: offline POS queues and network retries re-submit the
     // same create — return the original order instead of double-creating.
@@ -313,10 +524,16 @@ export class OrderService {
       const existing = await this.repo.findByIdempotencyKey(
         orgId,
         processed.idempotencyKey,
+        idempotencyScope!,
         ctx,
       );
       if (existing) {
-        return Ok(await this.hydrateOrder(existing, ctx));
+        return this.authorizedReplay(
+          existing,
+          actor,
+          ctx,
+          opts?.guestCredential,
+        );
       }
     }
 
@@ -394,6 +611,7 @@ export class OrderService {
           ...(processed.paymentIntentId != null ? { paymentIntentId: processed.paymentIntentId } : {}),
           ...(processed.paymentMethodId != null ? { paymentMethodId: processed.paymentMethodId } : {}),
           ...(processed.idempotencyKey != null ? { idempotencyKey: processed.idempotencyKey } : {}),
+          ...(idempotencyScope !== undefined ? { idempotencyScope } : {}),
           metadata: processed.metadata ?? {},
           placedAt: new Date(),
           ...(processed.customerId !== undefined
@@ -408,9 +626,17 @@ export class OrderService {
         const winner = await this.repo.findByIdempotencyKey(
           orgId,
           processed.idempotencyKey,
+          idempotencyScope!,
           ctx,
         );
-        if (winner) return Ok(await this.hydrateOrder(winner, ctx));
+        if (winner) {
+          return this.authorizedReplay(
+            winner,
+            actor,
+            ctx,
+            opts?.guestCredential,
+          );
+        }
       }
       throw error;
     }
@@ -503,25 +729,19 @@ export class OrderService {
     id: string,
     actor: Actor | null,
     ctx?: TxContext,
+    guestCredential?: string,
   ): Promise<Result<HydratedOrder>> {
     const orgId = resolveOrgId(actor);
     const order = await this.repo.findById(orgId, id, ctx);
     if (!order) return Err(new CommerceNotFoundError("Order not found."));
 
-    try {
-      if (
-        actor?.permissions.includes("orders:read") ||
-        actor?.permissions.includes("*:*")
-      ) {
-        // no-op
-      } else if (actor?.permissions.includes("orders:read:own")) {
-        assertOwnership(actor, order.customerId ?? null);
-      } else {
-        assertPermission(actor, "orders:read");
-      }
-    } catch (error) {
-      return Err(toCommerceError(error));
-    }
+    const access = await this.authorizeOrderRead(
+      order,
+      actor,
+      ctx,
+      guestCredential,
+    );
+    if (!access.ok) return access;
 
     const hydrated = await this.hydrateOrder(order, ctx);
 
@@ -541,11 +761,12 @@ export class OrderService {
     orderNumber: string,
     actor: Actor | null,
     ctx?: TxContext,
+    guestCredential?: string,
   ): Promise<Result<HydratedOrder>> {
     const orgId = resolveOrgId(actor);
     const order = await this.repo.findByOrderNumber(orgId, orderNumber, ctx);
     if (!order) return Err(new CommerceNotFoundError("Order not found."));
-    return this.getById(order.id, actor, ctx);
+    return this.getById(order.id, actor, ctx, guestCredential);
   }
 
   /** Returns the order previously created with this idempotency key, or null. */
@@ -553,11 +774,24 @@ export class OrderService {
     idempotencyKey: string,
     actor?: Actor | null,
     ctx?: TxContext,
+    guestCredential?: string,
   ): Promise<Result<HydratedOrder | null>> {
     const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
-    const order = await this.repo.findByIdempotencyKey(orgId, idempotencyKey, ctx);
+    const resolvedActor = actor ?? ctx?.actor ?? null;
+    const idempotencyScope = await makeIdempotencyScope(resolvedActor, guestCredential);
+    const order = await this.repo.findByIdempotencyKey(
+      orgId,
+      idempotencyKey,
+      idempotencyScope,
+      ctx,
+    );
     if (!order) return Ok(null);
-    return Ok(await this.hydrateOrder(order, ctx));
+    return this.authorizedReplay(
+      order,
+      actor ?? ctx?.actor ?? null,
+      ctx,
+      guestCredential,
+    );
   }
 
   async list(

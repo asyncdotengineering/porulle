@@ -1,6 +1,6 @@
 export interface Actor {
   type: "user" | "api_key";
-  userId: string;
+  userId: string | null;
   email: string | null;
   name: string;
   vendorId: string | null;

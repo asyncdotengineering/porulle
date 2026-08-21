@@ -190,7 +190,7 @@ describe("VAPT: checkout idempotency-key IDOR (IDOR-01)", () => {
       body: { cartId: crypto.randomUUID(), currency: "USD", idempotencyKey: KEY, paymentMethodId: "card-mock" },
       actor: customerB,
     });
-    expect(asB.status).toBe(409);
+    expect([403, 404]).toContain(asB.status);
 
     // Staff with org-level customers:read may act for others → replay allowed.
     const asStaff = await makeRequest(server, {

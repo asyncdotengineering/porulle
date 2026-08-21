@@ -1,4 +1,4 @@
-import { router } from "@porulle/core";
+import { requireUserId, router } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
 import type { TransferService } from "../services/transfer-service.js";
 import type { WastageService } from "../services/wastage-service.js";
@@ -19,7 +19,7 @@ export function buildWarehouseRoutes(
     }))
     .handler(async ({ input, actor, orgId }) => {
       const body = input as Parameters<typeof transferSvc.create>[1];
-      const result = await transferSvc.create(orgId, { ...body, requestedBy: actor!.userId });
+      const result = await transferSvc.create(orgId, { ...body, requestedBy: requireUserId(actor) });
       if (!result.ok) throw new Error(result.error);
       return result.value;
     });
@@ -41,7 +41,7 @@ export function buildWarehouseRoutes(
 
   r.post("/transfers/{id}/approve").summary("Approve transfer").permission("warehouse:admin")
     .handler(async ({ params, actor, orgId }) => {
-      const result = await transferSvc.approve(orgId, params.id!, actor!.userId);
+      const result = await transferSvc.approve(orgId, params.id!, requireUserId(actor));
       if (!result.ok) throw new Error(result.error);
       return result.value;
     });
@@ -70,7 +70,7 @@ export function buildWarehouseRoutes(
     }))
     .handler(async ({ input, actor, orgId }) => {
       const body = input as Parameters<typeof wastageSvc.create>[1];
-      const result = await wastageSvc.create(orgId, { ...body, recordedBy: actor!.userId });
+      const result = await wastageSvc.create(orgId, { ...body, recordedBy: requireUserId(actor) });
       if (!result.ok) throw new Error(result.error);
       return result.value;
     });
@@ -84,7 +84,7 @@ export function buildWarehouseRoutes(
 
   r.post("/wastage/{id}/approve").summary("Approve wastage").permission("warehouse:admin")
     .handler(async ({ params, actor, orgId }) => {
-      const result = await wastageSvc.approve(orgId, params.id!, actor!.userId);
+      const result = await wastageSvc.approve(orgId, params.id!, requireUserId(actor));
       if (!result.ok) throw new Error(result.error);
       return result.value;
     });
@@ -97,7 +97,7 @@ export function buildWarehouseRoutes(
     }))
     .handler(async ({ input, actor, orgId }) => {
       const body = input as Parameters<typeof recSvc.create>[1];
-      const result = await recSvc.create(orgId, { ...body, countedBy: actor!.userId });
+      const result = await recSvc.create(orgId, { ...body, countedBy: requireUserId(actor) });
       if (!result.ok) throw new Error(result.error);
       return result.value;
     });
@@ -125,7 +125,7 @@ export function buildWarehouseRoutes(
 
   r.post("/reconciliations/{id}/approve").summary("Approve reconciliation").permission("warehouse:admin")
     .handler(async ({ params, actor, orgId }) => {
-      const result = await recSvc.approve(orgId, params.id!, actor!.userId);
+      const result = await recSvc.approve(orgId, params.id!, requireUserId(actor));
       if (!result.ok) throw new Error(result.error);
       return result.value;
     });

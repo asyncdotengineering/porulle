@@ -54,13 +54,17 @@ describe("storeResolver strict org resolution (anonymous requests)", () => {
   });
 
   /**
-   * Legacy path: resolver errors do not fail the request; anonymous traffic
-   * proceeds with actor = null so public routes (e.g. health) still work.
+   * Legacy opt-out path: with strictOrgResolution explicitly false, resolver
+   * errors do not fail the request; anonymous traffic proceeds with actor =
+   * null so public routes (e.g. health) still work.
    */
-  it("legacy fallback: storeResolver throws, strict off, no env — request continues (public /api/health 200)", async () => {
+  it("legacy fallback: storeResolver throws, strict explicitly off — request continues (public /api/health 200)", async () => {
+    // Strict org resolution now defaults ON, so the legacy fallback is opt-in.
+    // This test exercises that opt-out path deliberately.
     const { server, cleanup } = await createTestServer({
       auth: {
         storeResolver: throwingStoreResolver,
+        strictOrgResolution: false,
       },
     });
     try {

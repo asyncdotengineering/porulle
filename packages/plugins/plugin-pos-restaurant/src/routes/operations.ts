@@ -3,7 +3,7 @@
  * analytics, customer favorites.
  */
 
-import { router } from "@porulle/core";
+import { requireUserId, router } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
 import type { ChecklistService } from "../services/checklist-service.js";
 import type { AlertService } from "../services/alert-service.js";
@@ -69,7 +69,7 @@ export function buildChecklistRoutes(
       const result = await service.completeChecklist({
         checklistId: params.id!,
         ...body,
-        operatorId: actor!.userId,
+        operatorId: requireUserId(actor),
       });
 
       if (!result.ok) throw new Error(result.error);
@@ -115,7 +115,7 @@ export function buildAlertRoutes(
     .summary("Resolve an alert")
     .permission("pos:operate")
     .handler(async ({ params, actor }) => {
-      const result = await service.resolveAlert(params.id!, actor!.userId);
+      const result = await service.resolveAlert(params.id!, requireUserId(actor));
       if (!result.ok) throw new Error(result.error);
       return result.value;
     });

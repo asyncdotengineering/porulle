@@ -124,6 +124,7 @@ export class CatalogRepository {
     filter?: {
       type?: string;
       status?: string;
+      isVisible?: boolean;
       ids?: string[];
     },
     ctx?: TxContext,
@@ -138,6 +139,9 @@ export class CatalogRepository {
       conditions.push(
         eq(sellableEntities.status, filter.status as SellableEntity["status"]),
       );
+    }
+    if (filter?.isVisible !== undefined) {
+      conditions.push(eq(sellableEntities.isVisible, filter.isVisible));
     }
     if (filter?.ids && filter.ids.length > 0) {
       conditions.push(inArray(sellableEntities.id, filter.ids));
@@ -811,12 +815,17 @@ export class CatalogRepository {
   async findCategoryById(
     id: string,
     ctx?: TxContext,
+    orgId?: string,
   ): Promise<Category | undefined> {
     const db = this.getDb(ctx);
     const rows = await db
       .select()
       .from(categories)
-      .where(eq(categories.id, id));
+      .where(
+        orgId
+          ? and(eq(categories.id, id), eq(categories.organizationId, orgId))
+          : eq(categories.id, id),
+      );
     return rows[0];
   }
 
@@ -963,9 +972,16 @@ export class CatalogRepository {
   // Brands
   // ─────────────────────────────────────────────────────────────────────────────
 
-  async findBrandById(id: string, ctx?: TxContext): Promise<Brand | undefined> {
+  async findBrandById(id: string, ctx?: TxContext, orgId?: string): Promise<Brand | undefined> {
     const db = this.getDb(ctx);
-    const rows = await db.select().from(brands).where(eq(brands.id, id));
+    const rows = await db
+      .select()
+      .from(brands)
+      .where(
+        orgId
+          ? and(eq(brands.id, id), eq(brands.organizationId, orgId))
+          : eq(brands.id, id),
+      );
     return rows[0];
   }
 

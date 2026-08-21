@@ -1,10 +1,11 @@
 import { createHmac } from "node:crypto";
 import { resolveOrgId } from "../../auth/org.js";
+import { assertPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
 import type { DatabaseAdapter } from "../../kernel/database/adapter.js";
 import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
-import { CommerceNotFoundError, CommerceValidationError } from "../../kernel/errors.js";
+import { CommerceNotFoundError, CommerceValidationError, toCommerceError } from "../../kernel/errors.js";
 import { runAfterHooks } from "../../kernel/hooks/executor.js";
 import { createHookContext } from "../../kernel/hooks/create-context.js";
 import type { HookRegistry } from "../../kernel/hooks/registry.js";
@@ -365,6 +366,12 @@ export class FulfillmentService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<FulfillmentRecord>> {
+    try {
+      assertPermission(actor ?? null, "orders:update");
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+
     const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
     const order = await this.deps.ordersRepository.findById(orgId, input.orderId, ctx);
     if (!order) return Err(new CommerceNotFoundError("Order not found."));
@@ -432,7 +439,7 @@ export class FulfillmentService {
         fulfillmentId: created.id,
         eventType: "created",
         toStatus: status,
-        ...(actor?.userId !== undefined ? { actorId: actor.userId } : {}),
+        ...(actor?.userId != null ? { actorId: actor.userId } : {}),
         description: input.trackingNumber
           ? `Shipment recorded (${input.trackingNumber})`
           : "Fulfillment recorded",

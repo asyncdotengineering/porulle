@@ -39,6 +39,10 @@ const SAFE_ATTRIBUTE_NAME = /^[A-Za-z0-9_-]+$/;
 function toFilter(params: SearchQueryParams): string[] {
   const filters: string[] = [];
 
+  if (params.filters?.organizationId) {
+    filters.push(`organizationId = ${JSON.stringify(params.filters.organizationId)}`);
+  }
+
   if (params.filters?.type) {
     filters.push(`type = \"${params.filters.type}\"`);
   }
@@ -116,7 +120,7 @@ export function meilisearchAdapter(options: MeilisearchAdapterOptions): SearchAd
   const client: MeiliClientLike =
     options.client ?? new MeiliSearch({ host: options.host, ...(options.apiKey ? { apiKey: options.apiKey } : {}) });
   const indexName = options.indexName ?? "catalog";
-  const filterable = options.filterableAttributes ?? ["type", "status", "categories", "brands"];
+  const filterable = options.filterableAttributes ?? ["organizationId", "type", "status", "categories", "brands"];
 
   const attributeNames = new Set<string>();
   let configuredFilterable: string[] | undefined;
@@ -204,8 +208,14 @@ export function meilisearchAdapter(options: MeilisearchAdapterOptions): SearchAd
     async suggest(params: SearchSuggestParams): Promise<Result<string[]>> {
       try {
         const index = client.index(indexName);
+        const suggestFilters = [
+          ...(params.organizationId
+            ? [`organizationId = ${JSON.stringify(params.organizationId)}`]
+            : []),
+          ...(params.type ? [`type = \"${params.type}\"`] : []),
+        ];
         const result = await index.search(params.prefix, {
-          ...(params.type ? { filter: [`type = \"${params.type}\"`] } : {}),
+          ...(suggestFilters.length > 0 ? { filter: suggestFilters } : {}),
           attributesToRetrieve: ["title"],
           limit: params.limit ?? 10,
         });

@@ -2,11 +2,13 @@ import type { Result } from "../../kernel/result.js";
 
 export interface SearchDocument {
   id: string;
+  organizationId?: string;
   type: string;
   slug: string;
   title: string;
   description?: string;
   status?: string;
+  isVisible?: boolean;
   categories: string[];
   brands: string[];
   text: string;
@@ -15,6 +17,8 @@ export interface SearchDocument {
 }
 
 export interface SearchFilters {
+  /** Server-supplied tenant constraint; REST callers cannot choose this value. */
+  organizationId?: string;
   type?: string;
   category?: string;
   brand?: string;
@@ -34,6 +38,8 @@ export interface SearchSuggestParams {
   prefix: string;
   type?: string;
   limit?: number;
+  /** Server-supplied tenant constraint; REST callers cannot choose this value. */
+  organizationId?: string;
 }
 
 export interface SearchHit {

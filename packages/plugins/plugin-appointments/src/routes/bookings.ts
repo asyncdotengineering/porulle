@@ -1,4 +1,4 @@
-import { router } from "@porulle/core";
+import { requireUserId, router } from "@porulle/core";
 import type { PluginRouteRegistration } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
 import type { BookingService } from "../services/booking-service.js";
@@ -58,7 +58,7 @@ export function buildBookingRoutes(services: {
       const result = await services.booking.create({
         providerId: body.providerId,
         serviceTypeId: body.serviceTypeId,
-        customerId: actor!.userId,
+        customerId: requireUserId(actor),
         customerName: body.customerName,
         customerEmail: body.customerEmail,
         customerPhone: body.customerPhone,

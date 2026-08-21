@@ -1,4 +1,4 @@
-import { router } from "@porulle/core";
+import { requireUserId, router } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
 import type { SupplierService } from "../services/supplier-service.js";
 import type { PurchaseOrderService } from "../services/po-service.js";
@@ -51,7 +51,7 @@ export function buildProcurementRoutes(
     }))
     .handler(async ({ input, actor, orgId }) => {
       const body = input as Parameters<typeof poSvc.create>[1];
-      const result = await poSvc.create(orgId, { ...body, requestedBy: actor!.userId });
+      const result = await poSvc.create(orgId, { ...body, requestedBy: requireUserId(actor) });
       if (!result.ok) throw new Error(result.error);
       return result.value;
     });
@@ -80,7 +80,7 @@ export function buildProcurementRoutes(
 
   r.post("/purchase-orders/{id}/approve").summary("Approve PO").permission("procurement:admin")
     .handler(async ({ params, actor, orgId }) => {
-      const result = await poSvc.approve(orgId, params.id!, actor!.userId);
+      const result = await poSvc.approve(orgId, params.id!, requireUserId(actor));
       if (!result.ok) throw new Error(result.error);
       return result.value;
     });
@@ -105,7 +105,7 @@ export function buildProcurementRoutes(
     }))
     .handler(async ({ input, actor, orgId }) => {
       const body = input as Parameters<typeof grnSvc.create>[1];
-      const result = await grnSvc.create(orgId, { ...body, receivedBy: actor!.userId });
+      const result = await grnSvc.create(orgId, { ...body, receivedBy: requireUserId(actor) });
       if (!result.ok) throw new Error(result.error);
       return result.value;
     });

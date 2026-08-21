@@ -6,7 +6,7 @@ import {
   invoicePdfRoute,
   receiptHtmlRoute,
 } from "../schemas/documents.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus } from "../utils.js";
+import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requireAnyPerm } from "../utils.js";
 
 /**
  * Order document rendering (issue #47). Mounted under /orders. Access
@@ -16,10 +16,15 @@ import { type AppEnv, mapErrorToResponse, mapErrorToStatus } from "../utils.js";
 export function documentRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
 
+  router.use("/*", requireAnyPerm(["orders:read", "orders:read:own"]));
+
   router.openapi(invoicePdfRoute, async (c) => {
+    const guestCredential = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
     const result = await kernel.services.documents.renderInvoicePdf(
       c.req.param("id"),
       c.get("actor"),
+      undefined,
+      guestCredential,
     );
     if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
     return c.body(result.value.pdf.slice().buffer as ArrayBuffer, 200, {
@@ -29,18 +34,24 @@ export function documentRoutes(kernel: Kernel) {
   });
 
   router.openapi(invoiceHtmlRoute, async (c) => {
+    const guestCredential = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
     const result = await kernel.services.documents.renderInvoiceHtml(
       c.req.param("id"),
       c.get("actor"),
+      undefined,
+      guestCredential,
     );
     if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
     return c.html(result.value.html);
   });
 
   router.openapi(receiptHtmlRoute, async (c) => {
+    const guestCredential = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
     const result = await kernel.services.documents.renderReceiptHtml(
       c.req.param("id"),
       c.get("actor"),
+      undefined,
+      guestCredential,
     );
     if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
     return c.html(result.value.html);
@@ -48,10 +59,13 @@ export function documentRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(emailInvoiceRoute, async (c) => {
+    const guestCredential = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
     const result = await kernel.services.documents.emailInvoice(
       c.req.param("id"),
       c.req.valid("json").to,
       c.get("actor"),
+      undefined,
+      guestCredential,
     );
     if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });

@@ -3,7 +3,7 @@ import type { Kernel } from "../../../../runtime/kernel.js";
 import type { CommerceConfig } from "../../../../config/types.js";
 import { assertPermission } from "../../../../auth/permissions.js";
 import { listAdminPermissionsRoute } from "../../schemas/admin-permissions.js";
-import type { AppEnv } from "../../utils.js";
+import { type AppEnv, requirePerm } from "../../utils.js";
 
 function flattenCoreRolePermissions(config: CommerceConfig): string[] {
   const roles = config.auth?.roles ?? {};
@@ -18,6 +18,8 @@ function flattenCoreRolePermissions(config: CommerceConfig): string[] {
 
 export function adminPermissionsRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
+
+  router.use("/permissions", requirePerm("admin"));
 
   router.openapi(listAdminPermissionsRoute, (c) => {
     const actor = c.get("actor");

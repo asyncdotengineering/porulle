@@ -1,13 +1,20 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
 import { changeOrderStatusRoute, listOrdersRoute, orderLookupRoute, getOrderRoute, getOrderFulfillmentsRoute, createOrderRoute, quoteOrderRoute, refundOrderRoute, captureOrderRoute, createOrderFulfillmentRoute, addOrderLineItemRoute, updateOrderLineItemRoute, removeOrderLineItemRoute, refundOrderLinesRoute, undoOrderRefundRoute, listOrderRefundsRoute, refundCapStatusRoute, createOrderNoteRoute, listOrderNotesRoute, deleteOrderNoteRoute, orderTimelineRoute } from "../schemas/orders.js";
-import { type AppEnv, isUUID, mapErrorToResponse, mapErrorToStatus, parsePagination } from "../utils.js";
+import { type AppEnv, isUUID, mapErrorToResponse, mapErrorToStatus, parsePagination, requireAnyPerm, requireMethodPerm, requirePerm } from "../utils.js";
 import type { CreateOrderInput } from "../../../modules/orders/service.js";
 import { computeOrderPricing } from "../../../modules/orders/quote.js";
 import { assertPermission } from "../../../auth/permissions.js";
 
 export function orderRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
+
+  router.use("/", requireMethodPerm(["GET"], "orders:read"));
+  router.use("/", requireMethodPerm(["POST"], "orders:create"));
+  router.use("/lookup", requirePerm("orders:read"));
+  router.use("/:idOrNumber", requireAnyPerm(["orders:read", "orders:read:own"]));
+  router.use("/:id/*", requireAnyPerm(["orders:read", "orders:read:own", "orders:update", "orders:manage"]));
+  router.use("/refunds/cap", requirePerm("orders:read"));
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(listOrdersRoute, async (c) => {
@@ -54,9 +61,10 @@ export function orderRoutes(kernel: Kernel) {
   // @ts-expect-error -- openapi handler union return type
   router.openapi(getOrderRoute, async (c) => {
     const idOrNumber = c.req.param("idOrNumber");
+    const guestCredential = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
     const result = isUUID(idOrNumber)
-      ? await kernel.services.orders.getById(idOrNumber, c.get("actor"))
-      : await kernel.services.orders.getByNumber(idOrNumber, c.get("actor"));
+      ? await kernel.services.orders.getById(idOrNumber, c.get("actor"), undefined, guestCredential)
+      : await kernel.services.orders.getByNumber(idOrNumber, c.get("actor"), undefined, guestCredential);
 
     if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
@@ -65,12 +73,15 @@ export function orderRoutes(kernel: Kernel) {
   // @ts-expect-error -- openapi handler union return type
   router.openapi(createOrderRoute, async (c) => {
     try {
-      assertPermission(c.get("actor"), "orders:manage");
+      assertPermission(c.get("actor"), "orders:create");
     } catch (error) {
       return c.json(mapErrorToResponse(error), mapErrorToStatus(error));
     }
     const body = c.req.valid("json") as CreateOrderInput;
-    const result = await kernel.services.orders.create(body, c.get("actor"));
+    const guestCredential = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
+    const result = await kernel.services.orders.create(body, c.get("actor"), undefined, {
+      ...(guestCredential !== undefined ? { guestCredential } : {}),
+    });
     if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value }, 201);
   });
@@ -273,8 +284,15 @@ export function orderRoutes(kernel: Kernel) {
     const actor = c.get("actor");
     const orderId = c.req.param("id");
 
+    try {
+      assertPermission(actor, "orders:update");
+    } catch (error) {
+      return c.json(mapErrorToResponse(error), mapErrorToStatus(error));
+    }
+    const guestCredential = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
+
     // Verify the order exists and the actor has access before recording
-    const orderResult = await kernel.services.orders.getById(orderId, actor);
+    const orderResult = await kernel.services.orders.getById(orderId, actor, undefined, guestCredential);
     if (!orderResult.ok) return c.json(mapErrorToResponse(orderResult.error), mapErrorToStatus(orderResult.error));
 
     const body = c.req.valid("json") as {
@@ -298,11 +316,12 @@ export function orderRoutes(kernel: Kernel) {
   router.openapi(getOrderFulfillmentsRoute, async (c) => {
     const orderId = c.req.param("id");
     const actor = c.get("actor");
+    const guestCredential = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
 
     // Verify the order exists and the actor has access before returning fulfillments
     const orderResult = isUUID(orderId)
-      ? await kernel.services.orders.getById(orderId, actor)
-      : await kernel.services.orders.getByNumber(orderId, actor);
+      ? await kernel.services.orders.getById(orderId, actor, undefined, guestCredential)
+      : await kernel.services.orders.getByNumber(orderId, actor, undefined, guestCredential);
 
     if (!orderResult.ok) return c.json(mapErrorToResponse(orderResult.error), mapErrorToStatus(orderResult.error));
 

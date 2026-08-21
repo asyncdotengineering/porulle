@@ -1,4 +1,4 @@
-import { router } from "@porulle/core";
+import { requireUserId, router } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
 import type { ReturnService } from "../services/return-service.js";
 import type { TransactionService } from "../services/transaction-service.js";
@@ -56,7 +56,7 @@ export function buildReturnRoutes(
       const txnResult = await transactionService.create(orgId, {
         shiftId: body.shiftId,
         terminalId: body.terminalId,
-        operatorId: actor!.userId,
+        operatorId: requireUserId(actor),
         cartId: cartResult.value.id,
         type: "return",
       });

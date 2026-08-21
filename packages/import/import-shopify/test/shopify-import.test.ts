@@ -158,7 +158,7 @@ describe("import-shopify", () => {
     expect(result.value.mediaImported + result.value.errors.filter(e => e.scope === "media").length).toBe(2);
     expect(result.value.customersImported).toBe(1);
 
-    const entities = await kernel.services.catalog.list({ pagination: { page: 1, limit: 20 } });
+    const entities = await kernel.services.catalog.list({ pagination: { page: 1, limit: 20 } }, actor);
     expect(entities.ok).toBe(true);
     if (!entities.ok) return;
 
@@ -166,7 +166,7 @@ describe("import-shopify", () => {
     expect(entity).toBeTruthy();
     if (!entity) return;
 
-    const loaded = await kernel.services.catalog.getById(entity.id, { includeVariants: true, includeMedia: true });
+    const loaded = await kernel.services.catalog.getById(entity.id, { includeVariants: true, includeMedia: true }, actor);
     expect(loaded.ok).toBe(true);
     if (!loaded.ok) return;
 

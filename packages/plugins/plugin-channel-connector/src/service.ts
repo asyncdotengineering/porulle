@@ -25,7 +25,7 @@ import type {
   CatalogWriteContext,
   TxContext,
 } from "@porulle/core";
-import { isValidFieldPath } from "@porulle/core";
+import { isValidFieldPath, requireUserId } from "@porulle/core";
 import type { FieldOwner, FieldPath } from "@porulle/core";
 import type { JobsAdapter } from "@porulle/core";
 import { CHANNEL_CONVERGENCE_CTX } from "./catalog-push-trigger.js";
@@ -2596,7 +2596,7 @@ export class ChannelConnectorService {
             outboundEcho ? { certifiedPaths: new Set(entityMapping?.outboundFieldPaths ?? []) } : undefined,
           )
         : { paths: [], conflicts: [] };
-      const persistedConflicts = await this.persistCatalogConflicts(orgId, shared.conflicts, actor.userId);
+      const persistedConflicts = await this.persistCatalogConflicts(orgId, shared.conflicts, requireUserId(actor));
       if (!persistedConflicts.ok) return persistedConflicts;
       const owned = this.filterOwnedFields(item, owners);
       const heldSharedPaths = [...new Set([...(entityMapping?.heldFieldPaths ?? []), ...shared.paths])];
@@ -2865,7 +2865,7 @@ export class ChannelConnectorService {
       : mapping.forcedPushFieldPaths ?? [];
     const [resolved] = await this.db.update(channelCatalogConflicts).set({
       state: "resolved",
-      resolvedBy: actor.userId,
+      resolvedBy: requireUserId(actor),
       updatedAt: new Date(),
     }).where(and(
       eq(channelCatalogConflicts.organizationId, orgId),
@@ -2887,7 +2887,7 @@ export class ChannelConnectorService {
       fromState: "open",
       toState: "resolved",
       reason: `Operator chose the ${choose} value.`,
-      changedBy: actor.userId,
+      changedBy: requireUserId(actor),
     });
     if (choose === "platform") {
       await this.jobs!.enqueue("channel/push-catalog", {
@@ -3241,7 +3241,7 @@ export class ChannelConnectorService {
       entityId, storeId, entity, mapping, remoteItem, owners, fieldPaths, remoteHash,
       outboundEcho ? { certifiedPaths: new Set(mapping.outboundFieldPaths ?? []) } : undefined,
     );
-    const persistedConflicts = await this.persistCatalogConflicts(orgId, shared.conflicts, actor.userId);
+    const persistedConflicts = await this.persistCatalogConflicts(orgId, shared.conflicts, requireUserId(actor));
     if (!persistedConflicts.ok) return persistedConflicts;
     const owned = this.filterOwnedFieldsAtPaths(remoteItem, owners, fieldPaths);
     const heldPaths = [...new Set([...(mapping.heldFieldPaths ?? []), ...shared.paths])];
@@ -3330,9 +3330,9 @@ export class ChannelConnectorService {
     const max = this.options.refundAutoMax ?? order.amountCaptured ?? order.grandTotal;
     const ageOk = Date.now() - store.createdAt.getTime() >= (this.options.newStoreDays ?? 7) * 86_400_000;
     const auto = clean && amount > 0 && ageOk && amount <= max;
-    const rows = await this.db.insert(channelRefundRequests).values({ organizationId: orgId, storeId: store.id, orderId, remoteRefundId, amount, state: auto ? "approved" : "requested", approvedBy: auto ? actor.userId : null }).returning();
+    const rows = await this.db.insert(channelRefundRequests).values({ organizationId: orgId, storeId: store.id, orderId, remoteRefundId, amount, state: auto ? "approved" : "requested", approvedBy: auto ? requireUserId(actor) : null }).returning();
     const request = rows[0] as ChannelRefundRequest;
-    await this.db.insert(channelRefundEvents).values({ organizationId: orgId, requestId: request.id, fromState: null, toState: request.state, reason: auto ? "Automatic guarded refund" : "Operator approval required", changedBy: actor.userId });
+    await this.db.insert(channelRefundEvents).values({ organizationId: orgId, requestId: request.id, fromState: null, toState: request.state, reason: auto ? "Automatic guarded refund" : "Operator approval required", changedBy: requireUserId(actor) });
     if (auto) {
       const result = await this.executeRefund(request, refundLines, actor);
       if (!result.ok) return PluginErr(result.error);
@@ -3345,7 +3345,7 @@ export class ChannelConnectorService {
     const result = await ordersService.refundLines(request.orderId, { lines, reason: `Channel refund ${request.remoteRefundId}` }, actor);
     if (!result.ok) return PluginErr(result.error?.message ?? "Refund execution failed.");
     const [updated] = await this.db.update(channelRefundRequests).set({ state: "executed", updatedAt: new Date() }).where(and(eq(channelRefundRequests.organizationId, request.organizationId), eq(channelRefundRequests.id, request.id), eq(channelRefundRequests.state, "approved"))).returning();
-    await this.db.insert(channelRefundEvents).values({ organizationId: request.organizationId, requestId: request.id, fromState: "approved", toState: "executed", reason: "Platform refund executed", changedBy: actor.userId });
+    await this.db.insert(channelRefundEvents).values({ organizationId: request.organizationId, requestId: request.id, fromState: "approved", toState: "executed", reason: "Platform refund executed", changedBy: requireUserId(actor) });
     return Ok(updated as ChannelRefundRequest);
   }
 
@@ -3479,7 +3479,7 @@ export class ChannelConnectorService {
         orgId,
         created.value.id,
         "exported",
-        actor.userId,
+        requireUserId(actor),
         "Export attempt started.",
       );
       if (!exported.ok) return exported;
@@ -3499,7 +3499,7 @@ export class ChannelConnectorService {
         orgId,
         created.value.id,
         "failed",
-        actor.userId,
+        requireUserId(actor),
         pushed.error.message,
         pushed.error.retriable === true ? "transient" : "definitive",
       );
@@ -3526,7 +3526,7 @@ export class ChannelConnectorService {
         orgId,
         created.value.id,
         "failed",
-        actor.userId,
+        requireUserId(actor),
         remoteStatus.error.message,
         remoteStatus.error.retriable === true ? "transient" : "definitive",
       );
@@ -3536,7 +3536,7 @@ export class ChannelConnectorService {
         orgId,
         created.value.id,
         "confirmed",
-        actor.userId,
+        requireUserId(actor),
         "Remote order confirmed.",
       );
     }
@@ -3545,7 +3545,7 @@ export class ChannelConnectorService {
         orgId,
         created.value.id,
         "failed",
-        actor.userId,
+        requireUserId(actor),
         `Remote order status: ${remoteStatus.value.status}.`,
       );
     }
@@ -3867,7 +3867,7 @@ export class ChannelConnectorService {
           orgId,
           created.value.id,
           "confirmed",
-          actor.userId,
+          requireUserId(actor),
           "No platform-owned fields to push.",
           undefined,
           null,
@@ -3891,7 +3891,7 @@ export class ChannelConnectorService {
             orgId,
             created.value.id,
             "exported",
-            actor.userId,
+            requireUserId(actor),
             "Catalog push attempt started.",
             undefined,
             item,
@@ -3935,7 +3935,7 @@ export class ChannelConnectorService {
               orgId,
               pushId,
               "abandoned",
-              actor.userId,
+              requireUserId(actor),
               connectorError.message,
             );
           } else {
@@ -3943,7 +3943,7 @@ export class ChannelConnectorService {
               orgId,
               pushId,
               "failed",
-              actor.userId,
+              requireUserId(actor),
               connectorError.message,
               "transient",
             );
@@ -3986,7 +3986,7 @@ export class ChannelConnectorService {
               orgId,
               pushId,
               "abandoned",
-              actor.userId,
+              requireUserId(actor),
               result.error.message,
             );
           } else {
@@ -3994,7 +3994,7 @@ export class ChannelConnectorService {
               orgId,
               pushId,
               "failed",
-              actor.userId,
+              requireUserId(actor),
               result.error.message,
               failureKind,
             );
@@ -4038,7 +4038,7 @@ export class ChannelConnectorService {
             orgId,
             pushId,
             "confirmed",
-            actor.userId,
+            requireUserId(actor),
             "Remote catalog confirmed item.",
             undefined,
             item ?? null,
@@ -4055,7 +4055,7 @@ export class ChannelConnectorService {
             orgId,
             pushId,
             "abandoned",
-            actor.userId,
+            requireUserId(actor),
             outcome.error?.message ?? "Catalog push failed.",
             undefined,
             item ?? null,
@@ -4066,7 +4066,7 @@ export class ChannelConnectorService {
             orgId,
             pushId,
             "failed",
-            actor.userId,
+            requireUserId(actor),
             outcome.error?.message ?? "Catalog push failed.",
             failureKind,
             item ?? null,

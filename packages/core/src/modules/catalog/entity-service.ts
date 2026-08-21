@@ -25,6 +25,7 @@ import type { JobsAdapter } from "../../kernel/jobs/adapter.js";
 import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import type { CatalogWriteContext, TxContext } from "../../kernel/database/tx-context.js";
 import { isWriteContextTransactional } from "../../kernel/database/tx-context.js";
+import { canReadUnpublishedCatalog, isCatalogEntityVisible } from "./read-policy.js";
 import { isValidFieldPath } from "./ownership.js";
 import type {
   CatalogServiceDeps,
@@ -346,6 +347,7 @@ export class EntityService {
     let processed = await runBeforeHooks(globalBeforeHooks, { id, ...(options !== undefined ? { options } : {}) }, "read", context);
     let entity = await this.repo.findEntityById(processed.id ?? id, ctx, orgId);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
+    if (!isCatalogEntityVisible(entity, resolvedActor)) return Err(new CommerceNotFoundError("Entity not found."));
     const entityBeforeHooks = this.deps.hooks.resolve(`catalog.${entity.type}.beforeRead`) as CatalogReadBeforeHook[];
     if (entityBeforeHooks.length > 0) {
       processed = await runBeforeHooks(entityBeforeHooks, { ...processed, id: entity.id }, "read", context);
@@ -353,6 +355,7 @@ export class EntityService {
       if (resolvedId !== entity.id) {
         const refetched = await this.repo.findEntityById(resolvedId, ctx, orgId);
         if (!refetched) return Err(new CommerceNotFoundError("Entity not found."));
+        if (!isCatalogEntityVisible(refetched, resolvedActor)) return Err(new CommerceNotFoundError("Entity not found."));
         entity = refetched;
       }
     }
@@ -367,6 +370,23 @@ export class EntityService {
     return Ok(result, report.hasErrors ? { hookErrors: report.errors } : undefined);
   }
 
+  /**
+   * Reads an entity for a trusted server pipeline after the request boundary
+   * has already authorized the caller. Organization scope is explicit; the
+   * storefront visibility policy is intentionally not applied, so an internal
+   * invariant check never depends on the caller's catalog permissions.
+   */
+  async getByIdForInternalUse(
+    id: string,
+    organizationId: string,
+    options?: GetOptions,
+    ctx?: TxContext,
+  ): Promise<Result<CatalogEntityHydrated>> {
+    const entity = await this.repo.findEntityById(id, ctx, organizationId);
+    if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
+    return Ok(await this.hydrateEntity(entity, options, ctx));
+  }
+
   async getBySlug(slug: string, options?: GetOptions, actor?: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
     const context: HookContext = createHookContext({ actor: actor ?? null, tx: ctx?.tx ?? null, logger: createLogger("catalog.read"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database) });
     const globalBeforeHooks = this.deps.hooks.resolve("catalog.beforeRead") as CatalogReadBeforeHook[];
@@ -376,19 +396,22 @@ export class EntityService {
     const orgId = resolveOrgId(actor ?? null);
     let entity = await this.repo.findEntityBySlug(orgId, resolvedSlug, ctx);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
+    if (!isCatalogEntityVisible(entity, actor ?? null)) return Err(new CommerceNotFoundError("Entity not found."));
     const entityBeforeHooks = this.deps.hooks.resolve(`catalog.${entity.type}.beforeRead`) as CatalogReadBeforeHook[];
     if (entityBeforeHooks.length > 0) {
       processed = await runBeforeHooks(entityBeforeHooks, { ...processed, id: entity.id }, "read", context);
       const nextId = processed.id ?? entity.id;
       const nextSlug = processed.slug ?? resolvedSlug;
       if (nextId !== entity.id) {
-        const refetched = await this.repo.findEntityById(nextId, ctx);
+        const refetched = await this.repo.findEntityById(nextId, ctx, orgId);
         if (!refetched) return Err(new CommerceNotFoundError("Entity not found."));
+        if (!isCatalogEntityVisible(refetched, actor ?? null)) return Err(new CommerceNotFoundError("Entity not found."));
         entity = refetched;
         resolvedSlug = nextSlug;
       } else if (nextSlug !== resolvedSlug) {
         const refetched = await this.repo.findEntityBySlug(orgId, nextSlug, ctx);
         if (!refetched) return Err(new CommerceNotFoundError("Entity not found."));
+        if (!isCatalogEntityVisible(refetched, actor ?? null)) return Err(new CommerceNotFoundError("Entity not found."));
         entity = refetched;
       }
     }
@@ -410,19 +433,27 @@ export class EntityService {
       if (entityBeforeHooks.length > 0) processed = await runBeforeHooks(entityBeforeHooks, processed, "list", context);
     }
     const listOrgId = resolveOrgId(resolvedActor);
-    let entities = await this.repo.findEntities(listOrgId, { ...(processed.filter?.type ? { type: processed.filter.type } : {}), ...(processed.filter?.status ? { status: processed.filter.status } : {}) }, ctx);
+    const canReadUnpublished = canReadUnpublishedCatalog(resolvedActor);
+    let entities = await this.repo.findEntities(listOrgId, {
+      ...(processed.filter?.type ? { type: processed.filter.type } : {}),
+      ...(canReadUnpublished
+        ? (processed.filter?.status ? { status: processed.filter.status } : {})
+        : { status: "active", isVisible: true }),
+    }, ctx);
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (processed.filter?.category) {
       const catInput = processed.filter.category;
-      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       let category = await this.repo.findCategoryBySlug(listOrgId, catInput, ctx);
-      if (!category && isUUID.test(catInput)) category = await this.repo.findCategoryById(catInput, ctx);
+      if (!category && isUUID.test(catInput)) category = await this.repo.findCategoryById(catInput, ctx, listOrgId);
       if (!category) return Err(new CommerceValidationError(`Category not found: "${catInput}".`));
       const entityIds = await this.repo.findEntitiesByCategory(category.id, ctx);
       entities = entities.filter((e) => new Set(entityIds).has(e.id));
     }
     if (processed.filter?.brand) {
       let brand = await this.repo.findBrandBySlug(listOrgId, processed.filter.brand, ctx);
-      if (!brand) brand = await this.repo.findBrandById(processed.filter.brand, ctx);
+      if (!brand && isUUID.test(processed.filter.brand)) {
+        brand = await this.repo.findBrandById(processed.filter.brand, ctx, listOrgId);
+      }
       if (brand) {
         const brandEntityIds: string[] = [];
         for (const entity of entities) {
@@ -505,10 +536,18 @@ export class EntityService {
     return Ok(undefined);
   }
 
-  async getAttributes(entityId: string, locale: string, ctx?: TxContext): Promise<Result<SellableAttribute>> {
-    const attr = await this.repo.findAttributeByLocale(entityId, locale, ctx);
-    if (!attr) return Err(new CommerceNotFoundError(`Attributes for locale ${locale} not found.`));
-    return Ok(attr);
+  async getAttributes(entityId: string, locale: string, actor: Actor | null, ctx?: TxContext): Promise<Result<SellableAttribute>> {
+    try {
+      assertPermission(actor, "catalog:read");
+      const entity = await this.repo.findEntityById(entityId, ctx, resolveOrgId(actor));
+      if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
+      if (!isCatalogEntityVisible(entity, actor)) return Err(new CommerceNotFoundError("Entity not found."));
+      const attr = await this.repo.findAttributeByLocale(entity.id, locale, ctx);
+      if (!attr) return Err(new CommerceNotFoundError(`Attributes for locale ${locale} not found.`));
+      return Ok(attr);
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
   }
 
   async createOptionType(input: CreateOptionTypeInput, actor: Actor | null, ctx?: TxContext): Promise<Result<OptionType>> {

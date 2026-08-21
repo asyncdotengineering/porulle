@@ -66,6 +66,7 @@ describe("runtime entity field definitions", () => {
       body: {
         type,
         slug: `${type}-${Date.now()}-${Math.round(performance.now() * 1000)}`,
+        status: "active",
         customFields,
       },
       actor: testActor,
@@ -303,7 +304,7 @@ describe("runtime entity field definitions", () => {
     const result = await kernel.services.search.query({
       query: "",
       filters: { type: "product", attributes: { searchable: "runtime-value" } },
-    });
+    }, { actor: testActor, tx: null, requestId: "entity-field-search" });
     expect(result.ok).toBe(true);
     if (!result.ok) throw result.error;
     expect(result.value.hits[0]?.document.attributes).toEqual({

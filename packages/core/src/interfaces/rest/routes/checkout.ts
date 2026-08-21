@@ -23,7 +23,7 @@ import { type AppEnv, mapErrorToResponse, mapErrorToStatus } from "../utils.js";
 import { isCommerceError } from "../../../kernel/errors.js";
 import { assertPermission } from "../../../auth/permissions.js";
 import { resolveOrgId } from "../../../auth/org.js";
-import { makeDeterministicId, makeId } from "../../../utils/id.js";
+import { makeDeterministicId, makeId, makeIdempotencyScope } from "../../../utils/id.js";
 import type { ShippingAddress } from "../../../modules/shipping/calculator.js";
 import type { Actor } from "../../../auth/types.js";
 
@@ -85,50 +85,48 @@ export function checkoutRoutes(kernel: Kernel) {
     const body = c.req.valid("json");
 
     const actor = c.get("actor");
+    const cartSecret = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
 
-    // Idempotent replay: a re-submitted checkout (offline POS queue, network
-    // retry) returns the already-created order BEFORE the pipeline runs — no
-    // double payment authorization, no duplicate order.
+    // Idempotent replay is authorized by the order service before payment runs.
+    // This preflight only preserves the no-double-payment fast path; the create
+    // primitive repeats the same binding for direct callers and race losers.
+    let replay: Awaited<ReturnType<typeof kernel.services.orders.getByIdempotencyKey>> | undefined;
     if (body.idempotencyKey) {
-      const replay = await kernel.services.orders.getByIdempotencyKey(
+      replay = await kernel.services.orders.getByIdempotencyKey(
         body.idempotencyKey,
         actor,
+        undefined,
+        cartSecret,
       );
-      if (replay.ok && replay.value) {
-        // IDOR guard: an idempotency key must only replay the requester's OWN
-        // order. Without this, a same-org customer who supplies/guesses another
-        // customer's key would receive that customer's order (PII, totals, lines).
-        let canActForOthers = false;
-        try {
-          assertPermission(actor, "customers:read");
-          canActForOthers = true;
-        } catch {
-          canActForOthers = false;
-        }
-        const ownCustomer = actor
-          ? await resolveCheckoutCustomerUuid(kernel.services.customers, actor, undefined)
-          : undefined;
-        const replayCustomer = replay.value.customerId ?? null;
-        const ownsOrder =
-          (replayCustomer !== null && replayCustomer === ownCustomer) ||
-          (replayCustomer === null && !ownCustomer);
-        if (canActForOthers || ownsOrder) {
-          return c.json({ data: replay.value }, 201);
-        }
-        return c.json(
-          {
-            error: {
-              code: "IDEMPOTENCY_CONFLICT",
-              message: "Idempotency key does not belong to this account.",
-            },
-          },
-          409,
-        );
+      if (!replay.ok) {
+        return c.json(mapErrorToResponse(replay.error), mapErrorToStatus(replay.error));
       }
+      if (replay.value) return c.json({ data: replay.value }, 201);
     }
 
+    // Authenticate the cart once at the HTTP boundary. Guest checkout is
+    // authorized by the cart secret; customer checkout is authorized by the
+    // customer cart ownership check. The hook pipeline uses its explicit
+    // internal cart-read path instead of carrying this credential inward.
+    const cartAccess = await kernel.services.cart.getById(
+      body.cartId,
+      actor,
+      undefined,
+      cartSecret,
+    );
+    if (!cartAccess.ok) {
+      return c.json(
+        mapErrorToResponse(cartAccess.error),
+        mapErrorToStatus(cartAccess.error),
+      );
+    }
+    const idempotencyScope = body.idempotencyKey
+      ? await makeIdempotencyScope(actor, cartSecret, body.cartId)
+      : undefined;
     const orderId = body.idempotencyKey
-      ? await makeDeterministicId(`checkout:${resolveOrgId(actor)}:${body.idempotencyKey}`)
+      ? await makeDeterministicId(
+          `checkout:${resolveOrgId(actor)}:${idempotencyScope}:${body.idempotencyKey}`,
+        )
       : makeId();
     const checkoutData: CheckoutData = {
       checkoutId: makeId(),
@@ -293,6 +291,7 @@ export function checkoutRoutes(kernel: Kernel) {
       pipelineStage = "create-order";
       const order = await kernel.services.orders.create(orderPayload, actor, undefined, {
         trustedPricing: true,
+        ...(cartSecret !== undefined ? { guestCredential: cartSecret } : {}),
       });
 
       if (!order.ok) {

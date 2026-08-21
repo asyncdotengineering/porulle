@@ -8,6 +8,7 @@ import {
   router,
   createSystemActor,
   isValidFieldPath,
+  requireUserId,
 } from "@porulle/core";
 import type { FieldPath, JobsAdapter, PluginResult, PluginRouteRegistration, TaskDefinition } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
@@ -40,7 +41,7 @@ type ChannelRouteContext = {
   query?: unknown;
   params: Record<string, string>;
   orgId: string;
-  actor: { userId: string } | null;
+  actor: { userId: string | null } | null;
 };
 
 export { mockChannelConnector } from "./mock-connector.js";
@@ -616,12 +617,12 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
       channels.post("/refund-requests/{id}/approve")
         .summary("Approve a channel refund request")
         .permission("channels:manage")
-        .handler(async ({ params, orgId, actor }: ChannelRouteContext) => unwrap(await service.approveRefund(orgId, params.id!, actor!)));
+        .handler(async ({ params, orgId, actor }: ChannelRouteContext) => unwrap(await service.approveRefund(orgId, params.id!, { userId: requireUserId(actor) })));
 
       channels.post("/refund-requests/{id}/reject")
         .summary("Reject a channel refund request")
         .permission("channels:manage")
-        .handler(async ({ params, orgId, actor }: ChannelRouteContext) => unwrap(await service.rejectRefund(orgId, params.id!, actor!)));
+        .handler(async ({ params, orgId, actor }: ChannelRouteContext) => unwrap(await service.rejectRefund(orgId, params.id!, { userId: requireUserId(actor) })));
 
       channels.post("/exports/{id}/retry")
         .summary("Retry a failed channel order export")
@@ -629,7 +630,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
         .handler(async ({ params, orgId, actor }: ChannelRouteContext) => unwrap(await service.retryExport(
           orgId,
           params.id!,
-          actor!.userId,
+          requireUserId(actor),
         )));
 
       return channels.routes() as PluginRouteRegistration[];

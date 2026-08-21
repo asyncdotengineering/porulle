@@ -172,6 +172,12 @@ export interface CatalogService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<CatalogEntityHydrated>>;
+  getByIdForInternalUse(
+    id: string,
+    organizationId: string,
+    options?: GetOptions,
+    ctx?: TxContext,
+  ): Promise<Result<CatalogEntityHydrated>>;
   getBySlug(
     slug: string,
     options?: GetOptions,
@@ -253,6 +259,7 @@ export interface CatalogService {
   getAttributes(
     entityId: string,
     locale: string,
+    actor: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<SellableAttribute>>;
   listCategories(
@@ -851,6 +858,10 @@ export class CatalogServiceImpl implements CatalogService {
     return this.entities.getById(id, options, actor, ctx);
   }
 
+  getByIdForInternalUse(id: string, organizationId: string, options?: GetOptions, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
+    return this.entities.getByIdForInternalUse(id, organizationId, options, ctx);
+  }
+
   getBySlug(slug: string, options?: GetOptions, actor?: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
     return this.entities.getBySlug(slug, options, actor, ctx);
   }
@@ -1061,8 +1072,8 @@ export class CatalogServiceImpl implements CatalogService {
     return this.reviewCustomField("rejected", entityId, fieldName, locale, actor, ctx);
   }
 
-  getAttributes(entityId: string, locale: string, ctx?: TxContext): Promise<Result<SellableAttribute>> {
-    return this.entities.getAttributes(entityId, locale, ctx);
+  getAttributes(entityId: string, locale: string, actor: Actor | null, ctx?: TxContext): Promise<Result<SellableAttribute>> {
+    return this.entities.getAttributes(entityId, locale, actor, ctx);
   }
 
   listCategories(ctx?: TxContext, opts?: { includeArchived?: boolean }): Promise<Result<CategorySummary[]>> {

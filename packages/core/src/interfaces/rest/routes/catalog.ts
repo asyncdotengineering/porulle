@@ -70,6 +70,11 @@ export function catalogRoutes(kernel: Kernel) {
 
   router.use("/entities/:id/custom-fields/:fieldName/approve", requirePerm("catalog:update"));
   router.use("/entities/:id/custom-fields/:fieldName/reject", requirePerm("catalog:update"));
+  router.use("/categories/:categoryId", requirePerm("catalog:update"));
+  router.use("/categories/:categoryId/*", requirePerm("catalog:update"));
+  router.use("/brands/:brandId", requirePerm("catalog:update"));
+  router.use("/brands/:brandId/*", requirePerm("catalog:update"));
+  router.use("/options/:optionTypeId/values", requirePerm("catalog:update"));
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(listFieldOwnershipRoute, async (c) => {
@@ -362,6 +367,7 @@ export function catalogRoutes(kernel: Kernel) {
     const result = await kernel.services.catalog.getAttributes(
       c.req.param("id"),
       c.req.param("locale"),
+      c.get("actor"),
     );
     if (!result.ok)
       return c.json(

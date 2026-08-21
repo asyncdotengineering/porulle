@@ -1,4 +1,4 @@
-import { router } from "@porulle/core";
+import { requireUserId, router } from "@porulle/core";
 import type { PluginRouteRegistration } from "@porulle/core";
 import type { BookingService } from "../services/booking-service.js";
 
@@ -11,7 +11,7 @@ export function buildMyBookingRoutes(services: {
     .summary("List my bookings")
     .auth()
     .handler(async ({ actor }) => {
-      return services.booking.listByCustomer(actor!.userId);
+      return services.booking.listByCustomer(requireUserId(actor));
     });
 
   r.get("/{id}")
@@ -20,7 +20,7 @@ export function buildMyBookingRoutes(services: {
     .handler(async ({ params, actor }) => {
       const booking = await services.booking.getById(params.id!);
       if (!booking) throw new Error("Booking not found");
-      if (booking.customerId !== actor!.userId) throw new Error("Booking not found");
+      if (booking.customerId !== requireUserId(actor)) throw new Error("Booking not found");
       return booking;
     });
 

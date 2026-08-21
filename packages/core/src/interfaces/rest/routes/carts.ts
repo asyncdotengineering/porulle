@@ -2,16 +2,22 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
 import type { CreateCartInput, AddCartItemInput } from "../../../modules/cart/schemas.js";
 import { createCartRoute, addCartItemRoute, updateCartItemQuantityRoute, getCartRoute, removeCartItemRoute, listCartsRoute, recoverCartRoute } from "../schemas/carts.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, parsePagination } from "../utils.js";
+import { type AppEnv, mapErrorToResponse, mapErrorToStatus, parsePagination, requireMethodPerm, requirePerm } from "../utils.js";
 
 export function cartRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
+
+  router.use("/", requireMethodPerm(["GET"], "cart:manage"));
+  router.use("/:id/recover", requirePerm("cart:manage"));
 
   // @ts-expect-error -- openapi() enforces strict response typing but our handler
   // returns union responses (201 | 400 | 422). The route definition documents the
   // contract; the handler returns dynamic status.
   router.openapi(createCartRoute, async (c) => {
     const actor = c.get("actor");
+    if (!actor) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Cart not found." } }, 404);
+    }
     const result = await kernel.services.cart.create(c.req.valid("json") as CreateCartInput, actor);
     if (!result.ok)
       return c.json(
@@ -74,17 +80,12 @@ export function cartRoutes(kernel: Kernel) {
   // @ts-expect-error -- openapi handler union return type
   router.openapi(getCartRoute, async (c) => {
     const actor = c.get("actor");
-    // Guest carts are gated by the cart secret; clients pass it as either
-    // ?secret=... or X-Cart-Secret. Customer carts ignore the secret and
-    // require ownership instead.
-    const secretParam = c.req.query("secret");
     const secretHeader = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret");
-    const secret = secretParam ?? secretHeader ?? undefined;
     const result = await kernel.services.cart.getById(
       c.req.param("id"),
       actor,
       undefined,
-      secret,
+      secretHeader ?? undefined,
     );
     if (!result.ok)
       return c.json(
@@ -98,9 +99,12 @@ export function cartRoutes(kernel: Kernel) {
   // returns union responses (201 | 400 | 422). The route definition documents the
   // contract; the handler returns dynamic status.
   router.openapi(addCartItemRoute, async (c) => {
+    const secret = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
     const result = await kernel.services.cart.addItem(
       { ...c.req.valid("json"), cartId: c.req.param("id") } as AddCartItemInput,
       c.get("actor"),
+      undefined,
+      secret,
     );
     if (!result.ok)
       return c.json(
@@ -115,6 +119,7 @@ export function cartRoutes(kernel: Kernel) {
   // contract; the handler returns dynamic status.
   router.openapi(updateCartItemQuantityRoute, async (c) => {
     const body = c.req.valid("json");
+    const secret = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
     const result = await kernel.services.cart.updateQuantity(
       {
         cartId: c.req.param("id"),
@@ -122,6 +127,8 @@ export function cartRoutes(kernel: Kernel) {
         quantity: body.quantity,
       },
       c.get("actor"),
+      undefined,
+      secret,
     );
     if (!result.ok)
       return c.json(
@@ -133,10 +140,13 @@ export function cartRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(removeCartItemRoute, async (c) => {
+    const secret = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
     const result = await kernel.services.cart.removeItem(
       c.req.param("id"),
       c.req.param("itemId"),
       c.get("actor"),
+      undefined,
+      secret,
     );
     if (!result.ok)
       return c.json(

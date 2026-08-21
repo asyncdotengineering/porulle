@@ -21,6 +21,8 @@ export const orders = pgTable("orders", {
   // Client-supplied key making order creation safely retryable (offline POS
   // queues, network retries) — replays return the original order.
   idempotencyKey: text("idempotency_key"),
+  // Hash of the authenticated actor or guest credential that owns the key.
+  idempotencyScope: text("idempotency_scope"),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
   placedAt: timestamp("placed_at", { withTimezone: true }).defaultNow().notNull(),
   fulfilledAt: timestamp("fulfilled_at", { withTimezone: true }),
@@ -32,9 +34,9 @@ export const orders = pgTable("orders", {
   customerIdIdx: index("idx_orders_customer_id").on(table.customerId),
   placedAtIdx: index("idx_orders_placed_at").on(table.placedAt),
   paymentIntentIdx: index("idx_orders_payment_intent").on(table.paymentIntentId),
-  orgIdempotencyKeyUnique: uniqueIndex("orders_org_idempotency_key_unique")
-    .on(table.organizationId, table.idempotencyKey)
-    .where(sql`idempotency_key IS NOT NULL`),
+  orgIdempotencyKeyUnique: uniqueIndex("orders_org_idempotency_scope_key_unique")
+    .on(table.organizationId, table.idempotencyScope, table.idempotencyKey)
+    .where(sql`idempotency_scope IS NOT NULL AND idempotency_key IS NOT NULL`),
 }));
 
 export const orderLineItems = pgTable("order_line_items", {

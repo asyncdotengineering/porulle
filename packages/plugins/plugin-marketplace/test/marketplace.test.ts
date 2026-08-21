@@ -245,7 +245,7 @@ describe("marketplace plugin", () => {
     );
 
     expect(entity.ok).toBe(true);
-    const listed = await kernel.services.catalog.list({ pagination: { page: 1, limit: 20 } });
+    const listed = await kernel.services.catalog.list({ pagination: { page: 1, limit: 20 } }, coreStaffActor);
     expect(listed.ok).toBe(true);
     if (!listed.ok) return;
     expect(listed.value.items.some((item) => item.slug === "core-only-product")).toBe(true);

@@ -65,6 +65,7 @@ describe("SEC-12 — order cancel releases inventory in the order org", () => {
       {
         type: "product",
         slug: `sec12-entity-${Date.now()}`,
+        status: "active",
         attributes: { title: "SEC-12 probe" },
         metadata: {},
       },
