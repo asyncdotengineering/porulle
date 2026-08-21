@@ -53,7 +53,7 @@ describe("Issue #46 — admin staff / RBAC REST", () => {
       method: "POST",
       url: "http://localhost/api/admin/staff",
       body: { userId: "teammate-1", role: "manager" },
-      actor: testActor,
+      actor: ownerActor,
     });
     expect(create.status).toBe(201);
     const memberRec = (await parseJsonResponse<{ data: any }>(create)).data;
@@ -72,7 +72,7 @@ describe("Issue #46 — admin staff / RBAC REST", () => {
       method: "PATCH",
       url: `http://localhost/api/admin/staff/${memberRec.id}`,
       body: { role: "staff" },
-      actor: testActor,
+      actor: ownerActor,
     });
     expect(patch.status).toBe(200);
     expect((await parseJsonResponse<{ data: any }>(patch)).data.role).toBe("staff");
@@ -105,7 +105,7 @@ describe("Issue #46 — admin staff / RBAC REST", () => {
       method: "POST",
       url: "http://localhost/api/admin/staff/invitations",
       body: { email: "newhire@example.com", role: "manager" },
-      actor: testActor,
+      actor: ownerActor,
     });
     expect(res.status).toBe(201);
     const invitation = (await parseJsonResponse<{ data: any }>(res)).data;

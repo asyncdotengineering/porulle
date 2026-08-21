@@ -15,6 +15,7 @@ import {
   updateStaffRoleRoute,
   revokeStaffRoute,
 } from "../../schemas/admin-staff.js";
+import type { Actor } from "../../../../auth/types.js";
 import { type AppEnv, requirePerm } from "../../utils.js";
 
 /**
@@ -61,12 +62,40 @@ export function adminStaffRoutes(kernel: Kernel) {
   };
   const CUSTOM_ROLE_RANK = 1;
 
-  function roleRank(role: string): number {
-    return BUILTIN_ROLE_RANK[role] ?? CUSTOM_ROLE_RANK;
+  function permissionsForRole(role: string): string[] {
+    return config.auth?.roles?.[role]?.permissions ?? [];
   }
 
-  function canGrantRole(actorRole: string, targetRole: string): boolean {
-    return roleRank(actorRole) >= roleRank(targetRole);
+  function hasPermissionFromList(actorPermissions: string[], required: string): boolean {
+    if (actorPermissions.includes("*:*")) return true;
+
+    const [resource] = required.split(":");
+    if (resource && actorPermissions.includes(`${resource}:*`)) return true;
+    return actorPermissions.includes(required);
+  }
+
+  function actorCanGrant(actor: Actor | null, targetRole: string): boolean {
+    if (!actor) return false;
+    return permissionsForRole(targetRole).every((perm) =>
+      hasPermissionFromList(actor.permissions, perm),
+    );
+  }
+
+  function roleRank(role: string): number {
+    const builtin = BUILTIN_ROLE_RANK[role];
+    if (builtin !== undefined) return builtin;
+    if (permissionsForRole(role).includes("*:*")) {
+      return BUILTIN_ROLE_RANK["admin"]!;
+    }
+    return CUSTOM_ROLE_RANK;
+  }
+
+  function canGrantRole(actor: Actor | null, targetRole: string): boolean {
+    return (
+      actorCanGrant(actor, targetRole) &&
+      actor !== null &&
+      roleRank(actor.role) >= roleRank(targetRole)
+    );
   }
 
   function insufficientPrivilege(
@@ -116,7 +145,7 @@ export function adminStaffRoutes(kernel: Kernel) {
     const orgId = resolveOrgIdForCommerce(actor, config);
 
     if (!validRoles().has(body.role)) return invalidRole(c, body.role);
-    if (!canGrantRole(actor!.role, body.role)) return insufficientPrivilege(c, body.role);
+    if (!canGrantRole(actor, body.role)) return insufficientPrivilege(c, body.role);
 
     const users = await db.select().from(user).where(eq(user.id, body.userId));
     if (users.length === 0) {
@@ -154,7 +183,7 @@ export function adminStaffRoutes(kernel: Kernel) {
     const orgId = resolveOrgIdForCommerce(actor, config);
 
     if (!validRoles().has(body.role)) return invalidRole(c, body.role);
-
+    if (!canGrantRole(actor, body.role)) return insufficientPrivilege(c, body.role);
     const rows = await db
       .insert(invitation)
       .values({
@@ -196,7 +225,7 @@ export function adminStaffRoutes(kernel: Kernel) {
     const id = c.req.param("id");
 
     if (!validRoles().has(body.role)) return invalidRole(c, body.role);
-    if (!canGrantRole(actor!.role, body.role)) return insufficientPrivilege(c, body.role);
+    if (!canGrantRole(actor, body.role)) return insufficientPrivilege(c, body.role);
 
     const rows = await db
       .select()
@@ -209,7 +238,9 @@ export function adminStaffRoutes(kernel: Kernel) {
 
     // SEC-18/R-02: the actor must also outrank (or equal) the target's CURRENT
     // role, else an admin could demote an owner they do not outrank.
-    if (!canGrantRole(actor!.role, target.role)) return insufficientPrivilege(c, target.role);
+    if (roleRank(actor!.role) < roleRank(target.role)) {
+      return insufficientPrivilege(c, target.role);
+    }
 
     if (target.role === "owner" && body.role !== "owner" && (await countOwners(orgId)) <= 1) {
       return c.json(
@@ -243,7 +274,9 @@ export function adminStaffRoutes(kernel: Kernel) {
 
     // SEC-18/R-02: the actor must outrank (or equal) the target's current role
     // to revoke it — an admin cannot revoke an owner.
-    if (!canGrantRole(actor!.role, target.role)) return insufficientPrivilege(c, target.role);
+    if (roleRank(actor!.role) < roleRank(target.role)) {
+      return insufficientPrivilege(c, target.role);
+    }
 
     if (target.role === "owner" && (await countOwners(orgId)) <= 1) {
       return c.json(
