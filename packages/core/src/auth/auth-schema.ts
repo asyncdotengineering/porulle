@@ -20,6 +20,12 @@ export const user = pgTable("user", {
     .notNull(),
   vendorId: text("vendor_id"),
   posOperatorPin: text("pos_operator_pin"),
+  // Contributed by the twoFactor and phoneNumber plugins. Declared
+  // unconditionally: the plugins are config-gated, but one shipped schema has
+  // to satisfy every configuration a merchant can choose.
+  twoFactorEnabled: boolean("two_factor_enabled").default(false),
+  phoneNumber: text("phone_number").unique(),
+  phoneNumberVerified: boolean("phone_number_verified").default(false),
 });
 
 export const session = pgTable("session", {
@@ -147,4 +153,18 @@ export const jwks = pgTable("jwks", {
   privateKey: text("private_key").notNull(),
   createdAt: timestamp("created_at").notNull(),
   expiresAt: timestamp("expires_at"),
+  alg: text("alg"),
+  crv: text("crv"),
+});
+
+export const twoFactor = pgTable("twoFactor", {
+  id: text("id").primaryKey(),
+  secret: text("secret").notNull(),
+  backupCodes: text("backup_codes").notNull(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  verified: boolean("verified").default(false),
+  failedVerificationCount: integer("failed_verification_count").default(0),
+  lockedUntil: timestamp("locked_until"),
 });

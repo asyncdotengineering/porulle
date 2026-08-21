@@ -99,6 +99,7 @@ describe("order line items and unpublished catalog entities", () => {
   it("refuses an unpublished entity for a customer placing their own order", async () => {
     const order = await kernel.services.orders.create(orderInput(), customer);
     expect(order.ok).toBe(false);
-    expect(order.error?.message).toContain("does not belong to this organization");
+    if (order.ok) throw new Error("expected the draft entity to be refused");
+    expect(order.error.message).toContain("does not belong to this organization");
   });
 });

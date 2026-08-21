@@ -8,11 +8,25 @@ import { getTableColumns, getTableName } from "drizzle-orm";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import { getAuthTables } from "better-auth/db";
 import type { BetterAuthOptions } from "better-auth";
+import { apiKey } from "@better-auth/api-key";
+import { organization, twoFactor, phoneNumber, jwt, bearer } from "better-auth/plugins";
 import * as authSchema from "./auth-schema.js";
 
-/** Mirrors the plugins enabled in {@link createAuth} that declare DB schema. */
+/**
+ * Every plugin {@link createAuth} can enable, not only the ones it enables by
+ * default. The shipped schema has to satisfy any configuration a merchant
+ * chooses, so the guard compares against the maximal table set: a column that
+ * only `twoFactor` needs is still a column this package must declare.
+ */
 export const AUTH_SCHEMA_GUARD_OPTIONS = {
-  plugins: [],
+  plugins: [
+    organization({ roles: {} }),
+    bearer(),
+    jwt(),
+    twoFactor({ issuer: "porulle-auth-schema-guard" }),
+    apiKey(),
+    phoneNumber(),
+  ],
   user: {
     additionalFields: {
       vendorId: { type: "string", required: false },
@@ -21,16 +35,23 @@ export const AUTH_SCHEMA_GUARD_OPTIONS = {
   },
 } satisfies BetterAuthOptions;
 
-const GUARDED_MODELS = ["user", "session", "account", "verification"] as const;
-
-type GuardedModel = (typeof GUARDED_MODELS)[number];
-
-const drizzleTables: Record<GuardedModel, PgTable> = {
-  user: authSchema.user,
-  session: authSchema.session,
-  account: authSchema.account,
-  verification: authSchema.verification,
-};
+/**
+ * Drizzle tables keyed by the SQL table name they declare, so the guard walks
+ * whatever models better-auth reports rather than a list someone has to
+ * remember to extend. A hand-maintained model list is how `jwks.alg` shipped
+ * missing while this guard passed.
+ */
+function drizzleTablesByName(): Map<string, PgTable> {
+  const byName = new Map<string, PgTable>();
+  for (const value of Object.values(authSchema)) {
+    try {
+      byName.set(getTableName(value as PgTable), value as PgTable);
+    } catch {
+      // Not a Drizzle table (type export, index helper) — skip.
+    }
+  }
+  return byName;
+}
 
 function drizzleColumnForField(
   table: PgTable,
@@ -50,7 +71,7 @@ function drizzleColumnForField(
 }
 
 export type AuthSchemaParityMismatch = {
-  model: GuardedModel;
+  model: string;
   field: string;
   issue: string;
 };
@@ -64,27 +85,18 @@ export function findAuthSchemaParityMismatches(
 ): AuthSchemaParityMismatch[] {
   const mismatches: AuthSchemaParityMismatch[] = [];
   const authTables = getAuthTables(options);
+  const byName = drizzleTablesByName();
 
-  for (const model of GUARDED_MODELS) {
-    const tableDef = authTables[model];
-    const drizzleTable = drizzleTables[model];
-    if (!tableDef || !drizzleTable) {
+  for (const [model, tableDef] of Object.entries(authTables)) {
+    if (!tableDef) continue;
+    const drizzleTable = byName.get(tableDef.modelName);
+    if (!drizzleTable) {
       mismatches.push({
         model,
         field: "*",
-        issue: `missing ${!tableDef ? "better-auth" : "drizzle"} table definition`,
+        issue: `no drizzle table declares better-auth model "${tableDef.modelName}"`,
       });
       continue;
-    }
-
-    const expectedTableName = tableDef.modelName;
-    const actualTableName = getTableName(drizzleTable);
-    if (expectedTableName !== actualTableName) {
-      mismatches.push({
-        model,
-        field: "*",
-        issue: `table name "${actualTableName}" !== better-auth model "${expectedTableName}"`,
-      });
     }
 
     for (const [fieldKey, fieldAttr] of Object.entries(tableDef.fields)) {
