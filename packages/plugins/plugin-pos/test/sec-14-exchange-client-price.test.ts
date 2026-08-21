@@ -28,6 +28,7 @@ describe("SEC-14 — exchange replacement unitPrice is server-resolved", () => {
       "orders:update",
       "orders:manage",
       "catalog:create",
+      "catalog:read:unpublished",
       "pricing:manage",
       "inventory:adjust",
     ],

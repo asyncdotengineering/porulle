@@ -33,6 +33,7 @@ describe("POS exchanges (issue #53)", () => {
       "orders:update",
       "orders:manage",
       "catalog:create",
+      "catalog:read:unpublished",
       "pricing:manage",
       "inventory:adjust",
     ],

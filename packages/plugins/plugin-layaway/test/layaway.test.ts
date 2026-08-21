@@ -22,7 +22,11 @@ describe("plugin-layaway (issue #58)", () => {
     vendorId: null,
     organizationId: TEST_ORG_ID,
     role: "staff",
-    permissions: ["layaway:operate", "layaway:manage", "orders:create", "orders:read", "catalog:create", "inventory:adjust"],
+    // `catalog:read:unpublished` is required because this operator creates a
+    // product (which defaults to draft) and then sells it. Order creation
+    // validates every line item against the catalog read policy, so an operator
+    // that cannot see unpublished entities cannot sell one it just created.
+    permissions: ["layaway:operate", "layaway:manage", "orders:create", "orders:read", "catalog:create", "catalog:read:unpublished", "inventory:adjust"],
   };
 
   async function availableStock(): Promise<{ onHand: number; reserved: number }> {
