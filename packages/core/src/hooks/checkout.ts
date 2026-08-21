@@ -122,8 +122,8 @@ export const validateCartNotEmpty: BeforeHook<CheckoutData> = async ({
   const catalogService = context.services.catalog as {
     getById(
       id: string,
-      options?: { includeAttributes?: boolean },
-      actor?: unknown,
+      options: { includeAttributes?: boolean } | undefined,
+      actor: unknown,
       ctx?: TxContext,
     ): Promise<
       | {

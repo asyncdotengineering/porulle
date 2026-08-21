@@ -168,8 +168,8 @@ export interface CatalogService {
   ): Promise<Result<void>>;
   getById(
     id: string,
-    options?: GetOptions,
-    actor?: Actor | null,
+    options: GetOptions | undefined,
+    actor: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<CatalogEntityHydrated>>;
   getByIdForInternalUse(
@@ -180,11 +180,11 @@ export interface CatalogService {
   ): Promise<Result<CatalogEntityHydrated>>;
   getBySlug(
     slug: string,
-    options?: GetOptions,
-    actor?: Actor | null,
+    options: GetOptions | undefined,
+    actor: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<CatalogEntityHydrated>>;
-  list(params: ListParams, actor?: Actor | null, ctx?: TxContext): Promise<Result<CatalogListResult>>;
+  list(params: ListParams, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogListResult>>;
   /** Returns undefined when no concrete ownership row applies to the field. */
   resolveFieldOwner(
     entityId: string,
@@ -854,7 +854,7 @@ export class CatalogServiceImpl implements CatalogService {
     return this.entities.delete(id, actor, ctx);
   }
 
-  getById(id: string, options?: GetOptions, actor?: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
+  getById(id: string, options: GetOptions | undefined, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
     return this.entities.getById(id, options, actor, ctx);
   }
 
@@ -862,11 +862,11 @@ export class CatalogServiceImpl implements CatalogService {
     return this.entities.getByIdForInternalUse(id, organizationId, options, ctx);
   }
 
-  getBySlug(slug: string, options?: GetOptions, actor?: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
+  getBySlug(slug: string, options: GetOptions | undefined, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
     return this.entities.getBySlug(slug, options, actor, ctx);
   }
 
-  list(params: ListParams, actor?: Actor | null, ctx?: TxContext): Promise<Result<CatalogListResult>> {
+  list(params: ListParams, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogListResult>> {
     return this.entities.list(params, actor, ctx);
   }
 

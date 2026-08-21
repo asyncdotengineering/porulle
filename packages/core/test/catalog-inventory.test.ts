@@ -86,7 +86,7 @@ describe("catalog + inventory (PGlite-backed)", () => {
     const filteredByBrand = await kernel.services.catalog.list({
       filter: { brand: "acme" },
       pagination: { page: 1, limit: 10 },
-    });
+    }, staff);
     expect(filteredByBrand.ok).toBe(true);
     if (filteredByBrand.ok) {
       expect(filteredByBrand.value.items.some((item) => item.id === created.value.id)).toBe(true);

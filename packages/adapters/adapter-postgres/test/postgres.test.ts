@@ -170,7 +170,7 @@ describe("postgres adapter", () => {
     const listed = await kernel.services.catalog.list({
       filter: { brand: brand.value.slug },
       pagination: { page: 1, limit: 20 },
-    });
+    }, admin);
     expect(listed.ok).toBe(true);
     if (!listed.ok) return;
     expect(listed.value.items.length).toBeGreaterThanOrEqual(1);

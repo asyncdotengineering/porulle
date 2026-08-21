@@ -339,7 +339,7 @@ export class EntityService {
     return Ok(undefined);
   } catch (error) { return Err(toCommerceError(error)); } }
 
-  async getById(id: string, options?: GetOptions, actor?: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
+  async getById(id: string, options: GetOptions | undefined, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
     const resolvedActor = actor ?? ctx?.actor ?? null;
     const orgId = resolveOrgIdForCommerce(resolvedActor, this.deps.config);
     const context: HookContext = createHookContext({ actor: resolvedActor, tx: ctx?.tx ?? null, logger: createLogger("catalog.read"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database), commerceConfig: this.deps.config });
@@ -388,7 +388,7 @@ export class EntityService {
     return Ok(await this.hydrateEntity(entity, options, ctx));
   }
 
-  async getBySlug(slug: string, options?: GetOptions, actor?: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
+  async getBySlug(slug: string, options: GetOptions | undefined, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
     const context: HookContext = createHookContext({ actor: actor ?? null, tx: ctx?.tx ?? null, logger: createLogger("catalog.read"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database), commerceConfig: this.deps.config });
     const globalBeforeHooks = this.deps.hooks.resolve("catalog.beforeRead") as CatalogReadBeforeHook[];
     const globalAfterHooks = this.deps.hooks.resolve("catalog.afterRead") as CatalogReadAfterHook[];
@@ -422,7 +422,7 @@ export class EntityService {
     return Ok(result, report.hasErrors ? { hookErrors: report.errors } : undefined);
   }
 
-  async list(params: ListParams, actor?: Actor | null, ctx?: TxContext): Promise<Result<CatalogListResult>> {
+  async list(params: ListParams, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogListResult>> {
     const resolvedActor = actor ?? ctx?.actor ?? null;
     const context: HookContext = createHookContext({ actor: resolvedActor, tx: ctx?.tx ?? null, logger: createLogger("catalog.list"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database), commerceConfig: this.deps.config });
     const globalBeforeHooks = this.deps.hooks.resolve("catalog.beforeList") as CatalogListBeforeHook[];

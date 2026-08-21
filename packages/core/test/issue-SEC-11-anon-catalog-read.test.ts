@@ -85,4 +85,56 @@ describe("SEC-11 — catalog getById enforces org context", () => {
       expect(result.value.organizationId).toBe(ORG_DEFAULT);
     }
   });
+
+  it("list(input, null) returns only active, visible entities", async () => {
+    const adminDefault: Actor = {
+      type: "user",
+      userId: "sec11-list-admin",
+      email: "list@sec11.test",
+      name: "List Admin",
+      vendorId: null,
+      organizationId: ORG_DEFAULT,
+      role: "admin",
+      permissions: ["catalog:read", "catalog:create", "catalog:update"],
+    };
+
+    const activeVisible = await kernel.services.catalog.create(
+      { type: "product", slug: "sec11-list-active-visible", status: "active", metadata: {} },
+      adminDefault,
+    );
+    const draftHidden = await kernel.services.catalog.create(
+      { type: "product", slug: "sec11-list-draft", status: "draft", metadata: {} },
+      adminDefault,
+    );
+    const activeHidden = await kernel.services.catalog.create(
+      { type: "product", slug: "sec11-list-active-hidden", status: "active", metadata: {} },
+      adminDefault,
+    );
+    expect(activeVisible.ok && draftHidden.ok && activeHidden.ok).toBe(true);
+    if (!activeVisible.ok || !draftHidden.ok || !activeHidden.ok) return;
+
+    const hideActive = await kernel.services.catalog.update(
+      activeHidden.value.id,
+      { isVisible: false },
+      adminDefault,
+    );
+    expect(hideActive.ok).toBe(true);
+    if (!hideActive.ok) return;
+
+    const listed = await kernel.services.catalog.list(
+      { pagination: { page: 1, limit: 100 } },
+      null,
+    );
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+
+    const ids = listed.value.items.map((item) => item.id);
+    expect(ids).toContain(activeVisible.value.id);
+    expect(ids).not.toContain(draftHidden.value.id);
+    expect(ids).not.toContain(activeHidden.value.id);
+    for (const item of listed.value.items) {
+      expect(item.status).toBe("active");
+      expect(item.isVisible).toBe(true);
+    }
+  });
 });

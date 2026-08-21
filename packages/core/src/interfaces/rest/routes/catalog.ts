@@ -168,6 +168,7 @@ export function catalogRoutes(kernel: Kernel) {
             const full = await kernel.services.catalog.getById(
               item.id,
               includeOptions,
+              c.get("actor"),
             );
             return full.ok ? full.value : item;
           }),

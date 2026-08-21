@@ -14,6 +14,7 @@ const actor = {
     "catalog:create",
     "catalog:update",
     "catalog:read",
+    "catalog:read:unpublished",
     "customers:update:self",
   ],
 } as any;
