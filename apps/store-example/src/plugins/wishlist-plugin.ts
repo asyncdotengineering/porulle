@@ -6,7 +6,7 @@
  * - Plugin declares its permissions in the manifest
  */
 
-import { defineCommercePlugin, router } from "@porulle/core";
+import { defineCommercePlugin, requireUserId, router } from "@porulle/core";
 import type { PluginContext } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
 import { eq, and } from "@porulle/core/drizzle";
@@ -33,7 +33,7 @@ function buildRoutes(ctx: PluginContext) {
     .auth()
     .handler(async ({ actor }) => {
       // actor is guaranteed non-null by .auth()
-      return db.select().from(wishlistItems).where(eq(wishlistItems.customerId, actor!.userId));
+      return db.select().from(wishlistItems).where(eq(wishlistItems.customerId, requireUserId(actor)));
     });
 
   // .auth() + .input() — login required + body validated
@@ -44,7 +44,7 @@ function buildRoutes(ctx: PluginContext) {
     .handler(async ({ input, actor }) => {
       const body = input as AddItemInput;
       const [item] = await db.insert(wishlistItems).values({
-        customerId: actor!.userId,
+        customerId: requireUserId(actor),
         entityId: body.entityId,
         note: body.note ?? null,
       }).returning();

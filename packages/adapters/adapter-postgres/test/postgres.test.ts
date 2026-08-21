@@ -5,6 +5,7 @@ import {
   Ok,
   createKernel,
   defineConfig,
+  requireUserId,
   type Actor,
   type StorageAdapter,
 } from "@porulle/core";
@@ -189,7 +190,7 @@ describe("postgres adapter", () => {
     );
     expect(adjusted.ok).toBe(true);
 
-    const cart = await kernel.services.cart.create({ customerId: customer.userId, currency: "USD" }, customer);
+    const cart = await kernel.services.cart.create({ customerId: requireUserId(customer), currency: "USD" }, customer);
     expect(cart.ok).toBe(true);
     if (!cart.ok) return;
 
@@ -212,7 +213,7 @@ describe("postgres adapter", () => {
 
     const order = await kernel.services.orders.create(
       {
-        customerId: customer.userId,
+        customerId: requireUserId(customer),
         currency: "USD",
         subtotal: 2000,
         taxTotal: 0,

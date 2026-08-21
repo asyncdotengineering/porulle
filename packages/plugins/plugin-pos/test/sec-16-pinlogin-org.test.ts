@@ -10,7 +10,7 @@ import {
   TEST_ORG_ID,
 } from "./test-utils.js";
 import { posPlugin } from "../src/index.js";
-import { DEFAULT_ORG_ID } from "@porulle/core";
+import { DEFAULT_ORG_ID, requireUserId } from "@porulle/core";
 import { posShifts } from "../src/schema.js";
 
 const STORE_ORG_ID = "org_pos_store_sec16";
@@ -106,7 +106,7 @@ describe("SEC-16 — pin-login API key carries operator organization", () => {
     const memberRows = await db
       .select()
       .from(member)
-      .where(eq(member.userId, storeOperator.userId));
+      .where(eq(member.userId, requireUserId(storeOperator)));
     expect(memberRows).toHaveLength(0);
 
     const current = await app.request("http://localhost/api/pos/shifts/current", {

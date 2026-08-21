@@ -4,6 +4,7 @@ import {
   type Actor,
   type ChannelOrderSlice,
   type PluginTxFn,
+  requireUserId,
 } from "@porulle/core";
 import {
   createPluginTestApp,
@@ -198,7 +199,7 @@ describe("plugin-channel-connector foundations", () => {
       TEST_ORG_ID,
       created.value.id,
       "confirmed",
-      actorA.userId,
+      requireUserId(actorA),
     );
     expect(illegal.ok).toBe(false);
     if (!illegal.ok) expect(illegal.code).toBe("INVALID_TRANSITION");
@@ -207,13 +208,13 @@ describe("plugin-channel-connector foundations", () => {
       TEST_ORG_ID,
       created.value.id,
       "exported",
-      actorA.userId,
+      requireUserId(actorA),
     )).ok).toBe(true);
     expect((await service.transitionExport(
       TEST_ORG_ID,
       created.value.id,
       "failed",
-      actorA.userId,
+      requireUserId(actorA),
       "remote timeout",
     )).ok).toBe(true);
 
@@ -234,7 +235,7 @@ describe("plugin-channel-connector foundations", () => {
     const abandoned = await service.abandonExport(
       TEST_ORG_ID,
       created.value.id,
-      actorA.userId,
+      requireUserId(actorA),
       "operator stop",
     );
     expect(abandoned.ok && abandoned.value.state).toBe("abandoned");
@@ -242,7 +243,7 @@ describe("plugin-channel-connector foundations", () => {
       TEST_ORG_ID,
       created.value.id,
       "exported",
-      actorA.userId,
+      requireUserId(actorA),
     );
     expect(terminal.ok).toBe(false);
 

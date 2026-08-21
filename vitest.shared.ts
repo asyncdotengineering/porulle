@@ -16,8 +16,10 @@ import { defineConfig } from "vitest/config";
  *
  * The cap belongs here rather than in each package, because a new package
  * inherits it instead of rediscovering the problem as a hook timeout. The
- * matching turbo concurrency is pinned in the root `test` script — change one
- * and reconsider the other, since only their product matters.
+ * matching turbo concurrency is pinned in the root scripts — `test`, and also
+ * `build`, `check-types` and `lint`, which spawn a `tsc` per package and
+ * oversubscribe just as badly without forking anything. Change one and
+ * reconsider the others, since only the product matters.
  */
 /**
  * Raise this when running one package on its own, where nothing else is

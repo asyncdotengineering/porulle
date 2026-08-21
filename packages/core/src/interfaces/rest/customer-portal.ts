@@ -1,6 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../runtime/kernel.js";
-import { assertPermission } from "../../auth/permissions.js";
+import { assertPermission, requireUserId } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
 import type { AppEnv } from "./utils.js";
 import {
@@ -33,11 +33,6 @@ export function createCustomerPortalRoutes(kernel: Kernel) {
     }
     await next();
   }));
-
-  function requireUserId(actor: Actor): string {
-    if (!actor.userId) throw new Error("Authenticated customer actor required.");
-    return actor.userId;
-  }
 
   /**
    * Resolves an actor whose userId is the customer profile UUID (not the Better Auth user ID).
