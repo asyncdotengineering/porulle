@@ -20,8 +20,9 @@ export default defineConfig({
       staff: {
         permissions: [
           "catalog:create", "catalog:update", "catalog:read",
+          "catalog:read:unpublished",
           "inventory:adjust", "inventory:read",
-          "orders:create", "orders:read", "orders:update",
+          "orders:create", "orders:create:on-behalf", "orders:read", "orders:update",
           "customers:read",
           "cart:create", "cart:update",
         ],
@@ -43,8 +44,8 @@ Available permission scopes:
 
 | Module | Actions | Scoped variants |
 |--------|---------|-----------------|
-| `catalog` | `create`, `read`, `update`, `delete` | — |
-| `orders` | `create`, `read`, `update` | `read:own` |
+| `catalog` | `create`, `read`, `update`, `delete` | `read:unpublished` |
+| `orders` | `create`, `read`, `update` | `create:on-behalf`, `read:own` |
 | `customers` | `read`, `update` | `read:self`, `update:self` |
 | `cart` | `create`, `read`, `update` | — |
 | `inventory` | `read`, `adjust` | — |

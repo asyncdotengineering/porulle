@@ -34,7 +34,7 @@ const adminB: Actor = {
   vendorId: null,
   organizationId: ORG_B,
   role: "admin",
-  permissions: ["catalog:create", "catalog:read", "catalog:update"],
+  permissions: ["catalog:create", "catalog:read", "catalog:read:unpublished", "catalog:update"],
 };
 
 const adminA: Actor = {
@@ -42,6 +42,7 @@ const adminA: Actor = {
   userId: "admin-a-4f9ee97f",
   email: "admin-a@4f9ee97f.test",
   organizationId: ORG_A,
+  permissions: adminB.permissions,
 };
 
 const adminDefault: Actor = {

@@ -11,7 +11,7 @@ const staff: Actor = {
   vendorId: null,
   organizationId: null,
   role: "staff",
-  permissions: ["catalog:create", "catalog:update", "catalog:read"],
+  permissions: ["catalog:create", "catalog:update", "catalog:read", "catalog:read:unpublished"],
 };
 
 describe("catalog custom field value provenance", () => {

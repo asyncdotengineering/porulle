@@ -15,7 +15,9 @@
 import { describe, expect, it, beforeAll } from "vitest";
 import { createPGliteTestConfig } from "../src/test-utils/create-test-config.js";
 import { createKernel } from "../src/runtime/kernel.js";
+import { customers } from "../src/modules/customers/schema.js";
 import type { AnalyticsScope } from "../src/modules/analytics/types.js";
+import type { DrizzleDatabase } from "../src/kernel/database/drizzle-db.js";
 
 // Pre-build scopes for different actors
 const ADMIN_SCOPE: AnalyticsScope = { role: "admin" };
@@ -32,7 +34,7 @@ const actor = {
   email: "admin@test.com",
   name: "Test Admin",
   vendorId: null,
-  organizationId: null,
+  organizationId: "org_default",
   role: "owner",
   permissions: ["*:*"],
 };
@@ -67,6 +69,22 @@ describe("Analytics Scope Security", () => {
       attributes: { title: "Product 2" },
       metadata: { basePrice: 20000 },
     }, actor);
+
+    const db = kernel.database.db as DrizzleDatabase;
+    await db.insert(customers).values([
+      {
+        id: "00000000-0000-0000-0000-0000000000c1",
+        organizationId: "org_default",
+        userId: "analytics-customer-x",
+        metadata: {},
+      },
+      {
+        id: "00000000-0000-0000-0000-0000000000c2",
+        organizationId: "org_default",
+        userId: "analytics-customer-y",
+        metadata: {},
+      },
+    ]);
 
     // Create orders for Customer X (2 orders)
     for (let i = 0; i < 2; i++) {

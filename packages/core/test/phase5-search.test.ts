@@ -19,6 +19,7 @@ const actor: Actor = {
     "catalog:create",
     "catalog:update",
     "catalog:read",
+    "catalog:read:unpublished",
   ],
 };
 

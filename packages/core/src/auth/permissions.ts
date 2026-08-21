@@ -1,16 +1,18 @@
 import { CommerceForbiddenError } from "../kernel/errors.js";
 import type { Actor } from "./types.js";
 
-export function assertPermission(actor: Actor | null, required: string): void {
-  if (!actor) {
-    throw new CommerceForbiddenError("Authentication required.");
-  }
-
-  if (actor.permissions.includes("*:*")) return;
+export function hasPermission(actor: Actor | null, required: string): boolean {
+  if (!actor) return false;
+  if (actor.permissions.includes("*:*")) return true;
 
   const [resource] = required.split(":");
-  if (resource && actor.permissions.includes(`${resource}:*`)) return;
-  if (actor.permissions.includes(required)) return;
+  if (resource && actor.permissions.includes(`${resource}:*`)) return true;
+  return actor.permissions.includes(required);
+}
+
+export function assertPermission(actor: Actor | null, required: string): void {
+  if (hasPermission(actor, required)) return;
+  if (!actor) throw new CommerceForbiddenError("Authentication required.");
 
   throw new CommerceForbiddenError(
     `Permission "${required}" is required. Your role "${actor.role}" does not include this permission.`,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { assertOwnership, assertPermission, requireUserId } from "../src/auth/permissions.js";
+import { defaultConfig } from "../src/config/defaults.js";
 import { CommerceForbiddenError } from "../src/kernel/errors.js";
 
 describe("permissions", () => {
@@ -16,6 +17,18 @@ describe("permissions", () => {
 
   it("permits wildcard resource permissions", () => {
     expect(() => assertPermission(actor, "catalog:create")).not.toThrow();
+    expect(() => assertPermission(actor, "catalog:read:unpublished")).not.toThrow();
+  });
+
+  it("grants the new scopes to the default manager role only", () => {
+    const managerPermissions = defaultConfig.auth?.roles?.manager?.permissions ?? [];
+    const customerPermissions = defaultConfig.auth?.roles?.customer?.permissions ?? [];
+
+    expect(managerPermissions).toEqual(
+      expect.arrayContaining(["catalog:read:unpublished", "orders:create:on-behalf"]),
+    );
+    expect(customerPermissions).not.toContain("catalog:read:unpublished");
+    expect(customerPermissions).not.toContain("orders:create:on-behalf");
   });
 
   it("rejects missing permission", () => {

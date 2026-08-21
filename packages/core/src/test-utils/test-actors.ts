@@ -31,8 +31,8 @@ export const testStaffActor: Actor = {
   organizationId: TEST_ORG_ID,
   role: "staff",
   permissions: [
-    "catalog:read", "catalog:create", "catalog:update",
-    "inventory:adjust", "orders:read", "orders:create", "orders:update", "orders:manage",
+    "catalog:read", "catalog:read:unpublished", "catalog:create", "catalog:update",
+    "inventory:adjust", "orders:read", "orders:create", "orders:create:on-behalf", "orders:update", "orders:manage",
   ],
 };
 

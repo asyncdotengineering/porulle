@@ -39,6 +39,21 @@ const noCatalogRead: Actor = {
   permissions: ["catalog:create", "catalog:update"],
 };
 
+const catalogWriterOnly: Actor = {
+  ...adminB,
+  userId: "d92e0661-writer-only",
+  email: "writer-only@d92e0661.test",
+  permissions: ["catalog:read", "catalog:update"],
+};
+
+const unpublishedReader: Actor = {
+  ...adminB,
+  userId: "d92e0661-unpublished-reader",
+  email: "unpublished-reader@d92e0661.test",
+  role: "catalog_reader",
+  permissions: ["catalog:read", "catalog:read:unpublished"],
+};
+
 describe("d92e0661 — catalog read authorization", () => {
   let server: Awaited<ReturnType<typeof createTestServer>>["server"];
   let cleanup: () => Promise<void>;
@@ -108,6 +123,41 @@ describe("d92e0661 — catalog read authorization", () => {
     expect(await response.text()).not.toContain("unpublished");
   });
 
+  it("returns a draft entity to an actor with catalog:read:unpublished but not catalog:update", async () => {
+    const response = await makeRequest(server, {
+      method: "GET",
+      url: `http://localhost/api/catalog/entities/${entityId}`,
+      actor: unpublishedReader,
+    });
+
+    expect(response.status).toBe(200);
+    const json = await parseJsonResponse<{ data: { status: string; isVisible: boolean } }>(response);
+    expect(json.data.status).toBe("draft");
+    expect(json.data.isVisible).toBe(false);
+  });
+
+  it("lists draft entities to an actor with catalog:read:unpublished", async () => {
+    const response = await makeRequest(server, {
+      method: "GET",
+      url: "http://localhost/api/catalog/entities?status=draft",
+      actor: unpublishedReader,
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("d92e0661-draft-product");
+  });
+
+  it("does not let catalog:update imply unpublished catalog reads", async () => {
+    const response = await makeRequest(server, {
+      method: "GET",
+      url: `http://localhost/api/catalog/entities/${entityId}`,
+      actor: catalogWriterOnly,
+    });
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).not.toContain("unpublished");
+  });
+
   it("does not return another organization's entity by id", async () => {
     const response = await makeRequest(server, {
       method: "GET",
@@ -123,7 +173,7 @@ describe("d92e0661 — catalog read authorization", () => {
     const response = await makeRequest(server, {
       method: "GET",
       url: `http://localhost/api/catalog/entities/${entityId}`,
-      actor: adminB,
+      actor: unpublishedReader,
     });
 
     expect(response.status).toBe(200);

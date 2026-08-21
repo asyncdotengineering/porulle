@@ -12,8 +12,10 @@ import { createKernel } from "../src/runtime/kernel.js";
 import { createPGliteTestConfig } from "../src/test-utils/create-test-config.js";
 import { ensureDefaultOrg } from "../src/auth/org.js";
 import { organization } from "../src/auth/auth-schema.js";
+import { customers } from "../src/modules/customers/schema.js";
 import type { Actor } from "../src/auth/types.js";
 import type { Kernel } from "../src/runtime/kernel.js";
+import type { DrizzleDatabase } from "../src/kernel/database/drizzle-db.js";
 
 const ORG_ALPHA = "org_alpha";
 const ORG_BETA = "org_beta";
@@ -287,6 +289,14 @@ describe("Multi-Organization Isolation", () => {
         { entityId: product.value.id, adjustment: 10, reason: "stock" },
         alphaAdmin,
       );
+
+      const db = kernel.database.db as DrizzleDatabase;
+      await db.insert(customers).values({
+        id: "00000000-0000-4000-a000-000000000001",
+        organizationId: ORG_ALPHA,
+        userId: "multi-org-order-customer",
+        metadata: {},
+      });
 
       const order = await kernel.services.orders.create(
         {

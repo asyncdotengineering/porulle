@@ -15,9 +15,11 @@ const staffActor = {
     "catalog:create",
     "catalog:update",
     "catalog:read",
+    "catalog:read:unpublished",
     "inventory:adjust",
     "inventory:read",
     "orders:create",
+    "orders:create:on-behalf",
     "orders:read",
     "orders:update",
     "orders:manage",
@@ -25,6 +27,13 @@ const staffActor = {
     "cart:update",
   ],
 } as any;
+
+const guestApiKeyActor = {
+  ...staffActor,
+  type: "api_key",
+  userId: null,
+  role: "service",
+};
 
 // Customer actor – can only see own orders
 const customerActor = {
@@ -127,7 +136,13 @@ describe("orders – happy path (PGlite-backed)", () => {
     expect(entity.ok).toBe(true);
     if (!entity.ok) return;
 
-    const customerId = "00000000-0000-0000-0000-000000000001"; // Valid UUID for test customer
+    const customer = await kernel.services.customers.getByUserId(
+      "orders-list-customer",
+      staffActor,
+    );
+    expect(customer.ok).toBe(true);
+    if (!customer.ok) return;
+    const customerId = customer.value.id;
     const order = await kernel.services.orders.create(
       {
         customerId,
@@ -343,7 +358,15 @@ describe("orders – unhappy path (PGlite-backed)", () => {
   it("unauthorized access: customer tries to view other customer's order → Err", async () => {
   
     // Staff creates an order for a different customer
-    const order = await createSimpleOrder(kernel, staffActor, { customerId: "00000000-0000-0000-0000-000000000010" });
+    const differentCustomer = await kernel.services.customers.getByUserId(
+      "orders-different-customer",
+      staffActor,
+    );
+    expect(differentCustomer.ok).toBe(true);
+    if (!differentCustomer.ok) return;
+    const order = await createSimpleOrder(kernel, staffActor, {
+      customerId: differentCustomer.value.id,
+    });
     expect(order.ok).toBe(true);
     if (!order.ok) return;
 
@@ -453,7 +476,7 @@ describe("orders – edge cases (PGlite-backed)", () => {
         lineItems: [{ ...makeLineItem(), entityId: entity.value.id }],
         // no customerId → guest order
       },
-      staffActor,
+      guestApiKeyActor,
     );
 
     expect(result.ok).toBe(true);
@@ -542,9 +565,16 @@ describe("orders – edge cases (PGlite-backed)", () => {
     if (!entity.ok) return;
 
     // Create order owned by customerActor (using valid UUID that matches customerActor.userId)
+    const customer = await kernel.services.customers.getByUserId(
+      "00000000-0000-0000-0000-000000000020",
+      customerActor,
+    );
+    expect(customer.ok).toBe(true);
+    if (!customer.ok) return;
+
     const order = await kernel.services.orders.create(
       {
-        customerId: "00000000-0000-0000-0000-000000000020", // Matches customerActor.userId
+        customerId: customer.value.id,
         currency: "USD",
         subtotal: 1000,
         taxTotal: 0,

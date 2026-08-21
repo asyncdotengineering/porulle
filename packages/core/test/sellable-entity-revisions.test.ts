@@ -12,7 +12,7 @@ const staff: Actor = {
   vendorId: null,
   organizationId: "org_default",
   role: "staff",
-  permissions: ["catalog:create", "catalog:update", "catalog:read"],
+  permissions: ["catalog:create", "catalog:update", "catalog:read", "catalog:read:unpublished"],
 };
 
 describe("sellable entity revisions", () => {

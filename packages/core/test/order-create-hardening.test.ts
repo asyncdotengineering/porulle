@@ -188,6 +188,36 @@ describe("order creation hardening", () => {
     expect(directResult.value.lineItems[0]?.isCustomPrice).toBe(false);
   });
 
+  it("leaves an operator without on-behalf permission as a guest order", async () => {
+    const operatorActor: Actor = {
+      type: "user",
+      userId: "order-hardening-operator",
+      email: "operator@order-hardening.test",
+      name: "Order Hardening Operator",
+      vendorId: null,
+      organizationId: "org_default",
+      role: "staff",
+      permissions: ["catalog:read", "orders:create"],
+    };
+    const before = await kernel.services.customers.list(operatorActor);
+    expect(before.ok).toBe(true);
+    if (!before.ok) throw before.error;
+
+    const result = await kernel.services.orders.create(
+      orderBody(entityId, 1),
+      operatorActor,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw result.error;
+    expect(result.value.customerId).toBeNull();
+
+    const after = await kernel.services.customers.list(operatorActor);
+    expect(after.ok).toBe(true);
+    if (!after.ok) throw after.error;
+    expect(after.value).toHaveLength(before.value.length);
+  });
+
   it("rejects cross-org entities and mismatched variants on create and addLineItem", async () => {
     const createResponse = await makeRequest(server, {
       method: "POST",

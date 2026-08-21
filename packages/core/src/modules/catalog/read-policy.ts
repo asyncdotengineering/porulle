@@ -1,3 +1,4 @@
+import { hasPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
 
 type CatalogVisibility = {
@@ -5,16 +6,8 @@ type CatalogVisibility = {
   isVisible: boolean;
 };
 
-function hasPermission(actor: Actor | null, permission: string): boolean {
-  if (!actor) return false;
-  const [resource] = permission.split(":");
-  return actor.permissions.includes(permission) ||
-    actor.permissions.includes("*:*") ||
-    (resource !== undefined && actor.permissions.includes(`${resource}:*`));
-}
-
 export function canReadUnpublishedCatalog(actor: Actor | null): boolean {
-  return hasPermission(actor, "catalog:update");
+  return hasPermission(actor, "catalog:read:unpublished");
 }
 
 export function isCatalogEntityVisible(entity: CatalogVisibility, actor: Actor | null): boolean {

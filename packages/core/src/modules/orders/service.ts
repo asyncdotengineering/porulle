@@ -1,5 +1,5 @@
 import { resolveOrgId } from "../../auth/org.js";
-import { assertOwnership, assertPermission } from "../../auth/permissions.js";
+import { assertOwnership, assertPermission, hasPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
 import { isCatalogEntityVisible } from "../catalog/read-policy.js";
 import {
@@ -149,27 +149,6 @@ function context(
   });
 }
 
-const PRIVILEGED_ORDER_ROLES = new Set([
-  "staff",
-  "admin",
-  "owner",
-  "ai_agent",
-  "service",
-]);
-
-/**
- * Actors that transact on behalf of the organization rather than for
- * themselves: they may name a foreign customer and sell catalog entities the
- * storefront does not publish.
- */
-function isPrivilegedOrderActor(actor: Actor | null): boolean {
-  if (!actor) return false;
-  return (
-    actor.permissions.includes("*:*") ||
-    (actor.role != null && PRIVILEGED_ORDER_ROLES.has(actor.role))
-  );
-}
-
 export class OrderService {
   private readonly repo: OrdersRepository;
   private readonly machine: StateDefinition<string>;
@@ -256,14 +235,13 @@ export class OrderService {
       if (
         !owned.ok ||
         !owned.value ||
-        (!isPrivilegedOrderActor(actor) &&
-          !isCatalogEntityVisible(
-            {
-              status: owned.value.status ?? "draft",
-              isVisible: owned.value.isVisible ?? false,
-            },
-            actor,
-          ))
+        !isCatalogEntityVisible(
+          {
+            status: owned.value?.status ?? "draft",
+            isVisible: owned.value?.isVisible ?? false,
+          },
+          actor,
+        )
       ) {
         return Err(
           new CommerceValidationError(
@@ -325,26 +303,26 @@ export class OrderService {
     const isOperator = actor?.type === "api_key";
     if (isOperator) {
       if (requestedCustomerId === undefined) return undefined;
-      const customers = this.deps.services.customers as
-        | {
-            getById(
-              id: string,
-              actor?: Actor | null,
-              ctx?: TxContext,
-            ): Promise<{ ok: boolean; value?: { id: string } }>;
-          }
-        | undefined;
-      const customer = await customers?.getById(requestedCustomerId, actor, ctx);
-      if (!customer?.ok || !customer.value) {
-        throw new CommerceValidationError(
-          "customerId must reference a customer in this organization.",
-        );
-      }
-      return customer.value.id;
+      return this.resolveRequestedCustomerId(requestedCustomerId, actor, ctx);
     }
 
-    if (isPrivilegedOrderActor(actor)) return requestedCustomerId;
+    if (hasPermission(actor, "orders:create:on-behalf")) {
+      if (requestedCustomerId === undefined) return undefined;
+      return this.resolveRequestedCustomerId(requestedCustomerId, actor, ctx);
+    }
 
+    // `orders:read:own` is the system's existing "this actor is a shopper"
+    // marker -- it is in DEFAULT_CUSTOMER_PERMISSIONS and guards the read-own
+    // order routes. Using it here decides *attribution*, which is a proxy and is
+    // deliberately a stopgap: the honest discriminator is caller intent, which a
+    // storefront route knows and this service cannot see.
+    //
+    // Known misclassification: a dual-hatted role holding `orders:read:own` for
+    // its own personal orders, plus `orders:create`, self-attributes a walk-in
+    // sale. The proxy is tolerable only because it fails narrow -- it can attach
+    // the actor's own profile or fall through to a guest order, never expose
+    // another principal's data.
+    if (!hasPermission(actor, "orders:read:own")) return undefined;
     if (!actor?.userId) return undefined;
     const customers = this.deps.services.customers as
       | {
@@ -358,6 +336,29 @@ export class OrderService {
     if (!customers?.getByUserId) return undefined;
     const own = await customers.getByUserId(actor.userId, actor, ctx);
     return own.ok ? own.value?.id : undefined;
+  }
+
+  private async resolveRequestedCustomerId(
+    requestedCustomerId: string,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<string> {
+    const customers = this.deps.services.customers as
+      | {
+          getById(
+            id: string,
+            actor?: Actor | null,
+            ctx?: TxContext,
+          ): Promise<{ ok: boolean; value?: { id: string } }>;
+        }
+      | undefined;
+    const customer = await customers?.getById(requestedCustomerId, actor, ctx);
+    if (!customer?.ok || !customer.value) {
+      throw new CommerceValidationError(
+        "customerId must reference a customer in this organization.",
+      );
+    }
+    return customer.value.id;
   }
 
   private async authorizeOrderRead(

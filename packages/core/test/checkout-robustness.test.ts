@@ -33,9 +33,11 @@ const actor = {
     "catalog:create",
     "catalog:update",
     "catalog:read",
+    "catalog:read:unpublished",
     "inventory:adjust",
     "inventory:read",
     "orders:create",
+    "orders:create:on-behalf",
     "orders:read",
     "orders:update",
     "cart:create",
@@ -955,7 +957,13 @@ describe("checkout – edge cases (PGlite-backed)", () => {
       actor,
     );
 
-    const customerId = "00000000-0000-0000-0000-000000000005";
+    const customer = await kernel.services.customers.getByUserId(
+      "checkout-passthrough-customer",
+      actor,
+    );
+    expect(customer.ok).toBe(true);
+    if (!customer.ok) return;
+    const customerId = customer.value.id;
     const checkoutData = makeBlankCheckout(cart.value.id, { customerId });
     const ctx = makeContext(kernel);
 

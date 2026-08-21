@@ -1,14 +1,16 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Actor } from "../src/auth/types.js";
 import type { Kernel } from "../src/runtime/kernel.js";
-import { createTestServer, testActor } from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer } from "../src/test-utils/rest-api-test-utils.js";
+
+const FOREIGN_ORG_ID = "org_draft_visibility_foreign";
 
 // A POS operator sells items the storefront never publishes. The catalog read
 // policy hides unpublished entities from unprivileged readers, and order
 // creation validates that every line item belongs to the order's organization.
 // That validation is an internal invariant check: routing it through the
 // caller-facing read made a draft entity unsellable by any operator without
-// catalog:update, which broke layaway completion.
+// catalog:read:unpublished, which broke layaway completion.
 const posOperator: Actor = {
   type: "user",
   userId: "draft-visibility-operator",
@@ -16,8 +18,22 @@ const posOperator: Actor = {
   name: "POS Operator",
   vendorId: null,
   organizationId: "org_default",
-  role: "staff",
-  permissions: ["orders:create", "orders:read", "orders:manage"],
+  role: "custom_pos_operator",
+  permissions: [
+    "catalog:create",
+    "catalog:read:unpublished",
+    "inventory:adjust",
+    "orders:create",
+    "orders:read",
+    "orders:manage",
+  ],
+};
+
+const onBehalfOperator: Actor = {
+  ...posOperator,
+  userId: "draft-visibility-on-behalf-operator",
+  role: "custom_clienteling_operator",
+  permissions: [...posOperator.permissions, "orders:create:on-behalf"],
 };
 
 const customer: Actor = {
@@ -35,6 +51,8 @@ describe("order line items and unpublished catalog entities", () => {
   let kernel: Kernel;
   let cleanup: () => Promise<void>;
   let draftEntityId: string;
+  let foreignCustomerId: string;
+  let crossTenantCustomerId: string;
 
   beforeAll(async () => {
     const testServer = await createTestServer();
@@ -55,7 +73,7 @@ describe("order line items and unpublished catalog entities", () => {
         attributes: { title: "Unlisted bridal saree" },
         metadata: {},
       },
-      testActor,
+      posOperator,
     );
     expect(entity.ok).toBe(true);
     if (!entity.ok) throw entity.error;
@@ -64,13 +82,37 @@ describe("order line items and unpublished catalog entities", () => {
 
     const stock = await kernel.services.inventory.adjust(
       { entityId: draftEntityId, adjustment: 5, reason: "draft visibility stock" },
-      testActor,
+      posOperator,
     );
     expect(stock.ok).toBe(true);
+
+    const foreignOrganization = await kernel.services.organization.create({
+      id: FOREIGN_ORG_ID,
+      name: "Draft Visibility Foreign Organization",
+      slug: "draft-visibility-foreign",
+    });
+    expect(foreignOrganization.ok).toBe(true);
+
+    const foreignCustomer = await kernel.services.customers.getByUserId(
+      "draft-visibility-foreign-customer",
+      posOperator,
+    );
+    expect(foreignCustomer.ok).toBe(true);
+    if (!foreignCustomer.ok) throw foreignCustomer.error;
+    foreignCustomerId = foreignCustomer.value.id;
+
+    const crossTenantCustomer = await kernel.services.customers.getByUserId(
+      "draft-visibility-cross-tenant-customer",
+      { ...onBehalfOperator, organizationId: FOREIGN_ORG_ID },
+    );
+    expect(crossTenantCustomer.ok).toBe(true);
+    if (!crossTenantCustomer.ok) throw crossTenantCustomer.error;
+    crossTenantCustomerId = crossTenantCustomer.value.id;
   });
 
-  function orderInput() {
+  function orderInput(customerId?: string) {
     return {
+      ...(customerId !== undefined ? { customerId } : {}),
       currency: "USD",
       subtotal: 5000,
       taxTotal: 0,
@@ -89,11 +131,52 @@ describe("order line items and unpublished catalog entities", () => {
     };
   }
 
-  it("lets an operator without catalog:update sell an unpublished entity", async () => {
+  it("lets an operator with catalog:read:unpublished and no catalog:update create and sell an unpublished entity", async () => {
     const order = await kernel.services.orders.create(orderInput(), posOperator);
     expect(order.ok).toBe(true);
     if (!order.ok) throw order.error;
     expect(order.value.lineItems[0]?.entityId).toBe(draftEntityId);
+  });
+
+  it("does not let a customer actor read or transact against an unpublished entity", async () => {
+    const read = await kernel.services.catalog.getById(draftEntityId, undefined, customer);
+    expect(read.ok).toBe(false);
+
+    const order = await kernel.services.orders.create(orderInput(), customer);
+    expect(order.ok).toBe(false);
+  });
+
+  it("does not attribute to a customer without orders:create:on-behalf", async () => {
+    const order = await kernel.services.orders.create(
+      orderInput(foreignCustomerId),
+      posOperator,
+    );
+
+    expect(order.ok).toBe(true);
+    if (!order.ok) throw order.error;
+    expect(order.value.customerId).toBeNull();
+  });
+
+  it("lets an explicit orders:create:on-behalf permission name a foreign customer profile", async () => {
+    const order = await kernel.services.orders.create(
+      orderInput(foreignCustomerId),
+      onBehalfOperator,
+    );
+
+    expect(order.ok).toBe(true);
+    if (!order.ok) throw order.error;
+    expect(order.value.customerId).toBe(foreignCustomerId);
+  });
+
+  it("rejects an on-behalf customer profile from another organization", async () => {
+    const order = await kernel.services.orders.create(
+      orderInput(crossTenantCustomerId),
+      onBehalfOperator,
+    );
+
+    expect(order.ok).toBe(false);
+    if (order.ok) throw new Error("expected a cross-organization customer to be rejected");
+    expect(order.error.message).toContain("customerId must reference a customer in this organization");
   });
 
   it("refuses an unpublished entity for a customer placing their own order", async () => {
