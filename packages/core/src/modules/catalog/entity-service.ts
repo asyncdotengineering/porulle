@@ -1,4 +1,4 @@
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import { assertPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
 import {
@@ -72,6 +72,7 @@ function catalogHookContext(
     ...(deps.services.jobs ? { jobs: deps.services.jobs as JobsAdapter } : {}),
     context: { moduleName: "catalog", ...(ctx?.hookContext ?? {}) },
     ...hookDatabaseArg(deps.database),
+    commerceConfig: deps.config,
   });
 }
 
@@ -123,7 +124,7 @@ export class EntityService {
 
   private assertSameOrg(resource: { organizationId?: string | null } | undefined, actor: Actor | null): void {
     if (!resource) return;
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     if (resource.organizationId && resource.organizationId !== orgId) {
       throw new CommerceNotFoundError("Entity not found.");
     }
@@ -279,12 +280,12 @@ export class EntityService {
 
   async create(input: CreateEntityInput, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> { try {
     assertPermission(actor, "catalog:create");
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     const existingBySlug = await this.repo.findEntityBySlug(orgId, input.slug, ctx);
     if (existingBySlug) return Err(new CommerceConflictError(`Entity with slug ${input.slug} already exists.`));
     const beforeHooks = this.deps.hooks.resolve("catalog.beforeCreate") as CatalogCreateBeforeHook[];
     const afterHooks = this.deps.hooks.resolve("catalog.afterCreate") as CatalogCreateAfterHook[];
-    const context: HookContext = createHookContext({ actor, tx: ctx?.tx ?? null, logger: createLogger("catalog.create"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database) });
+    const context: HookContext = createHookContext({ actor, tx: ctx?.tx ?? null, logger: createLogger("catalog.create"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database), commerceConfig: this.deps.config });
     const processedInput = await runBeforeHooks(beforeHooks, input, "create", context);
     if (processedInput.sourceStoreId != null) assertPermission(actor, "catalog:sync");
     const customFieldsResult = await this.validateCustomFields(processedInput.type, processedInput.customFields, actor, ctx);
@@ -340,8 +341,8 @@ export class EntityService {
 
   async getById(id: string, options?: GetOptions, actor?: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
     const resolvedActor = actor ?? ctx?.actor ?? null;
-    const orgId = resolveOrgId(resolvedActor);
-    const context: HookContext = createHookContext({ actor: resolvedActor, tx: ctx?.tx ?? null, logger: createLogger("catalog.read"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database) });
+    const orgId = resolveOrgIdForCommerce(resolvedActor, this.deps.config);
+    const context: HookContext = createHookContext({ actor: resolvedActor, tx: ctx?.tx ?? null, logger: createLogger("catalog.read"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database), commerceConfig: this.deps.config });
     const globalBeforeHooks = this.deps.hooks.resolve("catalog.beforeRead") as CatalogReadBeforeHook[];
     const globalAfterHooks = this.deps.hooks.resolve("catalog.afterRead") as CatalogReadAfterHook[];
     let processed = await runBeforeHooks(globalBeforeHooks, { id, ...(options !== undefined ? { options } : {}) }, "read", context);
@@ -388,12 +389,12 @@ export class EntityService {
   }
 
   async getBySlug(slug: string, options?: GetOptions, actor?: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
-    const context: HookContext = createHookContext({ actor: actor ?? null, tx: ctx?.tx ?? null, logger: createLogger("catalog.read"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database) });
+    const context: HookContext = createHookContext({ actor: actor ?? null, tx: ctx?.tx ?? null, logger: createLogger("catalog.read"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database), commerceConfig: this.deps.config });
     const globalBeforeHooks = this.deps.hooks.resolve("catalog.beforeRead") as CatalogReadBeforeHook[];
     const globalAfterHooks = this.deps.hooks.resolve("catalog.afterRead") as CatalogReadAfterHook[];
     let processed = await runBeforeHooks(globalBeforeHooks, { slug, ...(options !== undefined ? { options } : {}) }, "read", context);
     let resolvedSlug = processed.slug ?? slug;
-    const orgId = resolveOrgId(actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? null, this.deps.config);
     let entity = await this.repo.findEntityBySlug(orgId, resolvedSlug, ctx);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
     if (!isCatalogEntityVisible(entity, actor ?? null)) return Err(new CommerceNotFoundError("Entity not found."));
@@ -423,7 +424,7 @@ export class EntityService {
 
   async list(params: ListParams, actor?: Actor | null, ctx?: TxContext): Promise<Result<CatalogListResult>> {
     const resolvedActor = actor ?? ctx?.actor ?? null;
-    const context: HookContext = createHookContext({ actor: resolvedActor, tx: ctx?.tx ?? null, logger: createLogger("catalog.list"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database) });
+    const context: HookContext = createHookContext({ actor: resolvedActor, tx: ctx?.tx ?? null, logger: createLogger("catalog.list"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database), commerceConfig: this.deps.config });
     const globalBeforeHooks = this.deps.hooks.resolve("catalog.beforeList") as CatalogListBeforeHook[];
     const globalAfterHooks = this.deps.hooks.resolve("catalog.afterList") as CatalogListAfterHook[];
     let processed = await runBeforeHooks(globalBeforeHooks, params, "list", context);
@@ -432,7 +433,7 @@ export class EntityService {
       const entityBeforeHooks = this.deps.hooks.resolve(`catalog.${initialTypeFilter}.beforeList`) as CatalogListBeforeHook[];
       if (entityBeforeHooks.length > 0) processed = await runBeforeHooks(entityBeforeHooks, processed, "list", context);
     }
-    const listOrgId = resolveOrgId(resolvedActor);
+    const listOrgId = resolveOrgIdForCommerce(resolvedActor, this.deps.config);
     const canReadUnpublished = canReadUnpublishedCatalog(resolvedActor);
     let entities = await this.repo.findEntities(listOrgId, {
       ...(processed.filter?.type ? { type: processed.filter.type } : {}),
@@ -539,7 +540,7 @@ export class EntityService {
   async getAttributes(entityId: string, locale: string, actor: Actor | null, ctx?: TxContext): Promise<Result<SellableAttribute>> {
     try {
       assertPermission(actor, "catalog:read");
-      const entity = await this.repo.findEntityById(entityId, ctx, resolveOrgId(actor));
+      const entity = await this.repo.findEntityById(entityId, ctx, resolveOrgIdForCommerce(actor, this.deps.config));
       if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
       if (!isCatalogEntityVisible(entity, actor)) return Err(new CommerceNotFoundError("Entity not found."));
       const attr = await this.repo.findAttributeByLocale(entity.id, locale, ctx);

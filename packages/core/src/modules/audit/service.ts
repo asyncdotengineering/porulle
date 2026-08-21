@@ -3,7 +3,7 @@ import type { InferSelectModel } from "drizzle-orm";
 import type { DrizzleDatabase } from "../../kernel/database/drizzle-db.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
 import type { HookContext } from "../../kernel/hooks/types.js";
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import { auditLog } from "./schema.js";
 
 export type AuditEntry = InferSelectModel<typeof auditLog>;
@@ -47,7 +47,7 @@ export function createNullAuditService(): AuditService {
     async record(args) {
       entries.push({
         id: crypto.randomUUID(),
-        organizationId: resolveOrgId(args.ctx.actor),
+        organizationId: resolveOrgIdForCommerce(args.ctx.actor, args.ctx.commerceConfig),
         entityType: args.entityType,
         entityId: args.entityId,
         event: args.event,
@@ -94,7 +94,7 @@ export function createAuditService(db: DrizzleDatabase): AuditService {
           : db;
 
       await dbOrTx.insert(auditLog).values({
-        organizationId: resolveOrgId(ctx.actor),
+        organizationId: resolveOrgIdForCommerce(ctx.actor, ctx.commerceConfig),
         entityType,
         entityId,
         event,

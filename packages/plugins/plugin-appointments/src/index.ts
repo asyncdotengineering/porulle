@@ -61,11 +61,11 @@ export function appointmentPlugin(options: AppointmentPluginOptions = {}) {
       if (!services) return [];
 
       return [
-        ...buildServiceRoutes(services),
-        ...buildProviderRoutes(services),
-        ...buildAvailabilityRoutes(services),
-        ...buildBookingRoutes(services),
-        ...buildMyBookingRoutes(services),
+        ...buildServiceRoutes(services, ctx.config),
+        ...buildProviderRoutes(services, ctx.config),
+        ...buildAvailabilityRoutes(services, ctx.config),
+        ...buildBookingRoutes(services, ctx.config),
+        ...buildMyBookingRoutes(services, ctx.config),
       ];
     },
 

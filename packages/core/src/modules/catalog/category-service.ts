@@ -1,4 +1,4 @@
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import { assertPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
 import {
@@ -23,14 +23,14 @@ export class CategoryService {
 
   private assertSameOrg(resource: { organizationId?: string | null } | undefined, actor: Actor | null): void {
     if (!resource) return;
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     if (resource.organizationId && resource.organizationId !== orgId) {
       throw new CommerceNotFoundError("Entity not found.");
     }
   }
 
   async listCategories(ctx?: TxContext, opts?: { includeArchived?: boolean }): Promise<Result<CategorySummary[]>> {
-    const allCategories = await this.repo.findAllCategories(resolveOrgId(ctx?.actor ?? null), ctx);
+    const allCategories = await this.repo.findAllCategories(resolveOrgIdForCommerce(ctx?.actor ?? null, this.deps.config), ctx);
     const visible = opts?.includeArchived
       ? allCategories
       : allCategories.filter((c) => (c.status ?? "active") === "active");
@@ -62,7 +62,7 @@ export class CategoryService {
       const existingById = await this.repo.findCategoryById(input.id, ctx);
       if (existingById) return Err(new CommerceConflictError(`Category with id ${input.id} already exists.`));
     }
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     const existingBySlug = await this.repo.findCategoryBySlug(orgId, input.slug, ctx);
     if (existingBySlug) return Err(new CommerceConflictError(`Category with slug ${input.slug} already exists.`));
     const category = await this.repo.createCategory({ organizationId: orgId, ...(input.id ? { id: input.id } : {}), slug: input.slug, sortOrder: input.sortOrder ?? 0, metadata: input.metadata ?? {}, ...(input.parentId !== undefined ? { parentId: input.parentId } : {}) }, ctx);
@@ -75,7 +75,7 @@ export class CategoryService {
     if (!existing) return Err(new CommerceNotFoundError("Category not found."));
     try { this.assertSameOrg(existing, actor); } catch (error) { return Err(toCommerceError(error)); }
     if (input.slug) {
-      const existingBySlug = await this.repo.findCategoryBySlug(resolveOrgId(actor), input.slug, ctx);
+      const existingBySlug = await this.repo.findCategoryBySlug(resolveOrgIdForCommerce(actor, this.deps.config), input.slug, ctx);
       if (existingBySlug && existingBySlug.id !== id) return Err(new CommerceConflictError(`Category with slug ${input.slug} already exists.`));
     }
     const updated = await this.repo.updateCategory(id, { ...(input.slug !== undefined ? { slug: input.slug } : {}), ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}), ...(input.metadata !== undefined ? { metadata: input.metadata } : {}), ...(input.parentId !== undefined ? { parentId: input.parentId } : {}) }, ctx);
@@ -98,7 +98,7 @@ export class CategoryService {
     const entity = await this.deps.repository.findEntityById(entityId, ctx);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
     try { this.assertSameOrg(entity, actor); } catch (error) { return Err(toCommerceError(error)); }
-    const addCatOrgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const addCatOrgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(categoryId);
     let category = isUuid ? await this.repo.findCategoryById(categoryId, ctx) : null;
     if (!category) category = await this.repo.findCategoryBySlug(addCatOrgId, categoryId, ctx);
@@ -116,7 +116,7 @@ export class CategoryService {
     try { this.assertSameOrg(entity, actor); } catch (error) { return Err(toCommerceError(error)); }
     const isCatUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(categoryId);
     let category = isCatUuid ? await this.repo.findCategoryById(categoryId, ctx) : null;
-    if (!category) category = await this.repo.findCategoryBySlug(resolveOrgId(actor ?? ctx?.actor ?? null), categoryId, ctx);
+    if (!category) category = await this.repo.findCategoryBySlug(resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config), categoryId, ctx);
     const removed = await this.repo.removeEntityFromCategory(entityId, category?.id ?? categoryId, ctx);
     if (!removed) return Err(new CommerceNotFoundError("Category assignment not found."));
     return Ok(undefined);

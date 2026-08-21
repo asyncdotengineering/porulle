@@ -31,7 +31,7 @@ export type { Kernel } from "./runtime/kernel.js";
 // This avoids pulling drizzle-kit/tsx/esbuild into Turbopack's bundle graph.
 
 export type { Actor } from "./auth/types.js";
-export { resolveOrgId, ensureDefaultOrg, DEFAULT_ORG_ID } from "./auth/org.js";
+export { resolveOrgId, resolveOrgIdForCommerce, ensureDefaultOrg, DEFAULT_ORG_ID } from "./auth/org.js";
 export { createSystemActor } from "./auth/system-actor.js";
 export { OrganizationService } from "./modules/organization/service.js";
 export { createScopedDb } from "./kernel/database/scoped-db.js";

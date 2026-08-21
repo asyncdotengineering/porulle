@@ -17,6 +17,7 @@ export const searchModule = defineModule<Record<string, never>, SearchService, S
       return new SearchService({
         catalogRepository: deps.services.catalog.repository,
         resolveEntityFieldDefinitions: deps.services.catalog.resolveEntityFieldDefinitions.bind(deps.services.catalog),
+        config,
         ...(config.entities ? { entities: config.entities } : {}),
         ...(config.search?.adapter ? { adapter: config.search.adapter } : {}),
         ...(config.search?.defaultFacets

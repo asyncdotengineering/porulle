@@ -4,7 +4,7 @@ import type { Kernel } from "../../../runtime/kernel.js";
 import { createPromotionRoute, updatePromotionRoute, validatePromotionRoute, deactivatePromotionRoute, listPromotionsRoute } from "../schemas/promotions.js";
 import type { PromotionStatusFilter } from "../../../modules/promotions/service.js";
 import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requireMethodPerm, requirePerm } from "../utils.js";
-import { resolveOrgId } from "../../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../../auth/org.js";
 import { assertPermission } from "../../../auth/permissions.js";
 
 export function promotionRoutes(kernel: Kernel) {
@@ -60,7 +60,7 @@ export function promotionRoutes(kernel: Kernel) {
   router.openapi(validatePromotionRoute, async (c) => {
     const payload = c.req.valid("json");
     const actor = c.get("actor");
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, kernel.config);
 
     // Apply (not just validate) so the response carries the authoritative
     // discount the cart would receive — the same computation checkout runs.
@@ -98,7 +98,7 @@ export function promotionRoutes(kernel: Kernel) {
     } catch (error) {
       return c.json(mapErrorToResponse(error), mapErrorToStatus(error));
     }
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, kernel.config);
     const result = await kernel.services.promotions.update(orgId, c.req.param("id"), body, actor);
     if (!result.ok) {
       return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
@@ -113,7 +113,7 @@ export function promotionRoutes(kernel: Kernel) {
   // contract; the handler returns dynamic status.
   router.openapi(deactivatePromotionRoute, async (c) => {
     const actor = c.get("actor");
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, kernel.config);
     const result = await kernel.services.promotions.deactivate(orgId, c.req.param("id"));
     if (!result.ok) {
       return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));

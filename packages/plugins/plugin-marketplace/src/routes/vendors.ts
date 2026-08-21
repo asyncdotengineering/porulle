@@ -1,4 +1,5 @@
-import { router, resolveOrgId } from "@porulle/core";
+import { router, resolveOrgIdForCommerce } from "@porulle/core";
+import type { CommerceConfig } from "@porulle/core";
 import type { PluginRouteRegistration } from "@porulle/core";
 import type { z } from "@hono/zod-openapi";
 import type { VendorService } from "../services/vendor.js";
@@ -18,7 +19,7 @@ export function buildVendorRoutes(services: {
   vendor: VendorService;
   payout: PayoutService;
   review: ReviewService;
-}, options?: MarketplacePluginOptions): PluginRouteRegistration[] {
+}, options: MarketplacePluginOptions | undefined, config: CommerceConfig): PluginRouteRegistration[] {
   const r = router("Marketplace - Vendors", "/marketplace/vendors");
 
   // ─── List vendors ──────────────────────────────────────────────────────────
@@ -42,7 +43,7 @@ export function buildVendorRoutes(services: {
     .handler(async ({ input, actor }) => {
       const body = input as z.infer<typeof CreateVendorBodySchema>;
       const defaultBps = options?.defaultCommissionRateBps ?? 1000;
-      return services.vendor.create(resolveOrgId(actor), stripUndefined({
+      return services.vendor.create(resolveOrgIdForCommerce(actor, config), stripUndefined({
         ...body,
         commissionRateBps: body.commissionRateBps ?? defaultBps,
       }));

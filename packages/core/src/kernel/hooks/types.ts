@@ -1,4 +1,5 @@
 import type { Actor } from "../../auth/types.js";
+import type { CommerceConfig } from "../../config/types.js";
 import type { JobsAdapter } from "../jobs/adapter.js";
 import type { PluginDb } from "../database/plugin-types.js";
 
@@ -40,6 +41,7 @@ export interface HookContext {
    * Populated by `createHookContext` when callers pass `db`, `database`, or `kernel`.
    */
   db: PluginDb;
+  commerceConfig?: CommerceConfig | null;
 }
 
 export type BeforeHook<TData> = (args: {

@@ -1,10 +1,11 @@
-import { resolveOrgId } from "@porulle/core";
-import type { PluginHookRegistration } from "@porulle/core";
+import { resolveOrgIdForCommerce } from "@porulle/core";
+import type { CommerceConfig, PluginHookRegistration } from "@porulle/core";
 import type { GiftCardService } from "../services/gift-card-service.js";
 import type { GiftCardDeduction } from "../types.js";
 
 interface HookContextLike {
   actor: { organizationId?: string | null; [key: string]: unknown } | null;
+  commerceConfig?: CommerceConfig | null;
   [key: string]: unknown;
 }
 
@@ -33,9 +34,9 @@ export function buildCheckoutDeductionHook(
 ): PluginHookRegistration {
   const handler = async (args: CheckoutHookArgs) => {
     const { data, context } = args;
-    const orgId = resolveOrgId(context.actor);
     const codes = data.metadata?.giftCardCodes as string[] | undefined;
     if (!codes?.length) return data;
+    const orgId = resolveOrgIdForCommerce(context.actor, context.commerceConfig);
 
     let remaining = data.total;
     const deductions: GiftCardDeduction[] = [];
@@ -90,13 +91,16 @@ export function buildCheckoutCompensationHook(
 ): PluginHookRegistration {
   const handler = async (args: AfterCreateHookArgs) => {
     const { data, result, context } = args;
-    const orgId = resolveOrgId(context.actor);
     if (!result) {
       const deductions = data.metadata?.giftCardDeductions as
         | GiftCardDeduction[]
         | undefined;
 
-      for (const d of deductions ?? []) {
+      if (!deductions?.length) return;
+
+      const orgId = resolveOrgIdForCommerce(context.actor, context.commerceConfig);
+
+      for (const d of deductions) {
         await service.creditWithLock(
           orgId,
           d.code,

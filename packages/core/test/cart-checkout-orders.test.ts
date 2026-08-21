@@ -162,6 +162,7 @@ describe("cart + checkout + orders (PGlite-backed)", () => {
       origin: "rest" as const,
       jobs: { enqueue: async () => {} },
       kernel,
+      commerceConfig: kernel.config,
     } as any;
 
     const processed = await runBeforeHooks(beforeHooks as any, checkoutData, "create", context);

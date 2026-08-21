@@ -129,6 +129,7 @@ function makeContext(kernel: ReturnType<typeof createKernel>) {
     origin: "rest" as const,
     jobs: { enqueue: async () => {} },
     kernel,
+    commerceConfig: kernel.config,
   } as any;
 }
 

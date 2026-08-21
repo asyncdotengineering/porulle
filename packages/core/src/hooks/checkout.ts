@@ -1,5 +1,5 @@
 import { CommerceValidationError } from "../kernel/errors.js";
-import { resolveOrgId } from "../auth/org.js";
+import { resolveOrgIdForCommerce } from "../auth/org.js";
 import type { CompensationFailuresRepository } from "../kernel/compensation/repository.js";
 import type { AfterHook, BeforeHook } from "../kernel/hooks/types.js";
 import type { ShippingAddress } from "../modules/shipping/calculator.js";
@@ -148,7 +148,7 @@ export const validateCartNotEmpty: BeforeHook<CheckoutData> = async ({
 
   const cart = await cartService.getByIdForInternalUse(
     data.cartId,
-    resolveOrgId(context.actor),
+    resolveOrgIdForCommerce(context.actor, context.commerceConfig),
     context.tx as TxContext | undefined,
   );
   if (!cart.ok || cart.value.lineItems.length === 0) {
@@ -156,7 +156,7 @@ export const validateCartNotEmpty: BeforeHook<CheckoutData> = async ({
   }
 
   // Cross-org guard: prevent org B from checking out org A's cart
-  const actorOrgId = resolveOrgId(context.actor);
+  const actorOrgId = resolveOrgIdForCommerce(context.actor, context.commerceConfig);
   if (cart.value.organizationId && cart.value.organizationId !== actorOrgId) {
     throw new CommerceValidationError("Cart does not belong to this organization.");
   }
@@ -329,7 +329,7 @@ export const applyPromotionCodes: BeforeHook<CheckoutData> = async ({
   };
 
   const result = await promotions.applyPromotions({
-    orgId: resolveOrgId(context.actor),
+    orgId: resolveOrgIdForCommerce(context.actor, context.commerceConfig),
     cartId: data.cartId,
     currency: data.currency,
     subtotal: data.subtotal,
@@ -417,7 +417,7 @@ export const calculateTax: BeforeHook<CheckoutData> = async ({
     ...(data.shippingAddress !== undefined
       ? { toAddress: data.shippingAddress }
       : {}),
-  }, resolveOrgId(context.actor ?? null));
+  }, resolveOrgIdForCommerce(context.actor ?? null, context.commerceConfig));
 
   if (!calculated.ok) {
     throw new CommerceValidationError(
@@ -475,7 +475,7 @@ export const calculateShipping: BeforeHook<CheckoutData> = async ({
     })),
     subtotalAfterDiscount: Math.max(0, data.subtotal - data.discountTotal),
     currency: data.currency,
-    orgId: resolveOrgId(context.actor ?? null),
+    orgId: resolveOrgIdForCommerce(context.actor ?? null, context.commerceConfig),
     ...(data.shippingAddress !== undefined
       ? { address: data.shippingAddress }
       : {}),
@@ -552,7 +552,7 @@ export const authorizePayment: BeforeHook<CheckoutData> = async ({
       : {}),
     metadata: {
       ...(data.orderId !== undefined ? { orderId: data.orderId } : {}),
-      organizationId: resolveOrgId(context.actor),
+      organizationId: resolveOrgIdForCommerce(context.actor, context.commerceConfig),
       checkoutId: data.checkoutId,
       cartId: data.cartId,
     },

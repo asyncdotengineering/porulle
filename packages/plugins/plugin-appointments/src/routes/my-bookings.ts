@@ -1,11 +1,12 @@
 import { requireUserId, router } from "@porulle/core";
+import type { CommerceConfig } from "@porulle/core";
 import type { PluginRouteRegistration } from "@porulle/core";
 import type { BookingService } from "../services/booking-service.js";
 
 export function buildMyBookingRoutes(services: {
   booking: BookingService;
-}): PluginRouteRegistration[] {
-  const r = router("Appointments - My Bookings", "/appointments/my-bookings");
+}, config: CommerceConfig): PluginRouteRegistration[] {
+  const r = router("Appointments - My Bookings", "/appointments/my-bookings", { config });
 
   r.get("/")
     .summary("List my bookings")

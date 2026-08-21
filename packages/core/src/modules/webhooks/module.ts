@@ -1,3 +1,4 @@
+import type { CommerceConfig } from "../../config/types.js";
 import { defineModule } from "../../kernel/module/index.js";
 import type { DrizzleDatabase } from "../../kernel/database/drizzle-db.js";
 import { WebhooksRepository } from "./repository/index.js";
@@ -18,5 +19,6 @@ export const webhooksModule = defineModule({
   service: (deps) =>
     new WebhookService({
       repository: new WebhooksRepository(deps.db.db as DrizzleDatabase),
+      config: deps.config as CommerceConfig,
     }),
 });

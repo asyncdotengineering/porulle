@@ -4,7 +4,7 @@ import type { Kernel } from "../../../../runtime/kernel.js";
 import type { CommerceConfig } from "../../../../config/types.js";
 import type { DrizzleDatabase } from "../../../../kernel/database/drizzle-db.js";
 import { member, user, invitation } from "../../../../auth/auth-schema.js";
-import { resolveOrgId } from "../../../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../../../auth/org.js";
 import { makeId } from "../../../../utils/id.js";
 import {
   listStaffRoute,
@@ -93,7 +93,7 @@ export function adminStaffRoutes(kernel: Kernel) {
   }
 
   router.openapi(listStaffRoute, async (c) => {
-    const orgId = resolveOrgId(c.get("actor"));
+    const orgId = resolveOrgIdForCommerce(c.get("actor"), config);
     const rows = await db
       .select({
         id: member.id,
@@ -113,7 +113,7 @@ export function adminStaffRoutes(kernel: Kernel) {
   router.openapi(createStaffRoute, async (c) => {
     const body = c.req.valid("json") as { userId: string; role: string };
     const actor = c.get("actor");
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, config);
 
     if (!validRoles().has(body.role)) return invalidRole(c, body.role);
     if (!canGrantRole(actor!.role, body.role)) return insufficientPrivilege(c, body.role);
@@ -151,7 +151,7 @@ export function adminStaffRoutes(kernel: Kernel) {
   router.openapi(inviteStaffRoute, async (c) => {
     const body = c.req.valid("json") as { email: string; role: string };
     const actor = c.get("actor");
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, config);
 
     if (!validRoles().has(body.role)) return invalidRole(c, body.role);
 
@@ -171,7 +171,7 @@ export function adminStaffRoutes(kernel: Kernel) {
   });
 
   router.openapi(listStaffInvitationsRoute, async (c) => {
-    const orgId = resolveOrgId(c.get("actor"));
+    const orgId = resolveOrgIdForCommerce(c.get("actor"), config);
     const rows = await db
       .select()
       .from(invitation)
@@ -192,7 +192,7 @@ export function adminStaffRoutes(kernel: Kernel) {
   router.openapi(updateStaffRoleRoute, async (c) => {
     const body = c.req.valid("json") as { role: string };
     const actor = c.get("actor");
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, config);
     const id = c.req.param("id");
 
     if (!validRoles().has(body.role)) return invalidRole(c, body.role);
@@ -229,7 +229,7 @@ export function adminStaffRoutes(kernel: Kernel) {
   // @ts-expect-error -- openapi handler union return type
   router.openapi(revokeStaffRoute, async (c) => {
     const actor = c.get("actor");
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, config);
     const id = c.req.param("id");
 
     const rows = await db

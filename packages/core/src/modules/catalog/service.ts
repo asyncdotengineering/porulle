@@ -1,5 +1,5 @@
 import type { Actor } from "../../auth/types.js";
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import { assertPermission } from "../../auth/permissions.js";
 import type { CommerceConfig } from "../../config/types.js";
 import type { EntityFieldDefinition, FieldType } from "../../config/types.js";
@@ -477,7 +477,7 @@ export class CatalogServiceImpl implements CatalogService {
   ): Promise<EntityFieldDefinition[]> {
     const orgId = typeof actorOrOrg === "string"
       ? actorOrOrg
-      : resolveOrgId(actorOrOrg ?? ctx?.actor ?? null);
+      : resolveOrgIdForCommerce(actorOrOrg ?? ctx?.actor ?? null, this.config);
     const codeFields = this.config.entities?.[entityType]?.fields ?? [];
     const merged = new Map(codeFields.map((field) => [field.name, { ...field }]));
     const runtimeFields = await this.repository.findActiveEntityFieldDefinitions(orgId, entityType, ctx);
@@ -507,7 +507,7 @@ export class CatalogServiceImpl implements CatalogService {
     entityType?: string,
     ctx?: TxContext,
   ): Promise<Result<EntityFieldDefinitionRecord[]>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config);
     return this.withMutationResult(actor ?? ctx?.actor ?? null, ctx, async (txCtx) =>
       Ok(await this.repository.findEntityFieldDefinitions(orgId, entityType, txCtx)),
     );
@@ -522,7 +522,7 @@ export class CatalogServiceImpl implements CatalogService {
       return Promise.resolve(Err(new CommerceValidationError("Entity type and field name are required.")));
     }
     assertPermission(actor, "catalog:update");
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config);
     return this.withMutationResult(actor, ctx, async (txCtx) => {
       const codeField = this.codeFieldDefinition(input.entityType, input.name);
       if (codeField && input.type !== codeField.type) {
@@ -560,7 +560,7 @@ export class CatalogServiceImpl implements CatalogService {
     ctx?: TxContext,
   ): Promise<Result<EntityFieldDefinitionRecord>> {
     assertPermission(actor, "catalog:update");
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config);
     return this.withMutationResult(actor, ctx, async (txCtx) => {
       const existing = await this.repository.findEntityFieldDefinitionById(orgId, id, txCtx);
       if (!existing) return Err(new CommerceNotFoundError("Entity field definition not found."));
@@ -591,7 +591,7 @@ export class CatalogServiceImpl implements CatalogService {
     ctx?: TxContext,
   ): Promise<Result<EntityFieldDefinitionRecord>> {
     assertPermission(actor, "catalog:update");
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config);
     return this.withMutationResult(actor, ctx, async (txCtx) => {
       const existing = await this.repository.findEntityFieldDefinitionById(orgId, id, txCtx);
       if (!existing) return Err(new CommerceNotFoundError("Entity field definition not found."));
@@ -651,7 +651,7 @@ export class CatalogServiceImpl implements CatalogService {
     const revisionActor = actor ?? ctx.actor;
     const organizationId = typeof snapshot.entity.organizationId === "string"
       ? snapshot.entity.organizationId
-      : resolveOrgId(revisionActor);
+      : resolveOrgIdForCommerce(revisionActor, this.config);
     return this.repository.createRevision({
       organizationId,
       entityId,
@@ -675,7 +675,7 @@ export class CatalogServiceImpl implements CatalogService {
         assertPermission(revisionActor, "catalog:update");
         const entity = await this.repository.findEntityById(entityId, txCtx);
         if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
-        if (entity.organizationId !== resolveOrgId(revisionActor)) {
+        if (entity.organizationId !== resolveOrgIdForCommerce(revisionActor, this.config)) {
           return Err(new CommerceNotFoundError("Entity not found."));
         }
         return Ok(await this.captureRevision(entityId, revisionActor, reason, txCtx));
@@ -795,7 +795,7 @@ export class CatalogServiceImpl implements CatalogService {
         assertPermission(revisionActor, "catalog:update");
         const entity = await this.repository.findEntityById(entityId, txCtx);
         if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
-        if (entity.organizationId !== resolveOrgId(revisionActor)) {
+        if (entity.organizationId !== resolveOrgIdForCommerce(revisionActor, this.config)) {
           return Err(new CommerceNotFoundError("Entity not found."));
         }
         if (entity.sourceStoreId != null) assertPermission(revisionActor, "catalog:sync");
@@ -827,7 +827,7 @@ export class CatalogServiceImpl implements CatalogService {
         const revisionActor = actor ?? txCtx.actor;
         assertPermission(revisionActor, "catalog:update");
         const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
-        return Ok(await this.repository.deleteRevisionsOlderThan(resolveOrgId(revisionActor), cutoff, txCtx));
+        return Ok(await this.repository.deleteRevisionsOlderThan(resolveOrgIdForCommerce(revisionActor, this.config), cutoff, txCtx));
       });
     } catch (error) {
       return Err(toCommerceError(error));
@@ -925,7 +925,7 @@ export class CatalogServiceImpl implements CatalogService {
       validateFieldPath(fieldPath);
       const entity = await this.repository.findEntityById(entityId, txCtx);
       if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
-      if (entity.organizationId !== resolveOrgId(setter)) {
+      if (entity.organizationId !== resolveOrgIdForCommerce(setter, this.config)) {
         return Err(new CommerceNotFoundError("Entity not found."));
       }
       if (entity.sourceStoreId != null) assertPermission(setter, "catalog:sync");
@@ -952,7 +952,7 @@ export class CatalogServiceImpl implements CatalogService {
       assertPermission(reader, "catalog:read");
       const entity = await this.repository.findEntityById(entityId, txCtx);
       if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
-      if (entity.organizationId !== resolveOrgId(reader)) {
+      if (entity.organizationId !== resolveOrgIdForCommerce(reader, this.config)) {
         return Err(new CommerceNotFoundError("Entity not found."));
       }
       return Ok(await this.repository.findFieldOwnership(entityId, txCtx, storeId));
@@ -1025,7 +1025,7 @@ export class CatalogServiceImpl implements CatalogService {
       assertPermission(reviewer, "catalog:update");
       const entity = await this.repository.findEntityById(entityId, txCtx);
       if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
-      if (entity.organizationId !== resolveOrgId(reviewer)) {
+      if (entity.organizationId !== resolveOrgIdForCommerce(reviewer, this.config)) {
         return Err(new CommerceNotFoundError("Entity not found."));
       }
       if (entity.sourceStoreId != null) assertPermission(reviewer, "catalog:sync");

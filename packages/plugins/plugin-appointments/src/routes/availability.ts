@@ -1,4 +1,5 @@
 import { router } from "@porulle/core";
+import type { CommerceConfig } from "@porulle/core";
 import type { PluginRouteRegistration } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
 import type { ProviderService } from "../services/provider-service.js";
@@ -30,8 +31,8 @@ const AddOverrideSchema = z.object({
 export function buildAvailabilityRoutes(services: {
   provider: ProviderService;
   slots: SlotService;
-}): PluginRouteRegistration[] {
-  const r = router("Appointments - Availability", "/appointments/availability");
+}, config: CommerceConfig): PluginRouteRegistration[] {
+  const r = router("Appointments - Availability", "/appointments/availability", { config });
 
   // ─── Weekly Schedule ────────────────────────────────────────────────────────
 

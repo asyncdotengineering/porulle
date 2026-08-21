@@ -9,7 +9,7 @@
 import type { CommerceConfig } from "../../config/types.js";
 import { CommerceValidationError } from "../../kernel/errors.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import type { Actor } from "../../auth/types.js";
 import type { ReportParams, RetailReportsEngine } from "./reports.js";
 import { RETAIL_REPORTS } from "./reports.js";
@@ -135,7 +135,7 @@ export class AnalyticsService {
     if (!this.deps.reports) {
       return Err(new CommerceValidationError("Retail reports are not available."));
     }
-    const orgId = resolveOrgId(actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? null, this.deps.config);
     return this.deps.reports.run(name, params, orgId);
   }
 

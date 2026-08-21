@@ -22,7 +22,7 @@ import type { PluginDb } from "../../../kernel/database/plugin-types.js";
 import { type AppEnv, mapErrorToResponse, mapErrorToStatus } from "../utils.js";
 import { isCommerceError } from "../../../kernel/errors.js";
 import { assertPermission } from "../../../auth/permissions.js";
-import { resolveOrgId } from "../../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../../auth/org.js";
 import { makeDeterministicId, makeId, makeIdempotencyScope } from "../../../utils/id.js";
 import type { ShippingAddress } from "../../../modules/shipping/calculator.js";
 import type { Actor } from "../../../auth/types.js";
@@ -125,7 +125,7 @@ export function checkoutRoutes(kernel: Kernel) {
       : undefined;
     const orderId = body.idempotencyKey
       ? await makeDeterministicId(
-          `checkout:${resolveOrgId(actor)}:${idempotencyScope}:${body.idempotencyKey}`,
+          `checkout:${resolveOrgIdForCommerce(actor, kernel.config)}:${idempotencyScope}:${body.idempotencyKey}`,
         )
       : makeId();
     const checkoutData: CheckoutData = {
@@ -201,6 +201,7 @@ export function checkoutRoutes(kernel: Kernel) {
       context: { moduleName: "checkout" },
       origin: "rest",
       database: { db: kernel.database.db as PluginDb },
+      commerceConfig: kernel.config,
     });
 
     let pipelineStage = "validate-and-calculate";

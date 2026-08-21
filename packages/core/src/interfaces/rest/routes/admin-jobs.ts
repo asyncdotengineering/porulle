@@ -5,7 +5,7 @@ import type { Kernel } from "../../../runtime/kernel.js";
 import { commerceJobs } from "../../../kernel/jobs/schema.js";
 import { listFailedJobsRoute, retryJobRoute } from "../schemas/admin-jobs.js";
 import { type AppEnv, requirePerm } from "../utils.js";
-import { resolveOrgId } from "../../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../../auth/org.js";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 
@@ -17,7 +17,7 @@ export function adminJobRoutes(kernel: Kernel) {
 
   router.openapi(listFailedJobsRoute, async (c) => {
     const actor = c.get("actor");
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, kernel.config);
     const limit = Math.min(Number(c.req.query("limit") ?? "50"), 100);
     const conditions = [eq(commerceJobs.status, "failed")];
     // Scope to org unless wildcard admin
@@ -37,7 +37,7 @@ export function adminJobRoutes(kernel: Kernel) {
   // @ts-expect-error -- openapi handler union return type
   router.openapi(retryJobRoute, async (c) => {
     const actor = c.get("actor");
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, kernel.config);
     const id = c.req.param("id");
     const conditions = [eq(commerceJobs.id, id)];
     // Scope to org unless wildcard admin

@@ -1,5 +1,5 @@
 import { Err, Ok, type Result } from "../../kernel/result.js";
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import { OrgResolutionError } from "../../kernel/errors.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
 import type { CommerceConfig } from "../../config/types.js";
@@ -21,6 +21,7 @@ import { canReadUnpublishedCatalog } from "../catalog/read-policy.js";
 
 interface SearchServiceDeps {
   catalogRepository: CatalogRepository;
+  config: CommerceConfig;
   entities?: CommerceConfig["entities"];
   resolveEntityFieldDefinitions?: EntityFieldDefinitionResolver;
   adapter?: SearchAdapter;
@@ -202,9 +203,13 @@ export class SearchService {
   private async allDocuments(ctx?: TxContext): Promise<SearchDocument[]> {
     const actor = ctx?.actor;
     if (!actor) {
+      // Deliberate exception: this needs an authenticated actor, not merely a
+      // resolvable organization, because visibility scoping is decided from the
+      // actor's permissions. A declared deployment default would satisfy the
+      // organization but not that.
       throw new OrgResolutionError("Organization could not be resolved for a search read.");
     }
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     const entities = await this.deps.catalogRepository.findEntities(
       orgId,
       canReadUnpublishedCatalog(actor) ? undefined : { status: "active", isVisible: true },
@@ -328,8 +333,12 @@ export class SearchService {
 
     if (this.deps.adapter) {
       const actor = ctx?.actor ?? null;
+      // Deliberate exception: this needs an authenticated actor, not merely a
+      // resolvable organization, because visibility scoping is decided from the
+      // actor's permissions. A declared deployment default would satisfy the
+      // organization but not that.
       if (!actor) return Err(new OrgResolutionError("Organization could not be resolved for a search read."));
-      const organizationId = resolveOrgId(actor);
+      const organizationId = resolveOrgIdForCommerce(actor, this.deps.config);
       const result = await this.deps.adapter.search({
         ...params,
         query: safeQuery,
@@ -420,8 +429,12 @@ export class SearchService {
 
     if (this.deps.adapter) {
       const actor = ctx?.actor ?? null;
+      // Deliberate exception: this needs an authenticated actor, not merely a
+      // resolvable organization, because visibility scoping is decided from the
+      // actor's permissions. A declared deployment default would satisfy the
+      // organization but not that.
       if (!actor) return Err(new OrgResolutionError("Organization could not be resolved for a search read."));
-      const organizationId = resolveOrgId(actor);
+      const organizationId = resolveOrgIdForCommerce(actor, this.deps.config);
       const result = await this.deps.adapter.suggest({
         ...params,
         prefix,

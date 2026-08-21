@@ -1,4 +1,4 @@
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import { assertPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
 import type { CommerceConfig } from "../../config/types.js";
@@ -138,7 +138,7 @@ export class MediaService {
       );
     }
 
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const bytes = new Uint8Array(input.data);
     const detectedMime = detectMimeFromBuffer(bytes);
     const allowSvg = this.deps.config.media?.allowSvg === true;
@@ -203,7 +203,7 @@ export class MediaService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<string>> {
-    const orgId = resolveOrgId(actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? null, this.deps.config);
     const asset = await this.repo.findAssetById(id, ctx, orgId);
     if (!asset) return Err(new CommerceNotFoundError("Media asset not found."));
     return this.deps.storage.getUrl(asset.storageKey);
@@ -215,7 +215,7 @@ export class MediaService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<string>> {
-    const orgId = resolveOrgId(actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? null, this.deps.config);
     const asset = await this.repo.findAssetById(id, ctx, orgId);
     if (!asset) return Err(new CommerceNotFoundError("Media asset not found."));
     return this.deps.storage.getSignedUrl(asset.storageKey, expiresIn);
@@ -226,7 +226,7 @@ export class MediaService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<void>> {
-    const orgId = resolveOrgId(actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? null, this.deps.config);
     const asset = await this.repo.findAssetById(id, ctx, orgId);
     if (!asset) return Err(new CommerceNotFoundError("Media asset not found."));
 
@@ -257,7 +257,7 @@ export class MediaService {
   ): Promise<Result<void>> {
     try {
       return await this.withTransaction(actor ?? ctx?.actor ?? null, ctx, async (txCtx) => {
-        const orgId = resolveOrgId(actor ?? txCtx.actor);
+        const orgId = resolveOrgIdForCommerce(actor ?? txCtx.actor, this.deps.config);
         const entity = await this.catalogRepo.findEntityById(input.entityId, txCtx, orgId);
         if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
 

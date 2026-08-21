@@ -1,5 +1,5 @@
 import type { CommerceConfig } from "../../config/types.js";
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import type { Actor } from "../../auth/types.js";
 import { CommerceNotFoundError, CommerceValidationError } from "../../kernel/errors.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
@@ -147,7 +147,7 @@ export class ShippingService {
     if (input.countries.length === 0) {
       return Err(new CommerceValidationError("A shipping zone requires at least one country (\"*\" matches any)."));
     }
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const zone = await this.deps.repository.createZone(
       {
         organizationId: orgId,
@@ -163,7 +163,7 @@ export class ShippingService {
   }
 
   async listZones(actor?: Actor | null, ctx?: TxContext): Promise<Result<ShippingZone[]>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     return Ok(await this.deps.repository.findZones(orgId, ctx));
   }
 
@@ -179,7 +179,7 @@ export class ShippingService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<ShippingZone>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const existing = await this.deps.repository.findZoneById(orgId, id, ctx);
     if (!existing) return Err(new CommerceNotFoundError("Shipping zone not found."));
     const updated = await this.deps.repository.updateZone(
@@ -201,7 +201,7 @@ export class ShippingService {
   }
 
   async deleteZone(id: string, actor?: Actor | null, ctx?: TxContext): Promise<Result<{ deleted: true }>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const existing = await this.deps.repository.findZoneById(orgId, id, ctx);
     if (!existing) return Err(new CommerceNotFoundError("Shipping zone not found."));
     await this.deps.repository.deleteZone(id, ctx);
@@ -224,7 +224,7 @@ export class ShippingService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<ShippingRate>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const zone = await this.deps.repository.findZoneById(orgId, input.zoneId, ctx);
     if (!zone) return Err(new CommerceNotFoundError("Shipping zone not found."));
     const rate = await this.deps.repository.createRate(
@@ -251,7 +251,7 @@ export class ShippingService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<ShippingRate[]>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     return Ok(
       await this.deps.repository.findRates(
         orgId,
@@ -277,7 +277,7 @@ export class ShippingService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<ShippingRate>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const existing = await this.deps.repository.findRateById(orgId, id, ctx);
     if (!existing) return Err(new CommerceNotFoundError("Shipping rate not found."));
     const updated = await this.deps.repository.updateRate(
@@ -301,7 +301,7 @@ export class ShippingService {
   }
 
   async deleteRate(id: string, actor?: Actor | null, ctx?: TxContext): Promise<Result<{ deleted: true }>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const existing = await this.deps.repository.findRateById(orgId, id, ctx);
     if (!existing) return Err(new CommerceNotFoundError("Shipping rate not found."));
     await this.deps.repository.deleteRate(id, ctx);

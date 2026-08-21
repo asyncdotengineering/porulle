@@ -1,5 +1,6 @@
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import type { Actor } from "../../auth/types.js";
+import type { CommerceConfig } from "../../config/types.js";
 import type { DatabaseAdapter } from "../../kernel/database/adapter.js";
 import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
@@ -33,6 +34,7 @@ interface PricingServiceDeps {
   repository: PricingRepository;
   catalogRepository: CatalogRepository;
   hooks: HookRegistry;
+  config: CommerceConfig;
   services: Record<string, unknown>;
   database: DatabaseAdapter;
 }
@@ -41,6 +43,7 @@ function hookContext(
   actor: Actor | null,
   services: Record<string, unknown>,
   database: DatabaseAdapter,
+  config: CommerceConfig,
   tx: unknown,
 ): HookContext {
   return createHookContext({
@@ -50,6 +53,7 @@ function hookContext(
     services,
     context: { moduleName: "pricing" },
     database: { db: database.db as PluginDb },
+    commerceConfig: config,
   });
 }
 
@@ -211,7 +215,7 @@ export class PricingService {
       );
     }
 
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const entity = await this.catalogRepo.findEntityById(input.entityId, ctx, orgId);
     if (!entity) {
       return Err(
@@ -267,10 +271,7 @@ export class PricingService {
       "pricing.afterCreate",
     ) as AfterHook<Price>[];
     const hctx = hookContext(
-      actor ?? ctx?.actor ?? null,
-      this.deps.services,
-      this.deps.database,
-      ctx?.tx ?? null,
+      actor ?? ctx?.actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null,
     );
     await runAfterHooks(afterHooks, null, record, "create", hctx);
 
@@ -301,7 +302,7 @@ export class PricingService {
       );
     }
 
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
 
     const modifierData: PriceModifierInsert = {
       organizationId: orgId,
@@ -327,10 +328,7 @@ export class PricingService {
       "pricing.afterCreate",
     ) as AfterHook<PriceModifier>[];
     const hctx = hookContext(
-      actor ?? ctx?.actor ?? null,
-      this.deps.services,
-      this.deps.database,
-      ctx?.tx ?? null,
+      actor ?? ctx?.actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null,
     );
     await runAfterHooks(afterHooks, null, modifier, "create", hctx);
 
@@ -342,7 +340,7 @@ export class PricingService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<PriceModifier[]>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const rows = await this.repo.findModifiers(
       orgId,
       {
@@ -372,7 +370,7 @@ export class PricingService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<PriceModifier>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const existing = await this.repo.findModifierById(orgId, id, ctx);
     if (!existing) {
       return Err(new CommerceNotFoundError("Price modifier not found."));
@@ -399,7 +397,7 @@ export class PricingService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<{ deleted: true }>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const existing = await this.repo.findModifierById(orgId, id, ctx);
     if (!existing) {
       return Err(new CommerceNotFoundError("Price modifier not found."));
@@ -418,7 +416,7 @@ export class PricingService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<{ prices: Price[]; modifiers: PriceModifier[] }>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     // Get all prices for the entity if specified, or filter after retrieval
     let prices: Price[] = [];
     if (filter?.entityId) {
@@ -477,7 +475,7 @@ export class PricingService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<ResolvedPrice>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const entity = await this.catalogRepo.findEntityById(input.entityId, ctx, orgId);
     if (!entity) {
       return Err(

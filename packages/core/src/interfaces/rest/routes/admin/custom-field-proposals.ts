@@ -1,6 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../../runtime/kernel.js";
-import { resolveOrgId } from "../../../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../../../auth/org.js";
 import {
   listCustomFieldProposalsRoute,
 } from "../../schemas/admin-custom-field-proposals.js";
@@ -19,7 +19,7 @@ export function adminCustomFieldProposalRoutes(kernel: Kernel) {
     const pagination = parsePagination(c.req.query());
     const entityType = c.req.query("entityType");
     const result = await kernel.services.catalog.repository.listProposedCustomFields(
-      resolveOrgId(c.get("actor")),
+      resolveOrgIdForCommerce(c.get("actor"), kernel.config),
       pagination,
       entityType !== undefined ? { entityType } : undefined,
     );

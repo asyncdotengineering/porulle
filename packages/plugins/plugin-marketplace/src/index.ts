@@ -99,7 +99,7 @@ export function marketplacePlugin(options: MarketplacePluginOptions = {}) {
       if (!services) return [];
 
       return [
-        ...buildVendorRoutes(services, options),
+        ...buildVendorRoutes(services, options, ctx.config),
         ...buildVendorPortalRoutes(services),
         ...buildSubOrderRoutes(services),
         ...buildCommissionRoutes(services),

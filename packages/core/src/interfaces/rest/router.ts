@@ -29,9 +29,10 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { ErrorSchema } from "./schemas/shared.js";
 import { mapErrorToResponse, mapErrorToStatus, markRoutePermissionGuard } from "./utils.js";
+import type { CommerceConfig } from "../../config/types.js";
 import type { PluginRouteRegistration } from "../../kernel/plugin/manifest.js";
 import { createScopedDb } from "../../kernel/database/scoped-db.js";
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 
 // ─── Shared OpenAPI Error Responses ──────────────────────────────────────────
 
@@ -62,7 +63,7 @@ export interface RouteHandlerContext {
   params: Record<string, string>;
   /** Authenticated actor. Guaranteed non-null if .auth() or .permission() was called. */
   actor: { userId: string | null; role: string; permissions: string[]; vendorId?: string | null; [key: string]: unknown } | null;
-  /** Resolved organization ID. Derived from actor.organizationId, falls back to DEFAULT_ORG_ID. */
+  /** Resolved organization ID. Derived from actor.organizationId or the deployment config. */
   orgId: string;
   /** Kernel services (orders, cart, inventory, etc.) */
   services: Record<string, unknown>;
@@ -91,7 +92,7 @@ class RouteChain {
     private fullPath: string,
     private tag: string,
     private routesList: PluginRouteRegistration[],
-    private pluginCtx?: { services: Record<string, unknown>; db: unknown },
+    private pluginCtx?: { config?: CommerceConfig; services: Record<string, unknown>; db: unknown },
   ) {
     const paramNames = extractPathParams(fullPath);
     if (paramNames.length > 0) {
@@ -214,6 +215,7 @@ class RouteChain {
 
         // Use plugin context if provided (plugin routes), fallback to kernel on Hono context (core routes)
         const kernel = pluginCtx ?? (ctx.get("kernel") as {
+          config?: CommerceConfig;
           services?: Record<string, unknown>;
           db?: unknown;
         } | undefined);
@@ -222,7 +224,7 @@ class RouteChain {
         // Plugin route handlers receive a db that auto-filters queries
         // and auto-stamps inserts with the actor's organizationId.
         const rawDb = kernel?.db;
-        const orgId = resolveOrgId(actor);
+        const orgId = resolveOrgIdForCommerce(actor, kernel?.config);
         const scopedDb = rawDb ? createScopedDb(rawDb as Record<string, unknown>, orgId) : rawDb;
 
         const handlerCtx: RouteHandlerContext = {
@@ -274,12 +276,12 @@ class RouteChain {
 class RouterImpl {
   private _routes: PluginRouteRegistration[] = [];
   private _prefix: string;
-  private _pluginCtx: { services: Record<string, unknown>; db: unknown } | undefined;
+  private _pluginCtx: { config?: CommerceConfig; services: Record<string, unknown>; db: unknown } | undefined;
 
   constructor(
     private tag: string,
     prefix: string,
-    pluginCtx?: { services?: Record<string, unknown>; database?: { db: unknown } },
+    pluginCtx?: { config?: CommerceConfig; services?: Record<string, unknown>; database?: { db: unknown } },
   ) {
     // Normalize: ensure /api prefix, strip trailing slash
     let p = prefix.startsWith("/api") ? prefix : `/api${prefix}`;
@@ -289,6 +291,7 @@ class RouterImpl {
     // If plugin context is provided, wire services + db for handler access
     if (pluginCtx) {
       this._pluginCtx = {
+        ...(pluginCtx.config !== undefined ? { config: pluginCtx.config } : {}),
         services: pluginCtx.services ?? {},
         db: pluginCtx.database?.db,
       };
@@ -333,6 +336,6 @@ class RouterImpl {
  * }
  * ```
  */
-export function router(tag: string, prefix: string, ctx?: { services?: Record<string, unknown>; database?: { db: unknown } }): RouterImpl {
+export function router(tag: string, prefix: string, ctx?: { config?: CommerceConfig; services?: Record<string, unknown>; database?: { db: unknown } }): RouterImpl {
   return new RouterImpl(tag, prefix, ctx);
 }

@@ -1,5 +1,5 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
-import { resolveOrgId } from "../../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../../auth/org.js";
 import { CommerceValidationError } from "../../../kernel/errors.js";
 import type { DrizzleDatabase } from "../../../kernel/database/drizzle-db.js";
 import { CatalogRepository } from "../../../modules/catalog/repository/index.js";
@@ -98,7 +98,7 @@ export function pricingRoutes(kernel: Kernel) {
 
     if (input.entityId) {
       const catalogRepo = new CatalogRepository(kernel.database.db as DrizzleDatabase);
-      const orgId = resolveOrgId(actor);
+      const orgId = resolveOrgIdForCommerce(actor, kernel.config);
       const entity = await catalogRepo.findEntityById(input.entityId);
       if (!entity || entity.organizationId !== orgId) {
         return c.json(

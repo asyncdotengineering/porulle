@@ -1,4 +1,5 @@
 import { requireUserId, router } from "@porulle/core";
+import type { CommerceConfig } from "@porulle/core";
 import type { PluginRouteRegistration } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
 import type { BookingService } from "../services/booking-service.js";
@@ -28,8 +29,8 @@ const CancelBookingSchema = z.object({
 export function buildBookingRoutes(services: {
   booking: BookingService;
   provider: ProviderService;
-}): PluginRouteRegistration[] {
-  const r = router("Appointments - Bookings", "/appointments/bookings");
+}, config: CommerceConfig): PluginRouteRegistration[] {
+  const r = router("Appointments - Bookings", "/appointments/bookings", { config });
 
   r.get("/")
     .summary("List bookings")

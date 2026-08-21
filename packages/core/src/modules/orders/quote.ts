@@ -101,6 +101,7 @@ export async function computeOrderPricing(
     context: { moduleName: "orders" },
     origin: "rest",
     database: { db: kernel.database.db as PluginDb },
+    commerceConfig: kernel.config,
   });
   if (tx !== undefined) context.tx = tx as typeof context.tx;
 

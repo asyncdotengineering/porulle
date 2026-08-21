@@ -52,6 +52,7 @@ export const ordersModule = defineModule<
     return new OrderService({
       repository: new OrdersRepository(deps.db.db as DrizzleDatabase),
       hooks: deps.hooks,
+      config,
       services: deps.services,
       database: deps.db,
       ...(config.orders?.customTransitions

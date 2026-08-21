@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Actor } from "../../auth/types.js";
+import type { CommerceConfig } from "../../config/types.js";
 import type { JobsAdapter } from "../jobs/adapter.js";
 import { NullJobsAdapter } from "../jobs/adapter.js";
 import type { PluginDb } from "../database/plugin-types.js";
@@ -21,6 +22,7 @@ export interface CreateHookContextArgs {
    * @deprecated Pass {@link CreateHookContextArgs.database} or {@link CreateHookContextArgs.db} instead.
    */
   kernel?: { database: { db: PluginDb } };
+  commerceConfig?: CommerceConfig | null;
 }
 
 const nullJobs = new NullJobsAdapter();
@@ -48,5 +50,6 @@ export function createHookContext(args: CreateHookContextArgs): HookContext {
     origin: args.origin ?? "rest",
     jobs: args.jobs ?? nullJobs,
     db,
+    ...(args.commerceConfig !== undefined ? { commerceConfig: args.commerceConfig } : {}),
   };
 }

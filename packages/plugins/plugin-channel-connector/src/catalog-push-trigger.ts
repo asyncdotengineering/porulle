@@ -1,4 +1,4 @@
-import { resolveOrgId, isValidFieldPath, type FieldOwner } from "@porulle/core";
+import { resolveOrgIdForCommerce, isValidFieldPath, type FieldOwner } from "@porulle/core";
 import type { HookContext } from "@porulle/core";
 import { and, eq } from "@porulle/core/drizzle";
 import { catalogPushConcurrencyKey } from "./service.js";
@@ -42,7 +42,7 @@ export async function maybeEnqueueCatalogPush(args: {
   if (args.context.context.origin === CHANNEL_CONVERGENCE_ORIGIN) return;
   if (args.changedFieldPaths.length === 0) return;
 
-  const orgId = resolveOrgId(args.context.actor);
+  const orgId = resolveOrgIdForCommerce(args.context.actor, args.context.commerceConfig);
   const catalog = args.context.services.catalog as CatalogOwnershipService;
   const mappings = await args.context.db
     .select({ storeId: channelEntityMap.storeId })

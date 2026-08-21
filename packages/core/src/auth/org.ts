@@ -38,13 +38,25 @@ export function setBootDefaultOrgId(orgId: string): void {
 }
 
 /**
+ * Resolves org using an explicit config default — not ambient boot state.
+ * Use when the caller holds CommerceConfig and may lack an actor organizationId.
+ */
+export function resolveOrgIdForCommerce(
+  actor: unknown,
+  config?: CommerceConfig | null,
+): string {
+  return resolveOrgId(actor, config?.auth?.defaultOrganizationId, config ?? undefined);
+}
+
+/**
  * Extracts the organization ID from an actor.
  *
  * Resolution order:
  * 1. Actor's organizationId (set by middleware from session/API key/storeResolver)
  * 2. Explicit defaultOrgId parameter (caller override)
- * 3. Boot-time default (from config.auth.defaultOrganizationId via setBootDefaultOrgId)
- * 4. Deprecated fallback to DEFAULT_ORG_ID (will be removed)
+ * 3. Strict check — throw OrgResolutionError when enabled
+ * 4. Boot-time default (from config.auth.defaultOrganizationId via setBootDefaultOrgId)
+ * 5. Deprecated fallback to DEFAULT_ORG_ID (will be removed)
  */
 export function resolveOrgId(
   actor: unknown,
@@ -56,12 +68,12 @@ export function resolveOrgId(
     if (typeof orgId === "string") return orgId;
   }
   if (defaultOrgId) return defaultOrgId;
-  if (_bootDefaultOrgId) return _bootDefaultOrgId;
   if (isStrictOrgResolution(commerceConfig)) {
     throw new OrgResolutionError(
       "Organization could not be resolved: no actor organizationId, no defaultOrgId, and no configured default organization.",
     );
   }
+  if (_bootDefaultOrgId) return _bootDefaultOrgId;
   warnDeprecatedOrgDefaultFallback();
   return DEFAULT_ORG_ID;
 }

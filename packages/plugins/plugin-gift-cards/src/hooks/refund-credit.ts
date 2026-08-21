@@ -1,10 +1,11 @@
-import { resolveOrgId } from "@porulle/core";
-import type { PluginHookRegistration } from "@porulle/core";
+import { resolveOrgIdForCommerce } from "@porulle/core";
+import type { CommerceConfig, PluginHookRegistration } from "@porulle/core";
 import type { GiftCardService } from "../services/gift-card-service.js";
 import type { GiftCardDeduction } from "../types.js";
 
 interface HookContextLike {
   actor: { organizationId?: string | null; [key: string]: unknown } | null;
+  commerceConfig?: CommerceConfig | null;
   [key: string]: unknown;
 }
 
@@ -37,7 +38,7 @@ export function buildRefundCreditHook(
 
     if (!deductions?.length) return;
 
-    const orgId = resolveOrgId(context.actor);
+    const orgId = resolveOrgIdForCommerce(context.actor, context.commerceConfig);
     for (const d of deductions) {
       await service.creditWithLock(
         orgId,

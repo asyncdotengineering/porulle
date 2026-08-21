@@ -1,3 +1,4 @@
+import type { CommerceConfig } from "../../config/types.js";
 import type { DrizzleDatabase } from "../../kernel/database/drizzle-db.js";
 import { defineModule } from "../../kernel/module/index.js";
 import { CustomersRepository } from "./repository/index.js";
@@ -21,6 +22,7 @@ export const customersModule = defineModule({
     new CustomerService({
       repository: new CustomersRepository(deps.db.db as DrizzleDatabase),
       hooks: deps.hooks,
+      config: deps.config as CommerceConfig,
       services: deps.services,
       database: deps.db,
     }),

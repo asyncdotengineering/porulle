@@ -1,4 +1,4 @@
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import { assertPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
 import type { CommerceConfig } from "../../config/types.js";
@@ -57,7 +57,7 @@ export class InventoryService {
   ): Promise<string> {
     const orgId =
       orgIdOverride ??
-      resolveOrgId(actor ?? ctx?.actor ?? null, undefined, this.deps.config);
+      resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const warehouses = await this.repo.findAllWarehouses(orgId, ctx);
     const sorted = warehouses.sort((a, b) => a.priority - b.priority);
     if (sorted.length > 0) {
@@ -90,9 +90,8 @@ export class InventoryService {
       );
     }
 
-    const orgId = resolveOrgId(
+    const orgId = resolveOrgIdForCommerce(
       actor ?? ctx?.actor ?? null,
-      undefined,
       this.deps.config,
     );
 
@@ -113,9 +112,8 @@ export class InventoryService {
   }
 
   async listWarehouses(actor?: Actor | null, ctx?: TxContext): Promise<Result<Warehouse[]>> {
-    const orgId = resolveOrgId(
+    const orgId = resolveOrgIdForCommerce(
       actor ?? ctx?.actor ?? null,
-      undefined,
       this.deps.config,
     );
     const warehouses = await this.repo.findAllWarehouses(orgId, ctx);
@@ -128,9 +126,8 @@ export class InventoryService {
     ctx?: TxContext,
     actor?: Actor | null,
   ): Promise<Result<number>> {
-    const orgId = resolveOrgId(
+    const orgId = resolveOrgIdForCommerce(
       actor ?? ctx?.actor ?? null,
-      undefined,
       this.deps.config,
     );
     const available = await this.repo.getAvailableQuantity(
@@ -147,9 +144,8 @@ export class InventoryService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<InventoryLevel[]>> {
-    const orgId = resolveOrgId(
+    const orgId = resolveOrgIdForCommerce(
       actor ?? ctx?.actor ?? null,
-      undefined,
       this.deps.config,
     );
     if (params?.entityId) {
@@ -177,9 +173,8 @@ export class InventoryService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<Record<string, number>>> {
-    const orgId = resolveOrgId(
+    const orgId = resolveOrgIdForCommerce(
       actor ?? ctx?.actor ?? null,
-      undefined,
       this.deps.config,
     );
     const data = await this.repo.getAvailableQuantities(orgId, entityIds, ctx);
@@ -191,9 +186,8 @@ export class InventoryService {
     ctx?: TxContext,
     actor?: Actor | null,
   ): Promise<Result<InventoryLevel[]>> {
-    const orgId = resolveOrgId(
+    const orgId = resolveOrgIdForCommerce(
       actor ?? ctx?.actor ?? null,
-      undefined,
       this.deps.config,
     );
     const levels = await this.repo.findLevelsByEntityId(orgId, entityId, ctx);
@@ -213,9 +207,8 @@ export class InventoryService {
       );
     }
 
-    const orgId = resolveOrgId(
+    const orgId = resolveOrgIdForCommerce(
       actor ?? ctx?.actor ?? null,
-      undefined,
       this.deps.config,
     );
     const warehouseId = input.warehouseId ?? (await this.pickWarehouse(actor, ctx));
@@ -267,9 +260,8 @@ export class InventoryService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<void>> {
-    const orgId = resolveOrgId(
+    const orgId = resolveOrgIdForCommerce(
       actor ?? ctx?.actor ?? null,
-      undefined,
       this.deps.config,
     );
     const warehouseId = input.warehouseId ?? (await this.pickWarehouse(actor, ctx));
@@ -360,7 +352,7 @@ export class InventoryService {
     const performedBy = input.performedBy ?? actor?.userId ?? "system";
 
     const doAdjust = async (txCtx: TxContext) => {
-      const orgId = resolveOrgId(actor ?? txCtx.actor ?? null, undefined, this.deps.config);
+      const orgId = resolveOrgIdForCommerce(actor ?? txCtx.actor ?? null, this.deps.config);
 
       // Lock the level first so `before` and the write are atomic.
       const existing = await this.repo.findLevelForUpdate(
@@ -444,6 +436,7 @@ export class InventoryService {
         services: this.deps.services,
         context: { moduleName: "inventory" },
         database: { db: this.deps.database.db as PluginDb },
+        commerceConfig: this.deps.config,
       });
 
       const afterHooks = this.deps.hooks.resolve("inventory.afterAdjust");
@@ -496,9 +489,8 @@ export class InventoryService {
     ctx?: TxContext,
   ): Promise<Result<InventoryLevel>> {
     const warehouseId = input.warehouseId ?? (await this.pickWarehouse(actor, ctx));
-    const orgId = resolveOrgId(
+    const orgId = resolveOrgIdForCommerce(
       actor ?? ctx?.actor ?? null,
-      undefined,
       this.deps.config,
     );
 
@@ -551,7 +543,7 @@ export class InventoryService {
   ): Promise<Result<void>> {
     const orgId =
       input.orgId ??
-      resolveOrgId(ctx?.actor ?? null, undefined, this.deps.config);
+      resolveOrgIdForCommerce(ctx?.actor ?? null, this.deps.config);
     const warehouseId =
       input.warehouseId ?? (await this.pickWarehouse(null, ctx, orgId));
     const variantId = input.variantId ?? null;
@@ -602,9 +594,8 @@ export class InventoryService {
     variantId?: string,
     ctx?: TxContext,
   ): Promise<Result<InventoryLevel>> {
-    const orgId = resolveOrgId(
+    const orgId = resolveOrgIdForCommerce(
       ctx?.actor ?? null,
-      undefined,
       this.deps.config,
     );
     const level = await this.repo.findLevelByKey(

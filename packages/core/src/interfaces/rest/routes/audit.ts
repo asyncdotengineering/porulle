@@ -2,7 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
 import { listAuditRoute, listEntityAuditRoute } from "../schemas/audit.js";
 import { type AppEnv, requirePerm } from "../utils.js";
-import { resolveOrgId } from "../../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../../auth/org.js";
 
 export function auditRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -15,7 +15,7 @@ export function auditRoutes(kernel: Kernel) {
 
   router.openapi(listAuditRoute, async (c) => {
     const actor = c.get("actor");
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, kernel.config);
     const entries = await kernel.services.audit.list({
       organizationId: orgId,
       entityType: c.req.query("entityType"),
@@ -37,7 +37,7 @@ export function auditRoutes(kernel: Kernel) {
 
   router.openapi(listEntityAuditRoute, async (c) => {
     const actor = c.get("actor");
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, kernel.config);
     const entries = await kernel.services.audit.listForEntity({
       organizationId: orgId,
       entityType: c.req.param("entityType"),

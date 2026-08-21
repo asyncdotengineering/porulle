@@ -10,6 +10,8 @@
  * - Price adjustments are summed into cart line item metadata
  */
 
+import { resolveOrgIdForCommerce } from "@porulle/core";
+import type { CommerceConfig } from "@porulle/core";
 import type { ModifierService } from "../services/modifier-service.js";
 
 export function buildModifierValidationHook(getService: () => ModifierService) {
@@ -24,6 +26,7 @@ export function buildModifierValidationHook(getService: () => ModifierService) {
         };
         context: {
           actor?: { organizationId?: string | null } | null;
+          commerceConfig?: CommerceConfig | null;
           [key: string]: unknown;
         };
       };
@@ -38,8 +41,7 @@ export function buildModifierValidationHook(getService: () => ModifierService) {
       if (!modifiers || modifiers.length === 0) return data;
       if (!data.entityId) return data;
 
-      const { resolveOrgId } = await import("@porulle/core");
-      const orgId = resolveOrgId(context.actor);
+      const orgId = resolveOrgIdForCommerce(context.actor, context.commerceConfig);
       const service = getService();
 
       const result = await service.validateModifiers(orgId, data.entityId, modifiers);

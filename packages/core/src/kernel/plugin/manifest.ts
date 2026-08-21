@@ -2,7 +2,7 @@ import type { Hono } from "hono";
 import type { OpenAPIHono, RouteConfig } from "@hono/zod-openapi";
 import type { PluginDb } from "../database/plugin-types.js";
 import type { DatabaseAdapter } from "../database/adapter.js";
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import { isRoutePermissionGuard, markRoutePermissionGuard } from "../../interfaces/rest/utils.js";
 import { createScopedDb } from "../database/scoped-db.js";
 import {
@@ -98,7 +98,7 @@ function buildPluginContextDatabase(
 ): PluginContext["database"] {
   const orgGetter = () =>
     getPluginDatabaseScopeOrganizationId() ??
-    resolveOrgId(null, undefined, commerceConfig);
+    resolveOrgIdForCommerce(null, commerceConfig);
 
   const scopedDb = createScopedDb(rawDb, orgGetter);
   const warnUnscoped = createRateLimitedUnscopedAccessWarning(logger);
@@ -289,7 +289,7 @@ export function defineCommercePlugin(
             const wrappedHandler = async (...args: unknown[]) => {
               const c = args[0] as { get?: (key: string) => unknown } | undefined;
               const actor = c?.get?.("actor");
-              const orgId = resolveOrgId(actor, undefined, k.config);
+              const orgId = resolveOrgIdForCommerce(actor, k.config);
               try {
                 return await runWithPluginDatabaseScope(orgId, async () => {
                   const out = originalHandler(...args);

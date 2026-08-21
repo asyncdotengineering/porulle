@@ -1,3 +1,4 @@
+import type { CommerceConfig } from "../../config/types.js";
 import type { DrizzleDatabase } from "../../kernel/database/drizzle-db.js";
 import { defineModule } from "../../kernel/module/index.js";
 import type { CatalogRepository } from "../catalog/repository/index.js";
@@ -24,6 +25,7 @@ export const pricingModule = defineModule<
       repository: new PricingRepository(deps.db.db as DrizzleDatabase),
       catalogRepository: deps.services.catalog.repository,
       hooks: deps.hooks,
+      config: deps.config as CommerceConfig,
       services: deps.services,
       database: deps.db,
     }),

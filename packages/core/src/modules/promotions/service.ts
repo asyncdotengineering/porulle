@@ -19,8 +19,9 @@ import type {
 } from "./repository/index.js";
 import type { CatalogRepository } from "../catalog/repository/index.js";
 import type { OrdersRepository } from "../orders/repository/index.js";
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgId, resolveOrgIdForCommerce } from "../../auth/org.js";
 import type { Actor } from "../../auth/types.js";
+import type { CommerceConfig } from "../../config/types.js";
 
 // PromotionType is derived from the zod enum (single source of truth) in
 // ./schemas.js; re-export it here for backwards-compatible imports.
@@ -35,6 +36,7 @@ interface PromotionServiceDeps {
   catalogRepository: CatalogRepository;
   ordersRepository: OrdersRepository;
   hooks: HookRegistry;
+  config: CommerceConfig;
   services: Record<string, unknown>;
   database: DatabaseAdapter;
 }
@@ -43,6 +45,7 @@ function hookContext(
   actor: Actor | null,
   services: Record<string, unknown>,
   database: DatabaseAdapter,
+  config: CommerceConfig,
   tx: unknown,
 ): HookContext {
   return createHookContext({
@@ -52,6 +55,7 @@ function hookContext(
     services,
     context: { moduleName: "promotions" },
     database: { db: database.db as PluginDb },
+    commerceConfig: config,
   });
 }
 
@@ -165,6 +169,16 @@ export class PromotionService {
     this.ordersRepo = deps.ordersRepository;
   }
 
+  private resolveEvaluationOrgId(
+    ctx: TxContext | undefined,
+    explicitOrgId?: string,
+  ): string {
+    if (explicitOrgId) {
+      return resolveOrgId(ctx?.actor ?? null, explicitOrgId);
+    }
+    return resolveOrgIdForCommerce(ctx?.actor ?? null, this.deps.config);
+  }
+
   async create(
     input: CreatePromotionInput,
     actor?: Actor | null,
@@ -189,7 +203,7 @@ export class PromotionService {
       );
     }
 
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
 
     if (input.code) {
       const normalized = input.code.trim().toUpperCase();
@@ -229,10 +243,7 @@ export class PromotionService {
       "promotions.afterCreate",
     ) as AfterHook<Promotion>[];
     const hctx = hookContext(
-      actor ?? ctx?.actor ?? null,
-      this.deps.services,
-      this.deps.database,
-      ctx?.tx ?? null,
+      actor ?? ctx?.actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null,
     );
     await runAfterHooks(afterHooks, null, promotion, "create", hctx);
 
@@ -253,7 +264,8 @@ export class PromotionService {
     const afterHooks = this.deps.hooks.resolve(
       "promotions.afterUpdate",
     ) as AfterHook<Promotion>[];
-    const hctx = hookContext(null, this.deps.services, this.deps.database, ctx?.tx ?? null);
+    // Actor-less by design; resolves to the deployment's declared organization.
+    const hctx = hookContext(null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null);
     await runAfterHooks(afterHooks, promotion, updated, "update", hctx);
 
     return Ok(updated);
@@ -331,10 +343,7 @@ export class PromotionService {
       "promotions.afterUpdate",
     ) as AfterHook<Promotion>[];
     const hctx = hookContext(
-      actor ?? ctx?.actor ?? null,
-      this.deps.services,
-      this.deps.database,
-      ctx?.tx ?? null,
+      actor ?? ctx?.actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null,
     );
     await runAfterHooks(afterHooks, existing, updated, "update", hctx);
 
@@ -346,7 +355,7 @@ export class PromotionService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<Promotion[]>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const all = await this.repo.findAll(orgId, ctx);
     const now = new Date();
 
@@ -375,7 +384,7 @@ export class PromotionService {
     timestamp = new Date(),
     ctx?: TxContext,
   ): Promise<Result<Promotion[]>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const active = await this.repo.findActive(orgId, ctx);
     // Further filter by timestamp in case repo returns slightly stale results
     const filtered = active.filter((p) => matchesWindow(p, timestamp));
@@ -388,7 +397,7 @@ export class PromotionService {
     ctx?: TxContext,
   ): Promise<Result<Promotion>> {
     const normalized = code.trim().toUpperCase();
-    const evalOrgId = resolveOrgId(ctx?.actor ?? null, context.orgId);
+    const evalOrgId = this.resolveEvaluationOrgId(ctx, context.orgId);
     const promotion = await this.repo.findByCode(evalOrgId, normalized, ctx);
     if (!promotion) {
       return Err(
@@ -434,7 +443,7 @@ export class PromotionService {
     ctx?: TxContext,
   ): Promise<Result<PromotionApplicationResult>> {
     const timestamp = context.timestamp ?? new Date();
-    const applyOrgId = resolveOrgId(ctx?.actor ?? null, context.orgId);
+    const applyOrgId = this.resolveEvaluationOrgId(ctx, context.orgId);
     const result: PromotionApplicationResult = {
       totalDiscount: 0,
       freeShipping: false,
@@ -580,7 +589,7 @@ export class PromotionService {
         return "First-order promotion requires authenticated customer.";
       }
       const orders = await this.ordersRepo.findByCustomerId(
-        resolveOrgId(ctx?.actor ?? null, context.orgId),
+        this.resolveEvaluationOrgId(ctx, context.orgId),
         context.customerId,
         ctx,
       );

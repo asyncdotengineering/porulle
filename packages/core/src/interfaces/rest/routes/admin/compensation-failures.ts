@@ -2,7 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../../runtime/kernel.js";
 import type { Actor } from "../../../../auth/types.js";
 import { assertPermission } from "../../../../auth/permissions.js";
-import { resolveOrgId } from "../../../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../../../auth/org.js";
 import { CommerceValidationError } from "../../../../kernel/errors.js";
 import type { CompensationFailure } from "../../../../kernel/compensation/schema.js";
 import {
@@ -74,7 +74,7 @@ export function compensationFailureAdminRoutes(kernel: Kernel) {
   router.openapi(listCompensationFailuresRoute, async (c) => {
     const actor = c.get("actor");
     assertPermission(actor, "compensation:admin");
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, kernel.config);
     const resolvedParsed = parseResolvedFilter(c.req.query("resolved"));
     if (!resolvedParsed.ok) {
       return c.json(
@@ -119,7 +119,7 @@ export function compensationFailureAdminRoutes(kernel: Kernel) {
   router.openapi(resolveCompensationFailureRoute, async (c) => {
     const actor = c.get("actor");
     assertPermission(actor, "compensation:admin");
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, kernel.config);
     const id = c.req.param("id");
     const body = c.req.valid("json");
 

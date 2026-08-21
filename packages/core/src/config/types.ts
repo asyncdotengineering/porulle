@@ -200,10 +200,17 @@ export interface AuthConfig {
    */
   storeResolver?: (request: Request) => string | null | Promise<string | null>;
   /**
-   * When true, a failing `storeResolver` for anonymous requests returns HTTP 503
-   * instead of continuing with `actor = null` (legacy). Same behavior when env
-   * `STRICT_ORG_RESOLUTION` is `"true"`. Default false keeps backward-compatible
-   * fallback for single-store and lenient multi-store setups.
+   * Governs two layers, and its default differs between them.
+   *
+   * In the store-resolver middleware, `true` makes a failing `storeResolver`
+   * return HTTP 503 rather than continuing with `actor = null`; that layer
+   * still defaults to the lenient behaviour.
+   *
+   * In organization resolution it **fails closed by default**: an actor-less
+   * request with no explicit organization and no `defaultOrganizationId` is
+   * refused rather than served a fallback tenant. Set this to `false`, or the
+   * env var `STRICT_ORG_RESOLUTION` to `"false"`, to restore the old fallback
+   * during a migration.
    */
   strictOrgResolution?: boolean;
   /**

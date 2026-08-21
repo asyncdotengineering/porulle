@@ -150,7 +150,13 @@ describe("round 2 identity and caller regressions", () => {
     }
   });
 
-  it("keeps headerless allowlisted reads as not-found responses", async () => {
+  // A headerless request resolves no store, so it carries no organization. What
+  // happens next is the deployment's own declaration: `defaultOrganizationId`
+  // set means actor-less requests belong to that organization; unset means every
+  // request must carry its own, and one that cannot is refused. Both halves are
+  // pinned here, because a single assertion hid the policy behind whichever
+  // deployment shape the fixture happened to use.
+  it("refuses a headerless allowlisted read when no default organization is declared", async () => {
     const { server, cleanup } = await createTestServer({
       auth: {
         storeResolver: (request) => request.headers.get("x-store-id"),
@@ -158,13 +164,34 @@ describe("round 2 identity and caller regressions", () => {
       },
     });
     try {
+      // Media guards anonymous reads at the route, before organization
+      // resolution runs, so it still answers not-found rather than refusing.
       const mediaResponse = await server.fetch(new Request(
         "http://localhost/api/media/00000000-0000-4000-8000-000000000000",
       ));
+      expect(mediaResponse.status).toBe(404);
+
       const cartResponse = await server.fetch(new Request(
         "http://localhost/api/carts/00000000-0000-4000-8000-000000000001",
       ));
-      expect(mediaResponse.status).toBe(404);
+      expect(cartResponse.status).toBe(503);
+      expect((await cartResponse.json()).error.code).toBe("ORG_RESOLUTION_FAILED");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("keeps a headerless allowlisted read not-found when a default organization is declared", async () => {
+    const { server, cleanup } = await createTestServer({
+      auth: {
+        storeResolver: (request) => request.headers.get("x-store-id"),
+        defaultOrganizationId: "org_default",
+      },
+    });
+    try {
+      const cartResponse = await server.fetch(new Request(
+        "http://localhost/api/carts/00000000-0000-4000-8000-000000000001",
+      ));
       expect(cartResponse.status).toBe(404);
     } finally {
       await cleanup();

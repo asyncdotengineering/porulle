@@ -1,7 +1,8 @@
 import { createHmac } from "node:crypto";
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import { assertPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
+import type { CommerceConfig } from "../../config/types.js";
 import type { DatabaseAdapter } from "../../kernel/database/adapter.js";
 import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
@@ -49,6 +50,7 @@ interface FulfillmentServiceDeps {
   ordersRepository: OrdersRepository;
   inventoryService?: InventoryServiceLike;
   hooks: HookRegistry;
+  config: CommerceConfig;
   services: Record<string, unknown>;
   database: DatabaseAdapter;
 }
@@ -260,7 +262,7 @@ export class FulfillmentService {
   }
 
   async fulfillOrder(orderId: string, actor?: Actor | null, ctx?: TxContext): Promise<Result<void>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const order = await this.deps.ordersRepository.findById(orgId, orderId, ctx);
     if (!order) return Err(new CommerceNotFoundError("Order not found."));
 
@@ -327,6 +329,7 @@ export class FulfillmentService {
         services: this.deps.services,
         context: { moduleName: "fulfillment" },
         database: { db: this.deps.database.db as PluginDb },
+        commerceConfig: this.deps.config,
       });
       await runAfterHooks(afterHooks, null, record, "create", hookCtx);
 
@@ -372,7 +375,7 @@ export class FulfillmentService {
       return Err(toCommerceError(error));
     }
 
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const order = await this.deps.ordersRepository.findById(orgId, input.orderId, ctx);
     if (!order) return Err(new CommerceNotFoundError("Order not found."));
 
@@ -485,6 +488,7 @@ export class FulfillmentService {
       services: this.deps.services,
       context: { moduleName: "fulfillment" },
       database: { db: this.deps.database.db as PluginDb },
+      commerceConfig: this.deps.config,
     });
     await runAfterHooks(afterHooks, null, record, "create", hookCtx);
 
@@ -570,7 +574,7 @@ export class FulfillmentService {
       return Err(new CommerceNotFoundError("Digital download not found."));
     }
 
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const order = await this.deps.ordersRepository.findById(orgId, orderId, ctx);
     if (!order || order.customerId !== userId) {
       return Err(new CommerceNotFoundError("Order not found."));

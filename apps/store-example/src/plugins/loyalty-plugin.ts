@@ -12,13 +12,14 @@
 import {
   defineCommercePlugin,
   router,
-  resolveOrgId,
+  resolveOrgIdForCommerce,
   CommerceNotFoundError,
   CommerceValidationError,
   type PluginHookRegistration,
   type PluginRouteRegistration,
   type PluginContext,
 } from "@porulle/core";
+import type { CommerceConfig } from "@porulle/core";
 import { eq, and, desc, sql } from "@porulle/core/drizzle";
 import { z } from "@hono/zod-openapi";
 import { loyaltyPoints, loyaltyTransactions } from "./loyalty-schema.js";
@@ -71,6 +72,7 @@ function buildHooks(options: LoyaltyPluginOptions): PluginHookRegistration[] {
           result: { id: string; customerId?: string; grandTotal: number; metadata?: Record<string, unknown> | null };
           context: {
             actor?: { organizationId?: string | null } | null;
+            commerceConfig?: CommerceConfig | null;
             logger: { info(msg: string, data?: unknown): void };
             services: { database?: { db: unknown } };
           };
@@ -83,7 +85,7 @@ function buildHooks(options: LoyaltyPluginOptions): PluginHookRegistration[] {
         const rawDb = context.services.database?.db;
         if (!rawDb) return;
 
-        const orgId = resolveOrgId(context.actor);
+        const orgId = resolveOrgIdForCommerce(context.actor, context.commerceConfig);
         const pointsEarned = Math.floor((grandTotal / 100) * pointsPerDollar);
         if (pointsEarned <= 0) return;
 
@@ -164,7 +166,7 @@ function buildRoutes(options: LoyaltyPluginOptions, ctx: PluginContext): PluginR
   r.get("/points/{customerId}").summary("Get loyalty points for a customer")
     .handler(async ({ params, actor }) => {
       const customerIdParam = params.customerId!;
-      const orgId = resolveOrgId(actor);
+      const orgId = resolveOrgIdForCommerce(actor, ctx.config);
       const db = drizzle(database.db);
       let loyalty: typeof loyaltyPoints.$inferSelect | undefined;
 
@@ -214,7 +216,7 @@ function buildRoutes(options: LoyaltyPluginOptions, ctx: PluginContext): PluginR
   // ─── GET /api/loyalty/leaderboard — Leaderboard (org-scoped) ───────────
   r.get("/leaderboard").summary("Get loyalty points leaderboard")
     .handler(async ({ actor }) => {
-      const orgId = resolveOrgId(actor);
+      const orgId = resolveOrgIdForCommerce(actor, ctx.config);
       const db = drizzle(database.db);
       const rows = await db
         .select()
@@ -236,7 +238,7 @@ function buildRoutes(options: LoyaltyPluginOptions, ctx: PluginContext): PluginR
     .input(RedeemPointsBodySchema)
     .handler(async ({ input, actor }) => {
       const { customerId, pointsToRedeem } = input as z.infer<typeof RedeemPointsBodySchema>;
-      const orgId = resolveOrgId(actor);
+      const orgId = resolveOrgIdForCommerce(actor, ctx.config);
       const db = drizzle(database.db);
       let loyalty: typeof loyaltyPoints.$inferSelect | undefined;
       let resolvedCustomerId = customerId;

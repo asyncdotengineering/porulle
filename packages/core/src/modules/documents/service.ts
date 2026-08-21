@@ -1,5 +1,6 @@
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import type { Actor } from "../../auth/types.js";
+import type { CommerceConfig } from "../../config/types.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
 import { CommerceValidationError } from "../../kernel/errors.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
@@ -19,6 +20,7 @@ interface DocumentsServiceDeps {
   // The shared kernel service container — orders/settings/email are resolved
   // at call time (they may instantiate after this module).
   services: Record<string, unknown>;
+  config: CommerceConfig;
 }
 
 interface EmailAdapter {
@@ -33,10 +35,12 @@ const DEFAULT_INVOICE_PREFIX = "INV-";
 export class DocumentsService {
   private repository: DocumentsRepository;
   private services: Record<string, unknown>;
+  private config: CommerceConfig;
 
   constructor(deps: DocumentsServiceDeps) {
     this.repository = deps.repository;
     this.services = deps.services;
+    this.config = deps.config;
   }
 
   private get orders(): OrderService {
@@ -167,7 +171,7 @@ export class DocumentsService {
       template: "order-invoice",
       to,
       data: {
-        orgId: resolveOrgId(actor ?? ctx?.actor ?? null),
+        orgId: resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config),
         orderId,
         orderNumber: order.value.orderNumber,
         invoiceNumber: rendered.value.invoiceNumber,

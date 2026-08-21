@@ -1,6 +1,7 @@
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import { assertPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
+import type { CommerceConfig } from "../../config/types.js";
 import { CommerceNotFoundError, toCommerceError } from "../../kernel/errors.js";
 import { runAfterHooks } from "../../kernel/hooks/executor.js";
 import { createHookContext } from "../../kernel/hooks/create-context.js";
@@ -22,6 +23,7 @@ import type {
 interface CustomerServiceDeps {
   repository: CustomersRepository;
   hooks: HookRegistry;
+  config: CommerceConfig;
   services: Record<string, unknown>;
   database: DatabaseAdapter;
 }
@@ -30,6 +32,7 @@ function hookContext(
   actor: Actor | null,
   services: Record<string, unknown>,
   database: DatabaseAdapter,
+  config: CommerceConfig,
   tx: unknown,
 ): HookContext {
   return createHookContext({
@@ -39,6 +42,7 @@ function hookContext(
     services,
     context: { moduleName: "customers" },
     database: { db: database.db as PluginDb },
+    commerceConfig: config,
   });
 }
 
@@ -73,7 +77,7 @@ export class CustomerService {
       return Err(toCommerceError(error));
     }
 
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const isWalkIn = input.userId === undefined;
     const userId = input.userId ?? `anonymous_${crypto.randomUUID()}`;
     const metadata = {
@@ -97,7 +101,7 @@ export class CustomerService {
     const afterHooks = this.deps.hooks.resolve(
       "customers.afterCreate",
     ) as AfterHook<Customer>[];
-    const hctx = hookContext(actor ?? null, this.deps.services, this.deps.database, ctx?.tx ?? null);
+    const hctx = hookContext(actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null);
     await runAfterHooks(afterHooks, null, customer, "create", hctx);
 
     return Ok(customer);
@@ -107,7 +111,7 @@ export class CustomerService {
 
   async listInteractions(customerId: string, actor?: Actor | null, ctx?: TxContext): Promise<Result<CustomerInteraction[]>> {
     try { assertPermission(actor ?? null, "customers:read"); } catch (error) { return Err(toCommerceError(error)); }
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     return Ok(await this.repo.listInteractions(orgId, customerId, ctx));
   }
 
@@ -118,7 +122,7 @@ export class CustomerService {
     ctx?: TxContext,
   ): Promise<Result<CustomerInteraction>> {
     try { assertPermission(actor ?? null, "customers:update"); } catch (error) { return Err(toCommerceError(error)); }
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const customer = await this.repo.findById(orgId, customerId, ctx);
     if (!customer) return Err(new CommerceNotFoundError("Customer not found."));
     const interaction = await this.repo.createInteraction(
@@ -144,7 +148,7 @@ export class CustomerService {
     ctx?: TxContext,
   ): Promise<Result<CustomerInteraction>> {
     try { assertPermission(actor ?? null, "customers:update"); } catch (error) { return Err(toCommerceError(error)); }
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const existing = await this.repo.findInteractionById(orgId, interactionId, ctx);
     if (!existing || existing.customerId !== customerId) return Err(new CommerceNotFoundError("Interaction not found."));
     const patch = {
@@ -160,7 +164,7 @@ export class CustomerService {
 
   async deleteInteraction(customerId: string, interactionId: string, actor?: Actor | null, ctx?: TxContext): Promise<Result<void>> {
     try { assertPermission(actor ?? null, "customers:update"); } catch (error) { return Err(toCommerceError(error)); }
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const existing = await this.repo.findInteractionById(orgId, interactionId, ctx);
     if (!existing || existing.customerId !== customerId) return Err(new CommerceNotFoundError("Interaction not found."));
     await this.repo.deleteInteraction(orgId, interactionId, ctx);
@@ -190,7 +194,7 @@ export class CustomerService {
     const afterHooks = this.deps.hooks.resolve(
       "customers.afterCreate",
     ) as AfterHook<Customer>[];
-    const hctx = hookContext(actor, this.deps.services, this.deps.database, ctx?.tx ?? null);
+    const hctx = hookContext(actor, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null);
     await runAfterHooks(afterHooks, null, customer, "create", hctx);
 
     return customer;
@@ -200,7 +204,7 @@ export class CustomerService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<Customer[]>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const customers = await this.repo.findAll(orgId, ctx);
     return Ok(customers);
   }
@@ -210,7 +214,7 @@ export class CustomerService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<Customer>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const customer = await this.repo.findById(orgId, id, ctx);
     if (!customer) return Err(new CommerceNotFoundError("Customer not found."));
     return Ok(customer);
@@ -221,7 +225,7 @@ export class CustomerService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<Customer>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const resolvedActor = actor ?? ctx?.actor ?? null;
     const customer = await this.getOrCreateByUserId(
       orgId,
@@ -247,7 +251,7 @@ export class CustomerService {
       return Err(toCommerceError(error));
     }
 
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const existing = await this.repo.findById(orgId, id, ctx);
     if (!existing) return Err(new CommerceNotFoundError("Customer not found."));
 
@@ -271,10 +275,7 @@ export class CustomerService {
       "customers.afterUpdate",
     ) as AfterHook<Customer>[];
     const hctx = hookContext(
-      actor ?? ctx?.actor ?? null,
-      this.deps.services,
-      this.deps.database,
-      ctx?.tx ?? null,
+      actor ?? ctx?.actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null,
     );
     await runAfterHooks(afterHooks, existing, updated, "update", hctx);
 
@@ -289,7 +290,7 @@ export class CustomerService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<Customer>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const resolvedActor = actor ?? ctx?.actor ?? null;
     const customer = await this.getOrCreateByUserId(
       orgId,
@@ -306,7 +307,7 @@ export class CustomerService {
     const afterHooks = this.deps.hooks.resolve(
       "customers.afterUpdate",
     ) as AfterHook<Customer>[];
-    const hctx = hookContext(resolvedActor, this.deps.services, this.deps.database, ctx?.tx ?? null);
+    const hctx = hookContext(resolvedActor, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null);
     await runAfterHooks(afterHooks, customer, updated, "update", hctx);
 
     return Ok(updated);
@@ -317,7 +318,7 @@ export class CustomerService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<CustomerAddress[]>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const resolvedActor = actor ?? ctx?.actor ?? null;
     const customer = await this.getOrCreateByUserId(
       orgId,
@@ -338,7 +339,7 @@ export class CustomerService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<CustomerAddress>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const resolvedActor = actor ?? ctx?.actor ?? null;
     const customer = await this.getOrCreateByUserId(
       orgId,
@@ -376,7 +377,7 @@ export class CustomerService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<void>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const resolvedActor = actor ?? ctx?.actor ?? null;
     const customer = await this.getOrCreateByUserId(
       orgId,
@@ -403,7 +404,7 @@ export class CustomerService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<{ id: string; name: string } | null> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const user = await this.repo.findByPosPin(orgId, hashedPin, ctx);
     if (!user) return null;
     return {

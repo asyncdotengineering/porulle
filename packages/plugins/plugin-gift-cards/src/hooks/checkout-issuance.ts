@@ -1,5 +1,5 @@
-import { resolveOrgId } from "@porulle/core";
-import type { PluginHookRegistration } from "@porulle/core";
+import { resolveOrgIdForCommerce } from "@porulle/core";
+import type { CommerceConfig, PluginHookRegistration } from "@porulle/core";
 import type { GiftCardService } from "../services/gift-card-service.js";
 import type { GiftCardPluginOptions } from "../types.js";
 
@@ -21,6 +21,7 @@ interface OrderResult {
 
 interface HookContextLike {
   actor: { organizationId?: string | null; [key: string]: unknown } | null;
+  commerceConfig?: CommerceConfig | null;
   [key: string]: unknown;
 }
 
@@ -42,7 +43,7 @@ export function buildGiftCardIssuanceHook(
     const { result, context } = args;
     if (!result?.lineItems) return;
 
-    const orgId = resolveOrgId(context.actor);
+    const orgId = resolveOrgIdForCommerce(context.actor, context.commerceConfig);
 
     for (const item of result.lineItems) {
       if (item.entityType !== options.productType) continue;

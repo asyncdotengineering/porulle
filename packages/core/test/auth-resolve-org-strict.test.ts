@@ -36,15 +36,16 @@ describe("resolveOrgId strict org resolution (MT-2)", () => {
     expect(resolveOrgId(null, "param-org")).toBe("param-org");
   });
 
-  it("returns boot default in strict mode", () => {
+  it("throws in strict mode when only boot default is set (ambient default)", () => {
     setBootDefaultOrgId("boot-org");
     process.env.STRICT_ORG_RESOLUTION = "true";
-    expect(resolveOrgId(null)).toBe("boot-org");
+    expect(() => resolveOrgId(null)).toThrow(OrgResolutionError);
   });
 
   it("returns boot default in legacy mode", () => {
     setBootDefaultOrgId("boot-org");
-    expect(resolveOrgId(null)).toBe("boot-org");
+    const legacy = { auth: { strictOrgResolution: false } } as CommerceConfig;
+    expect(resolveOrgId(null, undefined, legacy)).toBe("boot-org");
   });
 
   it("throws OrgResolutionError in strict mode when chain exhausts", () => {

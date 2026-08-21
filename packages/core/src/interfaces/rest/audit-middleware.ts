@@ -95,12 +95,14 @@ export function auditMiddleware(kernel: Kernel): MiddlewareHandler {
     try {
       const requestId = c.get("requestId") as string | undefined;
       const ctx = createHookContext({
+        // Anonymous audit records retain actor: null; organization comes from the deployment config.
         actor: (c.get("actor") as Actor | null) ?? null,
         ...(requestId ? { requestId } : {}),
         logger: kernel.logger,
         services: kernel.services as unknown as ServiceContainer,
         database: { db: kernel.database.db as unknown as PluginDb },
         origin: "rest",
+        commerceConfig: kernel.config,
       });
       await kernel.services.audit.record({ entityType, entityId, event, payload, ctx });
     } catch {

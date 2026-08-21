@@ -1,4 +1,4 @@
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import type { CompensationContext, Step } from "./types.js";
 import type { Result } from "../result.js";
 
@@ -85,7 +85,7 @@ export async function runCompensationChain<TInput>(
           );
           if (ctx.failureRepository) {
             try {
-              const orgId = resolveOrgId(ctx.hook.actor);
+              const orgId = resolveOrgIdForCommerce(ctx.hook.actor, ctx.hook.commerceConfig);
               const recordResult = await ctx.failureRepository.record(
                 {
                   organizationId: orgId,

@@ -1,4 +1,5 @@
-import { defineCommercePlugin, resolveOrgId } from "@porulle/core";
+import { defineCommercePlugin, resolveOrgIdForCommerce } from "@porulle/core";
+import type { CommerceConfig } from "@porulle/core";
 import { eq, and, sql } from "@porulle/core/drizzle";
 import { loyaltyPoints, loyaltyTransactions, loyaltyRedemptionOffers } from "./schema.js";
 import { LoyaltyService } from "./services/loyalty-service.js";
@@ -24,13 +25,13 @@ export function loyaltyPlugin(userOptions: LoyaltyPluginOptions = {}) {
       async handler(args: unknown) {
         const { result, context } = args as {
           result: { id: string; customerId?: string; grandTotal: number };
-          context: { actor?: { organizationId?: string | null } | null; logger: { info(msg: string, data?: unknown): void }; services: { database?: { db: unknown } } };
+          context: { actor?: { organizationId?: string | null } | null; commerceConfig?: CommerceConfig | null; logger: { info(msg: string, data?: unknown): void }; services: { database?: { db: unknown } } };
         };
         if (!result.customerId) return;
         const rawDb = context.services.database?.db;
         if (!rawDb) return;
 
-        const orgId = resolveOrgId(context.actor);
+        const orgId = resolveOrgIdForCommerce(context.actor, context.commerceConfig);
         const pointsEarned = Math.floor((result.grandTotal / 100) * options.pointsPerDollar);
         if (pointsEarned <= 0) return;
 

@@ -1,4 +1,4 @@
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import type { AfterHook } from "../../kernel/hooks/types.js";
 
 /**
@@ -20,7 +20,7 @@ export const deliverWebhooks: AfterHook<unknown> = async ({ result, operation, c
   // VAPT r2 (codex) finding: fan-out queried ALL endpoints across the
   // database, so Tenant B's webhooks fired on Tenant A's events —
   // payload-level cross-tenant data leak. Now scoped to the actor's org.
-  const orgId = resolveOrgId(context.actor);
+  const orgId = resolveOrgIdForCommerce(context.actor, context.commerceConfig);
 
   const endpoints = await webhooksService.getEndpointsForEvent(eventName, orgId);
   if (!endpoints.ok) return;

@@ -1,6 +1,7 @@
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import { assertOwnership, assertPermission, hasPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
+import type { CommerceConfig } from "../../config/types.js";
 import { isCatalogEntityVisible } from "../catalog/read-policy.js";
 import {
   CommerceConflictError,
@@ -102,6 +103,7 @@ export interface ChangeStatusInput {
 export interface OrderServiceDeps {
   repository: OrdersRepository;
   hooks: HookRegistry;
+  config: CommerceConfig;
   services: Record<string, unknown>;
   /** Custom state machine. If provided, overrides the default order transitions. */
   stateMachine?: StateDefinition<string>;
@@ -136,6 +138,7 @@ function context(
   actor: Actor | null,
   services: Record<string, unknown>,
   database: DatabaseAdapter,
+  config: CommerceConfig,
   tx: unknown = null,
 ): HookContext {
   return createHookContext({
@@ -146,6 +149,7 @@ function context(
     ...(services.jobs ? { jobs: services.jobs as JobsAdapter } : {}),
     context: { moduleName: "orders" },
     database: { db: database.db as PluginDb },
+    commerceConfig: config,
   });
 }
 
@@ -228,7 +232,7 @@ export class OrderService {
       // visibility policy; unprivileged buyers are gated in the same branch.
       const owned = await catalog.getByIdForInternalUse(
         item.entityId,
-        resolveOrgId(actor),
+        resolveOrgIdForCommerce(actor, this.deps.config),
         { includeVariants: item.variantId !== undefined },
         ctx,
       );
@@ -499,7 +503,7 @@ export class OrderService {
     const afterHooks = this.deps.hooks.resolve(
       "orders.afterCreate",
     ) as AfterCreateOrderHook[];
-    const hookCtx = context(actor, this.deps.services, this.deps.database, ctx?.tx);
+    const hookCtx = context(actor, this.deps.services, this.deps.database, this.deps.config, ctx?.tx);
 
     const processed = await runBeforeHooks(
       beforeHooks,
@@ -508,7 +512,7 @@ export class OrderService {
       hookCtx,
     );
 
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     const idempotencyScope = processed.idempotencyKey
       ? await makeIdempotencyScope(
           actor,
@@ -732,7 +736,7 @@ export class OrderService {
     ctx?: TxContext,
     guestCredential?: string,
   ): Promise<Result<HydratedOrder>> {
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     const order = await this.repo.findById(orgId, id, ctx);
     if (!order) return Err(new CommerceNotFoundError("Order not found."));
 
@@ -751,7 +755,7 @@ export class OrderService {
       "orders.afterGet",
     ) as AfterHook<HydratedOrder>[];
     if (afterGetHooks.length > 0) {
-      const hookCtx = context(actor, this.deps.services, this.deps.database, ctx?.tx);
+      const hookCtx = context(actor, this.deps.services, this.deps.database, this.deps.config, ctx?.tx);
       await runAfterHooks(afterGetHooks, null, hydrated, "read", hookCtx);
     }
 
@@ -764,7 +768,7 @@ export class OrderService {
     ctx?: TxContext,
     guestCredential?: string,
   ): Promise<Result<HydratedOrder>> {
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     const order = await this.repo.findByOrderNumber(orgId, orderNumber, ctx);
     if (!order) return Err(new CommerceNotFoundError("Order not found."));
     return this.getById(order.id, actor, ctx, guestCredential);
@@ -777,7 +781,7 @@ export class OrderService {
     ctx?: TxContext,
     guestCredential?: string,
   ): Promise<Result<HydratedOrder | null>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const resolvedActor = actor ?? ctx?.actor ?? null;
     const idempotencyScope = await makeIdempotencyScope(resolvedActor, guestCredential);
     const order = await this.repo.findByIdempotencyKey(
@@ -806,7 +810,7 @@ export class OrderService {
       return Err(toCommerceError(error));
     }
 
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     let items: Order[];
     if (params.status) {
       items = await this.repo.findByStatus(orgId, params.status, ctx);
@@ -834,7 +838,7 @@ export class OrderService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<OrderListResult>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     let items = await this.repo.findByCustomerId(orgId, customerId, ctx);
 
     if (params.status) {
@@ -905,7 +909,7 @@ export class OrderService {
       return Ok({ items: [], hint: "Enter at least 3 characters to search." });
     }
 
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const rows = await this.repo.lookup(orgId, term, opts, ctx);
     const items = rows.map((r) => ({
       id: r.id,
@@ -929,7 +933,7 @@ export class OrderService {
     actor: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<HydratedOrder>> {
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     const order = await this.repo.findById(orgId, input.orderId, ctx);
     if (!order) return Err(new CommerceNotFoundError("Order not found."));
 
@@ -960,7 +964,7 @@ export class OrderService {
       "orders.afterStatusChange",
     ) as AfterStatusChangeHook[];
 
-    const hookCtx = context(actor, this.deps.services, this.deps.database, ctx?.tx);
+    const hookCtx = context(actor, this.deps.services, this.deps.database, this.deps.config, ctx?.tx);
     const statusHookInput: StatusChangeHookInput = {
       orderId: order.id,
       fromStatus: order.status as OrderState,
@@ -1292,7 +1296,7 @@ export class OrderService {
     } catch (error) {
       return Err(toCommerceError(error));
     }
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     const found = await this.repo.findWithLineItems(orgId, orderId, ctx);
     if (!found) return Err(new CommerceNotFoundError("Order not found."));
     if (input.lines.length === 0) {
@@ -1441,7 +1445,7 @@ export class OrderService {
     } catch (error) {
       return Err(toCommerceError(error));
     }
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     const refund = await this.repo.findRefundById(orgId, refundId, ctx);
     if (!refund || refund.orderId !== orderId) {
       return Err(new CommerceNotFoundError("Refund not found."));
@@ -1500,7 +1504,7 @@ export class OrderService {
     } catch (error) {
       return Err(toCommerceError(error));
     }
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     const order = await this.repo.findById(orgId, orderId, ctx);
     if (!order) return Err(new CommerceNotFoundError("Order not found."));
     return Ok(await this.repo.findRefundsByOrderId(orderId, ctx));
@@ -1516,7 +1520,7 @@ export class OrderService {
     } catch (error) {
       return Err(toCommerceError(error));
     }
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     const policies = await this.refundPolicies(orgId, ctx);
     const usedToday = await this.repo.sumRefundsByOperatorToday(
       orgId,
@@ -1544,7 +1548,7 @@ export class OrderService {
     } catch (error) {
       return Err(toCommerceError(error));
     }
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     const order = await this.repo.findById(orgId, orderId, ctx);
     if (!order) return Err(new CommerceNotFoundError("Order not found."));
     return Ok(order);
@@ -1681,7 +1685,7 @@ export class OrderService {
     opts?: { amount?: number },
     ctx?: TxContext,
   ): Promise<Result<HydratedOrder>> {
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     const order = await this.repo.findById(orgId, orderId, ctx);
     if (!order) return Err(new CommerceNotFoundError("Order not found."));
 
@@ -1750,7 +1754,7 @@ export class OrderService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<OrderStatusHistory[]>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const order = await this.repo.findById(orgId, orderId, ctx);
     if (!order) {
       return Err(new CommerceNotFoundError("Order not found."));
@@ -1846,7 +1850,7 @@ export class OrderService {
     } catch (error) {
       return Err(toCommerceError(error));
     }
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const order = await this.repo.findById(orgId, orderId, ctx);
     if (!order) return Err(new CommerceNotFoundError("Order not found."));
     const guard = this.lineItemEditGuard(order);
@@ -1925,7 +1929,7 @@ export class OrderService {
     } catch (error) {
       return Err(toCommerceError(error));
     }
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const order = await this.repo.findById(orgId, orderId, ctx);
     if (!order) return Err(new CommerceNotFoundError("Order not found."));
     const guard = this.lineItemEditGuard(order);
@@ -1972,7 +1976,7 @@ export class OrderService {
     } catch (error) {
       return Err(toCommerceError(error));
     }
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const order = await this.repo.findById(orgId, orderId, ctx);
     if (!order) return Err(new CommerceNotFoundError("Order not found."));
     const guard = this.lineItemEditGuard(order);
@@ -2011,7 +2015,7 @@ export class OrderService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<Order>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const order = await this.repo.findById(orgId, orderId, ctx);
     if (!order) {
       return Err(new CommerceNotFoundError("Order not found."));

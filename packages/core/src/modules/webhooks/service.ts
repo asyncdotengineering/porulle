@@ -1,5 +1,6 @@
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import type { Actor } from "../../auth/types.js";
+import type { CommerceConfig } from "../../config/types.js";
 import { CommerceNotFoundError, CommerceValidationError } from "../../kernel/errors.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
@@ -49,6 +50,7 @@ function isPrivateUrl(urlStr: string): boolean {
 
 interface WebhookServiceDeps {
   repository: WebhooksRepository;
+  config: CommerceConfig;
 }
 
 export class WebhookService {
@@ -76,7 +78,7 @@ export class WebhookService {
       );
     }
 
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
 
     const endpoint = await this.repo.createEndpoint(
       {
@@ -96,7 +98,7 @@ export class WebhookService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<WebhookEndpoint[]>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const endpoints = await this.repo.findAllEndpoints(orgId, ctx);
     return Ok(endpoints);
   }
@@ -106,7 +108,7 @@ export class WebhookService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<void>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const existing = await this.repo.findEndpointById(id, orgId, ctx);
     if (!existing) {
       return Err(new CommerceNotFoundError("Webhook endpoint not found."));

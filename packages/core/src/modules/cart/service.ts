@@ -1,4 +1,4 @@
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import { assertOwnership, assertPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
 import type { CommerceConfig } from "../../config/types.js";
@@ -60,6 +60,7 @@ function makeContext(
   actor: Actor | null,
   services: Record<string, unknown>,
   database: DatabaseAdapter,
+  config: CommerceConfig,
   tx: unknown = null,
 ): HookContext {
   return createHookContext({
@@ -69,6 +70,7 @@ function makeContext(
     services,
     context: { moduleName: "cart" },
     database: { db: database.db as PluginDb },
+    commerceConfig: config,
   });
 }
 
@@ -98,7 +100,7 @@ export class CartService {
 
     const ttlMinutes = this.deps.config.cart?.ttlMinutes ?? 60 * 24 * 7;
     const now = new Date();
-    const orgId = resolveOrgId(actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? null, this.deps.config);
 
     // SECURITY: cart.customerId is service-managed.
     //
@@ -175,7 +177,7 @@ export class CartService {
     // read any cart's contents, prices, line items, and metadata. This now
     // requires either an authenticated owner/staff actor OR the cart's
     // secret token (returned only at createGuest()).
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const cart = await this.repo.findById(orgId, id, ctx);
     if (!cart) return Err(new CommerceNotFoundError("Cart not found."));
 
@@ -229,7 +231,7 @@ export class CartService {
       return Err(toCommerceError(error));
     }
 
-    const orgId = resolveOrgId(actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? null, this.deps.config);
     const cart = await this.repo.findById(orgId, input.cartId, ctx);
     if (!cart) return Err(new CommerceNotFoundError("Cart not found."));
 
@@ -276,7 +278,7 @@ export class CartService {
       );
     }
 
-    const context = makeContext(actor ?? null, this.deps.services, this.deps.database, ctx?.tx);
+    const context = makeContext(actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx);
     const beforeHooks = this.deps.hooks.resolve(
       "cart.beforeAddItem",
     ) as CartAddBeforeHook[];
@@ -350,7 +352,7 @@ export class CartService {
       return Err(toCommerceError(error));
     }
 
-    const orgId = resolveOrgId(actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? null, this.deps.config);
     const cart = await this.repo.findById(orgId, cartId, ctx);
     if (!cart) return Err(new CommerceNotFoundError("Cart not found."));
 
@@ -365,7 +367,7 @@ export class CartService {
       return Err(new CommerceNotFoundError("Cart item not found."));
     }
 
-    const context = makeContext(actor ?? null, this.deps.services, this.deps.database, ctx?.tx);
+    const context = makeContext(actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx);
     const beforeHooks = this.deps.hooks.resolve(
       "cart.beforeRemoveItem",
     ) as CartRemoveBeforeHook[];
@@ -392,7 +394,7 @@ export class CartService {
       return Err(toCommerceError(error));
     }
 
-    const orgId = resolveOrgId(actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? null, this.deps.config);
     const cart = await this.repo.findById(orgId, input.cartId, ctx);
     if (!cart) return Err(new CommerceNotFoundError("Cart not found."));
 
@@ -413,7 +415,7 @@ export class CartService {
       );
     }
 
-    const context = makeContext(actor ?? null, this.deps.services, this.deps.database, ctx?.tx);
+    const context = makeContext(actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx);
     const beforeHooks = this.deps.hooks.resolve(
       "cart.beforeUpdateQuantity",
     ) as CartUpdateBeforeHook[];
@@ -449,7 +451,7 @@ export class CartService {
       return Err(toCommerceError(error));
     }
 
-    const orgId = resolveOrgId(actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? null, this.deps.config);
     const source = await this.repo.findById(orgId, sourceCartId, ctx);
     const target = await this.repo.findById(orgId, targetCartId, ctx);
     if (!source || !target)
@@ -504,7 +506,7 @@ export class CartService {
     } catch (error) {
       return Err(toCommerceError(error));
     }
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const rows = await this.repo.list(
       orgId,
       {
@@ -543,7 +545,7 @@ export class CartService {
     } catch (error) {
       return Err(toCommerceError(error));
     }
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const cart = await this.repo.findById(orgId, cartId, ctx);
     if (!cart) return Err(new CommerceNotFoundError("Cart not found."));
     if (cart.status === "checked_out" || cart.status === "merged" || cart.status === "checking_out") {
@@ -569,7 +571,7 @@ export class CartService {
       null,
       updated ?? cart,
       "recover",
-      makeContext(actor ?? null, this.deps.services, this.deps.database, ctx?.tx ?? null),
+      makeContext(actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null),
     );
 
     return Ok({
@@ -583,7 +585,7 @@ export class CartService {
   }
 
   async abandon(cartId: string, actor?: Actor | null, ctx?: TxContext): Promise<Result<void>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const cart = await this.repo.findById(orgId, cartId, ctx);
     if (!cart) return Err(new CommerceNotFoundError("Cart not found."));
 
@@ -596,7 +598,7 @@ export class CartService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<void>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const cart = await this.repo.findById(orgId, cartId, ctx);
     if (!cart) return Err(new CommerceNotFoundError("Cart not found."));
 
@@ -650,7 +652,8 @@ export class CartService {
 
     const cart = await this.repo.create(
       {
-        organizationId: resolveOrgId(null),
+        // Actor-less by design; resolves to the deployment's declared organization.
+        organizationId: resolveOrgIdForCommerce(null, this.deps.config),
         customerId: undefined,
         status: "active",
         currency,
@@ -676,7 +679,7 @@ export class CartService {
     actor: Actor,
     ctx?: TxContext,
   ): Promise<Result<Cart>> {
-    const orgId = resolveOrgId(actor);
+    const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     const sourceCart = await this.repo.findById(orgId, sourceCartId, ctx);
     if (!sourceCart || sourceCart.secret !== sourceSecret) {
       return Err(

@@ -16,5 +16,6 @@ export const taxModule = defineModule<
     new TaxService({
       adapter: (deps.config as CommerceConfig).tax?.adapter,
       repository: new TaxRatesRepository(deps.db.db as DrizzleDatabase),
+      config: deps.config as CommerceConfig,
     }),
 });

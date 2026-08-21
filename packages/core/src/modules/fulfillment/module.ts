@@ -1,3 +1,4 @@
+import type { CommerceConfig } from "../../config/types.js";
 import type { DrizzleDatabase } from "../../kernel/database/drizzle-db.js";
 import { defineModule } from "../../kernel/module/index.js";
 import type { InventoryService } from "../inventory/service.js";
@@ -36,6 +37,7 @@ export const fulfillmentModule = defineModule<
       ordersRepository: new OrdersRepository(deps.db.db as DrizzleDatabase),
       inventoryService: deps.services.inventory,
       hooks: deps.hooks,
+      config: deps.config as CommerceConfig,
       services: deps.services,
       database: deps.db,
     }),

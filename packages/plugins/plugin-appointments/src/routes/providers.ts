@@ -1,4 +1,5 @@
-import { router, resolveOrgId } from "@porulle/core";
+import { router, resolveOrgIdForCommerce } from "@porulle/core";
+import type { CommerceConfig } from "@porulle/core";
 import type { PluginRouteRegistration } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
 import type { ProviderService } from "../services/provider-service.js";
@@ -23,8 +24,8 @@ const UpdateProviderSchema = z.object({
 
 export function buildProviderRoutes(services: {
   provider: ProviderService;
-}): PluginRouteRegistration[] {
-  const r = router("Appointments - Providers", "/appointments/providers");
+}, config: CommerceConfig): PluginRouteRegistration[] {
+  const r = router("Appointments - Providers", "/appointments/providers", { config });
 
   r.get("/")
     .summary("List providers")
@@ -38,7 +39,7 @@ export function buildProviderRoutes(services: {
     .input(CreateProviderSchema)
     .handler(async ({ input, actor }) => {
       const body = input as z.infer<typeof CreateProviderSchema>;
-      return services.provider.createProvider(resolveOrgId(actor), stripUndefined(body));
+      return services.provider.createProvider(resolveOrgIdForCommerce(actor, config), stripUndefined(body));
     });
 
   r.get("/{id}")

@@ -1,5 +1,6 @@
-import { resolveOrgId } from "../../auth/org.js";
+import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import type { Actor } from "../../auth/types.js";
+import type { CommerceConfig } from "../../config/types.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
 import { CommerceValidationError } from "../../kernel/errors.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
@@ -9,6 +10,7 @@ const GROUP_NAME_RE = /^[a-z][a-z0-9_-]*$/;
 
 interface SettingsServiceDeps {
   repository: SettingsRepository;
+  config: CommerceConfig;
 }
 
 /**
@@ -20,9 +22,11 @@ interface SettingsServiceDeps {
  */
 export class SettingsService {
   private repository: SettingsRepository;
+  private config: CommerceConfig;
 
   constructor(deps: SettingsServiceDeps) {
     this.repository = deps.repository;
+    this.config = deps.config;
   }
 
   /** Runtime read for plugins/hooks. Unset groups read as `{}`. */
@@ -40,7 +44,7 @@ export class SettingsService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<Record<string, unknown>>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config);
     return Ok(await this.read(orgId, group, ctx));
   }
 
@@ -48,7 +52,7 @@ export class SettingsService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<Record<string, Record<string, unknown>>>> {
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config);
     const rows = await this.repository.findAll(orgId, ctx);
     const all: Record<string, Record<string, unknown>> = {};
     for (const row of rows) all[row.group] = row.value;
@@ -69,7 +73,7 @@ export class SettingsService {
         ),
       );
     }
-    const orgId = resolveOrgId(actor ?? ctx?.actor ?? null);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config);
     const current = await this.read(orgId, group, ctx);
     const next: Record<string, unknown> = { ...current };
     for (const [key, value] of Object.entries(patch)) {

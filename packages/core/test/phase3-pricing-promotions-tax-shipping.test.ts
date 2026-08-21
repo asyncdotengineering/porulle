@@ -516,6 +516,7 @@ describe("phase 3 shipping and checkout pipeline (PGlite-backed)", () => {
         origin: "rest" as const,
         jobs: { enqueue: async () => {} },
         kernel,
+        commerceConfig: kernel.config,
       } as any,
     );
 
