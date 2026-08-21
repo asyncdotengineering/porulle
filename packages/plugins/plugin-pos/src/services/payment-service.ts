@@ -20,11 +20,13 @@ export class PaymentService {
     changeGiven?: number;
     reference?: string;
     metadata?: Record<string, unknown>;
-  }): Promise<PluginResult<Payment>> {
+  }, tx?: Db): Promise<PluginResult<Payment>> {
     if (input.amount <= 0) return Err("Payment amount must be positive");
 
+    const db = tx ?? this.db;
+
     // Verify transaction is open
-    const txns = await this.db
+    const txns = await db
       .select()
       .from(posTransactions)
       .where(and(
@@ -36,7 +38,14 @@ export class PaymentService {
     const txn = txns[0]!;
     if (txn.status !== "open") return Err("Transaction is not open");
 
-    const rows = await this.db
+    if (txn.type === "return" && txn.total > 0) {
+      const currentPaid = await this.getPaymentTotal(transactionId, db);
+      if (currentPaid + input.amount > txn.total) {
+        return Err(`Payment would exceed refund total: ${currentPaid + input.amount} > ${txn.total}`);
+      }
+    }
+
+    const rows = await db
       .insert(posPayments)
       .values({
         transactionId,
@@ -56,8 +65,9 @@ export class PaymentService {
   /**
    * Get total payments collected for a transaction.
    */
-  async getPaymentTotal(transactionId: string): Promise<number> {
-    const rows = await this.db
+  async getPaymentTotal(transactionId: string, tx?: Db): Promise<number> {
+    const db = tx ?? this.db;
+    const rows = await db
       .select({
         total: sql<number>`COALESCE(SUM(${posPayments.amount} - ${posPayments.changeGiven}), 0)`.as("total"),
       })

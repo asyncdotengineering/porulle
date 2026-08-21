@@ -25,7 +25,7 @@ describe("SEC-08 — POS return refund is server-derived, capped, idempotent", (
     ...posAdminActor,
     permissions: [
       ...posAdminActor.permissions,
-      "orders:create", "orders:read", "orders:update", "catalog:create", "pricing:manage",
+      "orders:create", "orders:read", "orders:update", "catalog:create", "catalog:read:unpublished", "pricing:manage",
     ],
   };
 
@@ -51,6 +51,11 @@ describe("SEC-08 — POS return refund is server-derived, capped, idempotent", (
       method: "POST", headers: jsonHeaders(actor), body: JSON.stringify(body),
     });
 
+  const withPayment = (body: Record<string, unknown>, amount = UNIT_PRICE) => ({
+    ...body,
+    payment: { method: "cash" as const, amount },
+  });
+
   beforeAll(async () => {
     const built = await createPluginTestApp(posPlugin());
     app = built.app;
@@ -72,45 +77,45 @@ describe("SEC-08 — POS return refund is server-derived, capped, idempotent", (
 
   it("computes the refund from the order, ignoring any client amount", async () => {
     const { orderId, lineItemId } = await makeOrder();
-    const res = await returnReq({
+    const res = await returnReq(withPayment({
       shiftId, terminalId, originalOrderId: orderId,
       // note: refundAmount is intentionally NOT sent — server derives it
       items: [{ originalLineItemId: lineItemId, quantity: 1, reason: "changed_mind" }],
-    });
+    }));
     expect(res.status).toBeLessThan(300);
     const data = (await res.json()).data;
     expect(data.refundTotal).toBe(UNIT_PRICE);
   });
 
   it("rejects a fabricated / foreign order id", async () => {
-    const res = await returnReq({
+    const res = await returnReq(withPayment({
       shiftId, terminalId,
       originalOrderId: "00000000-0000-0000-0000-000000000000",
       items: [{ originalLineItemId: "00000000-0000-0000-0000-000000000001", quantity: 1, reason: "other" }],
-    });
+    }));
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
 
   it("rejects over-refund (more units than were sold)", async () => {
     const { orderId, lineItemId } = await makeOrder();
-    const res = await returnReq({
+    const res = await returnReq(withPayment({
       shiftId, terminalId, originalOrderId: orderId,
       items: [{ originalLineItemId: lineItemId, quantity: 5, reason: "other" }],
-    });
+    }, UNIT_PRICE * 5));
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
 
   it("rejects a repeat refund of the same units (ledger idempotency)", async () => {
     const { orderId, lineItemId } = await makeOrder();
-    const first = await returnReq({
+    const first = await returnReq(withPayment({
       shiftId, terminalId, originalOrderId: orderId,
       items: [{ originalLineItemId: lineItemId, quantity: 1, reason: "other" }],
-    });
+    }));
     expect(first.status).toBeLessThan(300);
-    const second = await returnReq({
+    const second = await returnReq(withPayment({
       shiftId, terminalId, originalOrderId: orderId,
       items: [{ originalLineItemId: lineItemId, quantity: 1, reason: "other" }],
-    });
+    }));
     expect(second.status).toBeGreaterThanOrEqual(400);
   });
 });

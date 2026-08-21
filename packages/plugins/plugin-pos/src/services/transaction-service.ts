@@ -17,17 +17,19 @@ export class TransactionService {
     cartId: string;
     type?: "sale" | "return" | "exchange";
     customerId?: string;
-  }): Promise<PluginResult<Transaction>> {
+  }, tx?: Db): Promise<PluginResult<Transaction>> {
+    const db = tx ?? this.db;
+
     // Verify shift is open
-    const shifts = await this.db
+    const shifts = await db
       .select()
       .from(posShifts)
       .where(and(eq(posShifts.id, input.shiftId), eq(posShifts.status, "open")));
     if (shifts.length === 0) return Err("Shift is not open");
 
-    const receiptNumber = await this.generateReceiptNumber(orgId, input.terminalId);
+    const receiptNumber = await this.generateReceiptNumber(orgId, input.terminalId, db);
 
-    const rows = await this.db
+    const rows = await db
       .insert(posTransactions)
       .values({
         organizationId: orgId,
@@ -148,8 +150,9 @@ export class TransactionService {
     taxTotal: number;
     total: number;
     discountTotal: number;
-  }): Promise<void> {
-    await this.db
+  }, tx?: Db): Promise<void> {
+    const db = tx ?? this.db;
+    await db
       .update(posTransactions)
       .set({ ...totals, updatedAt: new Date() })
       .where(eq(posTransactions.id, id));
@@ -219,14 +222,15 @@ export class TransactionService {
   // ─── Receipt Number Generation ─────────────────────────────────────
   // Sequential per terminal per day: {terminal_code}-{sequence}
 
-  private async generateReceiptNumber(orgId: string, terminalId: string): Promise<string> {
+  private async generateReceiptNumber(orgId: string, terminalId: string, tx?: Db): Promise<string> {
+    const db = tx ?? this.db;
     const today = new Date();
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const startOfDayISO = startOfDay.toISOString();
 
     // Get terminal code
     const { posTerminals } = await import("../schema.js");
-    const terminals = await this.db
+    const terminals = await db
       .select({ code: posTerminals.code })
       .from(posTerminals)
       .where(eq(posTerminals.id, terminalId));
@@ -234,7 +238,7 @@ export class TransactionService {
     const terminalCode = terminals[0]?.code ?? "POS";
 
     // Count today's transactions for this terminal
-    const countRows = await this.db
+    const countRows = await db
       .select({ count: sql<number>`COUNT(*)`.as("count") })
       .from(posTransactions)
       .where(and(

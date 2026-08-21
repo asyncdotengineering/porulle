@@ -18,9 +18,10 @@ export class ReturnService {
     reason: "defective" | "wrong_item" | "changed_mind" | "other";
     restockingFee?: number;
     refundAmount: number;
-  }>): Promise<PluginResult<ReturnItem[]>> {
+  }>, tx?: Db): Promise<PluginResult<ReturnItem[]>> {
     if (items.length === 0) return Err("At least one item is required");
 
+    const db = tx ?? this.db;
     const values = items.map((item) => ({
       transactionId,
       originalOrderId: item.originalOrderId,
@@ -31,7 +32,7 @@ export class ReturnService {
       refundAmount: item.refundAmount,
     }));
 
-    const rows = await this.db
+    const rows = await db
       .insert(posReturnItems)
       .values(values)
       .returning();
