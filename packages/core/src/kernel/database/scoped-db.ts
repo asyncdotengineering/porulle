@@ -9,6 +9,18 @@
  * Plugin route handlers receive this scoped db via PluginContext.database.db
  * (organization resolved per operation from AsyncLocalStorage when used from
  * plugin routes) or a fixed string / getter from router() / tests.
+ *
+ * SCOPE BOUNDARY — what this does NOT cover:
+ *
+ * Only `insert`, `select`, `update` and `delete` are wrapped. `execute()` is
+ * deliberately outside the boundary: injecting a tenant predicate into
+ * arbitrary SQL would mean parsing it, and a parser that is wrong once is worse
+ * than no guarantee at all. So `db.execute(sql`...`)` on a scoped handle is
+ * exactly as unscoped as one on the raw handle — which is the surprising part,
+ * because the caller reached for the safe object and still has to filter by
+ * organization themselves.
+ *
+ * Adding a fifth wrapped method is fine. Adding a raw-SQL rewriter is not.
  */
 
 import { and, eq, getTableColumns } from "drizzle-orm";

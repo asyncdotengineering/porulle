@@ -10,11 +10,15 @@ Custom tables let you add application-specific data to the same database as your
 Create a schema file in your app. Import core tables from `@porulle/core/schema` to reference them in foreign key constraints.
 
 ```ts title="src/schema/reviews.ts"
-import { integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
-import { sellableEntities, customers } from "@porulle/core/schema";
+import { index, integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { sellableEntities, customers, organization } from "@porulle/core/schema";
 
 export const reviews = pgTable("reviews", {
   id: uuid("id").defaultRandom().primaryKey(),
+  // Every table holding tenant data needs this column. See below.
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
   entityId: uuid("entity_id")
     .notNull()
     .references(() => sellableEntities.id, { onDelete: "cascade" }),
@@ -29,10 +33,22 @@ export const reviews = pgTable("reviews", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
-});
+}, (table) => ({
+  orgIdx: index("idx_reviews_org").on(table.organizationId),
+}));
 ```
 
 Use `onDelete: "cascade"` when the row should be deleted with its parent. Use `onDelete: "set null"` when the row should survive parent deletion — the FK column must be nullable in that case.
+
+:::caution[Name the column `organizationId` or you get no tenant isolation]
+Porulle scopes a custom table to a tenant by looking for an `organizationId`
+column. A table without one is invisible to that machinery, so every row is
+readable by every organization — and nothing warns you, because a table with no
+tenant column looks deliberately global.
+
+Add it to any table holding per-merchant data. Genuinely global lookup tables —
+currency codes, country lists — correctly omit it.
+:::
 
 ## Register the table
 
@@ -84,13 +100,31 @@ bunx drizzle-kit migrate --config drizzle.config.ts
 
 ## Add routes
 
+There are two surfaces, and they differ in one way that matters.
+
+| surface | database handle | tenant scoping |
+| --- | --- | --- |
+| `config.routes` | `kernel.database.db` | **none — you scope it yourself** |
+| a plugin's `PluginContext` | `ctx.database.db` | automatic, per request |
+
+`config.routes` is the simplest way to add an endpoint and it hands you the raw
+database. Nothing injects the organization for you there, so every query you
+write must carry it. The example below does.
+
+If you want the scoping done for you, ship the feature as a plugin instead:
+`ctx.database.db` resolves the organization from the request actor and
+constrains `select`, `insert`, `update` and `delete` on any table with an
+`organizationId` column — including when you write no `WHERE` clause at all.
+
 Register route handlers via the `routes` field in `commerce.config.ts`. The callback receives the Hono app instance and the kernel:
 
 ```ts title="src/routes/reviews.ts"
 import type { Hono } from "hono";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { reviews } from "../schema/reviews.js";
 import { sellableEntities } from "@porulle/core/schema";
+import { resolveOrgIdForCommerce } from "@porulle/core";
+import type { CommerceConfig } from "@porulle/core";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 function db(raw: unknown): PostgresJsDatabase<Record<string, unknown>> {
@@ -98,15 +132,20 @@ function db(raw: unknown): PostgresJsDatabase<Record<string, unknown>> {
 }
 
 export function reviewRoutes(app: Hono, kernel: unknown) {
-  const k = kernel as { database: { db: unknown } };
+  const k = kernel as { database: { db: unknown }; config: CommerceConfig };
 
   app.post("/api/reviews", async (c) => {
     const body = await c.req.json();
     const drizzle = db(k.database.db);
 
+    // config.routes gives you the unscoped handle, so resolve the tenant
+    // yourself and write it on every row.
+    const organizationId = resolveOrgIdForCommerce(c.get("actor"), k.config);
+
     const [review] = await drizzle
       .insert(reviews)
       .values({
+        organizationId,
         entityId: body.entityId,
         customerId: body.customerId ?? null,
         rating: body.rating,
@@ -121,6 +160,7 @@ export function reviewRoutes(app: Hono, kernel: unknown) {
   app.get("/api/reviews/:entityId", async (c) => {
     const entityId = c.req.param("entityId");
     const drizzle = db(k.database.db);
+    const organizationId = resolveOrgIdForCommerce(c.get("actor"), k.config);
 
     const rows = await drizzle
       .select({
@@ -129,7 +169,12 @@ export function reviewRoutes(app: Hono, kernel: unknown) {
       })
       .from(reviews)
       .innerJoin(sellableEntities, eq(reviews.entityId, sellableEntities.id))
-      .where(eq(reviews.entityId, entityId))
+      // Both predicates are required. Dropping the organization one returns
+      // every tenant's reviews for that entity id.
+      .where(and(
+        eq(reviews.organizationId, organizationId),
+        eq(reviews.entityId, entityId),
+      ))
       .orderBy(desc(reviews.createdAt));
 
     return c.json({ data: rows });
@@ -154,6 +199,46 @@ export default defineConfig({
 ```
 
 If you need routes from multiple files, call each registration function inside the same `routes` callback.
+
+## Writing raw SQL
+
+Both handles are full Drizzle instances, so `db.execute()` is available when the
+query builder cannot express what you need — a window function, a recursive CTE,
+a `tsvector` ranking.
+
+**Raw SQL is never tenant-scoped, on either surface.** The scoping proxy works by
+wrapping `select` / `insert` / `update` / `delete`; it cannot parse arbitrary SQL
+to find the right place to add a predicate. So a `db.execute()` on a plugin's
+`ctx.database.db` is exactly as unscoped as one on `kernel.database.db`.
+
+```ts
+import { sql } from "drizzle-orm";
+
+const organizationId = resolveOrgIdForCommerce(c.get("actor"), k.config);
+
+const rows = await drizzle.execute(sql`
+  SELECT entity_id, AVG(rating)::float AS average
+  FROM reviews
+  WHERE organization_id = ${organizationId}
+  GROUP BY entity_id
+`);
+```
+
+Two rules keep this safe:
+
+1. **Filter by organization in every statement.** There is no safety net here.
+2. **Interpolate values, never fragments.** `${organizationId}` inside a `sql`
+   template becomes a bind parameter, so it is never parsed as SQL. Reach for
+   `sql.raw()` only for strings your own code produced — a validated column name,
+   never anything from a request.
+
+```ts
+// ✘ user input through sql.raw is an injection
+await drizzle.execute(sql`SELECT * FROM reviews WHERE title = ${sql.raw(userInput)}`);
+
+// ✓ user input as a bind parameter
+await drizzle.execute(sql`SELECT * FROM reviews WHERE title = ${userInput}`);
+```
 
 ## Use the plugin system for reusable tables
 
