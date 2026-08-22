@@ -361,7 +361,8 @@ This framework was extracted from a production e-commerce engine after a five-ro
 
 ### Upgrading
 
-- [**0.11.x → 0.13.0**](./docs/migration-0.11-to-0.13.md) — **start here.** There is no 0.12.0 on npm; it was versioned and never published, so `latest` went 0.11.0 → 0.13.0 and this guide covers both. Authorization defaults tightened in several places.
+- [**0.13.0 → 0.14.0**](./docs/migration-0.13-to-0.14.md) — **latest.** One breaking change: the server now refuses to start when it cannot resolve an organization. Everything else is additive.
+- [**0.11.x → 0.13.0**](./docs/migration-0.11-to-0.13.md) — **start here if you are on 0.11.** There is no 0.12.0 on npm; it was versioned and never published, so `latest` went 0.11.0 → 0.13.0 and this guide covers both. Authorization defaults tightened in several places.
 - [**0.1.0 → 0.7.x**](./docs/migration-0.1-to-0.7.md) — the early-adopter jump.
 
 Feature-specific migrations: [catalog field ownership](./docs/migration-catalog-field-ownership.md) · [catalog tags and compare-at](./docs/migration-catalog-tags-and-compare-at.md) · [channel catalog pushes](./docs/migration-channel-catalog-pushes.md) · [channel outbound echo](./docs/migration-channel-outbound-echo.md) · [entity field definitions](./docs/migration-entity-field-definitions.md) · [media origin](./docs/migration-media-origin.md) · [sellable custom fields](./docs/migration-sellable-custom-fields.md) · [sellable entity revisions](./docs/migration-sellable-entity-revisions.md)

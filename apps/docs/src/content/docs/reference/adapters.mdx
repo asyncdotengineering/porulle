@@ -139,12 +139,34 @@ interface StorageAdapter {
 ```ts
 interface SearchAdapter {
   readonly providerId: string;
+  /** Optional. Called once when the search module wires the adapter. */
+  init?(deps: { db: PluginDb }): void;
   index(documents: SearchDocument[]): Promise<Result<void>>;
   remove(ids: string[]): Promise<Result<void>>;
   search(params: SearchQueryParams): Promise<Result<SearchQueryResult>>;
   suggest(params: SearchSuggestParams): Promise<Result<string[]>>;
 }
 ```
+
+`init` exists because an adapter is constructed in `commerce.config.ts`, before
+a kernel exists — so an adapter needing the database cannot be handed one at
+construction. The search module calls `init` when it wires the adapter, passing
+the configured database. Implementing it is optional; `@porulle/adapter-meilisearch`
+talks to a separate service and does not.
+
+`@porulle/adapter-pg-search` uses it to default to the database porulle is
+already connected to, so no second connection is needed:
+
+```ts
+import { pgSearchAdapter } from "@porulle/adapter-pg-search";
+
+export default defineConfig({
+  search: { adapter: pgSearchAdapter() },
+});
+```
+
+Pass `query` only when search should run against a *different* database. A
+supplied `query` always wins — `init` never overwrites it.
 
 ### SearchDocument
 

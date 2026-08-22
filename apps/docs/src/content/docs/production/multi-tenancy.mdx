@@ -106,6 +106,25 @@ auth: {
 
 If `strictOrgResolution` is `true` and resolution returns `null`, the request is rejected with HTTP 503. This prevents accidental cross-store data access when the resolver can't determine the store.
 
+:::danger[Strict resolution is the default, and the server refuses to start without a way to resolve]
+`strictOrgResolution` defaults to **on**. A deployment that configures neither
+`auth.defaultOrganizationId` nor `auth.storeResolver` has no way to answer
+"which organization?" for a request carrying no actor.
+
+`createServer` refuses to construct in that case rather than starting and
+returning 503 on the first such request — which would surface in production, on
+a path you may not exercise until a real visitor does. An empty or
+whitespace-only `defaultOrganizationId` counts as absent, since that is what an
+unset environment variable produces.
+
+The error names all three remedies:
+
+- `auth.defaultOrganizationId` — single-tenant
+- `auth.storeResolver` — multi-tenant
+- `auth.strictOrgResolution: false`, or `STRICT_ORG_RESOLUTION=false` — keep the
+  previous permissive behaviour during a migration
+:::
+
 ## Define plugin tables with `defineTable`
 
 Use `defineTable` from `@porulle/db` for plugin-owned tables that need multi-tenant scoping. It auto-injects `id`, `organizationId`, `createdAt`, `updatedAt`, org index, and composite unique constraints:
