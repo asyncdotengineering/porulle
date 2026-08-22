@@ -24,6 +24,7 @@ import { rewriteCommerceAliasRequest } from "./url-alias-rewrite.js";
 import { mapErrorToResponse } from "../kernel/error-mapper.js";
 import { assertRouteCoverage } from "../interfaces/rest/route-coverage.js";
 import { markRoutePermissionGuard } from "../interfaces/rest/utils.js";
+import { isStrictOrgResolution } from "../auth/strict-org-resolution.js";
 
 type ServerEnv = {
   Variables: {
@@ -505,6 +506,23 @@ export async function createServer(config: CommerceConfig) {
         "or set config.jobs.autorun.enabled = true for in-process polling.",
       );
     }
+  }
+
+  const defaultOrganizationId = config.auth?.defaultOrganizationId;
+  const hasDefaultOrganization =
+    typeof defaultOrganizationId === "string" && defaultOrganizationId.trim().length > 0;
+  if (
+    isStrictOrgResolution(config) &&
+    !hasDefaultOrganization &&
+    !config.auth?.storeResolver
+  ) {
+    throw new Error(
+      "Cannot resolve an organization for a request with no actor. Set " +
+        "auth.defaultOrganizationId for a single-tenant deployment, or " +
+        "auth.storeResolver for a multi-tenant one. To keep the previous " +
+        "permissive behaviour during a migration, set " +
+        "auth.strictOrgResolution: false (or STRICT_ORG_RESOLUTION=false).",
+    );
   }
 
   assertRouteCoverage(app);

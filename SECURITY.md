@@ -50,14 +50,17 @@ Reference: `packages/core/src/auth/org.ts`.
 
 ## Rate limit layers
 
-Four rate limiters are applied in sequence. All are per-IP unless noted. Defaults can be overridden via `config.rateLimits`.
+Five rate-limit layers protect the HTTP surface. All are per-IP unless noted. The per-email sign-in limiter is the primary credential control; the per-IP auth limiter is a coarse net for credential endpoints, and session reads use their own bucket. Defaults can be overridden via `config.rateLimits`.
 
 | Layer | Scope | Default | Config key |
 |---|---|---|---|
-| `/api/auth/*` | Per-IP | 10/min | `rateLimits.auth` |
+| `/api/auth/get-session` | Per-IP | 120/min | `rateLimits.session` |
+| `/api/auth/*` (except `get-session`) | Per-IP | 10/min | `rateLimits.auth` |
 | `/api/auth/sign-in/email` | Per-email (SHA-256 keyed) | 10/15min | `rateLimits.signInPerEmail` |
 | `/api/checkout` | Per-IP | 5/min | `rateLimits.checkout` |
 | `/api/*` | Per-IP | 100/min | `rateLimits.api` |
+
+Session reads do not consume the shared `/api/auth/*` budget. Credential requests still pass through both the per-IP auth limiter and the per-email sign-in limiter.
 
 The per-email limiter hashes the email with SHA-256 before using it as the rate limit key, so raw emails are not stored in the rate limit state. Reference: `packages/core/src/runtime/server.ts:47--51`.
 

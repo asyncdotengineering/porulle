@@ -31,7 +31,7 @@ describe("invitation acceptance re-checks the inviter's authority", () => {
 
   async function boot() {
     const config = await createTestConfig({
-      auth: { roles: ROLES, requireEmailVerification: false, allowTestActor: true, trustedOrigins: ["http://localhost"] },
+      auth: { defaultOrganizationId: ORG, roles: ROLES, requireEmailVerification: false, allowTestActor: true, trustedOrigins: ["http://localhost"] },
     });
     const { app, kernel } = await createServer(config);
     const db = kernel.database.db as any;

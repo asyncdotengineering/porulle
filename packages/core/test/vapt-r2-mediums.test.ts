@@ -190,7 +190,7 @@ describe("VAPT r2 medium closures", () => {
 
   it("enforces per-email sign-in rate limit and applies csp header", async () => {
     const { app } = await createServer(await createTestConfig({
-      auth: { trustedOrigins: ["http://localhost"] },
+      auth: { defaultOrganizationId: "org_default", trustedOrigins: ["http://localhost"] },
       rateLimits: { auth: 100, signInPerEmail: 10 },
       security: { csp: { default: "default-src 'self'" } },
     }));

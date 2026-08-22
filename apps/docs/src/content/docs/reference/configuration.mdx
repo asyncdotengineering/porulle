@@ -65,15 +65,19 @@ database: {
 rateLimits: {
   api?: number;
   auth?: number;
+  session?: number;
   checkout?: number;
+  signInPerEmail?: number;
 }
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `api` | `number` | `100` | Max requests per minute for general API routes |
-| `auth` | `number` | `10` | Max requests per minute for authentication endpoints |
+| `auth` | `number` | `10` | Max requests per minute for credential authentication endpoints |
+| `session` | `number` | `120` | Max session reads per minute; session reads have a separate per-IP bucket |
 | `checkout` | `number` | `5` | Max requests per minute for checkout creation |
+| `signInPerEmail` | `number` | `10` | Max sign-in attempts per email per 15 minutes |
 
 When a client exceeds the limit, the server responds with `429 Too Many Requests`.
 
