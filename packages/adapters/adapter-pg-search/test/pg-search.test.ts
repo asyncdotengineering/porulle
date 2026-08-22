@@ -1,7 +1,71 @@
 import { describe, expect, it } from "vitest";
+import type { PluginDb } from "@porulle/core";
 import { pgSearchAdapter } from "../src/index.js";
 
 describe("adapter-pg-search", () => {
+  it("explains how to configure database access when used before init", async () => {
+    const adapter = pgSearchAdapter();
+
+    await expect(adapter.remove(["ent_before_init"])).rejects.toThrow(
+      "no `query` was supplied and init() has not run",
+    );
+  });
+
+  it("uses the configured database after init when no query callback is supplied", async () => {
+    const statements: unknown[] = [];
+    const db = {
+      dialect: {},
+      async execute(query: unknown): Promise<Record<string, unknown>[]> {
+        statements.push(query);
+        return [];
+      },
+    } as unknown as PluginDb;
+
+    const adapter = pgSearchAdapter();
+    adapter.init?.({ db });
+
+    const indexed = await adapter.index([
+      {
+        id: "ent_default_db",
+        type: "product",
+        slug: "default-db",
+        title: "Default DB",
+        categories: [],
+        brands: [],
+        text: "Default DB",
+      },
+    ]);
+
+    expect(indexed.ok).toBe(true);
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toHaveProperty("getSQL");
+  });
+
+  it("keeps a supplied query callback ahead of the configured database", async () => {
+    const suppliedCalls: string[] = [];
+    const databaseCalls: unknown[] = [];
+    const db = {
+      async execute(query: unknown): Promise<Record<string, unknown>[]> {
+        databaseCalls.push(query);
+        return [];
+      },
+    } as unknown as PluginDb;
+
+    const adapter = pgSearchAdapter({
+      async query(sql) {
+        suppliedCalls.push(sql);
+        return { rows: [] };
+      },
+    });
+    adapter.init?.({ db });
+
+    const removed = await adapter.remove(["ent_supplied_query"]);
+
+    expect(removed.ok).toBe(true);
+    expect(suppliedCalls).toHaveLength(1);
+    expect(databaseCalls).toHaveLength(0);
+  });
+
   it("builds SQL for index/search/suggest/remove flows", async () => {
     const statements: Array<{ sql: string; params: unknown[] }> = [];
 

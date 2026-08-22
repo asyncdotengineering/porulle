@@ -1,4 +1,5 @@
 import type { Result } from "../../kernel/result.js";
+import type { PluginDb } from "../../kernel/database/plugin-types.js";
 
 export interface SearchDocument {
   id: string;
@@ -58,6 +59,8 @@ export interface SearchQueryResult {
 
 export interface SearchAdapter {
   readonly providerId: string;
+  /** Called once when the search module wires the adapter to the live database. */
+  init?(deps: { db: PluginDb }): void;
   index(documents: SearchDocument[]): Promise<Result<void>>;
   remove(ids: string[]): Promise<Result<void>>;
   search(params: SearchQueryParams): Promise<Result<SearchQueryResult>>;

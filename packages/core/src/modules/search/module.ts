@@ -1,4 +1,5 @@
 import type { CommerceConfig } from "../../config/types.js";
+import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import { defineModule } from "../../kernel/module/index.js";
 import type { CatalogServiceImpl } from "../catalog/service.js";
 import { SearchService } from "./service.js";
@@ -14,12 +15,14 @@ export const searchModule = defineModule<Record<string, never>, SearchService, S
     schema: () => ({}),
     service: (deps) => {
       const config = deps.config as CommerceConfig;
+      const adapter = config.search?.adapter;
+      adapter?.init?.({ db: deps.db.db as PluginDb });
       return new SearchService({
         catalogRepository: deps.services.catalog.repository,
         resolveEntityFieldDefinitions: deps.services.catalog.resolveEntityFieldDefinitions.bind(deps.services.catalog),
         config,
         ...(config.entities ? { entities: config.entities } : {}),
-        ...(config.search?.adapter ? { adapter: config.search.adapter } : {}),
+        ...(adapter ? { adapter } : {}),
         ...(config.search?.defaultFacets
           ? { defaultFacets: config.search.defaultFacets }
           : {}),

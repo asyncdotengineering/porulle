@@ -7,16 +7,62 @@ import {
   type SearchQueryParams,
   type SearchQueryResult,
   type SearchSuggestParams,
+  type PluginDb,
 } from "@porulle/core";
+import { sql, type SQL } from "@porulle/core/drizzle";
 
 export interface PgSearchQueryResultRow {
   [key: string]: unknown;
 }
 
 export interface PgSearchAdapterOptions {
-  query: (sql: string, params: unknown[]) => Promise<{ rows: PgSearchQueryResultRow[] }>;
+  query?: (
+    sql: string,
+    params: unknown[],
+  ) => Promise<{ rows: PgSearchQueryResultRow[] }>;
   tableName?: string;
   dictionary?: string;
+}
+
+type PgSearchQuery = (
+  sql: string,
+  params: unknown[],
+) => Promise<{ rows: PgSearchQueryResultRow[] }>;
+
+type PgSearchDatabase = {
+  execute(query: SQL | string, params?: unknown[]): Promise<unknown>;
+  dialect?: unknown;
+};
+
+function databaseRows(result: unknown): PgSearchQueryResultRow[] {
+  if (Array.isArray(result)) return result as PgSearchQueryResultRow[];
+  if (result && typeof result === "object") {
+    const rows = (result as { rows?: unknown }).rows;
+    if (Array.isArray(rows)) return rows as PgSearchQueryResultRow[];
+  }
+  throw new Error("Configured database execute() did not return rows.");
+}
+
+function toDatabaseQuery(query: string, params: unknown[]): SQL {
+  const chunks = [];
+  const placeholders = /\$(\d+)/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = placeholders.exec(query)) !== null) {
+    const parameterIndex = Number(match[1]) - 1;
+    if (parameterIndex < 0 || parameterIndex >= params.length) {
+      throw new Error(
+        `Query placeholder $${match[1]} has no matching parameter.`,
+      );
+    }
+    chunks.push(sql.raw(query.slice(cursor, match.index)));
+    chunks.push(sql.param(params[parameterIndex]));
+    cursor = placeholders.lastIndex;
+  }
+
+  chunks.push(sql.raw(query.slice(cursor)));
+  return sql.join(chunks, sql.empty());
 }
 
 function safeIdentifier(value: string): string {
@@ -96,10 +142,10 @@ function toDocument(row: PgSearchQueryResultRow): SearchDocument {
   const attributes = parseAttributes(row.attributes);
   const payload = row.payload && typeof row.payload === "object"
     ? row.payload as Record<string, unknown>
-    : {};
+      : {};
   const organizationId = typeof payload.organizationId === "string"
-    ? payload.organizationId
-    : undefined;
+      ? payload.organizationId
+      : undefined;
   return {
     id: String(row.id ?? ""),
     ...(organizationId ? { organizationId } : {}),
@@ -230,19 +276,44 @@ function computeFacets(documents: SearchDocument[], requested?: string[]): Recor
   return output;
 }
 
-export function pgSearchAdapter(options: PgSearchAdapterOptions): SearchAdapter {
+export function pgSearchAdapter(
+  options: PgSearchAdapterOptions = {},
+): SearchAdapter {
   const table = safeIdentifier(options.tableName ?? "search_index");
   const dictionary = options.dictionary ?? "english";
+  let execute: PgSearchQuery | undefined = options.query;
+
+  function requireExecute(): PgSearchQuery {
+    if (!execute) {
+      throw new Error(
+        "pgSearchAdapter has no way to reach the database: no `query` was supplied and init() has not run. Pass the adapter through config.search.adapter so the search module can wire it.",
+      );
+    }
+    return execute;
+  }
 
   return {
     providerId: "pg-search",
 
+    init({ db }: { db: PluginDb }): void {
+      if (execute) return;
+      const database = db as unknown as PgSearchDatabase;
+      execute = async (query, params) => ({
+        rows: databaseRows(
+          await (database.dialect === undefined
+            ? database.execute(query, params)
+            : database.execute(toDatabaseQuery(query, params))),
+        ),
+      });
+    },
+
     async index(documents: SearchDocument[]): Promise<Result<void>> {
+      const query = requireExecute();
       try {
         if (documents.length === 0) return Ok(undefined);
 
         for (const document of documents) {
-          await options.query(
+          await query(
             `INSERT INTO ${table} (id, type, slug, title, description, status, categories, brands, text, attributes, payload)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb)
              ON CONFLICT (id)
@@ -286,9 +357,10 @@ export function pgSearchAdapter(options: PgSearchAdapterOptions): SearchAdapter 
     },
 
     async remove(ids: string[]): Promise<Result<void>> {
+      const query = requireExecute();
       try {
         if (ids.length === 0) return Ok(undefined);
-        await options.query(`DELETE FROM ${table} WHERE id = ANY($1::text[])`, [ids]);
+        await query(`DELETE FROM ${table} WHERE id = ANY($1::text[])`, [ids]);
         return Ok(undefined);
       } catch (error) {
         return Err({
@@ -299,6 +371,7 @@ export function pgSearchAdapter(options: PgSearchAdapterOptions): SearchAdapter 
     },
 
     async search(params: SearchQueryParams): Promise<Result<SearchQueryResult>> {
+      const query = requireExecute();
       try {
         const page = Math.max(1, params.page ?? 1);
         const limit = Math.max(1, Math.min(100, params.limit ?? 20));
@@ -309,7 +382,7 @@ export function pgSearchAdapter(options: PgSearchAdapterOptions): SearchAdapter 
           ? `ts_rank(to_tsvector('${dictionary}', text), plainto_tsquery('${dictionary}', $1))`
           : "0";
 
-        const rows = await options.query(
+        const rows = await query(
           `SELECT id, type, slug, title, description, status, categories, brands, text, attributes, payload, ${scoreExpr} AS score
            FROM ${table}
            ${where.sql}
@@ -319,12 +392,12 @@ export function pgSearchAdapter(options: PgSearchAdapterOptions): SearchAdapter 
           [...where.values, limit, offset],
         );
 
-        const countRows = await options.query(
+        const countRows = await query(
           `SELECT COUNT(*)::int AS total FROM ${table} ${where.sql}`,
           where.values,
         );
 
-        const facetRows = await options.query(
+        const facetRows = await query(
           `SELECT id, type, slug, title, description, status, categories, brands, text, attributes, payload
            FROM ${table}
            ${where.sql}`,
@@ -354,6 +427,7 @@ export function pgSearchAdapter(options: PgSearchAdapterOptions): SearchAdapter 
     },
 
     async suggest(params: SearchSuggestParams): Promise<Result<string[]>> {
+      const query = requireExecute();
       try {
         const limit = Math.max(1, Math.min(25, params.limit ?? 10));
         const prefix = params.prefix.trim().toLowerCase();
@@ -375,7 +449,7 @@ export function pgSearchAdapter(options: PgSearchAdapterOptions): SearchAdapter 
 
         values.push(limit);
 
-        const rows = await options.query(
+        const rows = await query(
           `SELECT DISTINCT title
            FROM ${table}
            WHERE ${conditions.join(" AND ")}

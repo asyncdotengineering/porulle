@@ -11,7 +11,6 @@ import { pgSearchAdapter } from "@porulle/adapter-pg-search";
 export default defineConfig({
   search: {
     adapter: pgSearchAdapter({
-      query: (sql, params) => yourPgClient.query(sql, params),
       tableName: "search_index",     // default
       dictionary: "english",          // default; pick "simple" for non-English heavy stores
     }),
@@ -20,7 +19,7 @@ export default defineConfig({
 });
 ```
 
-The `query` function should be a thin wrapper around your PG client (`postgres`, `pg`, etc.) that returns `{ rows: ... }`. The adapter sends parameterized queries — never string-concatenates user input.
+With no options, the adapter uses the configured `databaseAdapter` after the search module starts. To use a separate search database, pass a `query` function as a thin wrapper around your PG client (`postgres`, `pg`, etc.) that returns `{ rows: ... }`; the adapter sends parameterized queries and preserves that callback when the module initializes.
 
 ## When to pick this over Meilisearch
 
