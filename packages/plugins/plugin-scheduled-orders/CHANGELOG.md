@@ -1,5 +1,12 @@
 # @porulle/plugin-scheduled-orders
 
+## 0.15.0
+
+### Patch Changes
+
+- Updated dependencies [[`dd59c5c`](https://github.com/asyncdotengineering/porulle/commit/dd59c5cd0d456d90b0cfb0af6b744a2520dc8f57)]:
+  - @porulle/core@0.15.0
+
 ## 0.14.0
 
 ### Patch Changes
