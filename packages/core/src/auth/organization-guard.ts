@@ -9,14 +9,45 @@ import { canGrantRole, granterForRole, isCompositeRole } from "./role-authority.
  * Guards Better Auth's organization endpoints, which this repository mounts but
  * does not govern.
  *
- * Red-team round 6 found that invitation acceptance re-checks nothing: an
- * invitation mints a member at the authority its inviter held up to seven days
- * ago, so a demoted or revoked inviter's outstanding invitation still handed
- * out ownership — a full organization takeover. Acceptance now re-reads the
- * inviter's current authority before the grant is allowed through.
+ * Red-team round 6 found two problems behind that mount.
+ *
+ * Invitation acceptance re-checked nothing: an invitation minted a member at
+ * the authority its inviter held up to seven days ago, so a demoted or revoked
+ * inviter's outstanding invitation still handed out ownership — a full
+ * organization takeover. Acceptance now re-reads the inviter's current
+ * authority before the grant is allowed through.
+ *
+ * And the plugin's own membership writers are a second role-changing surface
+ * running none of the rules `admin/staff.ts` enforces: no permission
+ * containment, no rank floor, no last-owner invariant, and they accept
+ * comma-composite role strings that `admin/staff.ts` refuses. They are refused
+ * here. `admin/staff.ts` is this repository's governed membership surface, and
+ * having one is worth more than making two of them agree.
  */
 
 const ORGANIZATION_PREFIX = "/api/auth/organization/";
+
+/**
+ * Better Auth endpoints that write membership or define what a role may do.
+ *
+ * `invite-member` currently throws for every role instead of refusing: the
+ * plugin is configured with commerce permission arrays where its access-control
+ * model expects `Role` objects exposing `.authorize()`, so its permission check
+ * dies of type confusion. That is fail-closed by accident, and the accident is
+ * one "fix the roles wiring" commit away from being fail-open. Refusing here
+ * makes the closure deliberate, so repairing that wiring cannot quietly open an
+ * ungoverned door. `update-member-role` is not even inert today — Better Auth
+ * short-circuits it for organization creators, so an owner reaches it.
+ */
+const REFUSED_ENDPOINTS = new Set([
+  "invite-member",
+  "update-member-role",
+  "remove-member",
+  "leave",
+  "create-role",
+  "update-role",
+  "delete-role",
+]);
 
 function endpointName(path: string): string | null {
   const normalized = path.replace(/\/+$/, "");
@@ -47,6 +78,18 @@ export function organizationGuard(
     if (endpoint === null) {
       await next();
       return;
+    }
+
+    if (REFUSED_ENDPOINTS.has(endpoint)) {
+      return c.json(
+        {
+          error: {
+            code: "FORBIDDEN",
+            message: `"${endpoint}" is not a governed membership surface. Use /api/admin/staff, which enforces permission containment, the rank floor, and the last-owner invariant.`,
+          },
+        },
+        403,
+      );
     }
 
     if (endpoint !== "accept-invitation") {

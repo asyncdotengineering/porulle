@@ -65,6 +65,23 @@ export function createAuth(
     | ReturnType<typeof jwt>
     | ReturnType<typeof bearer>
   > = [
+    // These are commerce permission arrays, not Better Auth access-control
+    // `Role` objects exposing `.authorize()`. Its organization plugin therefore
+    // cannot evaluate a permission with them, and every check reaching its
+    // authorize loop throws instead of deciding — fail-closed, but by type
+    // confusion rather than by intent.
+    //
+    // That is deliberate and stays. This repository does not use Better Auth's
+    // access-control model: `admin/staff.ts` is the governed membership
+    // surface, and `auth/role-authority.ts` holds the arithmetic. Handing the
+    // plugin real `Role` objects would stand up a second permission model to
+    // keep in agreement with the first, which is how the two layers disagreed
+    // about composite roles and owner counting in the first place.
+    //
+    // What must not be relied on is the throw. `auth/organization-guard.ts`
+    // refuses the plugin's membership writers outright, so repairing this
+    // wiring cannot turn an accidental closure into an open door. Pin that
+    // guard's test before changing anything here.
     organization({
       roles: (config.auth?.roles ?? {}) as unknown as Record<string, Role | undefined>,
     }),
