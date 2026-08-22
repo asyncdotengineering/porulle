@@ -4,7 +4,7 @@
 
 ### Minor Changes
 
-- [`27de203`](https://github.com/asyncdotengineering/porulle/commit/27de203251c4ddae251fafa28be80a8523e6f3ea) Thanks [@octalpixel](https://github.com/octalpixel)! - Harden the catalog read path and make the class of defect it belonged to structurally harder to reintroduce.
+- [`98e75bb`](https://github.com/asyncdotengineering/porulle/commit/98e75bb0222d9079589d97dca74de0f0dda4e12c) Thanks [@octalpixel](https://github.com/octalpixel)! - Harden the catalog read path and make the class of defect it belonged to structurally harder to reintroduce.
 
   **Three changes matter more than any individual fix.**
 
@@ -22,7 +22,7 @@
 
   Order creation validates line-item entities through an internal organization-scoped read, so an operator can still sell an unpublished product, while an unprivileged buyer cannot. The refusal is indistinguishable from a not-in-organization refusal, so nothing new is discoverable.
 
-- [`baa6bb3`](https://github.com/asyncdotengineering/porulle/commit/baa6bb3f229af6ecaa5603519daaa3a68037e767) Thanks [@octalpixel](https://github.com/octalpixel)! - Bound a guest's order read to a window after the order is placed.
+- [`4f9e5b9`](https://github.com/asyncdotengineering/porulle/commit/4f9e5b939b72849b943de6fe2d2751dac8d6caba) Thanks [@octalpixel](https://github.com/octalpixel)! - Bound a guest's order read to a window after the order is placed.
 
   A cart secret previously read its placed order for as long as the cart row existed. Guest access is now decided by `config.orders.guestAccessStrategy`, defaulting to `windowedGuestOrderAccess("7d")` and anchored on the order's `placed_at` — so checking out on the sixth day of a seven-day cart still leaves a full week of receipt access. Authenticated customers are unaffected: account ownership grants access and the window never applies to it.
 
@@ -38,7 +38,7 @@
   }
   ```
 
-- [`88b8d18`](https://github.com/asyncdotengineering/porulle/commit/88b8d18feafd8175a10c1539981b61af87427156) Thanks [@octalpixel](https://github.com/octalpixel)! - Replace implicit role and write-permission authorization with explicit permissions for unpublished catalog reads and assisted order customer attribution.
+- [`cf611f9`](https://github.com/asyncdotengineering/porulle/commit/cf611f9f6b21a4dd3eaee7e3cab8c9f7d2faf431) Thanks [@octalpixel](https://github.com/octalpixel)! - Replace implicit role and write-permission authorization with explicit permissions for unpublished catalog reads and assisted order customer attribution.
 
   Merchants whose custom roles relied on `catalog:update` or a staff-shaped role name must grant `catalog:read:unpublished` and/or `orders:create:on-behalf` explicitly. The default `manager` role receives both scopes; `customer` receives neither.
 
@@ -48,19 +48,19 @@
 
   This is a proxy and it is deliberately a stopgap: the honest discriminator is caller intent, which a storefront route knows and the order service cannot see. It is recorded here rather than left implicit because a change whose whole thesis is replacing implicit permission semantics should not ship a new one silently.
 
-- [`14a6fb2`](https://github.com/asyncdotengineering/porulle/commit/14a6fb2125b7c0592d760e99b890815b27545214) Thanks [@octalpixel](https://github.com/octalpixel)! - Make `actor` a required argument on `catalog.list`, `catalog.getById`, and `catalog.getBySlug`.
+- [`7688ce2`](https://github.com/asyncdotengineering/porulle/commit/7688ce2eb4e1eea74a9ec0bfab90cdb74078bcc6) Thanks [@octalpixel](https://github.com/octalpixel)! - Make `actor` a required argument on `catalog.list`, `catalog.getById`, and `catalog.getBySlug`.
 
   **Breaking for consumers** calling these methods directly: `actor` is now required (pass `null` to mean anonymous deliberately), and `options` must be passed explicitly as `undefined` when absent.
 
   Previously, omitting `actor` silently treated the read as anonymous storefront-filtered. Callers must now pass the actor they are acting for, or `null` when anonymous access is intentional.
 
-- [`8f4ecc3`](https://github.com/asyncdotengineering/porulle/commit/8f4ecc313e3ca30112c45d75df65fa2e1edb08ca) Thanks [@octalpixel](https://github.com/octalpixel)! - Replace custom-role grant checks with permission containment, so granting a role requires already holding every permission that role carries (including `*:*`). Invitations are deferred grants, so they now use the same containment and rank checks as immediate role changes.
+- [`bc5c825`](https://github.com/asyncdotengineering/porulle/commit/bc5c825919d3f0cbbf4849cdefb72b61c430fb0d) Thanks [@octalpixel](https://github.com/octalpixel)! - Replace custom-role grant checks with permission containment, so granting a role requires already holding every permission that role carries (including `*:*`). Invitations are deferred grants, so they now use the same containment and rank checks as immediate role changes.
 
   Restore the rank floor for new-role grants, so a grant must satisfy both containment and rank. `owner` becomes unreachable for every role below it: an `admin` can no longer grant `owner`, and neither can a custom role carrying `*:*`. A custom `*:*` role still _can_ grant `admin`, because it is floored at admin rank deliberately — that floor is what stops a lesser role revoking it — and granting `admin` hands out nothing the minter does not already hold. API-key actors regain grant ability based on their stamped permission list rather than their `api_key` role name, which limits them to contained custom roles at their own rank.
 
   **Breaking:** a custom role that could previously grant a peer custom role can no longer grant one whose permissions are not a subset of its own.
 
-- [`d56b71b`](https://github.com/asyncdotengineering/porulle/commit/d56b71b340d3b9a69cca0af7144953db6f635ba3) Thanks [@octalpixel](https://github.com/octalpixel)! - **Breaking:** `resolveOrgId` no longer consults the boot-time `auth.defaultOrganizationId` before strict resolution. An actor-less call with strict org resolution enabled now throws `OrgResolutionError` where it previously resolved to the configured default organization.
+- [`d6f27f6`](https://github.com/asyncdotengineering/porulle/commit/d6f27f6b24cb0de70b77529f81d0677d0b235a5f) Thanks [@octalpixel](https://github.com/octalpixel)! - **Breaking:** `resolveOrgId` no longer consults the boot-time `auth.defaultOrganizationId` before strict resolution. An actor-less call with strict org resolution enabled now throws `OrgResolutionError` where it previously resolved to the configured default organization.
 
   Explicit `defaultOrgId` arguments and actor `organizationId` are unchanged. Set `auth.strictOrgResolution: false` or `STRICT_ORG_RESOLUTION=false` to restore the previous behaviour where the boot default answers actor-less calls.
 
@@ -70,7 +70,7 @@
 
 ### Patch Changes
 
-- [`9884856`](https://github.com/asyncdotengineering/porulle/commit/988485672556a94013f30f95c5534540dd2c48ca) Thanks [@octalpixel](https://github.com/octalpixel)! - Declare every column better-auth 1.7 writes, and make the parity guard actually derive its scope from better-auth instead of a hand-written list.
+- [`6cfb51d`](https://github.com/asyncdotengineering/porulle/commit/6cfb51debf27bb2f9bac26320d95414bf3443905) Thanks [@octalpixel](https://github.com/octalpixel)! - Declare every column better-auth 1.7 writes, and make the parity guard actually derive its scope from better-auth instead of a hand-written list.
 
   Email/password sign-up returned 500 on a clean install against better-auth 1.7. `account.issuer` was fixed in the previous release. The next call then failed the same way on `jwks.alg`, which was still missing — better-auth validates its field map against the Drizzle schema object and throws before reaching the database, so the auth route is non-functional rather than degraded.
 
@@ -78,7 +78,7 @@
 
   **The guard is the real fix.** `auth-schema-guard.ts` existed to stop exactly this, and missed it twice. It passed `plugins: []` under a comment claiming it mirrored the plugins `createAuth` enables, so `getAuthTables()` never reported a single plugin-contributed table. It then walked a hand-maintained list of four model names — the four whose columns had already been repaired. It now passes the maximal plugin set and iterates every model better-auth reports, resolving Drizzle tables by their declared model name. A column added by any enabled plugin now fails the build.
 
-- [`7a4f0a1`](https://github.com/asyncdotengineering/porulle/commit/7a4f0a1193805271b2c97a8268dc9e5916565d50) Thanks [@octalpixel](https://github.com/octalpixel)! - Scope a cart's checkout claim to the attempt that holds it.
+- [`8c2c116`](https://github.com/asyncdotengineering/porulle/commit/8c2c1160acf87b981b3be8606918cde057fed833) Thanks [@octalpixel](https://github.com/octalpixel)! - Scope a cart's checkout claim to the attempt that holds it.
 
   `carts` gains a nullable `checkout_claim_token` column recording which checkout attempt claimed the cart. `CartService.claimForCheckout(cartId, claimToken, ctx?)` and `CartService.releaseCheckoutClaim(cartId, claimToken, ctx?)` both take the token, and releasing only succeeds for the holder. A shopper whose own checkout fails still gets their cart back and can retry.
 
@@ -86,7 +86,7 @@
 
   **Migration:** the new column is nullable and applied by `pushSchema`; no data migration is required.
 
-- [`7da1f88`](https://github.com/asyncdotengineering/porulle/commit/7da1f884127a42e06eb7e97e4c7d2f53a3160840) Thanks [@octalpixel](https://github.com/octalpixel)! - Re-check an inviter's authority when a staff invitation is accepted.
+- [`5ee7ae3`](https://github.com/asyncdotengineering/porulle/commit/5ee7ae3628acb29ea56738423c8cfe5e10d26182) Thanks [@octalpixel](https://github.com/octalpixel)! - Re-check an inviter's authority when a staff invitation is accepted.
 
   Permission containment and the role rank floor were previously evaluated only when an invitation was created. They now run again at acceptance against the inviter's current membership, so an invitation confers a role only while the member who sent it can still grant that role. Changing or revoking a member's role additionally cancels the pending invitations their new role could not issue.
 
@@ -94,13 +94,13 @@
 
   **Migration:** deployments holding pending invitations should expect any whose inviter no longer holds the necessary authority to be refused and marked `canceled` on the next acceptance attempt. Re-issue them from an account that currently holds it.
 
-- [`07c0b22`](https://github.com/asyncdotengineering/porulle/commit/07c0b22914079571a967a1f872929c22d5495d71) Thanks [@octalpixel](https://github.com/octalpixel)! - Resolve an invoice email's recipient from the order rather than the request.
+- [`0948324`](https://github.com/asyncdotengineering/porulle/commit/0948324c22f1468dfeb73707f6f77d182bc58494) Thanks [@octalpixel](https://github.com/octalpixel)! - Resolve an invoice email's recipient from the order rather than the request.
 
   `DocumentsService.emailInvoice` now sends to the address on the order — its customer profile's email. A caller-supplied `to` is honoured only for an actor holding organization-wide `orders:read`; a self-service or guest caller may pass one only when it matches the order's own address. An order with no address of its own cannot be emailed. Rendering the invoice or receipt is unchanged.
 
   **Breaking:** a non-staff caller naming a different recipient now receives 403 where the request previously succeeded. Storefronts that let a shopper forward their own invoice to an arbitrary address must route that through a staff-permissioned actor. The PDF, HTML and receipt routes take no destination and are unaffected.
 
-- [`8b60de4`](https://github.com/asyncdotengineering/porulle/commit/8b60de4d9d123298c1bb959f2e490d9245a5db16) Thanks [@octalpixel](https://github.com/octalpixel)! - Make the last-owner guard atomic on the staff revoke and demote paths.
+- [`54bf6cf`](https://github.com/asyncdotengineering/porulle/commit/54bf6cfcb5f45b46cecdd9a1568a104ae647817c) Thanks [@octalpixel](https://github.com/octalpixel)! - Make the last-owner guard atomic on the staff revoke and demote paths.
 
   Both handlers now read the organization's membership with `SELECT … FOR UPDATE` inside the transaction that performs the write, ordered by id so concurrent membership writes take the same lock order. Concurrent requests are serialised and the second is refused with the existing 422, so an organization cannot be left without an owner.
 
@@ -108,7 +108,7 @@
 
   Membership mutations are serialised per organization for the duration of the write. They are infrequent administrative operations, so the contention cost is negligible.
 
-- [`fb876e4`](https://github.com/asyncdotengineering/porulle/commit/fb876e411e9575980395523e1dc038fdddae9b77) Thanks [@octalpixel](https://github.com/octalpixel)! - Make `/api/admin/staff` the only membership-writing surface.
+- [`f36de3a`](https://github.com/asyncdotengineering/porulle/commit/f36de3a4524c67eb79badeeb2a33f3502c75bf18) Thanks [@octalpixel](https://github.com/octalpixel)! - Make `/api/admin/staff` the only membership-writing surface.
 
   Better Auth's organization plugin exposes a parallel set of membership writers that do not run this framework's permission containment, role rank floor, or last-owner invariant, and accept role strings the admin staff routes refuse. `invite-member`, `update-member-role`, `remove-member`, `leave`, `create-role`, `update-role` and `delete-role` under `/api/auth/organization/` now return 403 pointing at `/api/admin/staff`.
 
