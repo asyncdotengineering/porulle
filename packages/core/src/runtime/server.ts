@@ -11,6 +11,8 @@ import type { Actor } from "../auth/types.js";
 import type { AuthInstance } from "../auth/setup.js";
 import type { CommerceConfig } from "../config/types.js";
 import { authMiddleware } from "../auth/middleware.js";
+import { organizationGuard } from "../auth/organization-guard.js";
+import type { DrizzleDatabase } from "../kernel/database/drizzle-db.js";
 import { CommerceCsrfError } from "../kernel/errors.js";
 import { createRestRoutes } from "../interfaces/rest/index.js";
 import { createCustomerPortalRoutes } from "../interfaces/rest/customer-portal.js";
@@ -322,6 +324,14 @@ export async function createServer(config: CommerceConfig) {
   }
 
   // ─── Auth ──────────────────────────────────────────────────────────
+  // Better Auth's organization endpoints are mounted below but governed here:
+  // `admin/staff.ts` owns membership, and this guard keeps the plugin's own
+  // paths from minting members outside those rules.
+  app.use(
+    "/api/auth/organization/*",
+    organizationGuard(kernel.database.db as DrizzleDatabase, config),
+  );
+
   app.use("/api/auth/*", async (c, next) => {
     if (c.req.path.startsWith("/api/auth/pos/")) {
       await next();

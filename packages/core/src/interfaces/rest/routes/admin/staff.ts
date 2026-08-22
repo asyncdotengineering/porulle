@@ -16,6 +16,14 @@ import {
   revokeStaffRoute,
 } from "../../schemas/admin-staff.js";
 import type { Actor } from "../../../../auth/types.js";
+import {
+  canGrantRole,
+  granterForRole,
+  isCompositeRole,
+  isOwnerRole,
+  roleRank,
+  validRoles,
+} from "../../../../auth/role-authority.js";
 import { type AppEnv, requirePerm } from "../../utils.js";
 
 /**
@@ -35,66 +43,27 @@ export function adminStaffRoutes(kernel: Kernel) {
   router.use("/staff/invitations", requirePerm("staff:manage"));
   router.use("/staff/roles", requirePerm("staff:manage"));
 
-  function validRoles(): Set<string> {
-    return new Set([
-      ...Object.keys(config.auth?.roles ?? {}),
-      "owner",
-      "admin",
-      "member",
-    ]);
-  }
-
   function invalidRole(c: { json: (d: unknown, s: number) => unknown }, role: string) {
     return c.json(
       {
         error: {
           code: "VALIDATION_FAILED",
-          message: `Unknown role "${role}". Valid roles: ${[...validRoles()].join(", ")}.`,
+          message: `Unknown role "${role}". Valid roles: ${[...validRoles(config)].join(", ")}.`,
         },
       },
       422,
     );
   }
 
-  const BUILTIN_ROLE_RANK: Record<string, number> = {
-    owner: 3,
-    admin: 2,
-  };
-  const CUSTOM_ROLE_RANK = 1;
-
-  function permissionsForRole(role: string): string[] {
-    return config.auth?.roles?.[role]?.permissions ?? [];
+  function rankOf(role: string | null | undefined): number {
+    return roleRank(config, role);
   }
 
-  function hasPermissionFromList(actorPermissions: string[], required: string): boolean {
-    if (actorPermissions.includes("*:*")) return true;
-
-    const [resource] = required.split(":");
-    if (resource && actorPermissions.includes(`${resource}:*`)) return true;
-    return actorPermissions.includes(required);
-  }
-
-  function actorCanGrant(actor: Actor | null, targetRole: string): boolean {
-    if (!actor) return false;
-    return permissionsForRole(targetRole).every((perm) =>
-      hasPermissionFromList(actor.permissions, perm),
-    );
-  }
-
-  function roleRank(role: string): number {
-    const builtin = BUILTIN_ROLE_RANK[role];
-    if (builtin !== undefined) return builtin;
-    if (permissionsForRole(role).includes("*:*")) {
-      return BUILTIN_ROLE_RANK["admin"]!;
-    }
-    return CUSTOM_ROLE_RANK;
-  }
-
-  function canGrantRole(actor: Actor | null, targetRole: string): boolean {
-    return (
-      actorCanGrant(actor, targetRole) &&
-      actor !== null &&
-      roleRank(actor.role) >= roleRank(targetRole)
+  function actorCanGrantRole(actor: Actor | null, targetRole: string): boolean {
+    return canGrantRole(
+      config,
+      actor ? { role: actor.role, permissions: actor.permissions } : null,
+      targetRole,
     );
   }
 
@@ -113,12 +82,55 @@ export function adminStaffRoutes(kernel: Kernel) {
     );
   }
 
-  async function countOwners(orgId: string): Promise<number> {
+  /**
+   * Owners of an organization. Better Auth reads a member's role as a
+   * comma-separated list, so a stored `"owner,admin"` is an owner to it; this
+   * counts the same way, or the two layers disagree on who the last owner is.
+   */
+  async function ownerMemberIds(orgId: string): Promise<string[]> {
     const rows = await db
-      .select({ id: member.id })
+      .select({ id: member.id, role: member.role })
       .from(member)
-      .where(and(eq(member.organizationId, orgId), eq(member.role, "owner")));
-    return rows.length;
+      .where(eq(member.organizationId, orgId));
+    return rows.filter((row) => isOwnerRole(row.role)).map((row) => row.id);
+  }
+
+  /**
+   * Cancels the member's pending invitations that their role can no longer
+   * grant. Acceptance re-checks the inviter's authority too, so this is not
+   * what closes the takeover — it keeps the invitation list honest and stops a
+   * dead grant sitting there for the rest of its seven-day life.
+   *
+   * `newRole` is null when the membership is being revoked outright.
+   */
+  async function cancelUngrantableInvitations(
+    orgId: string,
+    inviterUserId: string,
+    newRole: string | null,
+  ): Promise<void> {
+    const pending = await db
+      .select({ id: invitation.id, role: invitation.role })
+      .from(invitation)
+      .where(
+        and(
+          eq(invitation.organizationId, orgId),
+          eq(invitation.inviterId, inviterUserId),
+          eq(invitation.status, "pending"),
+        ),
+      );
+
+    const dead = pending.filter(
+      (row) =>
+        newRole === null ||
+        !canGrantRole(config, granterForRole(config, newRole), row.role ?? "member"),
+    );
+
+    for (const row of dead) {
+      await db
+        .update(invitation)
+        .set({ status: "canceled" })
+        .where(eq(invitation.id, row.id));
+    }
   }
 
   router.openapi(listStaffRoute, async (c) => {
@@ -144,8 +156,8 @@ export function adminStaffRoutes(kernel: Kernel) {
     const actor = c.get("actor");
     const orgId = resolveOrgIdForCommerce(actor, config);
 
-    if (!validRoles().has(body.role)) return invalidRole(c, body.role);
-    if (!canGrantRole(actor, body.role)) return insufficientPrivilege(c, body.role);
+    if (isCompositeRole(body.role) || !validRoles(config).has(body.role)) return invalidRole(c, body.role);
+    if (!actorCanGrantRole(actor, body.role)) return insufficientPrivilege(c, body.role);
 
     const users = await db.select().from(user).where(eq(user.id, body.userId));
     if (users.length === 0) {
@@ -182,8 +194,8 @@ export function adminStaffRoutes(kernel: Kernel) {
     const actor = c.get("actor");
     const orgId = resolveOrgIdForCommerce(actor, config);
 
-    if (!validRoles().has(body.role)) return invalidRole(c, body.role);
-    if (!canGrantRole(actor, body.role)) return insufficientPrivilege(c, body.role);
+    if (isCompositeRole(body.role) || !validRoles(config).has(body.role)) return invalidRole(c, body.role);
+    if (!actorCanGrantRole(actor, body.role)) return insufficientPrivilege(c, body.role);
     const rows = await db
       .insert(invitation)
       .values({
@@ -224,8 +236,8 @@ export function adminStaffRoutes(kernel: Kernel) {
     const orgId = resolveOrgIdForCommerce(actor, config);
     const id = c.req.param("id");
 
-    if (!validRoles().has(body.role)) return invalidRole(c, body.role);
-    if (!canGrantRole(actor, body.role)) return insufficientPrivilege(c, body.role);
+    if (isCompositeRole(body.role) || !validRoles(config).has(body.role)) return invalidRole(c, body.role);
+    if (!actorCanGrantRole(actor, body.role)) return insufficientPrivilege(c, body.role);
 
     const rows = await db
       .select()
@@ -238,11 +250,11 @@ export function adminStaffRoutes(kernel: Kernel) {
 
     // SEC-18/R-02: the actor must also outrank (or equal) the target's CURRENT
     // role, else an admin could demote an owner they do not outrank.
-    if (roleRank(actor!.role) < roleRank(target.role)) {
+    if (rankOf(actor!.role) < rankOf(target.role)) {
       return insufficientPrivilege(c, target.role);
     }
 
-    if (target.role === "owner" && body.role !== "owner" && (await countOwners(orgId)) <= 1) {
+    if (isOwnerRole(target.role) && !isOwnerRole(body.role) && (await ownerMemberIds(orgId)).length <= 1) {
       return c.json(
         { error: { code: "VALIDATION_FAILED", message: "Cannot demote the organization's last owner." } },
         422,
@@ -254,6 +266,7 @@ export function adminStaffRoutes(kernel: Kernel) {
       .set({ role: body.role })
       .where(eq(member.id, id))
       .returning();
+    await cancelUngrantableInvitations(orgId, target.userId, body.role);
     return c.json({ data: updated[0] });
   });
 
@@ -274,11 +287,11 @@ export function adminStaffRoutes(kernel: Kernel) {
 
     // SEC-18/R-02: the actor must outrank (or equal) the target's current role
     // to revoke it — an admin cannot revoke an owner.
-    if (roleRank(actor!.role) < roleRank(target.role)) {
+    if (rankOf(actor!.role) < rankOf(target.role)) {
       return insufficientPrivilege(c, target.role);
     }
 
-    if (target.role === "owner" && (await countOwners(orgId)) <= 1) {
+    if (isOwnerRole(target.role) && (await ownerMemberIds(orgId)).length <= 1) {
       return c.json(
         { error: { code: "VALIDATION_FAILED", message: "Cannot revoke the organization's last owner." } },
         422,
@@ -286,6 +299,7 @@ export function adminStaffRoutes(kernel: Kernel) {
     }
 
     await db.delete(member).where(eq(member.id, id));
+    await cancelUngrantableInvitations(orgId, target.userId, null);
     return c.json({ data: { deleted: true } });
   });
 
