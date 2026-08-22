@@ -60,36 +60,94 @@ export default {
 The cache key is the isolate lifetime: a new isolate rebuilds; a warm isolate
 reuses. Rebuild on deploy is automatic (new isolates).
 
-## 2. Environment-aware database adapter (local vs deployed)
+## 2. Database adapter
 
-The reliable **deployed** Workers DB path is Neon's HTTP driver
-(`@neondatabase/serverless` + `drizzle-orm/neon-http`) — `postgres-js` over the
-`nodejs_compat` TCP polyfill is intermittently unreliable at the edge.
+**Use `@porulle/adapter-neon`. Do not hand-roll this one.**
 
-But neon-http **fails under local `wrangler dev`** (miniflare). The two failure
-modes are disjoint, so pick the driver by environment: **TCP locally,
-neon-http deployed.**
+```ts
+import { neonAdapter } from "@porulle/adapter-neon";
+
+const databaseAdapter = neonAdapter({
+  connectionString: env.DATABASE_URL,
+  // Optional. When present, transactions run over Hyperdrive's TCP endpoint
+  // instead of a Neon WebSocket pool.
+  hyperdrive: env.HYPERDRIVE,
+});
+```
+
+### Why not a hand-rolled adapter
+
+Two transports are needed, and picking one is not enough.
+
+Plain reads and writes want Neon's **HTTP** driver
+(`@neondatabase/serverless` + `drizzle-orm/neon-http`) — stateless, with no
+socket-reuse races across Workers isolates. But `drizzle-orm/neon-http` throws
+on `db.transaction()` with *"No transactions support"*, because HTTP has no
+session to hold one open.
+
+The tempting workaround is to satisfy the `DatabaseAdapter` interface like this:
+
+```ts
+// ✘ WRONG — this is not a transaction
+return { provider: "postgresql", db, transaction: (fn) => fn(db) };
+```
+
+That type-checks and boots, and every statement inside it runs as its own
+auto-committed HTTP request. Nothing rolls back, and a `SELECT … FOR UPDATE`
+releases its lock the instant the statement returns. **Failures are silent and
+only appear under concurrency**, which is the worst possible shape for a bug.
+
+Paths that lose their guarantee with a no-op transaction:
+
+| Path | What breaks |
+| --- | --- |
+| `PATCH` / `DELETE /api/admin/staff/:id` | The last-owner invariant. Concurrent revocations are no longer serialised. |
+| `POST /api/pos/returns` | The refund ledger move and the payout stop being atomic — a return can strand between them. |
+| `POST /api/checkout` | Phase-1 validation stops rolling back as a unit. |
+| Inventory adjust, jobs reaper | Row locks stop holding for the read-modify-write. |
+
+`neonAdapter` handles it: plain queries go over HTTP, and `transaction()` opens
+a **fresh** client per call — a Neon WebSocket `Pool`, or Postgres.js over
+Workers TCP when a Hyperdrive binding is supplied — closing it before the
+request completes. The pool-backed `transaction` is also spliced onto the HTTP
+client, so `kernel.database.db.transaction(...)` and
+`kernel.database.transaction(...)` behave identically.
+
+A transaction therefore costs one connection setup. Every path in the table
+above is an infrequent write, so that is the right trade.
+
+### Local `wrangler dev`
+
+neon-http fails under miniflare, and Hyperdrive's local binding points at
+localhost. Branch on the connection string and use Postgres.js locally — with a
+**real** transaction:
 
 ```ts
 import postgres from "postgres";
 import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
-import { neon } from "@neondatabase/serverless";
-import { drizzle as drizzleNeon } from "drizzle-orm/neon-http";
+import { neonAdapter } from "@porulle/adapter-neon";
 import type { DatabaseAdapter } from "@porulle/core";
 import * as schema from "@porulle/core/schema";
 
-// Hyperdrive's local connection string points at localhost during wrangler dev.
 const isLocalDev = (cs: string) => /(?:localhost|127\.0\.0\.1|\[::1\])/.test(cs);
 
-export function workersDbAdapter(connectionString: string): DatabaseAdapter {
+export function workersDbAdapter(
+  connectionString: string,
+  hyperdrive?: { connectionString: string },
+): DatabaseAdapter {
   if (isLocalDev(connectionString)) {
     const sql = postgres(connectionString, { prepare: false, max: 5 });
-    const db = drizzlePg(sql, { schema });
-    return { provider: "postgresql", db, transaction: (fn) => sql.begin((tx) => fn(drizzlePg(tx, { schema }))) };
+    return {
+      provider: "postgresql",
+      db: drizzlePg(sql, { schema }),
+      // sql.begin() is a real transaction — keep it that way.
+      transaction: (fn) => sql.begin((tx) => fn(drizzlePg(tx, { schema }))),
+    };
   }
-  const sql = neon(connectionString);
-  const db = drizzleNeon(sql, { schema });
-  return { provider: "postgresql", db, transaction: (fn) => fn(db) };
+  return neonAdapter({
+    connectionString,
+    ...(hyperdrive ? { hyperdrive } : {}),
+  });
 }
 ```
 
@@ -97,6 +155,20 @@ You do **not** need a custom `db.execute()` result-shape shim: `createKernel`
 normalizes `db.execute()` to a row array across drivers (postgres-js, neon-http,
 node-postgres) automatically. `defineConfig` accepts **any** `DatabaseAdapter`,
 so this drops straight in.
+
+### Lock timeouts
+
+`@porulle/adapter-postgres` sets `lock_timeout` to 10s by default. The Neon
+transports do not, so a contended row lock waits on the PostgreSQL default —
+unbounded — until the Worker's own limit trips. Contention on these paths is
+rare, but if you want the ceiling, set it on the role rather than in code:
+
+```sql
+ALTER ROLE app SET lock_timeout = '10s';
+```
+
+Note that transaction-mode poolers reject `lock_timeout` as a startup
+parameter, which is why it belongs on the role.
 
 ## 3. Client-IP resolution (rate limiting)
 

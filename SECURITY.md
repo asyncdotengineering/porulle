@@ -147,6 +147,73 @@ These are roadmap items, not current capabilities:
 
 Reference: `.audits/agent-native-audit-unified-commerce-engine-2026-05-10.md`, Migration Path.
 
+## Guest credentials
+
+A guest cart carries a secret returned once, at creation. It is a bearer
+credential: whoever presents it is treated as the cart's owner.
+
+```
+POST /api/carts                    -> { id, secret }
+GET  /api/carts/:id                x-cart-secret: <secret>
+POST /api/checkout                 x-cart-secret: <secret>
+GET  /api/orders/:id               x-cart-secret: <secret>
+```
+
+**What it grants.** Reading and writing that cart, checking it out, and reading
+the order it produced — including the order's line items, totals and shipping
+address, and the rendered invoice and receipt.
+
+**How long.** Cart writes and checkout stop at the cart's `expires_at`
+(`config.cart.ttlMinutes`, seven days by default). Reading the resulting order
+is bounded separately, by `config.orders.guestAccessStrategy`, which defaults to
+seven days measured from the order's `placed_at`:
+
+```ts
+import { windowedGuestOrderAccess } from "@porulle/core";
+
+orders: {
+  guestAccessStrategy: windowedGuestOrderAccess("30d"),
+}
+```
+
+The two windows are independent on purpose. Anchoring order access on the cart
+would give a shopper who checked out on the sixth day of a seven-day cart one
+day of receipt access.
+
+**What it does not grant.** Emailing the invoice anywhere other than the address
+already on the order. Only an actor holding organization-wide `orders:read` may
+name a different recipient.
+
+**Treat it as a password.** It is a 122-bit random UUID, so it is not guessed —
+the realistic exposure is leakage: a referrer header, a link shared in a chat, a
+log line, a browser history on a shared device. Keep it out of URLs and out of
+your logs. The access window is what limits the damage of a leak; there is no
+revocation endpoint.
+
+**Authenticated customers do not use it.** Account ownership grants access to
+their own orders permanently, and no window applies.
+
+## Membership and role grants
+
+`/api/admin/staff` is the only surface that writes organization membership. It
+enforces three rules that Better Auth's own organization endpoints do not, so
+those endpoints are refused:
+
+- **Permission containment.** Granting a role requires already holding every
+  permission that role carries. A `staff:manage` holder cannot mint a role
+  carrying permissions it lacks.
+- **Rank floor.** The grantor must outrank or equal both the role being granted
+  and the target's current role.
+- **Last-owner invariant.** An organization cannot be left without an owner,
+  including under concurrent revocations.
+
+Invitations are deferred grants and run the same checks twice — when created and
+again when accepted, against the inviter's authority *at that moment*. A member
+who loses authority cannot have their outstanding invitations redeemed.
+
+Role strings are single roles. Comma-separated composites are refused wherever a
+role is accepted.
+
 ## Known gaps
 
 These are documented limitations from the security audit (commit `5d18ce6` and follow-up closures):
@@ -159,4 +226,9 @@ These are documented limitations from the security audit (commit `5d18ce6` and f
 
 4. **In-memory rate limiting.** Does not hold across multiple instances. See Rate limit layers above.
 
-5. **`requireEmailVerification: false` in production.** The framework logs a warning at boot. If you run with email verification disabled in production, anyone can sign up with any email and access the account immediately. Enable it and configure `config.email.send` for production deployments.
+5. **No revocation for a guest cart secret.** A leaked secret cannot be
+   invalidated; it expires with its window and not before. Narrow
+   `config.orders.guestAccessStrategy` if your risk tolerance needs it shorter
+   than seven days.
+
+6. **`requireEmailVerification: false` in production.** The framework logs a warning at boot. If you run with email verification disabled in production, anyone can sign up with any email and access the account immediately. Enable it and configure `config.email.send` for production deployments.

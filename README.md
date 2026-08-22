@@ -356,17 +356,28 @@ This framework was extracted from a production e-commerce engine after a five-ro
 ## Guides
 
 - [**Day-one principles**](./docs/best-practices.md) — the five rules that prevent the most common Porulle-app foot-guns (cast-ban + `parseJson`, audit-on-mutation, no silent money clamping, contract-named tests, single field-mappable error envelope), with a copy-pasteable CI guard.
-- [**Deploy on Cloudflare Workers**](./docs/deploy-cloudflare-workers.md) — lazy per-isolate boot, an environment-aware database adapter (TCP local / neon-http deployed), client-IP resolution, and cron via `scheduled()`.
+- [**Deploy on Cloudflare Workers**](./docs/deploy-cloudflare-workers.md) — lazy per-isolate boot, the database adapter (and why a hand-rolled one silently breaks transactions), client-IP resolution, and cron via `scheduled()`.
+- [**Security model**](./SECURITY.md) — threat model, org resolution profiles, guest credentials and their lifetimes, membership and role grants, and the known gaps.
+
+### Upgrading
+
+- [**0.11.x → 0.13.0**](./docs/migration-0.11-to-0.13.md) — **start here.** There is no 0.12.0 on npm; it was versioned and never published, so `latest` went 0.11.0 → 0.13.0 and this guide covers both. Authorization defaults tightened in several places.
+- [**0.1.0 → 0.7.x**](./docs/migration-0.1-to-0.7.md) — the early-adopter jump.
+
+Feature-specific migrations: [catalog field ownership](./docs/migration-catalog-field-ownership.md) · [catalog tags and compare-at](./docs/migration-catalog-tags-and-compare-at.md) · [channel catalog pushes](./docs/migration-channel-catalog-pushes.md) · [channel outbound echo](./docs/migration-channel-outbound-echo.md) · [entity field definitions](./docs/migration-entity-field-definitions.md) · [media origin](./docs/migration-media-origin.md) · [sellable custom fields](./docs/migration-sellable-custom-fields.md) · [sellable entity revisions](./docs/migration-sellable-entity-revisions.md)
 
 ---
 
 ## Contributing
 
+The repo is managed with **pnpm** (see [RELEASING.md](./RELEASING.md) for why not
+bun or npm — both mishandle the `workspace:*` protocol at publish time).
+
 ```bash
-bun install
-bun run check-types
-bun test
-bun run lint
+pnpm install
+pnpm run check-types
+pnpm test
+pnpm run lint
 ```
 
 Adopter contracts (plugin contract, payment adapter contract) live in the docs site under [Extending Porulle](https://github.com/asyncdotengineering/porulle/tree/main/apps/docs/src/content/docs/extending). Read these first if you're writing a plugin, payment adapter, or extension.
