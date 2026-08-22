@@ -60,3 +60,12 @@ RENAME-*-CLOSED.md
 # exception — it is the evidence routing and lane decisions cite, so it is tracked.
 runs/*
 !runs/metrics.jsonl
+
+# Adversarial security work: probe scripts, red-team reports, live attack
+# matrices. These name real hosts and resource ids and read as a playbook.
+# They are kept out of the repository deliberately — regression coverage for
+# anything they find belongs in a normal test under packages/*/test/.
+vapt/
+scripts/*vapt*
+**/seed-vapt.ts
+*redteam*
