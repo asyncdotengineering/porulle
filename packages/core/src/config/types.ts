@@ -3,7 +3,7 @@ import type { Actor } from "../auth/types.js";
 import type { BeforeHook, AfterHook } from "../kernel/hooks/types.js";
 import type { PaymentAdapter } from "../modules/payments/adapter.js";
 import type { StorageAdapter } from "../modules/media/adapter.js";
-import type { Kernel } from "../runtime/kernel.js";
+import type { ConfigRouteKernel } from "../runtime/kernel.js";
 import type { AuthInstance } from "../auth/setup.js";
 import type { DatabaseAdapter } from "../kernel/database/adapter.js";
 import type { TaxAdapter } from "../modules/tax/adapter.js";
@@ -439,7 +439,7 @@ export interface CommerceConfig {
    * third argument so integrations can mint/revoke API keys or call
    * `auth.api.*` without module-global holder shims.
    */
-  routes?: (app: Hono<any>, kernel: Kernel, auth?: AuthInstance) => void;
+  routes?: (app: Hono<any>, kernel: ConfigRouteKernel, auth?: AuthInstance) => void;
   /** Log level for structured logging. Default: "info". */
   logLevel?: "fatal" | "error" | "warn" | "info" | "debug" | "trace";
   /**

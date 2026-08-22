@@ -27,6 +27,7 @@ import {
 } from "./kernel-types.js";
 
 export type { Kernel, WebhookDeliveryPayload };
+export type { ConfigRouteKernel, ConfigRouteDatabase } from "./kernel-types.js";
 export {
   KERNEL_ALL_MODULES,
   kernelModuleInstantiationOrder,

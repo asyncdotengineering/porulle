@@ -104,23 +104,25 @@ There are two surfaces, and they differ in one way that matters.
 
 | surface | database handle | tenant scoping |
 | --- | --- | --- |
-| `config.routes` | `kernel.database.db` | **none — you scope it yourself** |
+| `config.routes` | `kernel.database.scoped` | automatic, per request |
+| `config.routes` | `kernel.database.db` | raw, unscoped; warns on access |
 | a plugin's `PluginContext` | `ctx.database.db` | automatic, per request |
 
-`config.routes` is the simplest way to add an endpoint and it hands you the raw
-database. Nothing injects the organization for you there, so every query you
-write must carry it. The example below does.
+`config.routes` is the simplest way to add an endpoint. Use
+`kernel.database.scoped` for organization-owned tables: it resolves the
+organization from the request and constrains `select`, `insert`, `update` and
+`delete` on tables with an `organizationId` column, including queries with no
+`WHERE` clause. `kernel.database.db` remains available for intentional
+cross-organization work, but it is raw and emits a warning when accessed.
 
-If you want the scoping done for you, ship the feature as a plugin instead:
-`ctx.database.db` resolves the organization from the request actor and
-constrains `select`, `insert`, `update` and `delete` on any table with an
-`organizationId` column — including when you write no `WHERE` clause at all.
+The plugin handle has the same query-builder guarantees through
+`ctx.database.db`.
 
 Register route handlers via the `routes` field in `commerce.config.ts`. The callback receives the Hono app instance and the kernel:
 
 ```ts title="src/routes/reviews.ts"
 import type { Hono } from "hono";
-import { and, eq, desc } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { reviews } from "../schema/reviews.js";
 import { sellableEntities } from "@porulle/core/schema";
 import { resolveOrgIdForCommerce } from "@porulle/core";
@@ -132,14 +134,13 @@ function db(raw: unknown): PostgresJsDatabase<Record<string, unknown>> {
 }
 
 export function reviewRoutes(app: Hono, kernel: unknown) {
-  const k = kernel as { database: { db: unknown }; config: CommerceConfig };
+  const k = kernel as { database: { db: unknown; scoped: unknown }; config: CommerceConfig };
 
   app.post("/api/reviews", async (c) => {
     const body = await c.req.json();
-    const drizzle = db(k.database.db);
+    const drizzle = db(k.database.scoped);
 
-    // config.routes gives you the unscoped handle, so resolve the tenant
-    // yourself and write it on every row.
+    // The scoped handle stamps the request organization on the row.
     const organizationId = resolveOrgIdForCommerce(c.get("actor"), k.config);
 
     const [review] = await drizzle
@@ -159,8 +160,7 @@ export function reviewRoutes(app: Hono, kernel: unknown) {
 
   app.get("/api/reviews/:entityId", async (c) => {
     const entityId = c.req.param("entityId");
-    const drizzle = db(k.database.db);
-    const organizationId = resolveOrgIdForCommerce(c.get("actor"), k.config);
+    const drizzle = db(k.database.scoped);
 
     const rows = await drizzle
       .select({
@@ -169,12 +169,7 @@ export function reviewRoutes(app: Hono, kernel: unknown) {
       })
       .from(reviews)
       .innerJoin(sellableEntities, eq(reviews.entityId, sellableEntities.id))
-      // Both predicates are required. Dropping the organization one returns
-      // every tenant's reviews for that entity id.
-      .where(and(
-        eq(reviews.organizationId, organizationId),
-        eq(reviews.entityId, entityId),
-      ))
+      .where(eq(reviews.entityId, entityId))
       .orderBy(desc(reviews.createdAt));
 
     return c.json({ data: rows });

@@ -9,7 +9,7 @@ import {
   getPluginDatabaseScopeOrganizationId,
   runWithPluginDatabaseScope,
 } from "../database/plugin-db-context.js";
-import type { Kernel } from "../../runtime/kernel.js";
+import type { ConfigRouteKernel, Kernel } from "../../runtime/kernel.js";
 import type {
   CommerceConfig,
   CommercePlugin,
@@ -73,8 +73,12 @@ export interface PluginContext {
 
 const UNSCOPED_WARN_COOLDOWN_MS = 60_000;
 const UNSCOPED_WARN_EVERY_N = 100;
+const configRouteRawDatabases = new WeakMap<object, DatabaseAdapter>();
 
-function createRateLimitedUnscopedAccessWarning(logger: PluginLogger): () => void {
+export function createRateLimitedUnscopedAccessWarning(
+  logger: Pick<PluginLogger, "warn">,
+  message: string,
+): () => void {
   let lastWarnAt = 0;
   let accessCount = 0;
   return () => {
@@ -84,10 +88,49 @@ function createRateLimitedUnscopedAccessWarning(logger: PluginLogger): () => voi
       return;
     }
     lastWarnAt = now;
-    logger.warn(
-      "[plugin:database] PluginContext.database.unscoped is deprecated (MT-4 escape hatch); prefer ctx.database.db for tenant-scoped access.",
-    );
+    logger.warn(message);
   };
+}
+
+function getPluginDatabaseOrganizationId(commerceConfig: CommerceConfig): string {
+  return (
+    getPluginDatabaseScopeOrganizationId() ??
+    resolveOrgIdForCommerce(null, commerceConfig)
+  );
+}
+
+function getRawDatabaseForConfigRoutes(database: DatabaseAdapter): DatabaseAdapter {
+  if (database && typeof database === "object") {
+    return configRouteRawDatabases.get(database) ?? database;
+  }
+  return database;
+}
+
+export function buildConfigRoutesKernel(kernel: Kernel): ConfigRouteKernel {
+  const rawDatabase = getRawDatabaseForConfigRoutes(kernel.database);
+  const rawDb = rawDatabase.db as PluginDb;
+  const scopedDb = createScopedDb(
+    rawDb,
+    () => getPluginDatabaseOrganizationId(kernel.config),
+  );
+  const warnUnscoped = createRateLimitedUnscopedAccessWarning(
+    kernel.logger,
+    "[config:database] kernel.database.db is unscoped; prefer kernel.database.scoped for tenant-scoped access.",
+  );
+
+  const database: ConfigRouteKernel["database"] = {
+    ...rawDatabase,
+    get db(): unknown {
+      warnUnscoped();
+      return rawDatabase.db;
+    },
+    get scoped(): PluginDb {
+      return scopedDb;
+    },
+  };
+  configRouteRawDatabases.set(database, rawDatabase);
+
+  return { ...kernel, database };
 }
 
 function buildPluginContextDatabase(
@@ -96,12 +139,13 @@ function buildPluginContextDatabase(
   commerceConfig: CommerceConfig,
   logger: PluginLogger,
 ): PluginContext["database"] {
-  const orgGetter = () =>
-    getPluginDatabaseScopeOrganizationId() ??
-    resolveOrgIdForCommerce(null, commerceConfig);
+  const orgGetter = () => getPluginDatabaseOrganizationId(commerceConfig);
 
   const scopedDb = createScopedDb(rawDb, orgGetter);
-  const warnUnscoped = createRateLimitedUnscopedAccessWarning(logger);
+  const warnUnscoped = createRateLimitedUnscopedAccessWarning(
+    logger,
+    "[plugin:database] PluginContext.database.unscoped is deprecated (MT-4 escape hatch); prefer ctx.database.db for tenant-scoped access.",
+  );
 
   return {
     get db(): PluginDb {
@@ -261,7 +305,7 @@ export function defineCommercePlugin(
       const pluginRoutes = manifest.routes;
       result = {
         ...result,
-        routes: (app: Hono, kernel: Kernel, auth?: unknown) => {
+        routes: (app: Hono, kernel: ConfigRouteKernel, auth?: unknown) => {
           existingRoutes?.(app, kernel, auth as never);
           const k = kernel as {
             config: CommerceConfig;
@@ -269,14 +313,15 @@ export function defineCommercePlugin(
             database: DatabaseAdapter;
             logger: PluginLogger;
           };
+          const rawDatabase = getRawDatabaseForConfigRoutes(k.database);
           // Narrow DatabaseAdapter<unknown> → PluginContext.database once here.
           // All plugin code receives typed PluginDb — no casts downstream.
           const regs = pluginRoutes({
             config: k.config,
             services: k.services,
             database: buildPluginContextDatabase(
-              k.database.db as PluginDb,
-              k.database.transaction as PluginContext["database"]["transaction"],
+              rawDatabase.db as PluginDb,
+              rawDatabase.transaction as PluginContext["database"]["transaction"],
               k.config,
               k.logger,
             ),

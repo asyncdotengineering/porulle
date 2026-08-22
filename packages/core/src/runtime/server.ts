@@ -11,6 +11,7 @@ import type { Actor } from "../auth/types.js";
 import type { AuthInstance } from "../auth/setup.js";
 import type { CommerceConfig } from "../config/types.js";
 import { authMiddleware } from "../auth/middleware.js";
+import { resolveOrgIdForCommerce } from "../auth/org.js";
 import { organizationGuard } from "../auth/organization-guard.js";
 import type { DrizzleDatabase } from "../kernel/database/drizzle-db.js";
 import { CommerceCsrfError } from "../kernel/errors.js";
@@ -25,6 +26,8 @@ import { mapErrorToResponse } from "../kernel/error-mapper.js";
 import { assertRouteCoverage } from "../interfaces/rest/route-coverage.js";
 import { markRoutePermissionGuard } from "../interfaces/rest/utils.js";
 import { isStrictOrgResolution } from "../auth/strict-org-resolution.js";
+import { runWithPluginDatabaseScope } from "../kernel/database/plugin-db-context.js";
+import { buildConfigRoutesKernel } from "../kernel/plugin/manifest.js";
 
 type ServerEnv = {
   Variables: {
@@ -350,6 +353,16 @@ export async function createServer(config: CommerceConfig) {
 
   app.use("*", authMiddleware(auth, config));
   app.use("*", async (c, next) => {
+    let organizationId: string;
+    try {
+      organizationId = resolveOrgIdForCommerce(c.get("actor"), config);
+    } catch {
+      await next();
+      return;
+    }
+    await runWithPluginDatabaseScope(organizationId, next);
+  });
+  app.use("*", async (c, next) => {
     c.set("auth", auth);
     await next();
   });
@@ -368,7 +381,7 @@ export async function createServer(config: CommerceConfig) {
   app.route("/api/me", createCustomerPortalRoutes(kernel));
 
   if (config.routes) {
-    config.routes(app, kernel, auth);
+    config.routes(app, buildConfigRoutesKernel(kernel), auth);
   }
 
   // OpenAPI spec — disabled in production unless explicitly enabled

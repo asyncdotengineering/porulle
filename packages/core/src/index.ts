@@ -26,7 +26,7 @@ export { createLogger } from "./runtime/logger.js";
 export type { Logger as PinoLogger } from "./runtime/logger.js";
 export { setupGracefulShutdown } from "./runtime/shutdown.js";
 export { createKernel } from "./runtime/kernel.js";
-export type { Kernel } from "./runtime/kernel.js";
+export type { Kernel, ConfigRouteKernel, ConfigRouteDatabase } from "./runtime/kernel.js";
 // Test utilities moved to @porulle/core/testing sub-path export.
 // Import from "@porulle/core/testing" instead of "@porulle/core".
 // This avoids pulling drizzle-kit/tsx/esbuild into Turbopack's bundle graph.

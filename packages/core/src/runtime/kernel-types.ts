@@ -4,6 +4,7 @@ import type {
 } from "../config/types.js";
 import type { HookRegistry } from "../kernel/hooks/registry.js";
 import type { DatabaseAdapter } from "../kernel/database/adapter.js";
+import type { PluginDb } from "../kernel/database/plugin-types.js";
 import { CatalogServiceImpl } from "../modules/catalog/service.js";
 import { InventoryService } from "../modules/inventory/service.js";
 import { MediaService } from "../modules/media/service.js";
@@ -64,6 +65,14 @@ export interface Kernel {
   pluginPermissions: PluginPermission[];
   logger: ReturnType<typeof createLogger>;
 }
+
+export interface ConfigRouteDatabase extends DatabaseAdapter {
+  readonly scoped: PluginDb;
+}
+
+export type ConfigRouteKernel = Omit<Kernel, "database"> & {
+  database: ConfigRouteDatabase;
+};
 
 export const KERNEL_REQUIRED_SERVICE_KEYS = [
   "catalog",
