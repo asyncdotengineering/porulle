@@ -1,7 +1,8 @@
 import type { MiddlewareHandler } from "hono";
-import type { AuthSessionLike, CommerceConfig } from "../config/types.js";
+import type { CommerceConfig } from "../config/types.js";
 import type { Actor } from "./types.js";
 import type { AuthInstance } from "./setup.js";
+import { getCustomerPermissions, resolveActor } from "./actor.js";
 import { DEFAULT_ORG_ID } from "./org.js";
 import { isStrictOrgResolution } from "./strict-org-resolution.js";
 
@@ -12,36 +13,10 @@ function emptyToNull(value: string | null | undefined): string | null {
 // Exported so the storefront contract can be pinned by a test: an anonymous
 // visitor resolved by `storeResolver` gets these permissions, so dropping
 // `catalog:read` here would 401 every public storefront read.
-
-export const DEFAULT_CUSTOMER_PERMISSIONS = [
-  "catalog:read",
-  "cart:create",
-  "cart:read",
-  "cart:update",
-  "orders:create",
-  "orders:read:own",
-  "customers:read:self",
-  "customers:update:self",
-] as const;
-
-function getCustomerPermissions(config: CommerceConfig): string[] {
-  return config.auth?.customerPermissions ?? [...DEFAULT_CUSTOMER_PERMISSIONS];
-}
+export { DEFAULT_CUSTOMER_PERMISSIONS } from "./actor.js";
 
 const LEGACY_STORE_RESOLVER_WARN_COOLDOWN_MS = 60_000;
 let lastLegacyStoreResolverWarnAt = 0;
-
-function resolvePermissions(
-  session: AuthSessionLike,
-  config: CommerceConfig,
-): string[] {
-  const role = session.session.activeOrganizationRole;
-  if (!role) {
-    return getCustomerPermissions(config);
-  }
-  const roleConfig = config.auth?.roles?.[role];
-  return roleConfig ? roleConfig.permissions : [];
-}
 
 export function authMiddleware(
   auth: AuthInstance,
@@ -68,77 +43,14 @@ export function authMiddleware(
       }
     }
 
-    const session = (await auth.api.getSession({
-      headers: c.req.raw.headers,
-    })) as AuthSessionLike | null;
-
-    if (session) {
-      // Better Auth's session stores activeOrganizationId, but often not the role.
-      // For single-store apps (org_default), users may never call set-active,
-      // so activeOrganizationId can be null even for valid org members.
-      let role = session.session.activeOrganizationRole as string | undefined;
-      let orgId = session.session.activeOrganizationId as string | null;
-
-      // If no active org, try to resolve the user's membership in org_default.
-      // This handles the common case where the user is a member but hasn't
-      // called organization/set-active (single-store apps, seed scripts, tests).
-      if (!role && auth.api.getFullOrganization) {
-        try {
-          const org = await auth.api.getFullOrganization({
-            query: { organizationId: orgId ?? defaultOrgId },
-            headers: c.req.raw.headers,
-          });
-          if (org?.members) {
-            const membership = org.members.find(
-              (m) => m.userId === session.user.id,
-            );
-            if (membership) {
-              role = membership.role;
-              orgId = orgId ?? defaultOrgId;
-            }
-          }
-        } catch {
-          // fall through — treat as customer
-        }
-      }
-
-      // Also try getActiveMemberRole if active org is set
-      if (!role && orgId && auth.api.getActiveMemberRole) {
-        try {
-          const roleResult = await auth.api.getActiveMemberRole({
-            headers: c.req.raw.headers,
-          });
-          role = (roleResult as Record<string, unknown>)?.role as string | undefined;
-        } catch {
-          // fall through — treat as customer
-        }
-      }
-
-      // For customers without org membership, resolve the store from the request.
-      // This enables multi-store SaaS where each storefront is a different org.
-      if (!orgId && config.auth?.storeResolver) {
-        try {
-          const resolved = await config.auth.storeResolver(c.req.raw);
-          if (resolved) orgId = resolved;
-        } catch {
-          // fall through — use defaultOrgId
-        }
-      }
-
-      const enrichedSession = {
-        ...session,
-        session: { ...session.session, activeOrganizationRole: role ?? null },
-      };
-      c.set("actor", {
-        type: "user",
-        userId: session.user.id,
-        email: session.user.email ?? null,
-        name: session.user.name ?? "User",
-        vendorId: session.user.vendorId ?? null,
-        organizationId: orgId ?? defaultOrgId,
-        role: role ?? "customer",
-        permissions: resolvePermissions(enrichedSession, config),
-      } satisfies Actor);
+    const actor = await resolveActor(
+      c.req.raw.headers,
+      auth,
+      config,
+      c.req.raw,
+    );
+    if (actor) {
+      c.set("actor", actor);
       await next();
       return;
     }

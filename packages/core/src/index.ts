@@ -32,6 +32,11 @@ export type { Kernel } from "./runtime/kernel.js";
 // This avoids pulling drizzle-kit/tsx/esbuild into Turbopack's bundle graph.
 
 export type { Actor } from "./auth/types.js";
+export {
+  AUTH_COOKIE_PREFIX,
+  resolveActor,
+  SESSION_COOKIE_NAME,
+} from "./auth/actor.js";
 export { resolveOrgId, resolveOrgIdForCommerce, ensureDefaultOrg, DEFAULT_ORG_ID } from "./auth/org.js";
 export { createSystemActor } from "./auth/system-actor.js";
 export { OrganizationService } from "./modules/organization/service.js";

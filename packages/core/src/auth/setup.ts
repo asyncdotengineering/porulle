@@ -6,6 +6,7 @@ import { organization, twoFactor, phoneNumber, jwt, bearer } from "better-auth/p
 import type { CommerceConfig } from "../config/types.js";
 import type { DatabaseAdapter } from "../kernel/database/adapter.js";
 import * as authSchema from "./auth-schema.js";
+import { AUTH_COOKIE_PREFIX } from "./actor.js";
 
 type BetterAuthDbProvider = "pg";
 
@@ -178,7 +179,7 @@ export function createAuth(
         },
       },
       advanced: {
-        cookiePrefix: "uc",
+        cookiePrefix: AUTH_COOKIE_PREFIX,
         useSecureCookies: process.env.NODE_ENV === "production",
         // VAPT r2 (pi) finding: SameSite was never set anywhere. Without it,
         // browsers default to Lax for new cookies, but the explicit setting
