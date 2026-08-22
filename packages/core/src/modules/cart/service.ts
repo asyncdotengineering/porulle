@@ -602,20 +602,23 @@ export class CartService {
     const cart = await this.repo.findById(orgId, cartId, ctx);
     if (!cart) return Err(new CommerceNotFoundError("Cart not found."));
 
-    await this.repo.updateStatus(cartId, "checked_out", ctx);
+    await this.repo.update(cartId, { status: "checked_out", checkoutClaimToken: null }, ctx);
     return Ok(undefined);
   }
 
   /**
-   * Atomically transitions a cart from "active" to "checking_out".
-   * Returns Err if the cart was already claimed by a concurrent checkout.
-   * This prevents TOCTOU race conditions on double-checkout.
+   * Atomically transitions a cart from "active" to "checking_out", recording
+   * `claimToken` as the holder. Returns Err if the cart was already claimed by
+   * a concurrent checkout. This prevents TOCTOU race conditions on
+   * double-checkout, and the token is what lets {@link releaseCheckoutClaim}
+   * tell the winner's release from a loser's.
    */
   async claimForCheckout(
     cartId: string,
+    claimToken: string,
     ctx?: TxContext,
   ): Promise<Result<Cart>> {
-    const claimed = await this.repo.transitionToCheckingOut(cartId, ctx);
+    const claimed = await this.repo.transitionToCheckingOut(cartId, claimToken, ctx);
     if (!claimed) {
       return Err(
         new CommerceValidationError(
@@ -628,13 +631,17 @@ export class CartService {
 
   /**
    * Atomically returns a failed checkout claim to `active`. A checked-out,
-   * merged, abandoned, or already-active cart is left untouched.
+   * merged, abandoned, or already-active cart is left untouched — and so is a
+   * claim held by a different checkout attempt, so a losing attempt's failure
+   * path cannot reopen the cart the winner is still checking out. Returns null
+   * when nothing was released.
    */
   async releaseCheckoutClaim(
     cartId: string,
+    claimToken: string,
     ctx?: TxContext,
   ): Promise<Result<Cart | null>> {
-    return Ok((await this.repo.releaseCheckoutClaim(cartId, ctx)) ?? null);
+    return Ok((await this.repo.releaseCheckoutClaim(cartId, claimToken, ctx)) ?? null);
   }
 
   /**

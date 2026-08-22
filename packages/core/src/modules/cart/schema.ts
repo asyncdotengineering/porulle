@@ -15,6 +15,10 @@ export const carts = pgTable("carts", {
   // Shopper contact for guest carts — enables abandoned-checkout recovery
   email: text("email"),
   secret: text("secret"),
+  // Owner of an in-progress `checking_out` claim. Minted by the checkout
+  // attempt that wins the CAS; only that holder may release the claim, so a
+  // losing attempt's failure path cannot unwind the winner's claim.
+  checkoutClaimToken: text("checkout_claim_token"),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

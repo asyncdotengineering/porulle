@@ -114,7 +114,7 @@ export const validateCartNotEmpty: BeforeHook<CheckoutData> = async ({
         }
       | { ok: false }
     >;
-    claimForCheckout(cartId: string, ctx?: unknown): Promise<
+    claimForCheckout(cartId: string, claimToken: string, ctx?: unknown): Promise<
       | { ok: true; value: { id: string } }
       | { ok: false; error: { message: string } }
     >;
@@ -139,7 +139,8 @@ export const validateCartNotEmpty: BeforeHook<CheckoutData> = async ({
 
   // M1 fix: Atomically claim the cart for checkout (active → checking_out).
   // If a concurrent request already claimed it, this returns Err and we fail fast.
-  const claimed = await cartService.claimForCheckout(data.cartId, context.tx);
+  // The checkout id is the claim token, so only this attempt can release it.
+  const claimed = await cartService.claimForCheckout(data.cartId, data.checkoutId, context.tx);
   if (!claimed.ok) {
     throw new CommerceValidationError(
       "Cart is not available for checkout. It may have already been checked out by a concurrent request.",

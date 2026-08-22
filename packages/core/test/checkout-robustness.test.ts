@@ -560,12 +560,12 @@ describe("checkout – cart claim recovery", () => {
     expect(created.ok).toBe(true);
     if (!created.ok) return;
 
-    expect((await kernel.services.cart.claimForCheckout(created.value.id)).ok).toBe(true);
-    const released = await kernel.services.cart.releaseCheckoutClaim(created.value.id);
+    expect((await kernel.services.cart.claimForCheckout(created.value.id, "co-release")).ok).toBe(true);
+    const released = await kernel.services.cart.releaseCheckoutClaim(created.value.id, "co-release");
     expect(released.ok && released.value?.status).toBe("active");
 
     await kernel.services.cart.markAsCheckedOut(created.value.id, actor);
-    const terminal = await kernel.services.cart.releaseCheckoutClaim(created.value.id);
+    const terminal = await kernel.services.cart.releaseCheckoutClaim(created.value.id, "co-release");
     expect(terminal.ok && terminal.value).toBeNull();
     const viewed = await kernel.services.cart.getById(created.value.id, actor);
     expect(viewed.ok && viewed.value.status).toBe("checked_out");

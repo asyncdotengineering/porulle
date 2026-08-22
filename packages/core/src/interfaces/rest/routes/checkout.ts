@@ -379,7 +379,10 @@ export function checkoutRoutes(kernel: Kernel) {
       // Validation, payment authorization, or compensated completion may fail
       // after the cart's atomic active -> checking_out claim. Release only
       // that transient state so the shopper can correct the problem and retry.
-      await kernel.services.cart.releaseCheckoutClaim(body.cartId).catch(
+      // Releasing is scoped to this attempt's claim token: an attempt that lost
+      // the claim never held it, so its failure cannot reopen a cart another
+      // checkout is still working through.
+      await kernel.services.cart.releaseCheckoutClaim(body.cartId, checkoutData.checkoutId).catch(
         (releaseError: unknown) => {
           console.error("[checkout] Failed to release cart claim:", {
             cartId: body.cartId,

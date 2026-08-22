@@ -130,34 +130,48 @@ export class CartRepository {
   }
 
   /**
-   * Atomically transitions a cart from "active" to "checking_out".
-   * Returns the updated cart if the transition succeeded, or undefined if
-   * the cart was not in "active" status (e.g., a concurrent checkout already
-   * claimed it). This prevents TOCTOU race conditions on double-checkout.
+   * Atomically transitions a cart from "active" to "checking_out" and records
+   * `claimToken` as the holder of that claim. Returns the updated cart if the
+   * transition succeeded, or undefined if the cart was not in "active" status
+   * (e.g., a concurrent checkout already claimed it). This prevents TOCTOU race
+   * conditions on double-checkout.
    */
   async transitionToCheckingOut(
     id: string,
+    claimToken: string,
     ctx?: TxContext,
   ): Promise<Cart | undefined> {
     const db = this.getDb(ctx);
     const rows = await db
       .update(carts)
-      .set({ status: "checking_out", updatedAt: new Date() })
+      .set({ status: "checking_out", checkoutClaimToken: claimToken, updatedAt: new Date() })
       .where(and(eq(carts.id, id), eq(carts.status, "active")))
       .returning();
     return rows[0];
   }
 
-  /** Release only an in-progress checkout claim; terminal cart states are untouched. */
+  /**
+   * Release an in-progress checkout claim held by `claimToken`. Terminal cart
+   * states are untouched, and so is a claim held by a different checkout
+   * attempt — a losing attempt's failure path must not reopen the cart the
+   * winner is still checking out.
+   */
   async releaseCheckoutClaim(
     id: string,
+    claimToken: string,
     ctx?: TxContext,
   ): Promise<Cart | undefined> {
     const db = this.getDb(ctx);
     const rows = await db
       .update(carts)
-      .set({ status: "active", updatedAt: new Date() })
-      .where(and(eq(carts.id, id), eq(carts.status, "checking_out")))
+      .set({ status: "active", checkoutClaimToken: null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(carts.id, id),
+          eq(carts.status, "checking_out"),
+          eq(carts.checkoutClaimToken, claimToken),
+        ),
+      )
       .returning();
     return rows[0];
   }
