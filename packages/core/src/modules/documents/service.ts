@@ -2,7 +2,8 @@ import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import type { Actor } from "../../auth/types.js";
 import type { CommerceConfig } from "../../config/types.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
-import { CommerceValidationError } from "../../kernel/errors.js";
+import { hasPermission } from "../../auth/permissions.js";
+import { CommerceForbiddenError, CommerceValidationError } from "../../kernel/errors.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
 import type { HydratedOrder, OrderService } from "../orders/service.js";
 import type { SettingsService } from "../settings/service.js";
@@ -21,6 +22,14 @@ interface DocumentsServiceDeps {
   // at call time (they may instantiate after this module).
   services: Record<string, unknown>;
   config: CommerceConfig;
+}
+
+interface CustomerLookup {
+  getById(
+    id: string,
+    actor?: Actor | null,
+    ctx?: TxContext,
+  ): Promise<{ ok: true; value: { email: string | null } } | { ok: false }>;
 }
 
 interface EmailAdapter {
@@ -146,9 +155,31 @@ export class DocumentsService {
   }
 
   /**
+   * The address that belongs to this order: its customer profile's email.
+   * A guest order has no customer profile and therefore no address of its own.
+   */
+  private async orderEmail(
+    order: HydratedOrder,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<string | null> {
+    if (!order.customerId) return null;
+    const customers = this.services.customers as CustomerLookup | undefined;
+    if (!customers) return null;
+    const customer = await customers.getById(order.customerId, actor, ctx);
+    return customer.ok ? (customer.value.email ?? null) : null;
+  }
+
+  /**
    * Emails the invoice via the configured email adapter. The adapter's
    * template contract is (template, to, data) — the rendered HTML and the
    * fiscal number ride in `data` so template-based adapters can use either.
+   *
+   * The destination is the order's own address, not the caller's choice. A
+   * cart secret authorizes reading an order, and a caller-supplied `to` turned
+   * that read into delivery: items, totals and shipping address mailed to any
+   * address, with nothing left in the shopper's inbox. Only staff holding
+   * org-wide `orders:read` may name a different recipient.
    */
   async emailInvoice(
     orderId: string,
@@ -167,9 +198,32 @@ export class DocumentsService {
     const order = await this.loadOrder(orderId, actor, ctx, guestCredential);
     if (!order.ok) return order;
 
+    const ownAddress = await this.orderEmail(order.value, actor, ctx);
+    const mayDirect = hasPermission(actor, "orders:read");
+    const requested = to.trim();
+
+    let destination: string;
+    if (mayDirect && requested.length > 0) {
+      destination = requested;
+    } else if (ownAddress === null) {
+      return Err(
+        new CommerceValidationError(
+          "This order has no email address of its own. Render the invoice instead, or send it as staff.",
+        ),
+      );
+    } else if (requested.length > 0 && requested.toLowerCase() !== ownAddress.toLowerCase()) {
+      return Err(
+        new CommerceForbiddenError(
+          "An invoice can only be emailed to the address on the order.",
+        ),
+      );
+    } else {
+      destination = ownAddress;
+    }
+
     await email.send({
       template: "order-invoice",
-      to,
+      to: destination,
       data: {
         orgId: resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config),
         orderId,
@@ -180,6 +234,6 @@ export class DocumentsService {
         html: rendered.value.html,
       },
     });
-    return Ok({ sent: true, invoiceNumber: rendered.value.invoiceNumber, to });
+    return Ok({ sent: true, invoiceNumber: rendered.value.invoiceNumber, to: destination });
   }
 }
