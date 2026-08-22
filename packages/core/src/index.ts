@@ -3,6 +3,7 @@ export type {
   CommerceConfig,
   CommercePlugin,
   ApiKeyScopeDefinition,
+  GuestOrderAccessStrategy,
 } from "./config/types.js";
 export { defineCommercePlugin } from "./kernel/plugin/manifest.js";
 export type {
@@ -253,6 +254,11 @@ export type { QueryInput, QueryResult } from "./kernel/query/executor.js";
 export type { CommerceModuleTypes } from "./types/commerce-types.js";
 
 export { staleOrderCleanupTask } from "./modules/orders/stale-order-cleanup.js";
+export {
+  windowedGuestOrderAccess,
+  defaultGuestOrderAccess,
+  parseAccessWindow,
+} from "./modules/orders/guest-access.js";
 export { COMMERCE_AGENT_SYSTEM_PROMPT } from "./utils/agent-prompt.js";
 
 export { DrizzleAnalyticsAdapter } from "./modules/analytics/drizzle-adapter.js";

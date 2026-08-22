@@ -1,6 +1,7 @@
 import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import { assertOwnership, assertPermission, hasPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
+import { defaultGuestOrderAccess } from "./guest-access.js";
 import type { CommerceConfig } from "../../config/types.js";
 import { isCatalogEntityVisible } from "../catalog/read-policy.js";
 import {
@@ -403,6 +404,16 @@ export class OrderService {
             guestCredential,
           );
           if (!guestCart.ok) {
+            throw new CommerceForbiddenError("You do not have access to this resource.");
+          }
+          // The secret is genuine, but a bearer credential with no lifetime
+          // reads this order forever — and a secret leaks far more easily than
+          // it is guessed. Bound it to a window after placement, and fail with
+          // the identical error so a stale window is not an oracle telling the
+          // caller their secret is valid.
+          const guestAccess =
+            this.deps.config.orders?.guestAccessStrategy ?? defaultGuestOrderAccess;
+          if (!guestAccess.canAccessOrder(order, new Date())) {
             throw new CommerceForbiddenError("You do not have access to this resource.");
           }
         } else {

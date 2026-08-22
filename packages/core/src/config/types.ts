@@ -265,7 +265,25 @@ export interface CheckoutConfig {
   };
 }
 
+/**
+ * Decides whether a guest bearer credential (a cart secret) may still read a
+ * placed order. The authenticated customer who owns an order is never subject
+ * to this — ownership grants permanent access.
+ *
+ * Modelled on Vendure's `OrderByCodeAccessStrategy`: the value of the seam is
+ * that the policy has one home, rather than being an emergent property of the
+ * read path.
+ */
+export interface GuestOrderAccessStrategy {
+  canAccessOrder(order: { placedAt: Date }, now: Date): boolean;
+}
+
 export interface OrdersConfig {
+  /**
+   * How long a guest cart secret keeps reading an order after placement.
+   * Defaults to `windowedGuestOrderAccess("7d")`.
+   */
+  guestAccessStrategy?: GuestOrderAccessStrategy;
   hooks?: {
     beforeCreate?: BeforeHook<unknown>[];
     afterCreate?: AfterHook<unknown>[];
