@@ -82,20 +82,42 @@ export async function createPGliteTestAdapter(): Promise<{
   /**
    * PGlite-compatible transaction wrapper.
    *
-   * Drizzle's transaction() method can hang with PGlite due to how
-   * the adapter manages transaction state. This implementation uses
-   * manual BEGIN/COMMIT control which works more reliably.
+   * Drizzle's transaction() method can hang with PGlite due to how the adapter
+   * manages transaction state, so this drives BEGIN/COMMIT manually.
+   *
+   * PGlite is a single connection, so two transaction bodies awaiting
+   * concurrently would otherwise interleave their statements between one
+   * BEGIN and one COMMIT — the second BEGIN is a no-op Postgres only warns
+   * about. Merged that way, two callers share a snapshot and hold each other's
+   * row locks, so an isolation bug reads as if the guard failed. Bodies are
+   * queued instead, which is what a connection pool would do to two
+   * transactions competing for the same rows.
+   *
+   * A nested call joins the transaction already open rather than deadlocking
+   * on the queue; without savepoints that is the only sound reading.
    */
+  let transactionQueue: Promise<unknown> = Promise.resolve();
+  let inTransaction = false;
+
   async function transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
-    await pg.exec("BEGIN");
-    try {
-      const result = await fn(db);
-      await pg.exec("COMMIT");
-      return result;
-    } catch (error) {
-      await pg.exec("ROLLBACK");
-      throw error;
-    }
+    if (inTransaction) return fn(db);
+
+    const run = transactionQueue.then(async () => {
+      inTransaction = true;
+      await pg.exec("BEGIN");
+      try {
+        const result = await fn(db);
+        await pg.exec("COMMIT");
+        return result;
+      } catch (error) {
+        await pg.exec("ROLLBACK");
+        throw error;
+      } finally {
+        inTransaction = false;
+      }
+    });
+    transactionQueue = run.catch(() => undefined);
+    return run as Promise<T>;
   }
 
   const adapter: DatabaseAdapter = {

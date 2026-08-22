@@ -83,16 +83,38 @@ export function adminStaffRoutes(kernel: Kernel) {
   }
 
   /**
-   * Owners of an organization. Better Auth reads a member's role as a
-   * comma-separated list, so a stored `"owner,admin"` is an owner to it; this
-   * counts the same way, or the two layers disagree on who the last owner is.
+   * Runs a membership mutation with the organization's member rows locked, so
+   * the last-owner check and the write it guards cannot be interleaved.
+   *
+   * Counting owners and then mutating as two statements let two owners revoke
+   * each other concurrently: both read `count = 2`, both proceed, and the
+   * organization is left with none. The lock makes the second transaction
+   * re-read after the first commits, so it sees the count it must respect.
+   *
+   * The whole member set is locked, not just the owner rows, because an owner
+   * is any member whose role string contains `owner` — a predicate SQL cannot
+   * express as cheaply as the JS filter below. Membership writes are rare
+   * administrative actions, so serialising them per organization is free.
+   * `ORDER BY id` fixes the lock order and keeps two concurrent revocations
+   * from deadlocking each other.
    */
-  async function ownerMemberIds(orgId: string): Promise<string[]> {
-    const rows = await db
-      .select({ id: member.id, role: member.role })
-      .from(member)
-      .where(eq(member.organizationId, orgId));
-    return rows.filter((row) => isOwnerRole(row.role)).map((row) => row.id);
+  async function withMembershipLock<T>(
+    orgId: string,
+    run: (tx: DrizzleDatabase, ownerIds: string[]) => Promise<T>,
+  ): Promise<T> {
+    return kernel.database.transaction(async (raw) => {
+      const tx = raw as DrizzleDatabase;
+      const locked = await tx
+        .select({ id: member.id, role: member.role })
+        .from(member)
+        .where(eq(member.organizationId, orgId))
+        .orderBy(member.id)
+        .for("update");
+      const ownerIds = locked
+        .filter((row) => isOwnerRole(row.role))
+        .map((row) => row.id);
+      return run(tx, ownerIds);
+    });
   }
 
   /**
@@ -239,35 +261,45 @@ export function adminStaffRoutes(kernel: Kernel) {
     if (isCompositeRole(body.role) || !validRoles(config).has(body.role)) return invalidRole(c, body.role);
     if (!actorCanGrantRole(actor, body.role)) return insufficientPrivilege(c, body.role);
 
-    const rows = await db
-      .select()
-      .from(member)
-      .where(and(eq(member.organizationId, orgId), eq(member.id, id)));
-    const target = rows[0];
-    if (!target) {
+    const outcome = await withMembershipLock(orgId, async (tx, ownerIds) => {
+      const rows = await tx
+        .select()
+        .from(member)
+        .where(and(eq(member.organizationId, orgId), eq(member.id, id)));
+      const target = rows[0];
+      if (!target) return { kind: "not-found" } as const;
+
+      // SEC-18/R-02: the actor must also outrank (or equal) the target's CURRENT
+      // role, else an admin could demote an owner they do not outrank.
+      if (rankOf(actor!.role) < rankOf(target.role)) {
+        return { kind: "outranked", role: target.role } as const;
+      }
+
+      if (isOwnerRole(target.role) && !isOwnerRole(body.role) && ownerIds.length <= 1) {
+        return { kind: "last-owner" } as const;
+      }
+
+      const updated = await tx
+        .update(member)
+        .set({ role: body.role })
+        .where(eq(member.id, id))
+        .returning();
+      return { kind: "updated", target, row: updated[0] } as const;
+    });
+
+    if (outcome.kind === "not-found") {
       return c.json({ error: { code: "NOT_FOUND", message: "Staff member not found." } }, 404);
     }
-
-    // SEC-18/R-02: the actor must also outrank (or equal) the target's CURRENT
-    // role, else an admin could demote an owner they do not outrank.
-    if (rankOf(actor!.role) < rankOf(target.role)) {
-      return insufficientPrivilege(c, target.role);
-    }
-
-    if (isOwnerRole(target.role) && !isOwnerRole(body.role) && (await ownerMemberIds(orgId)).length <= 1) {
+    if (outcome.kind === "outranked") return insufficientPrivilege(c, outcome.role);
+    if (outcome.kind === "last-owner") {
       return c.json(
         { error: { code: "VALIDATION_FAILED", message: "Cannot demote the organization's last owner." } },
         422,
       );
     }
 
-    const updated = await db
-      .update(member)
-      .set({ role: body.role })
-      .where(eq(member.id, id))
-      .returning();
-    await cancelUngrantableInvitations(orgId, target.userId, body.role);
-    return c.json({ data: updated[0] });
+    await cancelUngrantableInvitations(orgId, outcome.target.userId, body.role);
+    return c.json({ data: outcome.row });
   });
 
   // @ts-expect-error -- openapi handler union return type
@@ -276,30 +308,40 @@ export function adminStaffRoutes(kernel: Kernel) {
     const orgId = resolveOrgIdForCommerce(actor, config);
     const id = c.req.param("id");
 
-    const rows = await db
-      .select()
-      .from(member)
-      .where(and(eq(member.organizationId, orgId), eq(member.id, id)));
-    const target = rows[0];
-    if (!target) {
+    const outcome = await withMembershipLock(orgId, async (tx, ownerIds) => {
+      const rows = await tx
+        .select()
+        .from(member)
+        .where(and(eq(member.organizationId, orgId), eq(member.id, id)));
+      const target = rows[0];
+      if (!target) return { kind: "not-found" } as const;
+
+      // SEC-18/R-02: the actor must outrank (or equal) the target's current role
+      // to revoke it — an admin cannot revoke an owner.
+      if (rankOf(actor!.role) < rankOf(target.role)) {
+        return { kind: "outranked", role: target.role } as const;
+      }
+
+      if (isOwnerRole(target.role) && ownerIds.length <= 1) {
+        return { kind: "last-owner" } as const;
+      }
+
+      await tx.delete(member).where(eq(member.id, id));
+      return { kind: "deleted", target } as const;
+    });
+
+    if (outcome.kind === "not-found") {
       return c.json({ error: { code: "NOT_FOUND", message: "Staff member not found." } }, 404);
     }
-
-    // SEC-18/R-02: the actor must outrank (or equal) the target's current role
-    // to revoke it — an admin cannot revoke an owner.
-    if (rankOf(actor!.role) < rankOf(target.role)) {
-      return insufficientPrivilege(c, target.role);
-    }
-
-    if (isOwnerRole(target.role) && (await ownerMemberIds(orgId)).length <= 1) {
+    if (outcome.kind === "outranked") return insufficientPrivilege(c, outcome.role);
+    if (outcome.kind === "last-owner") {
       return c.json(
         { error: { code: "VALIDATION_FAILED", message: "Cannot revoke the organization's last owner." } },
         422,
       );
     }
 
-    await db.delete(member).where(eq(member.id, id));
-    await cancelUngrantableInvitations(orgId, target.userId, null);
+    await cancelUngrantableInvitations(orgId, outcome.target.userId, null);
     return c.json({ data: { deleted: true } });
   });
 
