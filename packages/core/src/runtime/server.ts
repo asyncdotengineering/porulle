@@ -260,10 +260,17 @@ export async function createServer(config: CommerceConfig) {
   const getClientIp = createClientIpResolver(config);
   const keyGenerator = getClientIp;
 
+  app.use("/api/auth/get-session", rateLimiter({
+    windowMs: 60 * 1000,
+    limit: config.rateLimits?.session ?? 120,
+    keyGenerator,
+  }));
+
   app.use("/api/auth/*", rateLimiter({
     windowMs: 60 * 1000,
     limit: config.rateLimits?.auth ?? 10,
     keyGenerator,
+    skip: (c) => c.req.path === "/api/auth/get-session",
   }));
 
   app.use("/api/auth/sign-in/email", async (c, next) => {

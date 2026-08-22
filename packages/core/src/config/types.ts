@@ -453,6 +453,8 @@ export interface CommerceConfig {
     api?: number;
     /** Requests per minute for auth endpoints. Default: 10. */
     auth?: number;
+    /** Requests per minute for session reads. Default: 120. */
+    session?: number;
     /** Requests per minute for checkout. Default: 5. */
     checkout?: number;
     /** Attempts per 15 minutes for sign-in per email. Default: 10. */
