@@ -1,5 +1,62 @@
 # @porulle/core
 
+## 0.14.0
+
+### Minor Changes
+
+- [`3f1de20`](https://github.com/asyncdotengineering/porulle/commit/3f1de204f0ebb07f634fe702ddc8a6f1d6fd7f22) Thanks [@octalpixel](https://github.com/octalpixel)! - Let `pgSearchAdapter` use the configured database instead of requiring a second connection.
+
+  `PgSearchAdapterOptions.query` was required, so every consumer hand-wired raw SQL execution — typically by opening a second pool against the database porulle was already connected to.
+
+  `SearchAdapter` gains an optional `init?(deps: { db })` hook, called by the search module when it wires the adapter, and `pgSearchAdapter()` now takes no required argument:
+
+  ```ts
+  search: {
+    adapter: pgSearchAdapter();
+  }
+  ```
+
+  A supplied `query` callback still takes precedence and is never overwritten by `init`, so pointing search at a separate database remains possible. Adapters that do not define `init` — including the meilisearch adapter — are unaffected.
+
+- [`0583eab`](https://github.com/asyncdotengineering/porulle/commit/0583eab02f80869f3aba3fdc2ae847712cbd6959) Thanks [@octalpixel](https://github.com/octalpixel)! - Refuse to construct a server when no request could resolve an organization.
+
+  Strict organization resolution fails closed by default. A deployment configuring neither `auth.defaultOrganizationId` nor `auth.storeResolver` previously booted cleanly and then returned 503 `ORG_RESOLUTION_FAILED` on the first actor-less request — in production, on a path an operator may not exercise until a real visitor does.
+
+  `createServer` now refuses at construction, naming both remedies and the opt-out. An empty or whitespace-only `defaultOrganizationId` counts as absent, since that is what an unset environment variable produces.
+
+  **Breaking:** a deployment relying on the permissive fallback will now fail to start rather than fail per-request. Set `auth.defaultOrganizationId` for single-tenant, `auth.storeResolver` for multi-tenant, or `auth.strictOrgResolution: false` (or `STRICT_ORG_RESOLUTION=false`) to keep the previous behaviour during a migration.
+
+- [`f476b2c`](https://github.com/asyncdotengineering/porulle/commit/f476b2c2687dc4bed24de65a1ab1abdf08853066) Thanks [@octalpixel](https://github.com/octalpixel)! - Export `resolveActor`, so code outside the request pipeline can resolve a porulle `Actor` from request headers.
+
+  Going from a better-auth session to an `Actor` — organization resolved, permissions resolved — was reachable only from inside `authMiddleware`. A server function, a script, or a job had to re-derive it by hand.
+
+  That mapping is now `auth/actor.ts` and is exported. `authMiddleware` calls the same function, so the two paths cannot drift:
+
+  ```ts
+  import { resolveActor } from "@porulle/core";
+
+  const actor = await resolveActor(request.headers, auth, config);
+  if (!actor) return redirectToSignIn();
+  ```
+
+  Returns `null` for an absent, malformed or expired session rather than throwing — "signed out" is an ordinary answer. `AUTH_COOKIE_PREFIX` and `SESSION_COOKIE_NAME` are exported alongside it for consumers managing the cookie themselves.
+
+  Note that resolving a _session_ needs no porulle helper: better-auth already provides `auth.api.getSession({ headers })` in-process and `createAuthClient` from `better-auth/client` for a separate frontend. The documentation now points at both.
+
+- [`32136d4`](https://github.com/asyncdotengineering/porulle/commit/32136d49df43995e167e1198d1b768976e1eb85f) Thanks [@octalpixel](https://github.com/octalpixel)! - Give session reads their own rate-limit budget, separate from the credential endpoints.
+
+  `GET /api/auth/get-session` previously shared the `/api/auth/*` bucket with sign-in, so an app resolving the session per navigation exhausted a 10-per-minute budget in ten screens. The call then returned 429, and a client treating any non-ok response as "no session" signed the operator out.
+
+  Session reads now use `config.rateLimits.session`, defaulting to 120 per minute, and are skipped by the shared limiter so a single request is never counted twice. `rateLimits.auth` and `rateLimits.signInPerEmail` are unchanged — the per-email sign-in limit is the credential control and stays where it is.
+
+  Widen or tighten it like any other limit:
+
+  ```ts
+  rateLimits: {
+    session: 300;
+  }
+  ```
+
 ## 0.13.0
 
 ### Minor Changes
