@@ -72,6 +72,7 @@ All Porulle routes are now available at `/api/*` inside your TanStack Start app.
 
 ```ts title="drizzle.config.ts"
 import { defineConfig } from "drizzle-kit";
+import { getSchemaFiles } from "@porulle/core";
 
 export default defineConfig({
   dialect: "postgresql",
@@ -79,8 +80,7 @@ export default defineConfig({
     url: process.env.DATABASE_URL ?? "postgres://localhost:5432/my_store",
   },
   schema: [
-    "./node_modules/@porulle/core/src/kernel/database/schema.ts",
-    "./node_modules/@porulle/plugin-*/src/schema.ts",
+    ...getSchemaFiles(),
   ],
 });
 ```

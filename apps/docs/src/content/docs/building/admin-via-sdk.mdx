@@ -15,8 +15,13 @@ This guide takes you from "fresh API key" to "first product live and inventoried
 - An admin API key. Create one with the CLI:
 
   ```bash
-  porulle api-key create --server https://api.acme.com --name admin-cli --scopes "*:*"
+  porulle api-key create --scope admin --name admin-cli
   ```
+
+  The CLI reads `./commerce.config.ts` (override with `--config`) and boots it in
+  process — it does not talk to a remote server, so there is no `--server` flag.
+  `--scope` must name a scope declared in `auth.apiKeyScopes`; the permissions
+  come from that scope, not from the command line.
 
   <Aside type="caution">
   The key is shown once — paste it into your password manager or `.env` immediately.

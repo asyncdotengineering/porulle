@@ -38,7 +38,7 @@ Get all groups at once:
 
 ```bash
 curl "http://localhost:4000/api/settings" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 ```json
@@ -49,7 +49,7 @@ Get a single group. An unset group returns `{}`:
 
 ```bash
 curl "http://localhost:4000/api/settings/general" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 ```json
@@ -61,7 +61,7 @@ Update a group with `PATCH`. The body is a flat JSON object and is **shallow-mer
 ```bash
 curl -X PATCH "http://localhost:4000/api/settings/general" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"currency": "USD", "timezone": "America/New_York"}'
 ```
 
@@ -70,7 +70,7 @@ To remove a key, set it to `null`. A `null` value **deletes** that key rather th
 ```bash
 curl -X PATCH "http://localhost:4000/api/settings/general" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"locale": null}'
 ```
 

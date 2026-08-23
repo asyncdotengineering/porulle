@@ -13,7 +13,7 @@ Refund one or more line quantities with `POST /api/orders/{id}/refunds` (permiss
 
 ```bash
 curl -X POST http://localhost:4000/api/orders/$ORDER_ID/refunds \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{
     "lines": [{ "lineItemId": "'$LINE_ID'", "quantity": 1 }],
     "reason": "Damaged in transit"
@@ -28,7 +28,7 @@ List an order's refunds newest-first with `GET /api/orders/{id}/refunds` (permis
 
 ```bash
 curl http://localhost:4000/api/orders/$ORDER_ID/refunds \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 Returns `200 { data: <refund[]> }`.
@@ -39,7 +39,7 @@ Set an optional per-operator daily refund cap in the `policies` [settings group]
 
 ```bash
 curl -X PATCH http://localhost:4000/api/settings/policies \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{ "refundDailyCap": 50000 }'
 ```
 
@@ -47,7 +47,7 @@ Check the acting operator's remaining headroom for today with `GET /api/orders/r
 
 ```bash
 curl http://localhost:4000/api/orders/refunds/cap \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 Returns `200 { data: { cap, usedToday, remaining } }`. `cap` and `remaining` are `null` when no cap is set.
@@ -58,7 +58,7 @@ Reverse a refund within the undo window with `POST /api/orders/{id}/refunds/{ref
 
 ```bash
 curl -X POST http://localhost:4000/api/orders/$ORDER_ID/refunds/$REFUND_ID/undo \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 The window is `refundUndoWindowMinutes` in the `policies` settings group (default 15). After that many minutes, undo is rejected with `422`.
@@ -71,7 +71,7 @@ An exchange takes items back and issues replacements in a single operation. `POS
 
 ```bash
 curl -X POST http://localhost:4000/api/pos/exchanges \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{
     "shiftId": "'$SHIFT_ID'",
     "terminalId": "'$TERMINAL_ID'",

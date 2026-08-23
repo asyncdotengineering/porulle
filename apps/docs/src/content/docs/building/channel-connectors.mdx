@@ -34,10 +34,14 @@ export default defineConfig({
 Include the plugin schema and push the new tables:
 
 ```ts title="drizzle.config.ts"
+import { getSchemaFiles } from "@porulle/core";
+import { createRequire } from "node:module";
+
+const resolve = createRequire(import.meta.url).resolve;
+
 schema: [
-  "./node_modules/@porulle/core/src/kernel/database/schema.ts",
-  "./node_modules/@porulle/core/src/auth/auth-schema.ts",
-  "./node_modules/@porulle/plugin-channel-connector/src/schema.ts",
+  ...getSchemaFiles(),
+  resolve("@porulle/plugin-channel-connector/schema"),
 ],
 ```
 

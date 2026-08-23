@@ -43,7 +43,7 @@ import type { paths } from "./generated/api-types";
 // API key auth (server-to-server, CI, scripts)
 const client = createClient<paths>({
   baseUrl: "http://localhost:4000",
-  auth: { type: "api_key", key: "dev-staff-key" },
+  auth: { type: "api_key", key: process.env.PORULLE_API_KEY! },
 });
 
 // Bearer token auth (mobile apps, SPAs)
@@ -232,7 +232,7 @@ import { OfflineQueue, webStorage } from "@porulle/sdk";
 
 const queue = new OfflineQueue({
   baseUrl: "http://localhost:4000",
-  headers: { "x-api-key": "dev-staff-key" },
+  headers: { "x-api-key": process.env.PORULLE_API_KEY! },
   storage: webStorage(localStorage),
 });
 ```

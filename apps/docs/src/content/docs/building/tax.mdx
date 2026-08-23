@@ -17,7 +17,7 @@ A class `name` is a lowercase slug matching `/^[a-z][a-z0-9_-]*$/` (for example 
 # Create a default standard class at 18%
 curl -X POST "http://localhost:4000/api/tax/classes" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{
     "name": "standard",
     "rateBps": 1800,
@@ -27,7 +27,7 @@ curl -X POST "http://localhost:4000/api/tax/classes" \
 # Create a zero-rated class
 curl -X POST "http://localhost:4000/api/tax/classes" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{
     "name": "zero",
     "rateBps": 0
@@ -44,7 +44,7 @@ Each call returns `201` with `{ "data": <class> }`.
 # Assign the "standard" class when creating an entity
 curl -X POST "http://localhost:4000/api/catalog/entities" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{
     "name": "Ceylon Black Tea",
     "taxClass": "standard"
@@ -71,17 +71,17 @@ Order-level discounts are pro-rated before tax. A cart-level discount that is no
 ```bash
 # List all classes (ordered by name)
 curl "http://localhost:4000/api/tax/classes" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 
 # Update a class — any subset of name, rateBps, isDefault, isActive
 curl -X PATCH "http://localhost:4000/api/tax/classes/$CLASS_ID" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"rateBps": 1500}'
 
 # Delete a class
 curl -X DELETE "http://localhost:4000/api/tax/classes/$CLASS_ID" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 List returns `200` with `{ "data": <class[]> }`, update returns `200` with `{ "data": <class> }`, and delete returns `200` with `{ "data": { "deleted": true } }`.

@@ -50,7 +50,7 @@ bun add @porulle/core \
 | `@porulle/plugin-marketplace` | Multi-vendor marketplace |
 | `@porulle/plugin-loyalty` | Points and tiers |
 | `@porulle/plugin-reviews` | Product reviews |
-| `@porulle/plugin-gift-cards` | Gift card management |
+| `@porulle/plugin-giftcards` | Gift card management |
 | `@porulle/plugin-pos` | Point-of-sale terminals, shifts, Z-reports |
 | `@porulle/plugin-appointments` | Appointment scheduling |
 
@@ -67,18 +67,32 @@ Porulle uses [Drizzle ORM](https://orm.drizzle.team/) for schema management. Aft
 
 ```ts title="drizzle.config.ts"
 import { defineConfig } from "drizzle-kit";
+import { getSchemaFiles } from "@porulle/core";
 
 export default defineConfig({
   dialect: "postgresql",
   dbCredentials: {
     url: process.env.DATABASE_URL ?? "postgres://localhost:5432/porulle_dev",
   },
-  schema: [
-    "./node_modules/@porulle/core/src/kernel/database/schema.ts",
-    "./node_modules/@porulle/core/src/auth/auth-schema.ts",
-    "./node_modules/@porulle/plugin-*/src/schema.ts",
-  ],
+  schema: getSchemaFiles(),
 });
+```
+
+`getSchemaFiles()` returns the core schema, which re-exports the Better Auth
+tables — so one entry covers both. Ask the package rather than hardcoding paths
+into `node_modules`: those break on the next layout change, and a path ending in
+`src` migrates a different copy than a published consumer's server actually
+loads.
+
+Plugins own their own tables. Add each plugin's schema alongside:
+
+```ts
+import { getSchemaFiles } from "@porulle/core";
+import { createRequire } from "node:module";
+
+const resolve = createRequire(import.meta.url).resolve;
+
+schema: [...getSchemaFiles(), resolve("@porulle/plugin-pos/schema")],
 ```
 
 Push the schema:
@@ -89,7 +103,7 @@ bunx drizzle-kit push --config drizzle.config.ts
 
 This creates all core tables (catalog, inventory, cart, orders, customers, pricing, promotions, fulfillment, media, webhooks, audit, jobs), Better Auth tables (user, session, account, organization, member), and any plugin tables you have installed.
 
-Plugin schemas are discovered automatically via the glob pattern. Adding a new plugin and re-running `db:push` picks up its tables.
+Plugin tables are not discovered automatically. Each plugin you add needs its `schema` entry alongside `getSchemaFiles()`, as above, before `db:push` will create its tables.
 
 ## Verify
 

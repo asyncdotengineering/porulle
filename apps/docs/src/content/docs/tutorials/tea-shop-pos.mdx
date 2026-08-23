@@ -19,7 +19,7 @@ In this tutorial you will build a point-of-sale system for a tea shop called "Ce
 - The store from [Your First Store tutorial](/tutorials/first-store/) running at `http://localhost:4000`
 - `curl` installed
 
-All commands use the dev API key `dev-staff-key`.
+All commands send `x-api-key: $PORULLE_API_KEY`. Mint it with `porulle api-key create --scope admin` against a scope you declared in `auth.apiKeyScopes`; there is no built-in development key.
 
 ## Step 1: Install and enable the POS plugin
 
@@ -41,11 +41,12 @@ export default defineConfig({
 Update `drizzle.config.ts` to pick up the POS schema:
 
 ```ts title="drizzle.config.ts"
-schema: [
-  "./node_modules/@porulle/core/src/kernel/database/schema.ts",
-  "./node_modules/@porulle/core/src/auth/auth-schema.ts",
-  "./node_modules/@porulle/plugin-pos/src/schema.ts",
-],
+import { getSchemaFiles } from "@porulle/core";
+import { createRequire } from "node:module";
+
+const resolve = createRequire(import.meta.url).resolve;
+
+schema: [...getSchemaFiles(), resolve("@porulle/plugin-pos/schema")],
 ```
 
 Push the new tables and restart:
@@ -64,7 +65,7 @@ A terminal represents a physical register or device.
 ```bash
 TERMINAL=$(curl -s -X POST http://localhost:4000/api/pos/terminals \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"name": "Main Counter", "code": "MC1"}')
 TERMINAL_ID=$(echo $TERMINAL | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
 echo "Terminal: $TERMINAL_ID"
@@ -90,7 +91,7 @@ A shift tracks who is operating the register and how much cash is in the drawer.
 ```bash
 SHIFT=$(curl -s -X POST http://localhost:4000/api/pos/shifts/open \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d "{
     \"terminalId\": \"$TERMINAL_ID\",
     \"operatorId\": \"cashier-1\",
@@ -109,13 +110,13 @@ Every POS transaction starts with a cart.
 ```bash
 CART=$(curl -s -X POST http://localhost:4000/api/carts \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"currency": "USD"}')
 CART_ID=$(echo $CART | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
 
 TXN=$(curl -s -X POST http://localhost:4000/api/pos/transactions \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d "{
     \"shiftId\": \"$SHIFT_ID\",
     \"terminalId\": \"$TERMINAL_ID\",
@@ -134,13 +135,13 @@ A split payment uses multiple payment methods on one transaction. $35 cash + $15
 # Cash: $35.00 = 3500 cents
 curl -s -X POST "http://localhost:4000/api/pos/transactions/$TXN_ID/payments" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"method": "cash", "amount": 3500}'
 
 # Card: $15.00 = 1500 cents
 curl -s -X POST "http://localhost:4000/api/pos/transactions/$TXN_ID/payments" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"method": "card", "amount": 1500, "reference": "****4321"}'
 ```
 
@@ -148,7 +149,7 @@ curl -s -X POST "http://localhost:4000/api/pos/transactions/$TXN_ID/payments" \
 
 ```bash
 curl -s -X POST "http://localhost:4000/api/pos/transactions/$TXN_ID/complete" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 ```json
@@ -168,23 +169,23 @@ Total is 5000 (3500 + 1500). The shift's `salesCount` increments to 1 and `sales
 ```bash
 CART2=$(curl -s -X POST http://localhost:4000/api/carts \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"currency": "USD"}')
 CART2_ID=$(echo $CART2 | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
 
 TXN2=$(curl -s -X POST http://localhost:4000/api/pos/transactions \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d "{\"shiftId\": \"$SHIFT_ID\", \"terminalId\": \"$TERMINAL_ID\", \"operatorId\": \"cashier-1\", \"cartId\": \"$CART2_ID\"}")
 TXN2_ID=$(echo $TXN2 | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
 
 curl -s -X POST "http://localhost:4000/api/pos/transactions/$TXN2_ID/payments" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"method": "cash", "amount": 2200}'
 
 curl -s -X POST "http://localhost:4000/api/pos/transactions/$TXN2_ID/complete" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 The shift now has 2 completed transactions totaling $72.00.
@@ -196,19 +197,19 @@ Voided transactions do not count toward shift sales.
 ```bash
 CART3=$(curl -s -X POST http://localhost:4000/api/carts \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"currency": "USD"}')
 CART3_ID=$(echo $CART3 | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
 
 TXN3=$(curl -s -X POST http://localhost:4000/api/pos/transactions \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d "{\"shiftId\": \"$SHIFT_ID\", \"terminalId\": \"$TERMINAL_ID\", \"operatorId\": \"cashier-1\", \"cartId\": \"$CART3_ID\"}")
 TXN3_ID=$(echo $TXN3 | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
 
 curl -s -X POST "http://localhost:4000/api/pos/transactions/$TXN3_ID/void" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"reason": "Customer changed mind"}'
 ```
 
@@ -219,7 +220,7 @@ The expected cash = opening float + cash sales = $5,000 + ($35 + $22) = $5,057. 
 ```bash
 curl -s -X POST "http://localhost:4000/api/pos/shifts/$SHIFT_ID/close" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"closingCount": 505650}'
 ```
 
@@ -243,7 +244,7 @@ curl -s -X POST "http://localhost:4000/api/pos/shifts/$SHIFT_ID/close" \
 
 ```bash
 curl -s "http://localhost:4000/api/pos/shifts/$SHIFT_ID/report" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 ```json

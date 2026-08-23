@@ -14,7 +14,7 @@ Receipts and invoices pull store identity from the `branding` settings group: `s
 ```bash
 curl -X PATCH "http://localhost:4000/api/settings/branding" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"storeName": "Acme Tea Co.", "address": "12 High St", "email": "hi@acme.test"}'
 ```
 
@@ -26,21 +26,21 @@ Render the HTML receipt:
 
 ```bash
 curl "http://localhost:4000/api/orders/$ORDER_ID/receipt.html" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 Render the HTML invoice:
 
 ```bash
 curl "http://localhost:4000/api/orders/$ORDER_ID/invoice.html" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 Render the PDF invoice and save it to a file. The response is `application/pdf` with header `content-disposition: inline; filename="invoice-<number>.pdf"`:
 
 ```bash
 curl "http://localhost:4000/api/orders/$ORDER_ID/invoice.pdf" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -o invoice.pdf
 ```
 
@@ -59,7 +59,7 @@ Set the prefix through settings:
 ```bash
 curl -X PATCH "http://localhost:4000/api/settings/documents" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"invoicePrefix": "INV-"}'
 ```
 
@@ -70,7 +70,7 @@ Email the invoice to a recipient. This requires an email adapter to be configure
 ```bash
 curl -X POST "http://localhost:4000/api/orders/$ORDER_ID/invoice/email" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"to": "customer@acme.test"}'
 ```
 

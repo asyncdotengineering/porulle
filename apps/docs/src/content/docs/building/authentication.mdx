@@ -127,6 +127,30 @@ export const authClient = createAuthClient({
 
 The session cookie prefix and name are exported as `AUTH_COOKIE_PREFIX` and `SESSION_COOKIE_NAME` (`"uc.session_token"`) for consumers that explicitly set or clear cookies.
 
+### `null` means anonymous — it does not mean "something went wrong"
+
+Since 0.16.0 `resolveActor` distinguishes the two:
+
+- **Returns `null`** when the session was evaluated and there is no valid one. Anonymous. Handle it.
+- **Throws** when the check could not run at all — the session store is unreachable, the auth tables have drifted from what Better Auth expects, two copies of Better Auth are resolved into one module graph.
+
+Before 0.16.0 both returned `null`, so a fault presented as a signed-out user. A caller told "signed out" goes and inspects their session; when the session was never read, that sends them somewhere the fault is not.
+
+So do not wrap it in a catch that swallows:
+
+```ts
+// Wrong — an outage now looks exactly like a signed-out visitor
+let actor = null;
+try {
+  actor = await resolveActor(request.headers, commerce.auth, config);
+} catch {
+  actor = null;
+}
+```
+
+Let it throw. Inside `createServer` the middleware already logs the fault with its stage, path, and method, and returns 500. In your own loader or server function, treat a throw as a 500 rather than a redirect to sign-in.
+
+
 ## API keys
 
 ```ts
@@ -141,11 +165,28 @@ Clients authenticate by sending the key in the `x-api-key` header:
 curl -H "x-api-key: your-key" http://localhost:4000/api/catalog/entities
 ```
 
-The development key `dev-staff-key` is available only when `NODE_ENV !== "production"`. Generate production keys with:
+There is no built-in development key. `auth.enableDevKey` and `auth.devKey` were removed, and `createServer` now throws on boot if either is set — a shared hardcoded credential is indistinguishable from a real one in an audit log, and it invariably reaches production.
+
+Every key is minted against a named scope you declare in `auth.apiKeyScopes`:
+
+```ts
+auth: {
+  apiKeys: { enabled: true },
+  apiKeyScopes: {
+    storefront: {
+      prefix: "sf_",
+      description: "Public storefront reads",
+      permissions: { catalog: ["read"] },
+    },
+  },
+}
+```
 
 ```bash
-bunx @porulle/cli api-key create --name "storefront" --role staff
+bunx @porulle/cli api-key create --scope storefront
 ```
+
+`--scope` is required and must name a scope in your config; run `api-key list` to see what is declared. Other flags: `--name` (defaults to `<scope>-key`), `--config`, `--ttl` (seconds, minimum 86400), `--user`, `--save-env`, `--env-var`. The key is shown once.
 
 ## Social login
 

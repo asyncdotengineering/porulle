@@ -83,9 +83,9 @@ Common resolution strategies:
 - **Domain-based**: Each store has its own domain (e.g., `marinabay.platform.com`). The resolver looks up the org by domain from the database.
 - **Path-based**: The URL contains the store slug. Requires URL rewriting.
 
-If no `storeResolver` is configured, the middleware falls back to `org_default`. Single-store and marketplace deployments work without any configuration — the resolver is purely additive.
+A single-store deployment sets `auth.defaultOrganizationId`; a multi-store one sets `auth.storeResolver`. **One of them is required** — since 0.14.0 `createServer` refuses to construct with neither, rather than booting and returning 503 on the first actor-less request.
 
-When `strictOrgResolution: true` is set and resolution fails, the request is rejected with HTTP 503. Without it, requests fall into the default org. Production B2B multi-tenant deployments must configure `storeResolver`.
+`strictOrgResolution` defaults to **on**. A request that carries no actor and cannot be resolved to an organization is rejected with HTTP 503 instead of falling back to a default org. The old permissive fallback served one merchant's data to unauthenticated callers on every unguarded read path, which is why it is no longer the default. Opt out with `auth.strictOrgResolution: false` or `STRICT_ORG_RESOLUTION=false` only while migrating.
 
 ## Why organizations scope everything
 

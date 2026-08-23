@@ -10,7 +10,7 @@ Send a `POST` to `/api/webhooks`. Requires the `webhooks:manage` permission.
 ```bash
 curl -X POST http://localhost:4000/api/webhooks \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{
     "url": "https://your-service.example.com/hooks/commerce",
     "secret": "whsec_your_random_secret_string",
@@ -97,7 +97,7 @@ Both audit endpoints require the `audit:read` permission.
 
 ```bash
 curl "http://localhost:4000/api/audit?entityType=order&from=2026-03-01&limit=50" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 Query parameters:
@@ -116,7 +116,7 @@ Query parameters:
 
 ```bash
 curl "http://localhost:4000/api/audit/order/550e8400-e29b-41d4-a716-446655440000" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 Returns all audit entries for the specified entity, ordered by timestamp descending. Accepts the same `from`, `to`, and `limit` parameters.

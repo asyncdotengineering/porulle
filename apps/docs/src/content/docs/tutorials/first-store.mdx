@@ -68,13 +68,35 @@ export default defineConfig({
 
   auth: {
     requireEmailVerification: false,
+    // Required. Without this (or `storeResolver`) the server refuses to start.
+    defaultOrganizationId: "org_acme",
     apiKeys: { enabled: true },
+    // Keys are minted against a named scope — there is no built-in dev key.
+    // Mint one with:
+    //   porulle api-key create --scope admin --save-env --env-var PORULLE_API_KEY
+    apiKeyScopes: {
+      admin: {
+        prefix: "acme_adm_",
+        description: "Acme admin access",
+        permissions: {
+          catalog: ["read", "read:unpublished", "create", "update", "delete"],
+          inventory: ["read", "adjust"],
+          orders: ["read", "create", "update"],
+          cart: ["create", "read", "update"],
+          customers: ["read"],
+        },
+      },
+    },
     trustedOrigins: ["http://localhost:4000"],
     roles: {
       admin: { permissions: ["*:*"] },
       staff: {
         permissions: [
           "catalog:create", "catalog:update", "catalog:read",
+          // Reading draft / not-yet-visible entities is a distinct scope, not
+          // something catalog:update implies. Without it a staff member sees
+          // no unpublished product.
+          "catalog:read:unpublished",
           "inventory:adjust", "inventory:read",
           "orders:create", "orders:read", "orders:update",
           "cart:create", "cart:update", "customers:read",
@@ -131,7 +153,7 @@ import { createServer } from "@porulle/core";
 import config from "../commerce.config.js";
 
 const PORT = Number(process.env.PORT ?? 4000);
-const app = createServer(await config);
+const { app } = await createServer(await config);
 
 app.get("/health", (c) => c.json({ status: "ok", store: "Acme Streetwear" }));
 
@@ -144,6 +166,7 @@ serve({ fetch: app.fetch, port: PORT }, (info) => {
 
 ```ts title="drizzle.config.ts"
 import { defineConfig } from "drizzle-kit";
+import { getSchemaFiles } from "@porulle/core";
 
 export default defineConfig({
   dialect: "postgresql",
@@ -151,8 +174,7 @@ export default defineConfig({
     url: process.env.DATABASE_URL ?? "postgres://localhost:5432/acme_store",
   },
   schema: [
-    "./node_modules/@porulle/core/src/kernel/database/schema.ts",
-    "./node_modules/@porulle/core/src/auth/auth-schema.ts",
+    ...getSchemaFiles(),
   ],
 });
 ```
@@ -171,7 +193,7 @@ You should see `Acme Streetwear running at http://localhost:4000`. Open a new te
 # Create a Classic Tee entity
 ENTITY=$(curl -s -X POST http://localhost:4000/api/catalog/entities \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{
     "type": "product",
     "slug": "classic-tee",
@@ -184,7 +206,7 @@ echo "Entity: $ENTITY_ID"
 # Set the English title and description
 curl -s -X PUT "http://localhost:4000/api/catalog/entities/$ENTITY_ID/attributes/en" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{
     "title": "Classic Logo Tee",
     "description": "Premium cotton tee with screen-printed logo."
@@ -199,7 +221,7 @@ Before checkout can succeed, the engine needs to know how much stock exists. Cre
 # Create a warehouse
 WAREHOUSE=$(curl -s -X POST http://localhost:4000/api/inventory/warehouses \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"code": "MAIN", "name": "Main Warehouse", "isActive": true}')
 WAREHOUSE_ID=$(echo $WAREHOUSE | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
 echo "Warehouse: $WAREHOUSE_ID"
@@ -207,7 +229,7 @@ echo "Warehouse: $WAREHOUSE_ID"
 # Stock 100 units
 curl -s -X POST http://localhost:4000/api/inventory/adjust \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d "{
     \"entityId\": \"$ENTITY_ID\",
     \"warehouseId\": \"$WAREHOUSE_ID\",
@@ -222,7 +244,7 @@ curl -s -X POST http://localhost:4000/api/inventory/adjust \
 # Create a cart
 CART=$(curl -s -X POST http://localhost:4000/api/carts \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"currency": "USD"}')
 CART_ID=$(echo $CART | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
 echo "Cart: $CART_ID"
@@ -230,13 +252,13 @@ echo "Cart: $CART_ID"
 # Add 2 tees (price in cents: 2999 = $29.99)
 curl -s -X POST "http://localhost:4000/api/carts/$CART_ID/items" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d "{\"entityId\": \"$ENTITY_ID\", \"quantity\": 2, \"unitPriceSnapshot\": 2999}"
 
 # Checkout
 curl -s -X POST http://localhost:4000/api/checkout \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d "{
     \"cartId\": \"$CART_ID\",
     \"paymentMethodId\": \"mock-payments\",

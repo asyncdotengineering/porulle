@@ -3,6 +3,37 @@ title: Changelog
 description: Release history for Porulle.
 ---
 
+The whole `@porulle/*` family versions in lockstep. Per-release detail lives in each package's `CHANGELOG.md`; the migration contracts are indexed under [Upgrading](/production/upgrading/).
+
+## v0.16.0
+
+- **An auth check that fails is no longer reported as a rejected credential.** `getSession` and `verifyApiKey` were wrapped in bare catches that fell through to anonymous, so a database outage, a schema drift, or two Better Auth copies in one module graph all came back as `401 "Authentication required."`, logged nowhere. A genuine rejection still falls through to anonymous; anything else is logged with its stage and returns 500. `resolveActor` throws on a fault rather than returning `null`. See [`migration-0.15-to-0.16.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-0.15-to-0.16.md) — if a route starts returning 500, it was already broken.
+
+## v0.15.0
+
+- **`config.routes` gets a tenant-scoped database handle.** The kernel handed to a custom route now carries both the raw handle and a `scoped` one. Raw `db.execute()` is never tenant-scoped on either: the proxy wraps `select`, `insert`, `update`, and `delete`, and cannot inject a predicate into arbitrary SQL. See [Custom tables](/extending/custom-tables/).
+
+## v0.14.0
+
+- **The server refuses to construct when no request could resolve an organization.** Configuring neither `auth.defaultOrganizationId` nor `auth.storeResolver` used to boot cleanly and then 503 on the first actor-less request — in production, on a path an operator may not exercise until a real visitor arrives.
+- **`resolveActor` is exported**, so a server function, script, or job can map request headers to an `Actor` without re-deriving it. `authMiddleware` calls the same function, so the two cannot drift.
+- **`pgSearchAdapter` uses the configured database** instead of requiring a second connection. Supplying `query` still points search at a separate database.
+- **Session reads get their own rate-limit budget** — `config.rateLimits.session`, default 120/minute — separate from the credential endpoints.
+
+## v0.13.0
+
+- **Catalog reads are guarded, and route coverage is asserted at server construction.** Every production route must be guarded or explicitly allowlisted with a written justification, so an unguarded route fails startup instead of passing an isolated test.
+- **Organization resolution refuses rather than guessing.** Strict resolution fails closed by default; `auth.strictOrgResolution: false` restores the old behaviour during a migration.
+- **Guest identity is a positive credential**, not an absence: a guest cart carries a secret that must be presented to read it, and guest order reads are bounded by `config.orders.guestAccessStrategy` (default: seven days from `placed_at`).
+- **`catalog:read:unpublished` and `orders:create:on-behalf` are explicit permissions**, no longer implied by `catalog:update` or a staff-shaped role name.
+- **`actor` is a required argument** on `catalog.list`, `catalog.getById`, and `catalog.getBySlug`. Pass `null` when anonymous access is intended.
+- **Role grants require permission containment plus rank**, at invitation acceptance as well as creation. The last-owner guard is atomic under `SELECT … FOR UPDATE`.
+- **Every column Better Auth 1.7 writes is declared**, and the parity guard derives its scope from Better Auth instead of a hand-written list.
+
+## v0.11.0 – v0.12.0
+
+There is no 0.12.0 on npm — it was versioned and never published, so `latest` went 0.11.0 → 0.13.0. [`migration-0.11-to-0.13.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-0.11-to-0.13.md) covers both.
+
 ## v0.8.0 (2026-07-02)
 
 Retail-operations release, driven by the ordereka-fashion-pos field study. The whole `@porulle/*` family is versioned in lockstep — the jump from v0.1.0 reflects intermediate releases whose notes live in each package's `CHANGELOG.md`.
@@ -81,7 +112,7 @@ Initial public release.
 | `@porulle/plugin-scheduled-orders` | Alpha |
 | `@porulle/plugin-reviews` | Alpha |
 | `@porulle/plugin-appointments` | Alpha |
-| `@porulle/plugin-gift-cards` | Alpha |
+| `@porulle/plugin-giftcards` | Alpha |
 
 ### Adapters
 

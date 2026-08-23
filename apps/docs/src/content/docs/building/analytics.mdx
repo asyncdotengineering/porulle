@@ -87,12 +87,12 @@ Query analytics via the REST API with the `analytics:read` permission:
 ```bash
 # List available models, measures, and dimensions
 curl "http://localhost:4000/api/analytics/meta" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 
 # Query orders by status
 curl -X POST "http://localhost:4000/api/analytics/query" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{
     "model": "Orders",
     "measures": ["count", "revenue"],
@@ -121,15 +121,15 @@ List the available reports, then fetch one by name. Single-day reports take an o
 ```bash
 # List available reports
 curl "http://localhost:4000/api/analytics/reports" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 
 # A single day's sales journal
 curl "http://localhost:4000/api/analytics/reports/daily-journal?date=2026-07-01" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 
 # Tax collected over a range
 curl "http://localhost:4000/api/analytics/reports/tax-summary?from=2026-06-01&to=2026-06-30" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 `GET /api/analytics/reports` returns `{ data: [{ name, description }, ...] }`; `GET /api/analytics/reports/{name}` returns `{ data: <report result> }`.

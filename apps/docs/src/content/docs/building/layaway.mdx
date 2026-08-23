@@ -34,10 +34,14 @@ export default defineConfig({
 Update `drizzle.config.ts`:
 
 ```ts title="drizzle.config.ts"
+import { getSchemaFiles } from "@porulle/core";
+import { createRequire } from "node:module";
+
+const resolve = createRequire(import.meta.url).resolve;
+
 schema: [
-  "./node_modules/@porulle/core/src/kernel/database/schema.ts",
-  "./node_modules/@porulle/core/src/auth/auth-schema.ts",
-  "./node_modules/@porulle/plugin-layaway/src/schema.ts",
+  ...getSchemaFiles(),
+  resolve("@porulle/plugin-layaway/schema"),
 ],
 ```
 
@@ -77,7 +81,7 @@ A plan lists the items to reserve and sets a deposit. Supply `depositAmount` (mi
 
 ```bash
 curl -X POST http://localhost:4000/api/layaways \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{
     "currency": "USD",
     "customerId": "cust_123",
@@ -97,7 +101,7 @@ The plan must be `active`. A payment that exceeds the remaining balance is rejec
 
 ```bash
 curl -X POST http://localhost:4000/api/layaways/$LAYAWAY_ID/payments \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{ "amount": 45000, "method": "cash" }'
 ```
 
@@ -109,7 +113,7 @@ When cumulative paid reaches the plan total, the plan auto-completes: a core ord
 
 ```bash
 curl -X POST http://localhost:4000/api/layaways/$LAYAWAY_ID/payments \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{ "amount": 45000, "method": "cash" }'
 ```
 
@@ -131,7 +135,7 @@ Forfeiting releases the stock hold, marks the plan `forfeited`, and runs the `on
 
 ```bash
 curl -X POST http://localhost:4000/api/layaways/$LAYAWAY_ID/forfeit \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{ "reason": "customer cancelled" }'
 ```
 

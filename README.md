@@ -212,13 +212,15 @@ bun run build && bun run start     # any host that runs Bun, Node, or CF Workers
 The CLI talks to your live server and creates a scoped key:
 
 ```bash
-porulle api-key create \
-  --server https://api.acme.com \
-  --name "admin-cli" \
-  --scopes "*:*"
+porulle api-key create --scope admin --name "admin-cli"
 
-# → pak_live_…  (copy it, you won't see it again)
+# → the key, printed once. Copy it now.
 ```
+
+`--scope` names a scope you declared in `auth.apiKeyScopes`; its permissions and
+key prefix come from there, not from the command line. The CLI boots your
+`./commerce.config.ts` in process (`--config` to point elsewhere), so there is no
+server URL to pass. `porulle api-key list` shows the declared scopes.
 
 [Read about API key scopes →](https://porulle-docs.vercel.app/building/authentication/#api-keys)
 
@@ -347,7 +349,7 @@ The kernel is interface-agnostic. The shipped interface is REST. Adopters who wa
 
 ## Status
 
-**v0.5.0 (beta).** What's stable: REST API, multi-tenant kernel, plugin contract, adapter contracts, security model. What's not: agent-native primitives (Phase 2 — principal model rework, multi-protocol gateway, conversation layer). See [`SECURITY.md`](./SECURITY.md) for the threat model and the Phase 2 roadmap.
+**v0.16.0 (beta).** What's stable: REST API, multi-tenant kernel, plugin contract, adapter contracts, security model. What's not: agent-native primitives (Phase 2 — principal model rework, multi-protocol gateway, conversation layer). See [`SECURITY.md`](./SECURITY.md) for the threat model and the Phase 2 roadmap.
 
 This framework was extracted from a production e-commerce engine after a five-round adversarial security review. Every cross-tenant leak, race condition, IDOR, and information-disclosure surface caught by the audit was fixed and pinned with a regression test before the rename.
 
@@ -361,7 +363,8 @@ This framework was extracted from a production e-commerce engine after a five-ro
 
 ### Upgrading
 
-- [**0.13.0 → 0.14.0**](./docs/migration-0.13-to-0.14.md) — **latest.** One breaking change: the server now refuses to start when it cannot resolve an organization. Everything else is additive.
+- [**0.15.0 → 0.16.0**](./docs/migration-0.15-to-0.16.md) — **latest.** No schema changes. An auth check that fails is no longer reported as a rejected credential: a fault logs and returns 500 instead of a silent 401. If a route starts returning 500, it was already broken.
+- [**0.13.0 → 0.14.0**](./docs/migration-0.13-to-0.14.md) — one breaking change: the server now refuses to start when it cannot resolve an organization. Everything else is additive.
 - [**0.11.x → 0.13.0**](./docs/migration-0.11-to-0.13.md) — **start here if you are on 0.11.** There is no 0.12.0 on npm; it was versioned and never published, so `latest` went 0.11.0 → 0.13.0 and this guide covers both. Authorization defaults tightened in several places.
 - [**0.1.0 → 0.7.x**](./docs/migration-0.1-to-0.7.md) — the early-adopter jump.
 

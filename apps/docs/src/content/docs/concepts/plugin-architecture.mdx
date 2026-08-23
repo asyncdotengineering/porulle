@@ -66,8 +66,7 @@ Plugin tables must be discoverable by `drizzle-kit`. The recommended approach is
 export default defineConfig({
   dialect: "postgresql",
   schema: [
-    "./node_modules/@porulle/core/src/kernel/database/schema.ts",
-    "./node_modules/@porulle/plugin-*/src/schema.ts",
+    ...getSchemaFiles(),
     "./src/plugins/*/schema.ts",  // app-level plugins
   ],
 });

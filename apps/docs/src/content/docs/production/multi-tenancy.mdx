@@ -35,7 +35,7 @@ To add more stores, insert organization rows. Better Auth provides a REST endpoi
 ```bash
 curl -X POST http://localhost:4000/api/auth/organization/create \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"name": "Alpha Streetwear", "slug": "alpha-streetwear"}'
 ```
 

@@ -8,26 +8,30 @@ The gift card plugin adds a `gift_cards` entity type, balance ledger, and a chec
 ## Install
 
 ```bash
-bun add @porulle/plugin-gift-cards
+bun add @porulle/plugin-giftcards
 ```
 
 ## Register
 
 ```ts title="commerce.config.ts"
-import { giftCardsPlugin } from "@porulle/plugin-gift-cards";
+import { giftCardPlugin } from "@porulle/plugin-giftcards";
 
 export default defineConfig({
-  plugins: [giftCardsPlugin()],
+  plugins: [giftCardPlugin()],
 });
 ```
 
 Update `drizzle.config.ts` to include the plugin schema:
 
 ```ts title="drizzle.config.ts"
+import { getSchemaFiles } from "@porulle/core";
+import { createRequire } from "node:module";
+
+const resolve = createRequire(import.meta.url).resolve;
+
 schema: [
-  "./node_modules/@porulle/core/src/kernel/database/schema.ts",
-  "./node_modules/@porulle/core/src/auth/auth-schema.ts",
-  "./node_modules/@porulle/plugin-gift-cards/src/schema.ts",
+  ...getSchemaFiles(),
+  resolve("@porulle/plugin-giftcards/schema"),
 ],
 ```
 
@@ -43,7 +47,7 @@ bun run src/server.ts
 ```bash
 curl -X POST http://localhost:4000/api/gift-cards \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"amount": 5000, "currency": "USD", "recipientEmail": "friend@example.com"}'
 ```
 
@@ -56,7 +60,7 @@ Pass the gift card code in the checkout request:
 ```bash
 curl -X POST http://localhost:4000/api/checkout \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{
     "cartId": "...",
     "giftCardCode": "GC-XXXX-YYYY",
@@ -72,7 +76,7 @@ The plugin applies the gift card balance first and charges the remainder to the 
 
 ```bash
 curl "http://localhost:4000/api/gift-cards/GC-XXXX-YYYY/balance" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 ## Related

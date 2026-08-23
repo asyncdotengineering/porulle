@@ -259,8 +259,7 @@ Update `drizzle.config.ts` to include the plugin schema:
 export default defineConfig({
   dialect: "postgresql",
   schema: [
-    "./node_modules/@porulle/core/src/kernel/database/schema.ts",
-    "./node_modules/@porulle/core/src/auth/auth-schema.ts",
+    ...getSchemaFiles(),
     "./src/plugins/loyalty-schema.ts",
   ],
 });
@@ -319,7 +318,7 @@ Restart the server, place an order from the first tutorial, then check the loyal
 
 ```bash
 curl -s "http://localhost:4000/api/loyalty/points/$CUSTOMER_ID" \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 ```json

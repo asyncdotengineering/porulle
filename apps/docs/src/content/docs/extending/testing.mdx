@@ -112,14 +112,14 @@ For tests that exercise the full middleware stack — auth middleware, rate limi
 
 ```typescript
 const BASE = "http://localhost:4000";
-const DEV_KEY = "dev-staff-key";
+const API_KEY = process.env.PORULLE_API_KEY!;
 
 async function api(method: string, path: string, body?: unknown, opts?: { noAuth?: boolean }) {
   const headers: Record<string, string> = {
     "content-type": "application/json",
     "origin": BASE,
   };
-  if (!opts?.noAuth) headers["x-api-key"] = DEV_KEY;
+  if (!opts?.noAuth) headers["x-api-key"] = API_KEY;
 
   const res = await fetch(`${BASE}${path}`, {
     method,
@@ -193,7 +193,7 @@ export const options = {
 };
 
 const BASE = "http://localhost:4000";
-const HEADERS = { "x-api-key": "dev-staff-key", "Content-Type": "application/json" };
+const HEADERS = { "x-api-key": process.env.PORULLE_API_KEY!, "Content-Type": "application/json" };
 
 export default function () {
   const res = http.get(`${BASE}/api/catalog/entities`, { headers: HEADERS });

@@ -26,10 +26,14 @@ export default defineConfig({
 Update `drizzle.config.ts`:
 
 ```ts title="drizzle.config.ts"
+import { getSchemaFiles } from "@porulle/core";
+import { createRequire } from "node:module";
+
+const resolve = createRequire(import.meta.url).resolve;
+
 schema: [
-  "./node_modules/@porulle/core/src/kernel/database/schema.ts",
-  "./node_modules/@porulle/core/src/auth/auth-schema.ts",
-  "./node_modules/@porulle/plugin-pos/src/schema.ts",
+  ...getSchemaFiles(),
+  resolve("@porulle/plugin-pos/schema"),
 ],
 ```
 
@@ -73,15 +77,15 @@ To split a transaction across multiple payment methods, POST multiple payments b
 
 ```bash
 curl -X POST http://localhost:4000/api/pos/transactions/$TXN_ID/payments \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"method": "cash", "amount": 3500}'
 
 curl -X POST http://localhost:4000/api/pos/transactions/$TXN_ID/payments \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"method": "card", "amount": 1500, "reference": "****4321"}'
 
 curl -X POST http://localhost:4000/api/pos/transactions/$TXN_ID/complete \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 ## PIN authentication
@@ -92,7 +96,7 @@ Set or rotate an operator's PIN with `PUT /api/pos/auth/pin` (permission `pos:ad
 
 ```bash
 curl -X PUT http://localhost:4000/api/pos/auth/pin \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"operatorId": "'$OPERATOR_ID'", "pin": "4821", "canOverride": true}'
 ```
 
@@ -102,7 +106,7 @@ The operator logs in with `POST /api/pos/auth/pin-login` (permission `pos:operat
 
 ```bash
 curl -X POST http://localhost:4000/api/pos/auth/pin-login \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"operatorId": "'$OPERATOR_ID'", "pin": "4821"}'
 ```
 
@@ -117,7 +121,7 @@ Approve a restricted action with `POST /api/pos/auth/override` (permission `pos:
 
 ```bash
 curl -X POST http://localhost:4000/api/pos/auth/override \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"operatorId": "'$MANAGER_ID'", "pin": "9930", "action": "void completed transaction"}'
 ```
 
@@ -144,18 +148,18 @@ Add a note (optionally pinned to the top) and list them (pinned-first, then newe
 
 ```bash
 curl -X POST http://localhost:4000/api/orders/$ORDER_ID/notes \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{ "body": "Customer to collect Saturday", "pinned": true }'
 
 curl http://localhost:4000/api/orders/$ORDER_ID/notes \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 The timeline merges status changes, notes, and refund events (including undos) newest-first:
 
 ```bash
 curl http://localhost:4000/api/orders/$ORDER_ID/timeline \
-  -H "x-api-key: dev-staff-key"
+  -H "x-api-key: $PORULLE_API_KEY"
 ```
 
 ```json

@@ -47,7 +47,24 @@ export default defineConfig({
 
   auth: {
     requireEmailVerification: false,
+    // Required. With neither this nor `storeResolver`, `createServer` refuses
+    // to construct rather than 503-ing on the first request that carries no
+    // actor. Single-store deployments set this one.
+    defaultOrganizationId: "org_quickstart",
     apiKeys: { enabled: true },
+    // Every API key is minted against a named scope. There is no built-in
+    // development key.
+    apiKeyScopes: {
+      admin: {
+        prefix: "qs_adm_",
+        description: "Quickstart admin access",
+        permissions: {
+          catalog: ["read", "read:unpublished", "create", "update", "delete"],
+          cart: ["create", "read", "update"],
+          orders: ["read", "create", "update"],
+        },
+      },
+    },
     trustedOrigins: ["http://localhost:4000"],
     roles: {
       admin: { permissions: ["*:*"] },
@@ -89,7 +106,9 @@ import { createServer } from "@porulle/core";
 import config from "../commerce.config.js";
 
 const PORT = Number(process.env.PORT ?? 4000);
-const app = createServer(await config);
+
+// createServer is async and returns { app, kernel, logger, commerce, runJobs }.
+const { app } = await createServer(await config);
 
 app.get("/health", (c) => c.json({ status: "ok" }));
 
@@ -102,16 +121,18 @@ serve({ fetch: app.fetch, port: PORT }, (info) => {
 
 ```ts title="drizzle.config.ts"
 import { defineConfig } from "drizzle-kit";
+import { getSchemaFiles } from "@porulle/core";
 
 export default defineConfig({
   dialect: "postgresql",
   dbCredentials: {
     url: process.env.DATABASE_URL ?? "postgres://localhost:5432/porulle_dev",
   },
-  schema: [
-    "./node_modules/@porulle/core/src/kernel/database/schema.ts",
-    "./node_modules/@porulle/core/src/auth/auth-schema.ts",
-  ],
+  // Ask the package where its schema lives. Hardcoding paths into
+  // node_modules breaks on the next layout change, and pointing them at `src`
+  // rather than `dist` silently migrates a different copy than the one your
+  // server loads.
+  schema: getSchemaFiles(),
 });
 ```
 
@@ -124,15 +145,32 @@ bun run src/server.ts
 
 You should see `Store running at http://localhost:4000`.
 
-## 5. Try it
+## 5. Mint an API key
 
-Run these in a new terminal. The `x-api-key` header authenticates as staff using the built-in development key.
+There is no built-in development key. Mint one against the `admin` scope you
+declared in step 1:
+
+```bash
+bunx @porulle/cli api-key create --scope admin --save-env --env-var PORULLE_API_KEY
+```
+
+The key is printed once and written to `.env.local`. Load it into your shell for
+the next step:
+
+```bash
+export PORULLE_API_KEY=$(grep PORULLE_API_KEY .env.local | cut -d= -f2)
+```
+
+## 6. Try it
+
+Run these in a new terminal. The `x-api-key` header presents the key you just
+minted; its permissions come from the `admin` scope, not from the request.
 
 ```bash
 # Create a product
 ENTITY=$(curl -s -X POST http://localhost:4000/api/catalog/entities \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"type":"product","slug":"classic-tee","status":"active","metadata":{}}')
 ENTITY_ID=$(echo $ENTITY | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 echo "Entity: $ENTITY_ID"
@@ -140,7 +178,7 @@ echo "Entity: $ENTITY_ID"
 # Create a cart
 CART=$(curl -s -X POST http://localhost:4000/api/carts \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{"currency":"USD"}')
 CART_ID=$(echo $CART | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 echo "Cart: $CART_ID"
@@ -148,13 +186,13 @@ echo "Cart: $CART_ID"
 # Add an item (price in cents: 2999 = $29.99)
 curl -s -X POST "http://localhost:4000/api/carts/$CART_ID/items" \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d "{\"entityId\":\"$ENTITY_ID\",\"quantity\":1,\"unitPriceSnapshot\":2999}"
 
 # Checkout
 curl -s -X POST http://localhost:4000/api/checkout \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d "{
     \"cartId\":\"$CART_ID\",
     \"paymentMethodId\":\"mock-payments\",
@@ -168,7 +206,7 @@ curl -s -X POST http://localhost:4000/api/checkout \
 
 The checkout response includes an `orderNumber` (e.g., `ORD-2026-000001`), a calculated `grandTotal`, and a `status` of `pending`.
 
-> **Note on the dev API key:** `dev-staff-key` is available only when `NODE_ENV !== "production"`. Production deployments require scoped API keys generated with `bunx @porulle/cli api-key create`. See [Authentication](/building/authentication/).
+> **Note on API keys:** there is no built-in development key — `auth.enableDevKey` and `auth.devKey` were removed, and the server refuses to start if either is set. Declare a scope under `auth.apiKeyScopes`, then mint against it with `bunx @porulle/cli api-key create --scope <name>`. See [Authentication](/building/authentication/#api-keys).
 
 ## What just happened
 

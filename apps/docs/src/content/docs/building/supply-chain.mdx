@@ -1,33 +1,37 @@
 ---
 title: Supply Chain
-description: Purchase orders, receiving, and warehouse management.
+description: Suppliers, purchase orders, and goods receiving with @porulle/plugin-procurement.
 ---
 
-The supply chain plugin adds purchase orders (POs), goods receiving, multi-warehouse management, and supplier relationships. It extends the inventory module with inbound logistics — tracking stock from supplier to warehouse.
+`@porulle/plugin-procurement` adds inbound logistics: suppliers, purchase orders (POs), and goods received notes (GRNs). It extends the core inventory module by tracking stock from supplier to warehouse.
 
 ## Install
 
 ```bash
-bun add @porulle/plugin-supply-chain
+bun add @porulle/plugin-procurement
 ```
 
 ## Register
 
 ```ts title="commerce.config.ts"
-import { supplyChainPlugin } from "@porulle/plugin-supply-chain";
+import { procurementPlugin } from "@porulle/plugin-procurement";
 
 export default defineConfig({
-  plugins: [supplyChainPlugin()],
+  plugins: [procurementPlugin()],
 });
 ```
 
 Update `drizzle.config.ts`:
 
 ```ts title="drizzle.config.ts"
+import { getSchemaFiles } from "@porulle/core";
+import { createRequire } from "node:module";
+
+const resolve = createRequire(import.meta.url).resolve;
+
 schema: [
-  "./node_modules/@porulle/core/src/kernel/database/schema.ts",
-  "./node_modules/@porulle/core/src/auth/auth-schema.ts",
-  "./node_modules/@porulle/plugin-supply-chain/src/schema.ts",
+  ...getSchemaFiles(),
+  resolve("@porulle/plugin-procurement/schema"),
 ],
 ```
 
@@ -38,64 +42,105 @@ bunx drizzle-kit push --config drizzle.config.ts
 bun run src/server.ts
 ```
 
+## Permissions
+
+The plugin registers three scopes. Grant them to a role or an API-key scope.
+
+| Scope | Grants |
+|-------|--------|
+| `procurement:read` | View POs, GRNs, suppliers |
+| `procurement:create` | Create POs and GRNs |
+| `procurement:admin` | Approve POs, manage suppliers, accept GRNs |
+
 ## Core objects
 
-**Supplier** — a vendor you purchase inventory from. Has a name, contact, and lead time.
+**Supplier** — a vendor you purchase inventory from. Supplier items link a supplier to the entities they can fulfil.
 
-**Purchase order (PO)** — an order placed with a supplier for specific quantities of entities. Moves through states: `draft → submitted → acknowledged → partially_received → received → cancelled`.
+**Purchase order** — an order placed with a supplier. Status moves through `draft → pending_approval → approved → sent → partially_received → received`, or `cancelled`.
 
-**PO line item** — one line on a PO: entity, variant, quantity ordered, unit cost.
+**Goods received note** — a receiving event against a PO, recorded as its own object rather than a field on the PO. This is what lets one PO be received in several deliveries, each with its own accepted and rejected counts. Status moves through `draft → inspecting → accepted`, `accepted_with_discrepancy`, or `rejected`.
 
-**Receiving** — recording the actual quantities received against a PO. Creates inventory level adjustments when goods arrive.
-
-**Warehouse** — a location where inventory is stored. Already part of the core inventory module; the supply chain plugin ties POs to specific warehouses.
+**Warehouse** — a storage location from the core inventory module. A PO and a GRN each name the warehouse they apply to.
 
 ## Quick reference
 
-| Operation | Endpoint |
-|-----------|----------|
-| Create supplier | `POST /api/supply-chain/suppliers` |
-| Create PO | `POST /api/supply-chain/purchase-orders` |
-| Submit PO | `POST /api/supply-chain/purchase-orders/:id/submit` |
-| Receive goods | `POST /api/supply-chain/purchase-orders/:id/receive` |
-| List POs | `GET /api/supply-chain/purchase-orders` |
+| Operation | Endpoint | Permission |
+|-----------|----------|------------|
+| Register supplier | `POST /api/procurement/suppliers` | `procurement:admin` |
+| List suppliers | `GET /api/procurement/suppliers` | `procurement:read` |
+| Link item to supplier | `POST /api/procurement/suppliers/{id}/items` | `procurement:admin` |
+| Create PO | `POST /api/procurement/purchase-orders` | `procurement:create` |
+| List POs | `GET /api/procurement/purchase-orders` | `procurement:read` |
+| Submit PO for approval | `POST /api/procurement/purchase-orders/{id}/submit` | `procurement:create` |
+| Approve PO | `POST /api/procurement/purchase-orders/{id}/approve` | `procurement:admin` |
+| Cancel PO | `POST /api/procurement/purchase-orders/{id}/cancel` | `procurement:admin` |
+| Create GRN | `POST /api/procurement/grn` | `procurement:create` |
+| Accept GRN | `POST /api/procurement/grn/{id}/accept` | `procurement:admin` |
 
 ## Create a purchase order
 
 ```bash
-curl -X POST http://localhost:4000/api/supply-chain/purchase-orders \
+curl -X POST http://localhost:4000/api/procurement/purchase-orders \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{
     "supplierId": "supplier-uuid",
     "warehouseId": "warehouse-uuid",
-    "expectedArrival": "2026-06-01",
-    "lineItems": [
-      { "entityId": "product-uuid", "variantId": null, "quantity": 100, "unitCost": 1500 }
+    "expectedDelivery": "2026-06-01",
+    "items": [
+      {
+        "entityId": "product-uuid",
+        "itemName": "Classic Logo Tee",
+        "quantityOrdered": 100,
+        "unitCost": 1500
+      }
     ]
   }'
 ```
 
+`unitCost` is in minor units, like every other amount in the API. The PO is created as `draft`; submit it, then approve it.
+
 ## Receive goods
 
-When stock arrives, record the received quantities:
+Receiving is a GRN, not a field update on the PO. Each line names the PO line it fulfils and splits the delivery into accepted and rejected quantities:
 
 ```bash
-curl -X POST http://localhost:4000/api/supply-chain/purchase-orders/$PO_ID/receive \
+curl -X POST http://localhost:4000/api/procurement/grn \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-staff-key" \
+  -H "x-api-key: $PORULLE_API_KEY" \
   -d '{
-    "receivedItems": [
-      { "lineItemId": "line-item-uuid", "quantityReceived": 80 }
-    ],
-    "notes": "Partial shipment — remaining 20 units en route"
+    "poId": "po-uuid",
+    "supplierId": "supplier-uuid",
+    "warehouseId": "warehouse-uuid",
+    "notes": "Partial shipment — remaining 20 units en route",
+    "items": [
+      {
+        "poItemId": "po-item-uuid",
+        "entityId": "product-uuid",
+        "quantityOrdered": 100,
+        "quantityReceived": 80,
+        "quantityAccepted": 78,
+        "quantityRejected": 2,
+        "rejectionReason": "Print defect",
+        "unitCost": 1500
+      }
+    ]
   }'
 ```
 
-Receiving adjusts inventory levels at the specified warehouse. If the received quantity is less than ordered, the PO status becomes `partially_received`. When all items are received, it moves to `received`.
+Accepting the GRN is the step that moves stock:
+
+```bash
+curl -X POST http://localhost:4000/api/procurement/grn/$GRN_ID/accept \
+  -H "x-api-key: $PORULLE_API_KEY"
+```
+
+Inventory levels at the named warehouse rise by the accepted quantity. The PO becomes `partially_received` while any ordered quantity is outstanding, and `received` once every line is satisfied.
+
+Splitting receipt from acceptance is deliberate: goods that arrived and goods you agreed to pay for are different quantities, and a defect found at inspection should not have already moved stock.
 
 ## Related
 
-- [Plugin API Reference](/reference/plugins/) — all supply chain endpoints and data types
-- [Build a Loyalty Plugin](/tutorials/build-a-plugin/) — learn how plugins extend the engine
-- [Custom Tables guide](/extending/custom-tables/) — add custom tables alongside plugin tables
+- [Plugin API Reference](/reference/plugins/) — every procurement endpoint and data type
+- [Build a Loyalty Plugin](/tutorials/build-a-plugin/) — how plugins extend the engine
+- [Custom Tables guide](/extending/custom-tables/) — add your own tables alongside plugin tables

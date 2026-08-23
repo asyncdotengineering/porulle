@@ -70,12 +70,12 @@ Add the schema file path so `drizzle-kit push` and `drizzle-kit generate` includ
 
 ```ts title="drizzle.config.ts"
 import { defineConfig } from "drizzle-kit";
+import { getSchemaFiles } from "@porulle/core";
 
 export default defineConfig({
   dialect: "postgresql",
   schema: [
-    "./node_modules/@porulle/core/src/kernel/database/schema.ts",
-    "./node_modules/@porulle/plugin-*/src/schema.ts",
+    ...getSchemaFiles(),
     "./src/schema/reviews.ts",
   ],
   out: "./drizzle",

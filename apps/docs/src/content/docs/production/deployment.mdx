@@ -36,7 +36,6 @@ Disable the dev API key and lock down trusted origins before going live:
 ```ts title="commerce.config.ts"
 export default defineConfig({
   auth: {
-    enableDevKey: false,
     requireEmailVerification: true,
     trustedOrigins: ["https://mystore.com"],
     apiKeys: { enabled: true },
