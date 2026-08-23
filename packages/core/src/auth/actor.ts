@@ -2,6 +2,7 @@ import type { AuthSessionLike, CommerceConfig } from "../config/types.js";
 import type { Actor } from "./types.js";
 import type { AuthInstance } from "./setup.js";
 import { DEFAULT_ORG_ID } from "./org.js";
+import { isCredentialRejection } from "./auth-failure.js";
 
 export const AUTH_COOKIE_PREFIX = "uc";
 export const SESSION_COOKIE_NAME = `${AUTH_COOKIE_PREFIX}.session_token`;
@@ -43,8 +44,12 @@ export async function resolveActor(
     session = (await auth.api.getSession({
       headers,
     })) as AuthSessionLike | null;
-  } catch {
-    return null;
+  } catch (err) {
+    // A rejected session is anonymous. A session store that could not answer is
+    // a fault: reporting it as "no session" downgrades a signed-in caller
+    // silently and leaves nothing to debug.
+    if (isCredentialRejection(err)) return null;
+    throw err;
   }
 
   if (!session) return null;

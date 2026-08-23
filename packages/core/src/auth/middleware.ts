@@ -4,6 +4,7 @@ import type { Actor } from "./types.js";
 import type { AuthInstance } from "./setup.js";
 import { getCustomerPermissions, resolveActor } from "./actor.js";
 import { DEFAULT_ORG_ID } from "./org.js";
+import { isCredentialRejection } from "./auth-failure.js";
 import { isStrictOrgResolution } from "./strict-org-resolution.js";
 
 function emptyToNull(value: string | null | undefined): string | null {
@@ -43,12 +44,23 @@ export function authMiddleware(
       }
     }
 
-    const actor = await resolveActor(
-      c.req.raw.headers,
-      auth,
-      config,
-      c.req.raw,
-    );
+    // A caller told "Authentication required." goes and checks their
+    // credential. When the check never ran, that answer is a lie and there is
+    // nothing in the log to correct it. Report a fault as a fault.
+    const reportAuthCheckFault = (err: unknown, stage: string): void => {
+      c.get("logger")?.error(
+        { err, stage, path: c.req.path, method: c.req.method },
+        "auth check failed — the credential was never evaluated, so this is not an authentication failure",
+      );
+    };
+
+    let actor: Actor | null;
+    try {
+      actor = await resolveActor(c.req.raw.headers, auth, config, c.req.raw);
+    } catch (err) {
+      reportAuthCheckFault(err, "session");
+      throw err;
+    }
     if (actor) {
       c.set("actor", actor);
       await next();
@@ -153,8 +165,13 @@ export function authMiddleware(
           await next();
           return;
         }
-      } catch {
-        // invalid, expired, or rate-limited key — fall through
+      } catch (err) {
+        // An invalid, expired, or rate-limited key is a rejection: fall through
+        // to anonymous. Anything else means the key was never checked.
+        if (!isCredentialRejection(err)) {
+          reportAuthCheckFault(err, "api_key");
+          throw err;
+        }
       }
     }
 
