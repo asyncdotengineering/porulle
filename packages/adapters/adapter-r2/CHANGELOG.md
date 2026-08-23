@@ -1,5 +1,12 @@
 # @porulle/adapter-r2
 
+## 0.16.0
+
+### Patch Changes
+
+- Updated dependencies [[`983bc69`](https://github.com/asyncdotengineering/porulle/commit/983bc696af361445cf5d19b4d69b1a9f4a25fb83)]:
+  - @porulle/core@0.16.0
+
 ## 0.15.0
 
 ### Patch Changes

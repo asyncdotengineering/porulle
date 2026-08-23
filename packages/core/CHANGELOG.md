@@ -1,5 +1,24 @@
 # @porulle/core
 
+## 0.16.0
+
+### Minor Changes
+
+- [`983bc69`](https://github.com/asyncdotengineering/porulle/commit/983bc696af361445cf5d19b4d69b1a9f4a25fb83) Thanks [@octalpixel](https://github.com/octalpixel)! - Stop reporting a failed auth check as a rejected credential.
+
+  `authMiddleware` wrapped `getSession` and `verifyApiKey` in bare catches and
+  fell through to anonymous. A credential better-auth rejected and a check that
+  could not run were both answered `401 "Authentication required."` and logged
+  nowhere, so a fault in the auth stack presented as the caller's credential
+  being wrong.
+
+  A rejection (`APIError`, matched structurally so it survives two better-auth
+  copies in one tree) still falls through to anonymous, unchanged. Anything else
+  is logged at `error` with the stage, path, and method, then propagates as a 500.
+
+  If a route starts returning 500 after this upgrade, it was already broken — the
+  log line names the fault. See `docs/migration-0.15-to-0.16.md`.
+
 ## 0.15.0
 
 ### Minor Changes
