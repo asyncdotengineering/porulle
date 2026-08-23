@@ -8,7 +8,7 @@ export default defineConfig({
     starlight({
       title: "Porulle",
       description:
-        "TypeScript headless commerce framework — REST-only, security-hardened, plugin architecture (v0.1.0 alpha).",
+        "TypeScript headless commerce framework — REST-only, security-hardened, plugin architecture.",
       logo: { src: "./public/logo.svg", alt: "Porulle" },
       favicon: "/logo.svg",
       // Light-only: force light on every load and remove the theme toggle.
