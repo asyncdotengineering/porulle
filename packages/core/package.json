@@ -33,6 +33,12 @@
       "bun": "./src/drizzle.ts",
       "import": "./dist/drizzle.js",
       "require": "./dist/drizzle.js"
+    },
+    "./jobs": {
+      "types": "./src/jobs.ts",
+      "bun": "./src/jobs.ts",
+      "import": "./dist/jobs.js",
+      "require": "./dist/jobs.js"
     }
   },
   "scripts": {
@@ -76,7 +82,7 @@
     "dist",
     "README.md"
   ],
-  "description": "The kernel — services, adapters, hooks, state machines, auth, runtime. Everything else in the monorepo composes on top of it.",
+  "description": "The kernel \u2014 services, adapters, hooks, state machines, auth, runtime. Everything else in the monorepo composes on top of it.",
   "homepage": "https://porulle-docs.vercel.app",
   "bugs": {
     "url": "https://github.com/asyncdotengineering/porulle/issues"

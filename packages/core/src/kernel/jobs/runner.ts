@@ -2,6 +2,8 @@ import { eq, and, sql } from "drizzle-orm";
 import type { DrizzleDatabase } from "../database/drizzle-db.js";
 import type { Logger, ServiceContainer } from "../hooks/types.js";
 import type { JobProcessingOrder, TaskDefinition } from "./types.js";
+import { TaskNonRetryableError } from "./types.js";
+import { createPassThroughTaskStep } from "./step.js";
 import { commerceJobs } from "./schema.js";
 
 export interface RunPendingJobsArgs {
@@ -180,6 +182,7 @@ export async function runPendingJobs(
   });
 
   // Phase 2: Execute each claimed job outside the claim transaction
+  const step = createPassThroughTaskStep();
   const outcomes = await Promise.all(
     claimed.map(async (job) => {
       const task = tasks.get(job.taskSlug);
@@ -207,7 +210,7 @@ export async function runPendingJobs(
       try {
         const result = await task.handler({
           input: job.input as Record<string, unknown>,
-          ctx: { logger, db, services },
+          ctx: { logger, db, services, step },
           job: {
             attemptNumber: job.attempts + 1,
             maxAttempts: job.maxAttempts,
@@ -234,8 +237,9 @@ export async function runPendingJobs(
         });
         const attempts = job.attempts + 1;
         const maxAttempts = job.maxAttempts;
+        const nonRetryable = err instanceof TaskNonRetryableError;
 
-        if (attempts >= maxAttempts) {
+        if (nonRetryable || attempts >= maxAttempts) {
           await db
             .update(commerceJobs)
             .set({

@@ -1,4 +1,5 @@
 import type {
+  JobInstanceStatus,
   JobProcessingOrder,
   TaskContext,
   TaskDefinition,
@@ -11,6 +12,12 @@ export interface JobsAdapter {
     input: Record<string, unknown>,
     options: EnqueueOptions,
   ): Promise<string>;
+  /** Not every engine can report instance status; absent where it cannot. */
+  status?(
+    jobId: string,
+  ): Promise<{ status: JobInstanceStatus; error?: string }>;
+  /** Not every engine can cancel an in-flight instance; absent where it cannot. */
+  cancel?(jobId: string): Promise<void>;
 }
 
 export interface RunJobsOptions {
@@ -51,6 +58,11 @@ export interface EnqueueOptions {
   delayMs?: number;
   concurrencyKey?: string;
   supersedes?: boolean;
+  /** Used verbatim as the job id — the `commerce_jobs` row id on the drizzle
+   * engine, the instance id on Cloudflare Workflows — so a caller can address the
+   * job it created ("one generation, one instance"). Must be a UUID on drizzle.
+   * The pg-boss, Inngest and Trigger engines choose their own ids and ignore it. */
+  jobId?: string;
 }
 
 /**

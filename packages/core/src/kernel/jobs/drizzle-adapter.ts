@@ -1,13 +1,13 @@
 import { eq, and } from "drizzle-orm";
 import type { DrizzleDatabase } from "../database/drizzle-db.js";
-import type { TaskDefinition } from "./types.js";
+import type { JobInstanceStatus, TaskDefinition } from "./types.js";
 import type {
   EnqueueOptions,
   ExecutionEngine,
   ExecutionEngineSetup,
   RunJobsOptions,
 } from "./adapter.js";
-import { OrgResolutionError } from "../errors.js";
+import { OrgResolutionError, CommerceNotFoundError } from "../errors.js";
 import { commerceJobs } from "./schema.js";
 import { runPendingJobs } from "./runner.js";
 import {
@@ -111,6 +111,7 @@ export class DrizzleJobsAdapter implements ExecutionEngine {
     const rows = await this.db
       .insert(commerceJobs)
       .values({
+        ...(options.jobId ? { id: options.jobId } : {}),
         organizationId,
         taskSlug,
         input,
@@ -125,4 +126,44 @@ export class DrizzleJobsAdapter implements ExecutionEngine {
 
     return rows[0]!.id;
   }
+
+  async status(
+    jobId: string,
+  ): Promise<{ status: JobInstanceStatus; error?: string }> {
+    const [row] = await this.db
+      .select()
+      .from(commerceJobs)
+      .where(eq(commerceJobs.id, jobId))
+      .limit(1);
+    if (!row) {
+      throw new CommerceNotFoundError(`No job found for id ${jobId}`);
+    }
+    return {
+      status: DRIZZLE_JOB_STATUS_MAP[row.status],
+      ...(row.error !== null ? { error: row.error } : {}),
+    };
+  }
+
+  /** Cancels a job that has not started yet; a job already `processing` (or
+   * finished) cannot be interrupted from here and is left untouched. The row is
+   * kept so `status()` reports it as `terminated`. */
+  async cancel(jobId: string): Promise<void> {
+    await this.db
+      .update(commerceJobs)
+      .set({ status: "cancelled" })
+      .where(
+        and(eq(commerceJobs.id, jobId), eq(commerceJobs.status, "pending")),
+      );
+  }
 }
+
+const DRIZZLE_JOB_STATUS_MAP: Record<
+  "pending" | "processing" | "succeeded" | "failed" | "cancelled",
+  JobInstanceStatus
+> = {
+  pending: "queued",
+  processing: "running",
+  succeeded: "complete",
+  failed: "errored",
+  cancelled: "terminated",
+};
