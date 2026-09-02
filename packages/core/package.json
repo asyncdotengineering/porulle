@@ -1,6 +1,6 @@
 {
   "name": "@porulle/core",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -82,7 +82,7 @@
     "dist",
     "README.md"
   ],
-  "description": "The kernel \u2014 services, adapters, hooks, state machines, auth, runtime. Everything else in the monorepo composes on top of it.",
+  "description": "The kernel — services, adapters, hooks, state machines, auth, runtime. Everything else in the monorepo composes on top of it.",
   "homepage": "https://porulle-docs.vercel.app",
   "bugs": {
     "url": "https://github.com/asyncdotengineering/porulle/issues"
