@@ -497,22 +497,30 @@ describe("shopify connector", () => {
     expect(requests.some((request) => request.method === "POST" && request.url.endsWith("/products/101/metafields.json"))).toBe(false);
   });
 
-  it("reports product images as not written instead of confirming the item", async () => {
-    const requests: Array<{ url: string; method: string }> = [];
+  it("writes product images with the primary first, variant links, and per-image outcomes", async () => {
+    const requests: Array<{ url: string; method: string; body?: unknown }> = [];
     const pushStore = {
       ...store,
       credentials: { accessToken: "token", grantedScopes: ["write_products"] },
     };
+    let nextImageId = 5001;
     const connector = shopifyConnector({
       fetchImpl: async (input, init) => {
         const url = String(input);
         const method = init?.method ?? "GET";
-        requests.push({ url, method });
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        requests.push({ url, method, body });
         if (url.endsWith("/products/101.json") && method === "GET") {
           return new Response(JSON.stringify({ product: { id: 101 } }));
         }
         if (url.includes("/products/101/metafields.json") && method === "GET") {
           return new Response(JSON.stringify({ metafields: [] }));
+        }
+        if (url.endsWith("/products/101/images.json") && method === "GET") {
+          return new Response(JSON.stringify({ images: [] }));
+        }
+        if (url.endsWith("/products/101/images.json") && method === "POST") {
+          return new Response(JSON.stringify({ image: { id: nextImageId++, src: `https://cdn.shopify.com/s/files/${String(body.image.src).split("/").pop()}` } }));
         }
         return new Response("", { status: 404 });
       },
@@ -521,24 +529,138 @@ describe("shopify connector", () => {
     const result = await connector.pushCatalog!(pushStore, [{
       externalId: "101",
       fields: [],
-      images: [{ url: "https://cdn.shop.example/boot.jpg", role: "primary" }],
+      images: [
+        { url: "https://cdn.shop.example/boot-side.jpg", role: "gallery", sortOrder: 1, alt: "Side" },
+        { url: "https://cdn.shop.example/boot.jpg", role: "primary", sortOrder: 5, alt: "Front", variantExternalIds: ["10001"] },
+        { url: "https://cdn.shop.example/boot-back.jpg", role: "gallery", sortOrder: 0 },
+      ],
     }]);
 
-    expect(result).toEqual({
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.outcomes).toEqual([{
+      externalId: "101",
       ok: true,
-      value: {
-        outcomes: [{
-          externalId: "101",
-          ok: false,
-          error: {
-            code: "SHOPIFY_IMAGES_NOT_WRITTEN",
-            message: "Shopify catalog image pushes are not written by this adapter.",
-            retriable: false,
-          },
-        }],
+      images: [
+        { url: "https://cdn.shop.example/boot.jpg", role: "primary", ok: true, externalId: "5001" },
+        { url: "https://cdn.shop.example/boot-back.jpg", role: "gallery", ok: true, externalId: "5002" },
+        { url: "https://cdn.shop.example/boot-side.jpg", role: "gallery", ok: true, externalId: "5003" },
+      ],
+    }]);
+    const writes = requests.filter((request) => request.method === "POST");
+    expect(writes.map((request) => request.body)).toEqual([
+      { image: { src: "https://cdn.shop.example/boot.jpg", position: 1, alt: "Front", variant_ids: [10001] } },
+      { image: { src: "https://cdn.shop.example/boot-back.jpg", position: 2 } },
+      { image: { src: "https://cdn.shop.example/boot-side.jpg", position: 3, alt: "Side" } },
+    ]);
+    expect(writes.every((request) => request.url.endsWith("/products/101/images.json"))).toBe(true);
+  });
+
+  it("updates an existing image instead of duplicating it, by recorded id or by file name", async () => {
+    const requests: Array<{ url: string; method: string; body?: unknown }> = [];
+    const pushStore = {
+      ...store,
+      credentials: { accessToken: "token", grantedScopes: ["write_products"] },
+    };
+    const connector = shopifyConnector({
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        requests.push({ url, method, body });
+        if (url.endsWith("/products/101.json") && method === "GET") {
+          return new Response(JSON.stringify({ product: { id: 101 } }));
+        }
+        if (url.includes("/products/101/metafields.json") && method === "GET") {
+          return new Response(JSON.stringify({ metafields: [] }));
+        }
+        if (url.endsWith("/products/101/images.json") && method === "GET") {
+          return new Response(JSON.stringify({ images: [
+            { id: 7001, src: "https://cdn.shopify.com/s/files/1/boot_a1b2c3.jpg?v=1", position: 1 },
+            { id: 7002, src: "https://cdn.shopify.com/s/files/1/lookbook.jpg?v=1", position: 2 },
+          ] }));
+        }
+        if (/\/products\/101\/images\/\d+\.json$/.test(url) && method === "PUT") {
+          return new Response(JSON.stringify({ image: { id: body.image.id } }));
+        }
+        if (url.endsWith("/products/101/images.json") && method === "POST") {
+          return new Response(JSON.stringify({ image: { id: 7003 } }));
+        }
+        return new Response("", { status: 404 });
       },
     });
-    expect(requests.filter((request) => request.method !== "GET")).toEqual([]);
+
+    const result = await connector.pushCatalog!(pushStore, [{
+      externalId: "101",
+      fields: [],
+      images: [
+        { url: "https://cdn.shop.example/boot.jpg", role: "primary", alt: "Front" },
+        { url: "https://cdn.shop.example/campaign.jpg", role: "gallery", externalId: "7002" },
+        { url: "https://cdn.shop.example/detail.jpg", role: "gallery" },
+      ],
+    }]);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.outcomes[0]?.images).toEqual([
+      { url: "https://cdn.shop.example/boot.jpg", role: "primary", ok: true, externalId: "7001" },
+      { url: "https://cdn.shop.example/campaign.jpg", role: "gallery", ok: true, externalId: "7002" },
+      { url: "https://cdn.shop.example/detail.jpg", role: "gallery", ok: true, externalId: "7003" },
+    ]);
+    const writes = requests.filter((request) => request.method !== "GET");
+    expect(writes.map((request) => [request.method, request.url.split("/products/101/")[1], request.body])).toEqual([
+      ["PUT", "images/7001.json", { image: { id: 7001, position: 1, alt: "Front" } }],
+      ["PUT", "images/7002.json", { image: { id: 7002, position: 2 } }],
+      ["POST", "images.json", { image: { src: "https://cdn.shop.example/detail.jpg", position: 3 } }],
+    ]);
+  });
+
+  it("fails the item on an image write error and reports which image failed", async () => {
+    const pushStore = {
+      ...store,
+      credentials: { accessToken: "token", grantedScopes: ["write_products"] },
+    };
+    const connector = shopifyConnector({
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.endsWith("/products/101.json") && method === "GET") {
+          return new Response(JSON.stringify({ product: { id: 101 } }));
+        }
+        if (url.includes("/products/101/metafields.json") && method === "GET") {
+          return new Response(JSON.stringify({ metafields: [] }));
+        }
+        if (url.endsWith("/products/101/images.json") && method === "GET") {
+          return new Response(JSON.stringify({ images: [] }));
+        }
+        if (url.endsWith("/products/101/images.json") && method === "POST") {
+          return new Response("", { status: 422 });
+        }
+        return new Response("", { status: 404 });
+      },
+    });
+
+    const result = await connector.pushCatalog!(pushStore, [
+      { externalId: "101", fields: [], images: [{ url: "https://cdn.shop.example/boot.jpg", role: "primary" }] },
+      { externalId: "101", fields: [], images: [{ url: "https://cdn.shop.example/manual.pdf", role: "document" }] },
+    ]);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.outcomes).toEqual([
+      {
+        externalId: "101",
+        ok: false,
+        error: { code: "SHOPIFY_API_FAILED", message: expect.stringContaining("422"), retriable: false },
+        images: [{ url: "https://cdn.shop.example/boot.jpg", role: "primary", ok: false, error: { code: "SHOPIFY_API_FAILED", message: expect.stringContaining("422"), retriable: false } }],
+      },
+      {
+        externalId: "101",
+        ok: false,
+        error: { code: "SHOPIFY_IMAGE_ROLE_UNSUPPORTED", message: expect.stringContaining("document"), retriable: false },
+        images: [{ url: "https://cdn.shop.example/manual.pdf", role: "document", ok: false, error: { code: "SHOPIFY_IMAGE_ROLE_UNSUPPORTED", message: expect.stringContaining("document"), retriable: false } }],
+      },
+    ]);
   });
 
   it("does not update a foreign-namespace metafield with the same key", async () => {
