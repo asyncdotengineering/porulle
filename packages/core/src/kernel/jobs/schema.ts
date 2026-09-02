@@ -19,7 +19,7 @@ export const commerceJobs = pgTable("commerce_jobs", {
   input: jsonb("input").notNull().default("{}"),
   output: jsonb("output"),
   status: text("status", {
-    enum: ["pending", "processing", "succeeded", "failed"],
+    enum: ["pending", "processing", "succeeded", "failed", "cancelled"],
   })
     .notNull()
     .default("pending"),

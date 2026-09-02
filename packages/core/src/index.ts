@@ -84,13 +84,16 @@ export type { RunPendingJobsArgs } from "./kernel/jobs/runner.js";
 export type {
   TaskDefinition,
   TaskContext,
+  TaskStep,
   TaskJobMeta,
   TaskRetryConfig,
+  JobInstanceStatus,
   JobProcessingOrder,
   JobProcessingOrderField,
   JobProcessingOrderRecord,
 } from "./kernel/jobs/types.js";
-export { BUILTIN_JOB_TASK_SLUGS } from "./kernel/jobs/types.js";
+export { BUILTIN_JOB_TASK_SLUGS, TaskNonRetryableError } from "./kernel/jobs/types.js";
+export { createPassThroughTaskStep } from "./kernel/jobs/step.js";
 export {
   staleJobReaperTask,
   runStaleJobReaper,
