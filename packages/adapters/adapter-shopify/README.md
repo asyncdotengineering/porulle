@@ -22,3 +22,19 @@ Operators can recover without disconnecting the store:
 Use `shopifyReauthorizeUrl(options, params)` to build the authorize URL outside
 the push error path, or `shopifyPushCatalogEnabled(store)` to check scope
 coverage before enqueueing work.
+
+## Product images
+
+`pushCatalog` writes `item.images` to the product's images through the Admin
+REST API (`/products/{id}/images.json`). Roles `primary`, `gallery` and
+`thumbnail` are written as images; `video` and `document` fail the item with
+`SHOPIFY_IMAGE_ROLE_UNSUPPORTED`. The `primary` image is written first and
+takes position 1, the rest follow `sortOrder`; `alt` and `variantExternalIds`
+map to the image's `alt` and `variant_ids`.
+
+Each item outcome carries `images[]` with the Shopify image id as
+`externalId`. Persist it and send it back as `image.externalId` on the next
+push so the adapter updates that image in place. Without an id the adapter
+falls back to matching the uploaded file name against the CDN path Shopify
+keeps (`boot.jpg` matches `boot.jpg` and `boot_a1b2c3.jpg`); a file name that
+matches nothing creates a new image. Dry runs do not touch images.

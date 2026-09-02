@@ -164,6 +164,7 @@ export type {
   ChannelPushCatalogImage,
   ChannelPushCatalogIntent,
   ChannelPushCatalogItem,
+  ChannelPushCatalogImageOutcome,
   ChannelPushCatalogItemOutcome,
   ChannelPushCatalogPreviousField,
   ChannelPushCatalogResult,

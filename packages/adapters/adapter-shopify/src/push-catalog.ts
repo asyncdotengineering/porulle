@@ -2,6 +2,8 @@ import { Err, Ok } from "@porulle/core";
 import type {
   ChannelConnectorError,
   ChannelPushCatalogField,
+  ChannelPushCatalogImage,
+  ChannelPushCatalogImageOutcome,
   ChannelPushCatalogItem,
   ChannelPushCatalogItemOutcome,
   ChannelPushCatalogPreviousField,
@@ -53,6 +55,16 @@ type ShopifyVariantSnapshot = {
   sku?: string | null;
   barcode?: string | null;
 };
+
+type ShopifyProductImage = {
+  id: number | string;
+  src?: string | null;
+  alt?: string | null;
+  position?: number | null;
+  variant_ids?: Array<number | string> | null;
+};
+
+const SHOPIFY_IMAGE_ROLES = new Set<ChannelPushCatalogImage["role"]>(["primary", "gallery", "thumbnail"]);
 
 interface PushRequestResult<T> {
   ok: true;
@@ -285,10 +297,12 @@ async function loadProductSnapshot(
   token: string,
   externalId: string,
   variantIds: string[],
+  withImages: boolean,
 ): Promise<Result<{
   product: ShopifyProductSnapshot;
   metafields: ShopifyMetafield[];
   variantMetafields: Map<string, ShopifyMetafield[]>;
+  images: ShopifyProductImage[];
 }>> {
   const base = deps.apiBase(store);
   const productResult = await pushRequest<{ product: ShopifyProductSnapshot }>(
@@ -313,11 +327,126 @@ async function loadProductSnapshot(
     if (!variantResult.ok) return variantResult;
     variantMetafields.set(variantId, variantResult.data.metafields ?? []);
   }
+  let images: ShopifyProductImage[] = [];
+  if (withImages) {
+    const imagesResult = await pushRequest<{ images: ShopifyProductImage[] }>(
+      deps,
+      `${base}/products/${encodeURIComponent(externalId)}/images.json`,
+      token,
+    );
+    if (!imagesResult.ok) return imagesResult;
+    images = imagesResult.data.images ?? [];
+  }
   return Ok({
     product: productResult.data.product,
     metafields: metafieldsResult.data.metafields ?? [],
     variantMetafields,
+    images,
   });
+}
+
+function shopifyId(externalId: string): number | string {
+  return /^\d+$/.test(externalId) ? Number(externalId) : externalId;
+}
+
+function imageFileName(url: string): string | undefined {
+  try {
+    const path = new URL(url).pathname;
+    const name = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
+    return name.length > 0 ? name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function imageFileStem(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(0, dot) : name;
+}
+
+// Shopify keeps the uploaded file name in the CDN path (suffixing `_<hash>` on a
+// collision) but never echoes the original source URL, so a re-push without a
+// recorded image id can only recognise its own image by that file name.
+function matchExistingImage(
+  image: ChannelPushCatalogImage,
+  existing: ShopifyProductImage[],
+): ShopifyProductImage | undefined {
+  const externalId = image.externalId?.trim();
+  if (externalId) return existing.find((candidate) => String(candidate.id) === externalId);
+  const name = imageFileName(image.url);
+  if (name === undefined) return undefined;
+  const stem = imageFileStem(name);
+  return existing.find((candidate) => {
+    const candidateName = candidate.src ? imageFileName(candidate.src) : undefined;
+    if (candidateName === undefined) return false;
+    const candidateStem = imageFileStem(candidateName);
+    return candidateName === name || candidateStem === stem || candidateStem.startsWith(`${stem}_`);
+  });
+}
+
+function orderImages(images: ChannelPushCatalogImage[]): ChannelPushCatalogImage[] {
+  const rank = (image: ChannelPushCatalogImage): number => (image.role === "primary" ? 0 : 1);
+  return images
+    .map((image, index) => ({ image, index }))
+    .sort((left, right) =>
+      rank(left.image) - rank(right.image)
+      || (left.image.sortOrder ?? left.index) - (right.image.sortOrder ?? right.index)
+      || left.index - right.index)
+    .map((entry) => entry.image);
+}
+
+async function writeImages(
+  deps: PushCatalogDeps,
+  store: ChannelStore,
+  token: string,
+  externalId: string,
+  images: ChannelPushCatalogImage[],
+  existing: ShopifyProductImage[],
+): Promise<{ outcomes: ChannelPushCatalogImageOutcome[]; error?: ChannelConnectorError }> {
+  const outcomes: ChannelPushCatalogImageOutcome[] = [];
+  const base = `${deps.apiBase(store)}/products/${encodeURIComponent(externalId)}/images`;
+  const claimed = new Set<string>();
+  for (const [index, image] of orderImages(images).entries()) {
+    if (!SHOPIFY_IMAGE_ROLES.has(image.role)) {
+      const error: ChannelConnectorError = {
+        code: "SHOPIFY_IMAGE_ROLE_UNSUPPORTED",
+        message: `Shopify product images cannot carry the "${image.role}" role.`,
+        retriable: false,
+      };
+      outcomes.push({ url: image.url, role: image.role, ok: false, error });
+      return { outcomes, error };
+    }
+    const match = matchExistingImage(image, existing.filter((candidate) => !claimed.has(String(candidate.id))));
+    const payload: Record<string, unknown> = { position: index + 1 };
+    if (image.alt !== undefined) payload.alt = image.alt;
+    if (image.variantExternalIds && image.variantExternalIds.length > 0) {
+      payload.variant_ids = image.variantExternalIds.map(shopifyId);
+    }
+    const result = match
+      ? await pushRequest<{ image: ShopifyProductImage }>(deps, `${base}/${encodeURIComponent(String(match.id))}.json`, token, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ image: { id: match.id, ...payload } }),
+      })
+      : await pushRequest<{ image: ShopifyProductImage }>(deps, `${base}.json`, token, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ image: { src: image.url, ...payload } }),
+      });
+    if (!result.ok) {
+      outcomes.push({ url: image.url, role: image.role, ok: false, error: result.error });
+      return { outcomes, error: result.error };
+    }
+    const written = result.data.image ?? match;
+    if (written) claimed.add(String(written.id));
+    outcomes.push({
+      url: image.url,
+      role: image.role,
+      ok: true,
+      ...(written ? { externalId: String(written.id) } : {}),
+    });
+  }
+  return { outcomes };
 }
 
 async function writeNativeProduct(
@@ -442,22 +571,11 @@ async function pushCatalogItem(
   const missingField = [...item.fields, ...(item.variants ?? []).flatMap((variant) => variant.fields)]
     .find((field) => field.intent !== "tag" && remoteKey(field) === undefined);
   if (missingField) return { externalId: item.externalId, ok: false, error: missingRemoteKeyError(missingField) };
-  if (item.images && item.images.length > 0) {
-    return {
-      externalId: item.externalId,
-      ok: false,
-      error: {
-        code: "SHOPIFY_IMAGES_NOT_WRITTEN",
-        message: "Shopify catalog image pushes are not written by this adapter.",
-        retriable: false,
-      },
-    };
-  }
-
+  const images = item.images ?? [];
   const variantIds = (item.variants ?? [])
     .filter((variant) => variant.fields.some((field) => isMetafieldField(field)))
     .map((variant) => variant.externalId);
-  const snapshot = await loadProductSnapshot(deps, store, token, item.externalId, variantIds);
+  const snapshot = await loadProductSnapshot(deps, store, token, item.externalId, variantIds, images.length > 0);
   if (!snapshot.ok) {
     return { externalId: item.externalId, ok: false, error: snapshot.error };
   }
@@ -544,11 +662,21 @@ async function pushCatalogItem(
     }
   }
 
+  let imageOutcomes: ChannelPushCatalogImageOutcome[] | undefined;
+  if (images.length > 0) {
+    const imageResult = await writeImages(deps, store, token, item.externalId, images, snapshot.value.images);
+    imageOutcomes = imageResult.outcomes;
+    if (imageResult.error) {
+      return { externalId: item.externalId, ok: false, error: imageResult.error, images: imageOutcomes };
+    }
+  }
+
   return {
     externalId: item.externalId,
     ok: true,
     ...(nativeResult.data.product.updated_at ? { remoteUpdatedAt: nativeResult.data.product.updated_at } : {}),
     ...(previousFields.length > 0 ? { previousFields } : {}),
+    ...(imageOutcomes ? { images: imageOutcomes } : {}),
   };
 }
 

@@ -158,12 +158,21 @@ export interface ChannelPushCatalogPreviousField {
   value: unknown;
 }
 
+export interface ChannelPushCatalogImageOutcome {
+  url: string;
+  role: ChannelPushCatalogImage["role"];
+  ok: boolean;
+  externalId?: string;
+  error?: ChannelConnectorError;
+}
+
 export interface ChannelPushCatalogItemOutcome {
   externalId: string;
   ok: boolean;
   error?: ChannelConnectorError;
   remoteUpdatedAt?: string;
   previousFields?: ChannelPushCatalogPreviousField[];
+  images?: ChannelPushCatalogImageOutcome[];
 }
 
 export interface ChannelPushCatalogResult {
