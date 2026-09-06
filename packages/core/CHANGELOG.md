@@ -1,5 +1,11 @@
 # @porulle/core
 
+## 0.19.0
+
+### Minor Changes
+
+- [#95](https://github.com/asyncdotengineering/porulle/pull/95) [`d98a0cf`](https://github.com/asyncdotengineering/porulle/commit/d98a0cf04578f4c89a758a3544a5a7bc99e9444c) Thanks [@octalpixel](https://github.com/octalpixel)! - Routes can declare what they return. `RouteChain.output(schema)` fills the `data` slot of the success envelope in the generated OpenAPI document, so `openapi-typescript` emits a real type instead of `data?: unknown` for every route in the app. Routes that do not call it generate exactly what they generated before. The schema documents the response; it does not validate the handler's return.
+
 ## 0.18.0
 
 ### Minor Changes

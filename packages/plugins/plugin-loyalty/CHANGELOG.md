@@ -1,5 +1,12 @@
 # @porulle/plugin-loyalty
 
+## 0.19.0
+
+### Patch Changes
+
+- Updated dependencies [[`d98a0cf`](https://github.com/asyncdotengineering/porulle/commit/d98a0cf04578f4c89a758a3544a5a7bc99e9444c)]:
+  - @porulle/core@0.19.0
+
 ## 0.18.0
 
 ### Patch Changes
