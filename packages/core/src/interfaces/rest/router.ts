@@ -85,6 +85,7 @@ class RouteChain {
   private _input: z.ZodType | undefined;
   private _query: z.ZodType | undefined;
   private _params: z.ZodType | undefined;
+  private _output: z.ZodType | undefined;
   private _requireAuth = false;
   private _requiredPermission: string | undefined;
   constructor(
@@ -116,6 +117,27 @@ class RouteChain {
 
   /** Override the auto-detected path parameter schema. */
   params(schema: z.ZodType) { this._params = schema; return this; }
+
+  /**
+   * Declare the shape carried inside the `{ data }` envelope on success.
+   *
+   * Without it the route documents its payload as `any`, and every generated
+   * client sees `data?: unknown` — so a consumer has to hand-maintain a
+   * parallel schema, which is the drift the generated SDK exists to prevent.
+   *
+   * Documentation only: the handler's return value is not validated against
+   * this schema. Validating would mean either stripping unknown keys — silently
+   * changing what goes over the wire for anyone who adopts it — or throwing at
+   * runtime, turning an OpenAPI annotation into a new failure mode. A stale
+   * annotation is the cheaper wrong.
+   *
+   * @example
+   * ```typescript
+   * vendors.get("/{id}").summary("Get").output(VendorSchema)
+   *   .handler(async ({ params, services }) => services.vendor.get(params.id));
+   * ```
+   */
+  output(schema: z.ZodType) { this._output = schema; return this; }
 
   /**
    * Require authentication. The handler's `actor` is guaranteed non-null.
@@ -165,7 +187,7 @@ class RouteChain {
       ...(this._description ? { description: this._description } : {}),
       ...(Object.keys(request).length > 0 ? { request } : {}),
       responses: {
-        [status]: wrapJson(z.object({ data: z.any() })),
+        [status]: wrapJson(z.object({ data: this._output ?? z.any() })),
         ...errorResponses,
       },
     });
