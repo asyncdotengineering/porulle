@@ -1,5 +1,12 @@
 # @porulle/plugin-layaway
 
+## 0.20.1
+
+### Patch Changes
+
+- Updated dependencies [[`8ba7ebf`](https://github.com/asyncdotengineering/porulle/commit/8ba7ebfe90286c9bbc07651458c596aaa004b070)]:
+  - @porulle/core@0.20.1
+
 ## 0.20.0
 
 ### Patch Changes

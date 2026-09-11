@@ -1,5 +1,12 @@
 # @porulle/core
 
+## 0.20.1
+
+### Patch Changes
+
+- [#97](https://github.com/asyncdotengineering/porulle/pull/97) [`8ba7ebf`](https://github.com/asyncdotengineering/porulle/commit/8ba7ebfe90286c9bbc07651458c596aaa004b070) Thanks [@octalpixel](https://github.com/octalpixel)! - A join-then-where chain could replace the pre-applied organization predicate with the caller's condition.
+  A scoped handle now keeps its organization predicate through every fluent method.
+
 ## 0.20.0
 
 ### Minor Changes
