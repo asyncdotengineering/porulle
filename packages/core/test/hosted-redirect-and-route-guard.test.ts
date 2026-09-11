@@ -48,7 +48,9 @@ const GATEWAY_PAGE = "https://sandbox.payhere.lk/pay/o1234567890";
  * two different claims and only the second one makes a real gateway able to return the shopper.
  */
 function createRedirectAdapter() {
-  const seen: { returnUrl?: string; cancelUrl?: string }[] = [];
+  // Not optional properties: exactOptionalPropertyTypes is on, and recording "the adapter was
+  // handed nothing" is the whole point of this array, so absence must be a storable value.
+  const seen: { returnUrl: string | undefined; cancelUrl: string | undefined }[] = [];
   return {
     seen,
     adapter: {
@@ -216,9 +218,9 @@ function actorWith(permissions: string[]): Actor {
 async function callGuardedRoute(actor: Actor): Promise<number> {
   const r = router("Widgets", "/widgets");
   r.get("/").summary("List").permission("widgets:read").handler(async () => ({ ok: true }));
-  const app = new OpenAPIHono();
+  const app = new OpenAPIHono<{ Variables: { actor: Actor } }>();
   app.use("*", async (c, next) => {
-    c.set("actor", actor as never);
+    c.set("actor", actor);
     await next();
   });
   for (const route of r.routes()) {
