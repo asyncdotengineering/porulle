@@ -1,5 +1,11 @@
 # @porulle/core
 
+## 0.20.0
+
+### Minor Changes
+
+- [#96](https://github.com/asyncdotengineering/porulle/pull/96) [`e99bf87`](https://github.com/asyncdotengineering/porulle/commit/e99bf873d09fcb00bae42845b04f23e126e1293c) Thanks [@octalpixel](https://github.com/octalpixel)! - Apps can support hosted payment redirects, declare custom route access, and use wildcard permissions consistently.
+
 ## 0.19.0
 
 ### Minor Changes
