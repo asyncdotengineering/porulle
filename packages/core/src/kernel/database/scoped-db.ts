@@ -5,6 +5,7 @@
  * org-scoped tables automatically include the actor's organizationId,
  * and SELECT / UPDATE / DELETE against org-scoped tables constrain rows to
  * that organization — including when the caller supplies no WHERE clause.
+ * Joins and ordering stay within the organization scope across the fluent chain.
  *
  * Plugin route handlers receive this scoped db via PluginContext.database.db
  * (organization resolved per operation from AsyncLocalStorage when used from
@@ -63,7 +64,16 @@ function wrapWhereable(builder: unknown, orgEq: SQL): unknown {
           return wrapWhereable(next, orgEq);
         };
       }
-      return typeof sv === "function" ? sv.bind(st) : sv;
+      if (typeof sv !== "function") return sv;
+
+      return (...args: unknown[]) => {
+        const next = (sv as (...a: unknown[]) => unknown).call(st, ...args);
+        if (next !== null && (typeof next === "object" || typeof next === "function")) {
+          const where = Reflect.get(next, "where");
+          if (typeof where === "function") return wrapWhereable(next, orgEq);
+        }
+        return next;
+      };
     },
   });
 }
