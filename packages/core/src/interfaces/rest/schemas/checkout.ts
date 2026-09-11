@@ -17,6 +17,14 @@ export const CheckoutBodySchema = z.object({
     example: "checkout-8f14e45f-1738312200",
     description: "Client-supplied retry key. A re-submitted checkout with the same key returns the already-created order without re-authorizing payment (safe offline-queue replay).",
   }),
+  returnUrl: z.string().url().optional().openapi({
+    example: "https://example.com/checkout/return",
+    description: "URL where the payment provider returns the shopper after payment.",
+  }),
+  cancelUrl: z.string().url().optional().openapi({
+    example: "https://example.com/checkout/cancel",
+    description: "URL where the payment provider returns the shopper after cancellation.",
+  }),
   customerId: z.string().optional().openapi({ example: "customer-uuid-or-user-id" }),
   customerGroupIds: z.array(z.string()).optional(),
   currency: z.string().length(3).optional().openapi({ example: "USD" }),
@@ -45,6 +53,8 @@ export const OrderResponseSchema = z.object({
     discountTotal: z.number(),
     grandTotal: z.number(),
     placedAt: z.string(),
+    paymentClientSecret: z.string().optional(),
+    paymentRedirectUrl: z.string().optional(),
   }),
   meta: z.object({
     hookErrors: z.array(z.string()),

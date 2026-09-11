@@ -6,6 +6,7 @@ export interface PaymentIntent {
   amount: number;
   currency: string;
   clientSecret?: string | null;
+  redirectUrl?: string | null;
 }
 
 export interface PaymentCapture {
@@ -36,6 +37,8 @@ export interface CreatePaymentIntentParams {
   paymentMethodToken?: string;
   /** Stable key forwarded to the provider so retries cannot create a second intent. */
   idempotencyKey?: string;
+  returnUrl?: string;
+  cancelUrl?: string;
   terminalId?: string;
 }
 

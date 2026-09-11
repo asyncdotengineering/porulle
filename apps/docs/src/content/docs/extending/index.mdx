@@ -15,6 +15,22 @@ When Porulle's bundled features don't match your case, you extend the framework 
   <LinkCard title="TypeScript Patterns" href="/extending/typescript/" description="Result<T> discipline, narrowing CommerceError, plugin context types." />
 </CardGrid>
 
+## Custom route access
+
+Custom routes must be classified as guarded or deliberately public so Porulle's route coverage check can verify the application surface. Use `requirePerm` for a route that needs a permission, `markRoutePermissionGuard` when your own middleware performs the authorization, and `markPublicRoute` when a route is intentionally public.
+
+```ts
+import { markPublicRoute, markRoutePermissionGuard, requirePerm } from "@porulle/core";
+
+routes: (app) => {
+  app.use("/api/orders", requirePerm("orders:read"));
+  app.use("/api/internal", markRoutePermissionGuard(myAuthorizationMiddleware));
+  app.use("/api/vendor-webhook", markPublicRoute(myPublicMiddleware));
+}
+```
+
+`markPublicRoute` is the named public alias of the same route marker used by `markRoutePermissionGuard`; it makes the intent clear while keeping route coverage explicit.
+
 ## Adopter contracts
 
 These three contracts are normative — every extension must follow them:

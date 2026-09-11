@@ -140,6 +140,8 @@ export function checkoutRoutes(kernel: Kernel) {
       ...(body.idempotencyKey !== undefined
         ? { idempotencyKey: body.idempotencyKey }
         : {}),
+      ...(body.returnUrl !== undefined ? { returnUrl: body.returnUrl } : {}),
+      ...(body.cancelUrl !== undefined ? { cancelUrl: body.cancelUrl } : {}),
       lineItems: [],
       subtotal: 0,
       discountTotal: 0,
@@ -367,6 +369,9 @@ export function checkoutRoutes(kernel: Kernel) {
             // Stripe Elements requires clientSecret to collect card details on the frontend
             ...(processed.paymentClientSecret
               ? { paymentClientSecret: processed.paymentClientSecret }
+              : {}),
+            ...(processed.paymentRedirectUrl
+              ? { paymentRedirectUrl: processed.paymentRedirectUrl }
               : {}),
           },
           meta: afterReport.hasErrors
