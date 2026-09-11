@@ -33,6 +33,8 @@ import type { CommerceConfig } from "../../config/types.js";
 import type { PluginRouteRegistration } from "../../kernel/plugin/manifest.js";
 import { createScopedDb } from "../../kernel/database/scoped-db.js";
 import { resolveOrgIdForCommerce } from "../../auth/org.js";
+import { hasPermission } from "../../auth/permissions.js";
+import type { Actor } from "../../auth/types.js";
 
 // ─── Shared OpenAPI Error Responses ──────────────────────────────────────────
 
@@ -221,8 +223,7 @@ class RouteChain {
         }
 
         if (requiredPermission) {
-          const perms = actor?.permissions ?? [];
-          if (!perms.includes(requiredPermission) && !perms.includes("*:*")) {
+          if (!hasPermission(actor as Actor | null, requiredPermission)) {
             return ctx.json({
               error: { code: "FORBIDDEN", message: `Permission '${requiredPermission}' is required.` },
             }, 403);

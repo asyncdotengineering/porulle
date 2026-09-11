@@ -16,6 +16,10 @@ export function markRoutePermissionGuard<T>(handler: T, methods?: readonly strin
   return handler;
 }
 
+export function markPublicRoute<T>(handler: T, methods?: readonly string[]): T {
+  return markRoutePermissionGuard(handler, methods);
+}
+
 type PermissionContext = {
   get(key: string): unknown;
   json(data: unknown, status: number): unknown;

@@ -69,6 +69,8 @@ export interface CheckoutData {
   paymentMethodToken?: string;
   /** Stable retry key shared by order creation and payment authorization. */
   idempotencyKey?: string;
+  returnUrl?: string;
+  cancelUrl?: string;
   lineItems: CheckoutLineItem[];
   subtotal: number;
   discountTotal: number;
@@ -78,6 +80,7 @@ export interface CheckoutData {
   promotionCodes?: string[];
   paymentIntentId?: string;
   paymentClientSecret?: string | undefined;
+  paymentRedirectUrl?: string | undefined;
   shippingAddress?: ShippingAddress;
   appliedPromotions?: AppliedPromotion[];
   freeShipping?: boolean;
@@ -533,11 +536,13 @@ export const authorizePayment: BeforeHook<CheckoutData> = async ({
       paymentMethodId: string;
       paymentMethodToken?: string;
       idempotencyKey?: string;
+      returnUrl?: string;
+      cancelUrl?: string;
       customerId?: string;
       metadata: Record<string, unknown>;
     }): Promise<{
       ok: boolean;
-      value?: { id: string; clientSecret?: string | null };
+      value?: { id: string; clientSecret?: string | null; redirectUrl?: string | null };
       error?: { message: string };
     }>;
   };
@@ -551,6 +556,8 @@ export const authorizePayment: BeforeHook<CheckoutData> = async ({
     ...(data.idempotencyKey !== undefined
       ? { idempotencyKey: data.idempotencyKey }
       : {}),
+    ...(data.returnUrl !== undefined ? { returnUrl: data.returnUrl } : {}),
+    ...(data.cancelUrl !== undefined ? { cancelUrl: data.cancelUrl } : {}),
     metadata: {
       ...(data.orderId !== undefined ? { orderId: data.orderId } : {}),
       organizationId: resolveOrgIdForCommerce(context.actor, context.commerceConfig),
@@ -568,6 +575,7 @@ export const authorizePayment: BeforeHook<CheckoutData> = async ({
 
   data.paymentIntentId = authorized.value.id;
   data.paymentClientSecret = authorized.value.clientSecret ?? undefined;
+  data.paymentRedirectUrl = authorized.value.redirectUrl ?? undefined;
   context.context.paymentIntentId = authorized.value.id;
   return data;
 };
