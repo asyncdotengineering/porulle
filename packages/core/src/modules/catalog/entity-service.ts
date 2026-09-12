@@ -437,6 +437,7 @@ export class EntityService {
     const canReadUnpublished = canReadUnpublishedCatalog(resolvedActor);
     let entities = await this.repo.findEntities(listOrgId, {
       ...(processed.filter?.type ? { type: processed.filter.type } : {}),
+      ...(processed.filter?.sourceStoreIds ? { sourceStoreIds: processed.filter.sourceStoreIds } : {}),
       ...(canReadUnpublished
         ? (processed.filter?.status ? { status: processed.filter.status } : {})
         : { status: "active", isVisible: true }),

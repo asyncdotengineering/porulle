@@ -126,9 +126,12 @@ export class CatalogRepository {
       status?: string;
       isVisible?: boolean;
       ids?: string[];
+      sourceStoreIds?: string[];
     },
     ctx?: TxContext,
   ): Promise<SellableEntity[]> {
+    // An empty store list is a filter that admits nothing, never one that is absent.
+    if (filter?.sourceStoreIds && filter.sourceStoreIds.length === 0) return [];
     const db = this.getDb(ctx);
     const conditions: SQL[] = [eq(sellableEntities.organizationId, orgId)];
 
@@ -145,6 +148,9 @@ export class CatalogRepository {
     }
     if (filter?.ids && filter.ids.length > 0) {
       conditions.push(inArray(sellableEntities.id, filter.ids));
+    }
+    if (filter?.sourceStoreIds) {
+      conditions.push(inArray(sellableEntities.sourceStoreId, filter.sourceStoreIds));
     }
 
     return db
