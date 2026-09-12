@@ -65,6 +65,10 @@ describe("round 2 identity and caller regressions", () => {
       );
       expect(product.ok).toBe(true);
       if (!product.ok) throw product.error;
+      await kernel.services.pricing.setBasePrice(
+        { entityId: product.value.id, currency: "USD", amount: 750 },
+        { ...testActor, organizationId: STORE },
+      );
 
       const createResponse = await server.fetch(new Request("http://localhost/api/carts", {
         method: "POST",

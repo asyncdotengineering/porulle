@@ -83,6 +83,11 @@ describe("webhook-style event names (moduleName + operation)", () => {
     expect(entity.ok).toBe(true);
     if (!entity.ok) return;
 
+    await kernel.services.pricing.setBasePrice(
+      { entityId: entity.value.id, currency: "USD", amount: 750 },
+      actor,
+    );
+
     const cart = await kernel.services.cart.create({ currency: "USD" }, actor);
     expect(cart.ok).toBe(true);
     if (!cart.ok) return;

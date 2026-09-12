@@ -43,6 +43,7 @@ const actor = {
     "cart:create",
     "cart:read",
     "cart:update",
+    "pricing:manage",
     "customers:update:self",
   ],
 } as any;
@@ -258,8 +259,16 @@ describe("checkout – resolveCurrentPrices (PGlite-backed)", () => {
     expect(cart.ok).toBe(true);
     if (!cart.ok) return;
 
+    // The line is priced explicitly, which is the hook's path: this entity deliberately has NO
+    // resolvable price, and addItem now refuses rather than inventing one, so the only way to get a
+    // line into the cart for checkout to choke on is to state the price here.
     await kernel.services.cart.addItem(
-      { cartId: cart.value.id, entityId: entity.value.id, quantity: 1 },
+      {
+        cartId: cart.value.id,
+        entityId: entity.value.id,
+        quantity: 1,
+        unitPriceSnapshot: 750,
+      },
       actor,
     );
 

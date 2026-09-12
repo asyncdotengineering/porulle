@@ -318,13 +318,39 @@ export class CartService {
       );
       item = updated!;
     } else {
+      // A new line needs a price, and a price the system cannot determine is refused rather than
+      // invented. This used to read `processed.unitPriceSnapshot ?? 1000`: a silent default in a
+      // money path, which nothing in the response, the logs or the schema disclosed. An integrator
+      // found it by comparing a deployed cart reading 1000 against a catalog priced 14500-22800.
+      //
+      // A hook still wins when it supplies one, so bespoke pricing keeps its seam; otherwise the
+      // pricing step answers — the SAME step `resolveCurrentPrices` uses at checkout, so a cart and
+      // its order agree by construction rather than by an integrator remembering to install a hook.
+      const currency = processed.currency ?? cart.currency;
+      let unitPriceSnapshot = processed.unitPriceSnapshot;
+      if (unitPriceSnapshot === undefined) {
+        const resolved = await this.resolveUnitPrice(
+          {
+            entityId: processed.entityId,
+            currency,
+            quantity,
+            ...(processed.variantId != null
+              ? { variantId: processed.variantId }
+              : {}),
+          },
+          actor ?? null,
+          ctx,
+        );
+        if (!resolved.ok) return resolved;
+        unitPriceSnapshot = resolved.value;
+      }
       item = await this.repo.createLineItem(
         {
           cartId: input.cartId,
           entityId: processed.entityId,
           quantity,
-          unitPriceSnapshot: processed.unitPriceSnapshot ?? 1000,
-          currency: processed.currency ?? cart.currency,
+          unitPriceSnapshot,
+          currency,
           metadata: processed.metadata ?? {},
           ...(processed.variantId !== undefined
             ? { variantId: processed.variantId }
@@ -337,6 +363,56 @@ export class CartService {
     await runAfterHooks(afterHooks, null, item, "addItem", context);
 
     return Ok(item);
+  }
+
+  /**
+   * The unit price for a new cart line, from the pricing step. Refuses — naming the entity and the
+   * currency — when no price is configured, when the pricing service is absent, or when resolution
+   * fails for any other reason: every one of those is a value the system cannot determine, and the
+   * defect this replaces was substituting a literal for exactly that.
+   */
+  private async resolveUnitPrice(
+    input: {
+      entityId: string;
+      currency: string;
+      quantity: number;
+      variantId?: string;
+    },
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<number>> {
+    const pricing = this.deps.services.pricing as
+      | {
+          resolve(
+            params: {
+              entityId: string;
+              currency: string;
+              quantity: number;
+              variantId?: string;
+            },
+            actor?: Actor | null,
+            ctx?: TxContext,
+          ): Promise<Result<{ finalAmount: number }>>;
+        }
+      | undefined;
+
+    if (typeof pricing?.resolve !== "function") {
+      return Err(
+        new CommerceValidationError(
+          `Cannot resolve a unit price for ${input.entityId}: no pricing service is configured.`,
+        ),
+      );
+    }
+
+    const resolved = await pricing.resolve(input, actor, ctx);
+    if (!resolved.ok) {
+      return Err(
+        new CommerceValidationError(
+          `Cannot resolve a unit price for ${input.entityId} (${input.currency}). Configure a price for it, or supply unitPriceSnapshot from a cart.beforeAddItem hook.`,
+        ),
+      );
+    }
+    return Ok(resolved.value.finalAmount);
   }
 
   async removeItem(
