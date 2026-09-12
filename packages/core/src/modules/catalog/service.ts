@@ -75,6 +75,8 @@ export interface ListParams {
   filter?: {
     type?: string;
     status?: string;
+    /** Only entities imported by these connected stores; an empty list matches nothing. */
+    sourceStoreIds?: string[];
     category?: string;
     brand?: string;
     customField?: {
