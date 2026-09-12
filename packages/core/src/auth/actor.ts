@@ -4,6 +4,21 @@ import type { AuthInstance } from "./setup.js";
 import { DEFAULT_ORG_ID } from "./org.js";
 import { isCredentialRejection } from "./auth-failure.js";
 
+/**
+ * The slice of Better Auth's internal context this file uses. Declared here
+ * rather than imported because `$context` is not on the public `Auth` type; if a
+ * future Better Auth removes or renames it, `findMembershipRole` degrades to
+ * "no role" rather than throwing, and the membership tests fail loudly.
+ */
+interface AuthContextLike {
+  adapter?: {
+    findOne<T>(query: {
+      model: string;
+      where: { field: string; value: unknown }[];
+    }): Promise<T | null>;
+  };
+}
+
 export const AUTH_COOKIE_PREFIX = "uc";
 export const SESSION_COOKIE_NAME = `${AUTH_COOKIE_PREFIX}.session_token`;
 
@@ -42,6 +57,50 @@ function toIsoString(value: unknown): string | null {
   return date !== null && Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
+/**
+ * The caller's role in one organization, by one indexed read of `member`.
+ *
+ * This used to go through the organization plugin's endpoints, and that cost six
+ * statements instead of one. `getFullOrganization` loads the organization row,
+ * its invitations and its ENTIRE member list, then scans in JavaScript for a
+ * single membership; `getActiveMemberRole` then looks for the same membership
+ * again. Both take `headers` and re-resolve the session from them, so each also
+ * re-reads `session` and `user`, and the plugin writes `active_organization_id`
+ * back to the session row — a write on the hot path of every GET.
+ *
+ * For a shopper every one of those is a guaranteed miss: a shopper is not a
+ * member of the platform organization and never will be. The member-by-
+ * organization scan also grows with the member list, so the platform's busiest
+ * request got slower as the platform got bigger.
+ *
+ * The adapter read below is the same query the plugin ended with, issued once
+ * and without re-resolving anything. `findOne` returning null IS the answer for
+ * a shopper — one miss, done.
+ */
+async function findMembershipRole(
+  auth: AuthInstance,
+  userId: string,
+  organizationId: string,
+): Promise<string | undefined> {
+  try {
+    const context = await (
+      auth as unknown as { $context?: Promise<AuthContextLike> }
+    ).$context;
+    const membership = await context?.adapter?.findOne<{ role?: string }>({
+      model: "member",
+      where: [
+        { field: "userId", value: userId },
+        { field: "organizationId", value: organizationId },
+      ],
+    });
+    return membership?.role;
+  } catch {
+    // A membership that cannot be read is not a role. Treated as customer, as
+    // the plugin-endpoint version was, so this stays a performance change.
+    return undefined;
+  }
+}
+
 /** Resolve a better-auth session and its porulle organization permissions. */
 export async function resolveActor(
   headers: Headers,
@@ -68,35 +127,9 @@ export async function resolveActor(
   let role = session.session.activeOrganizationRole as string | undefined;
   let orgId = session.session.activeOrganizationId as string | null;
 
-  if (!role && auth.api.getFullOrganization) {
-    try {
-      const org = await auth.api.getFullOrganization({
-        query: { organizationId: orgId ?? defaultOrgId },
-        headers,
-      });
-      if (org?.members) {
-        const membership = org.members.find(
-          (m) => m.userId === session.user.id,
-        );
-        if (membership) {
-          role = membership.role;
-          orgId = orgId ?? defaultOrgId;
-        }
-      }
-    } catch {
-      // fall through — treat as customer
-    }
-  }
-
-  if (!role && orgId && auth.api.getActiveMemberRole) {
-    try {
-      const roleResult = await auth.api.getActiveMemberRole({ headers });
-      role = (roleResult as Record<string, unknown>)?.role as
-        | string
-        | undefined;
-    } catch {
-      // fall through — treat as customer
-    }
+  if (!role) {
+    role = await findMembershipRole(auth, session.user.id, orgId ?? defaultOrgId);
+    if (role) orgId = orgId ?? defaultOrgId;
   }
 
   if (!orgId && config.auth?.storeResolver) {

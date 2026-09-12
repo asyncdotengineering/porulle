@@ -24,6 +24,21 @@ import { ensureDefaultOrg } from "../auth/org.js";
 import * as fullSchema from "../kernel/database/schema.js";
 import type { DrizzleDatabase } from "../kernel/database/drizzle-db.js";
 
+/**
+ * Records the SQL statements issued between `start()` and `stop()`.
+ *
+ * Counting statements is the regression guard for round-trip cost: the queries
+ * behind an authenticated request take 0.3 ms of database time between them, so
+ * a timing assertion measures the network and tells you nothing you can act on,
+ * while a count is stable, fast and names exactly what regressed.
+ */
+export interface QueryLog {
+  /** Begin recording; clears anything previously recorded. */
+  start(): void;
+  /** Stop recording and return the statements captured, in order. */
+  stop(): string[];
+}
+
 // drizzle-kit/api uses CJS internally; createRequire provides ESM compat.
 const require = createRequire(import.meta.url);
 
@@ -63,12 +78,37 @@ export async function createPGliteTestAdapter(): Promise<{
   adapter: DatabaseAdapter;
   db: DrizzleDatabase;
   cleanup: () => Promise<void>;
+  queryLog: QueryLog;
 }> {
   // Create in-memory PGlite instance
   const pg = new PGlite();
 
+  // Every statement Drizzle issues passes through this logger, and Better Auth's
+  // drizzleAdapter shares this same instance — so a recording covers the auth
+  // reads too. That is the point: the only honest regression guard for "this
+  // request costs N round trips" is a count of the statements, not a stopwatch.
+  const recorded: string[] = [];
+  let recording = false;
+  const queryLog: QueryLog = {
+    start() {
+      recorded.length = 0;
+      recording = true;
+    },
+    stop() {
+      recording = false;
+      return [...recorded];
+    },
+  };
+
   // Wrap with Drizzle ORM first (pushSchema needs the Drizzle instance)
-  const db = drizzle(pg, { schema: fullSchema });
+  const db = drizzle(pg, {
+    schema: fullSchema,
+    logger: {
+      logQuery(query) {
+        if (recording) recorded.push(query);
+      },
+    },
+  });
 
   // Push core schema via drizzle-kit/api (no migration files needed)
   // PgliteDatabase<Schema> and DrizzleDatabase share the same Schema type;
@@ -147,5 +187,5 @@ export async function createPGliteTestAdapter(): Promise<{
     await ensureDefaultOrg(db);
   }
 
-  return { adapter, db, cleanup };
+  return { adapter, db, cleanup, queryLog };
 }

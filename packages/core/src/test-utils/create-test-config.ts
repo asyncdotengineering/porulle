@@ -2,6 +2,7 @@ import { defineConfig } from "../config/define-config.js";
 import type { CommerceConfig } from "../config/types.js";
 import { Ok } from "../kernel/result.js";
 import type { StorageAdapter } from "../modules/media/adapter.js";
+import type { QueryLog } from "./create-pglite-adapter.js";
 
 function createInMemoryStorageAdapter(): StorageAdapter {
   const files = new Map<string, { data: ArrayBuffer; contentType: string }>();
@@ -181,14 +182,18 @@ export async function createTestConfig(
  */
 export async function createPGliteTestConfig(
   overrides: Partial<CommerceConfig> = {},
-): Promise<{ config: CommerceConfig; cleanup: () => Promise<void> }> {
+): Promise<{
+  config: CommerceConfig;
+  cleanup: () => Promise<void>;
+  queryLog: QueryLog;
+}> {
   const { createPGliteTestAdapter } = await import("./create-pglite-adapter.js");
-  const { adapter, cleanup } = await createPGliteTestAdapter();
+  const { adapter, cleanup, queryLog } = await createPGliteTestAdapter();
 
   const config = await createTestConfig({
     databaseAdapter: adapter,
     ...overrides,
   });
 
-  return { config, cleanup };
+  return { config, cleanup, queryLog };
 }
