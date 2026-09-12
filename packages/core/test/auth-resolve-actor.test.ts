@@ -143,6 +143,10 @@ describe("resolveActor", () => {
         organizationId: "org_default",
         role: "staff",
         permissions: ["catalog:read", "orders:read"],
+        // Present, and the same on every transport — the assertions above already
+        // pin the cookie, bearer and middleware actors to each other. That it is the
+        // session row's own createdAt is pinned in step-up-reauth.test.ts.
+        sessionCreatedAt: expect.any(String),
       });
 
       await expect(

@@ -15,5 +15,8 @@ export function createSystemActor(orgId: string = DEFAULT_ORG_ID): Actor {
     organizationId: orgId,
     role: "system",
     permissions: ["*:*"],
+    // A job proved nothing to anybody. Said out loud so a step-up guard reads
+    // "cannot establish" rather than inheriting the caller's freshness.
+    sessionCreatedAt: null,
   };
 }
