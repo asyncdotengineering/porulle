@@ -1,6 +1,6 @@
 {
   "name": "@porulle/adapter-feed-csv",
-  "version": "0.20.3",
+  "version": "0.21.0",
   "license": "MIT",
   "private": true,
   "type": "module",

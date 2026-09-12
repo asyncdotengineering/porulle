@@ -1,5 +1,12 @@
 # @porulle/plugin-wishlist
 
+## 0.21.0
+
+### Patch Changes
+
+- Updated dependencies [[`f6d69fb`](https://github.com/asyncdotengineering/porulle/commit/f6d69fbe64165b2e9a6bd892ba433f69273f8dee)]:
+  - @porulle/core@0.21.0
+
 ## 0.20.3
 
 ### Patch Changes
