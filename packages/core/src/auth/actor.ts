@@ -32,6 +32,16 @@ function resolvePermissions(
   return roleConfig ? roleConfig.permissions : [];
 }
 
+/**
+ * The session's `createdAt` as an ISO string. Better Auth hands it back as a Date
+ * from the adapter and as a string over JSON, and an actor crosses both boundaries.
+ * A value that is neither is reported as absent rather than as a recent one.
+ */
+function toIsoString(value: unknown): string | null {
+  const date = value instanceof Date ? value : typeof value === "string" ? new Date(value) : null;
+  return date !== null && Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
 /** Resolve a better-auth session and its porulle organization permissions. */
 export async function resolveActor(
   headers: Headers,
@@ -111,5 +121,6 @@ export async function resolveActor(
     organizationId: orgId ?? defaultOrgId,
     role: role ?? "customer",
     permissions: resolvePermissions(enrichedSession, config),
+    sessionCreatedAt: toIsoString(session.session.createdAt),
   } satisfies Actor;
 }

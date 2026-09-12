@@ -52,6 +52,24 @@ export class CommerceInventoryRecordNotFoundError extends Error implements Comme
   }
 }
 
+/**
+ * Raised when a caller is authenticated but has not proved it recently enough for
+ * a sensitive action. Distinct from `CommerceForbiddenError` on purpose: the client
+ * must be able to tell "prompt for the password again" from "you may not do this at
+ * all" and from "you are signed out", and it discriminates on
+ * `code === "REAUTH_REQUIRED"`, never the message string.
+ */
+export class CommerceReauthRequiredError extends Error implements CommerceError {
+  code = "REAUTH_REQUIRED" as const;
+  constructor(
+    message: string,
+    public details?: unknown,
+  ) {
+    super(message);
+    this.name = "CommerceReauthRequiredError";
+  }
+}
+
 export class CommerceForbiddenError extends Error implements CommerceError {
   code = "FORBIDDEN" as const;
   constructor(
