@@ -127,6 +127,7 @@ export {
   CommerceNotFoundError,
   CommerceValidationError,
   CommerceForbiddenError,
+  CommerceReauthRequiredError,
   CommerceConflictError,
   CommerceInvalidTransitionError,
   OrgResolutionError,
