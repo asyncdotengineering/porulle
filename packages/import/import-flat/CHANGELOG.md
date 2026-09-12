@@ -1,5 +1,12 @@
 # @porulle/import-flat
 
+## 0.20.3
+
+### Patch Changes
+
+- Updated dependencies [[`17f743c`](https://github.com/asyncdotengineering/porulle/commit/17f743c2c4a7c08f111561748d140f84c214a60d)]:
+  - @porulle/core@0.20.3
+
 ## 0.20.2
 
 ### Patch Changes
