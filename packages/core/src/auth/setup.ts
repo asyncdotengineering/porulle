@@ -173,10 +173,11 @@ export function createAuth(
       session: {
         expiresIn: config.auth?.sessionDuration ?? 60 * 60 * 24 * 7,
         updateAge: 60 * 60 * 24,
-        cookieCache: {
-          enabled: true,
-          maxAge: 60 * 5,
-        },
+        // No cookie cache. It made the signed session cookie a second source
+        // of truth for session liveness, so a revoked session kept authorizing
+        // every route that resolves an actor for up to its maxAge. If this is
+        // ever reintroduced behind a config option, resolveActor must ask with
+        // query.disableCookieCache so authorization keeps reading the table.
       },
       advanced: {
         cookiePrefix: AUTH_COOKIE_PREFIX,
