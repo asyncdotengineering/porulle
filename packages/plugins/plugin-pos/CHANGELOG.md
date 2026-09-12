@@ -1,5 +1,13 @@
 # @porulle/plugin-pos
 
+## 0.22.0
+
+### Patch Changes
+
+- Updated dependencies [[`0a719cd`](https://github.com/asyncdotengineering/porulle/commit/0a719cd9cbf6836f513b642e566e82d16ea3e97c)]:
+  - @porulle/core@0.22.0
+  - @porulle/db@0.22.0
+
 ## 0.21.0
 
 ### Patch Changes
