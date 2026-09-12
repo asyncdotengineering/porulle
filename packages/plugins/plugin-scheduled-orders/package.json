@@ -1,6 +1,6 @@
 {
   "name": "@porulle/plugin-scheduled-orders",
-  "version": "0.20.1",
+  "version": "0.20.2",
   "license": "MIT",
   "type": "module",
   "exports": {

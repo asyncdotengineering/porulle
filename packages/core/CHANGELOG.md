@@ -1,5 +1,11 @@
 # @porulle/core
 
+## 0.20.2
+
+### Patch Changes
+
+- [#98](https://github.com/asyncdotengineering/porulle/pull/98) [`ad671d2`](https://github.com/asyncdotengineering/porulle/commit/ad671d223368be15e1517917527dc2aa9c0f105e) Thanks [@octalpixel](https://github.com/octalpixel)! - `catalog.list` accepts `filter.sourceStoreIds` and narrows the result to entities imported by those connected stores, in the repository query so pagination and totals stay exact; an empty list matches nothing. Lets an app confine a shared-organization catalog list to the stores an actor owns.
+
 ## 0.20.1
 
 ### Patch Changes
