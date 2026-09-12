@@ -22,6 +22,7 @@ const actor = {
     "cart:create",
     "cart:read",
     "cart:update",
+    "pricing:manage",
   ],
 } as any;
 
@@ -36,7 +37,12 @@ const noPermActor = {
   permissions: ["catalog:read"],
 } as any;
 
-async function createProduct(kernel: ReturnType<typeof createKernel>, slug: string, hasVariants = false) {
+async function createProduct(
+  kernel: ReturnType<typeof createKernel>,
+  slug: string,
+  hasVariants = false,
+  currency = "USD",
+) {
   // Use course (no variants) or product (with variants) entity type
   const type = hasVariants ? "product" : "course";
   const created = await kernel.services.catalog.create(
@@ -45,6 +51,10 @@ async function createProduct(kernel: ReturnType<typeof createKernel>, slug: stri
   );
   expect(created.ok).toBe(true);
   if (!created.ok) throw created.error;
+  await kernel.services.pricing.setBasePrice(
+    { entityId: created.value.id, currency, amount: 750 },
+    actor,
+  );
   return created.value;
 }
 
@@ -339,6 +349,11 @@ describe("cart – unhappy path (PGlite-backed)", () => {
     expect(product.ok).toBe(true);
     if (!product.ok) return;
 
+    await kernel.services.pricing.setBasePrice(
+      { entityId: product.value.id, currency: "USD", amount: 750 },
+      actor,
+    );
+
     // Create option type + option value, then a variant using the correct API
     const optionType = await kernel.services.catalog.createOptionType(
       { entityId: product.value.id, name: "size" },
@@ -609,7 +624,7 @@ describe("cart – edge cases (PGlite-backed)", () => {
   });
 
   it("addItem uses cart currency when item currency is not specified", async () => {
-    const product = await createProduct(kernel, "cart-currency-inherit");
+    const product = await createProduct(kernel, "cart-currency-inherit", false, "EUR");
 
     const cart = await kernel.services.cart.create(
       { currency: "EUR" },

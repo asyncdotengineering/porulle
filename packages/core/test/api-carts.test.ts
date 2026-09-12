@@ -10,11 +10,13 @@ import {
 
 describe("REST API: Carts", () => {
   let server: any;
+  let kernel: Awaited<ReturnType<typeof createTestServer>>["kernel"];
   let cleanup: () => Promise<void>;
 
   beforeAll(async () => {
     const result = await createTestServer();
     server = result.server;
+    kernel = result.kernel;
     cleanup = result.cleanup;
   });
 
@@ -154,6 +156,10 @@ describe("REST API: Carts", () => {
       });
       const entity = await parseJsonResponse<{ data: { id: string } }>(createResponse);
       entityId = entity.data.id;
+      await kernel.services.pricing.setBasePrice(
+        { entityId, currency: "USD", amount: 750 },
+        testActor,
+      );
 
       // Create a cart
       const cartResponse = await makeRequest(server, {
@@ -229,6 +235,10 @@ describe("REST API: Carts", () => {
       });
       const entity = await parseJsonResponse<{ data: { id: string } }>(entityResponse);
       entityId = entity.data.id;
+      await kernel.services.pricing.setBasePrice(
+        { entityId, currency: "USD", amount: 750 },
+        testActor,
+      );
 
       const cartResponse = await makeRequest(server, {
         method: "POST",
@@ -299,6 +309,10 @@ describe("REST API: Carts", () => {
       });
       const entity = await parseJsonResponse<{ data: { id: string } }>(entityResponse);
       entityId = entity.data.id;
+      await kernel.services.pricing.setBasePrice(
+        { entityId, currency: "USD", amount: 750 },
+        testActor,
+      );
 
       const cartResponse = await makeRequest(server, {
         method: "POST",
