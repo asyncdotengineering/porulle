@@ -343,6 +343,7 @@ interface CatalogService {
       isVisible?: boolean;
     },
     actor: Actor,
+    ctx?: TxContext,
   ): Promise<{ ok: true; value: { id: string } } | { ok: false; error: { message: string } }>;
   createVariant(
     input: { entityId: string; options: Record<string, string>; sku?: string; barcode?: string },
@@ -480,6 +481,9 @@ export function canCatalogPushTransition(from: CatalogPushState, to: CatalogPush
 function hash(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
+
+/** Mid-import map rows carry this until convergence finishes; must not equal any real remote hash. */
+const PENDING_ENTITY_MAP_SYNC_HASH = "";
 
 export const CATALOG_OUTBOUND_SUPPRESSION_WINDOW_MS = 15 * 60 * 1000;
 
@@ -2543,9 +2547,10 @@ export class ChannelConnectorService {
           eq(channelEntityMap.kind, "entity"),
           eq(channelEntityMap.externalId, item.externalId),
         ));
-      const entityMapping = existing.find((entry) => entry.kind === "entity");
-      let entityId: string;
+      let entityMapping = existing.find((entry) => entry.kind === "entity");
+      let entityId: string | undefined;
       let isNew = false;
+      let adoptedOrphan = false;
       let entityTouched = false;
       let existingEntity: typeof sellableEntities.$inferSelect | undefined;
       if (entityMapping) {
@@ -2554,25 +2559,59 @@ export class ChannelConnectorService {
           eq(sellableEntities.id, entityMapping.entityId),
         ));
         if (!entity) {
-          warnings.push(`Skipped "${item.externalId}": mapped entity ${entityMapping.entityId} no longer exists.`);
-          continue;
+          await this.db.delete(channelEntityMap).where(and(
+            eq(channelEntityMap.organizationId, orgId),
+            eq(channelEntityMap.storeId, storeId),
+            eq(channelEntityMap.entityId, entityMapping.entityId),
+          ));
+          entityMapping = undefined;
+        } else {
+          entityId = entityMapping.entityId;
+          existingEntity = entity;
         }
-        entityId = entityMapping.entityId;
-        existingEntity = entity;
-      } else {
-        const status = item.status;
-        const entity = await this.catalog.create({
-          type: "product",
-          slug: item.slug,
-          sourceStoreId: storeId,
-          metadata: mergeMetadata(undefined, item.metadata ?? {}),
-          ...(status !== undefined ? { status, isVisible: status === "active" } : {}),
-        }, actor);
-        if (!entity.ok) return PluginErr(entity.error.message);
-        entityId = entity.value.id;
-        isNew = true;
-        imported += 1;
-        entityTouched = true;
+      }
+      if (entityId === undefined) {
+        const [orphan] = await this.db.select().from(sellableEntities).where(and(
+          eq(sellableEntities.organizationId, orgId),
+          eq(sellableEntities.sourceStoreId, storeId),
+          eq(sellableEntities.slug, item.slug),
+        ));
+        if (orphan) {
+          entityId = orphan.id;
+          existingEntity = orphan;
+          adoptedOrphan = true;
+        } else {
+          const status = item.status;
+          try {
+            entityId = await this.transact(async (tx) => {
+              const txContext = createTxContext(tx, { actor });
+              const created = await this.catalog.create({
+                type: "product",
+                slug: item.slug,
+                sourceStoreId: storeId,
+                metadata: mergeMetadata(undefined, item.metadata ?? {}),
+                ...(status !== undefined ? { status, isVisible: status === "active" } : {}),
+              }, actor, txContext);
+              if (!created.ok) throw new Error(created.error.message);
+              await tx.insert(channelEntityMap).values({
+                organizationId: orgId,
+                storeId,
+                kind: "entity",
+                externalId: item.externalId,
+                entityId: created.value.id,
+                syncHash: PENDING_ENTITY_MAP_SYNC_HASH,
+                heldFieldPaths: [],
+                forcedPushFieldPaths: [],
+              });
+              return created.value.id;
+            });
+          } catch (error) {
+            return PluginErr(error instanceof Error ? error.message : "Failed to create catalog entity.");
+          }
+          isNew = true;
+          imported += 1;
+          entityTouched = true;
+        }
       }
 
       const ownershipBeforeSeed = await this.catalog.resolveFieldOwners(entityId, storeId);
@@ -2684,6 +2723,19 @@ export class ChannelConnectorService {
       const lastSyncedAt = latestRevisionAt ?? entityMapping?.lastSyncedAt ?? new Date();
 
       if (isNew) {
+        await this.db.update(channelEntityMap).set({
+          syncHash: remoteHash,
+          lastSyncedAt,
+          heldFieldPaths: heldSharedPaths,
+          forcedPushFieldPaths: survivingForcedPaths,
+        }).where(and(
+          eq(channelEntityMap.organizationId, orgId),
+          eq(channelEntityMap.storeId, storeId),
+          eq(channelEntityMap.kind, "entity"),
+          eq(channelEntityMap.externalId, item.externalId),
+          eq(channelEntityMap.entityId, entityId),
+        ));
+      } else if (adoptedOrphan) {
         await this.db.insert(channelEntityMap).values({
           organizationId: orgId,
           storeId,
