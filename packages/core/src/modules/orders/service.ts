@@ -773,7 +773,21 @@ export class OrderService {
       ctx,
       guestCredential,
     );
-    if (!access.ok) return access;
+    // A refusal here has to be INDISTINGUISHABLE from the miss above. Looking the row up before
+    // authorizing it turns the pair into an existence oracle: 403 meant "this order is real" and
+    // 404 meant it is not, and since `GET /api/orders/{idOrNumber}` also accepts an order NUMBER —
+    // which comes out of a sequence and is therefore short, ordered and walkable — an anonymous
+    // caller could enumerate a store's orders and read off its volume.
+    //
+    // The same instinct already governs the guest branch of `authorizeOrderRead` one level down,
+    // which refuses a stale cart secret with the identical error as a wrong one "so a stale window
+    // is not an oracle telling the caller their secret is valid". It was right and simply did not
+    // reach far enough up: the row's existence had already leaked before that branch was consulted.
+    //
+    // So an unauthorized read answers exactly as a missing one does. The caller who may legitimately
+    // see the order is unaffected; the caller who may not now cannot tell the two apart, which is
+    // the only shape in which "not found" and "not yours" can share a door.
+    if (!access.ok) return Err(new CommerceNotFoundError("Order not found."));
 
     const hydrated = await this.hydrateOrder(order, ctx);
 

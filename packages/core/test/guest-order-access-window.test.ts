@@ -27,7 +27,14 @@ import { parseAccessWindow, windowedGuestOrderAccess } from "../src/modules/orde
  */
 
 const STORE_ID = "org_default";
-const FORBIDDEN = "You do not have access to this resource.";
+// The refusal an unauthorized order read now carries. It used to be
+// `403 You do not have access to this resource.`, and the change is the point rather than a
+// rename: looking the row up before authorizing it made 403-vs-404 an existence oracle over
+// enumerable order numbers, so an unauthorized read now answers exactly as a missing one does.
+// See `order-read-refusal-is-not-an-oracle.test.ts`. Every property this file asserts survives it
+// — a stale secret is still refused, and it is still refused INDISTINGUISHABLY from a wrong one.
+const REFUSED_STATUS = 404;
+const REFUSED = "Order not found.";
 
 const customerActor: Actor = {
   type: "user",
@@ -157,7 +164,7 @@ describe("a guest's order read is bounded to a window after placement", () => {
     await backdate(orderId, 8);
 
     const response = await readOrder(orderId, secret);
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(REFUSED_STATUS);
   });
 
   it("does not leak that the secret was valid but stale", async () => {
@@ -172,7 +179,7 @@ describe("a guest's order read is bounded to a window after placement", () => {
     const wrongBody = await parseJsonResponse<{ error: { code: string; message: string } }>(wrong);
     expect(staleBody.error.message).toBe(wrongBody.error.message);
     expect(staleBody.error.code).toBe(wrongBody.error.code);
-    expect(staleBody.error.message).toBe(FORBIDDEN);
+    expect(staleBody.error.message).toBe(REFUSED);
   });
 
   it("leaves an authenticated customer's own order reachable past the window", async () => {
@@ -221,7 +228,7 @@ describe("a guest's order read is bounded to a window after placement", () => {
         headers: { "x-store-id": STORE_ID, "x-cart-secret": secret },
       }),
     );
-    expect(html.status).toBe(403);
+    expect(html.status).toBe(REFUSED_STATUS);
 
     const email = await server.fetch(
       new Request(`http://localhost/api/orders/${orderId}/invoice/email`, {
@@ -234,7 +241,7 @@ describe("a guest's order read is bounded to a window after placement", () => {
         body: JSON.stringify({ to: "shopper@example.com" }),
       }),
     );
-    expect(email.status).toBe(403);
+    expect(email.status).toBe(REFUSED_STATUS);
   });
 });
 
@@ -316,7 +323,7 @@ describe("the access window is a configurable seam, not a constant", () => {
           headers: { "x-store-id": STORE_ID, "x-cart-secret": cart.secret },
         }),
       );
-      expect(response.status).toBe(403);
+      expect(response.status).toBe(REFUSED_STATUS);
       expect(seen.length).toBeGreaterThan(0);
       expect(seen[0]!.elapsedMs).toBeGreaterThanOrEqual(0);
     } finally {

@@ -158,10 +158,16 @@ describe("round 3 guest credential and checkout regressions", () => {
     }>(checkout);
     expect(order.data.customerId).toBeNull();
 
+    // 404 rather than 403, and this row is where that mattered most: it reads the order BY NUMBER
+    // with no credential, which is the enumerable door. A 403 here told the caller the number named
+    // a real order while a fabricated number returned 404, so this assertion was quietly pinning an
+    // existence oracle over a sequence. The refusal is unchanged in substance — no credential still
+    // reads nothing — and is now indistinguishable from a number that names nothing.
+    // See `order-read-refusal-is-not-an-oracle.test.ts`.
     const noCredential = await server.fetch(jsonRequest(
       `http://localhost/api/orders/${order.data.orderNumber}`,
     ));
-    expect(noCredential.status).toBe(403);
+    expect(noCredential.status).toBe(404);
 
     const credentialed = await server.fetch(jsonRequest(
       `http://localhost/api/orders/${order.data.id}`,
