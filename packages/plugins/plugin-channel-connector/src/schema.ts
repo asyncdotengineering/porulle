@@ -11,6 +11,7 @@ import {
   sql,
 } from "@porulle/core/drizzle";
 import type { ChannelPushCatalogItem, FieldPath } from "@porulle/core";
+import { sellableEntities } from "@porulle/core/schema";
 import type { CatalogFieldMapping } from "./catalog-field-mapping.js";
 
 export const connectedStores = pgTable(
@@ -50,7 +51,7 @@ export const channelEntityMap = pgTable(
     storeId: uuid("store_id").references(() => connectedStores.id, { onDelete: "cascade" }).notNull(),
     kind: text("kind", { enum: ["entity", "variant"] }).notNull(),
     externalId: text("external_id").notNull(),
-    entityId: uuid("entity_id").notNull(),
+    entityId: uuid("entity_id").references(() => sellableEntities.id, { onDelete: "cascade" }).notNull(),
     variantId: uuid("variant_id"),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }).defaultNow().notNull(),
     syncHash: text("sync_hash").notNull(),
