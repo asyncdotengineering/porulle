@@ -518,9 +518,11 @@ Attachments are unique per level: the same asset may attach once at entity level
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/payments/webhook` | Payment provider webhook receiver |
+| `POST` | `/api/payments/webhook/:provider` | Payment provider webhook receiver |
 
-Accepts raw webhook payloads from the configured payment adapter. On `payment_intent.succeeded` with `metadata.orderId`, transitions the order to `confirmed` automatically.
+Accepts raw webhook payloads from the payment adapter named by `:provider`, which must match that adapter's `providerId` — an unregistered provider returns `404` and records nothing. The delivery is verified by that adapter and recorded against it, so two gateways can be registered at once without either seeing the other's events.
+
+For the bundled Stripe adapter (`/api/payments/webhook/stripe`), a `payment_intent.succeeded` event carrying `metadata.orderId` transitions that order to `confirmed` automatically. That handling is Stripe's own; another gateway's events are verified and recorded but do not transition an order, because their event vocabulary is not core's to interpret.
 
 ---
 

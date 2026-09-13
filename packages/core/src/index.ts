@@ -157,6 +157,7 @@ export type {
   PaymentIntent,
   PaymentRefund,
   PaymentWebhookEvent,
+  CreatePaymentIntentParams,
 } from "./modules/payments/adapter.js";
 export { defineChannelConnector } from "./modules/channels/adapter.js";
 export type {

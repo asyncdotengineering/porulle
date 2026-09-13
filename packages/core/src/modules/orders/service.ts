@@ -60,6 +60,7 @@ export interface CreateOrderInput {
   grandTotal: number;
   paymentIntentId?: string | undefined;
   paymentMethodId?: string | undefined;
+  status?: string;
   metadata?: Record<string, unknown>;
   lineItems: Array<{
     entityId: string;
@@ -522,6 +523,21 @@ export class OrderService {
       "create",
       hookCtx,
     );
+    // Two different mistakes, two different messages. A caller who typoed a state and a caller who
+    // asked for a real state that an order may not START in will look in completely different
+    // places, and one message for both sends half of them to the wrong one.
+    const status = processed.status ?? this.machine.initial;
+    if (!this.machine.states.includes(status)) {
+      return Err(new CommerceValidationError(`Unknown order status "${status}".`));
+    }
+    if (!this.machine.initialStates.includes(status)) {
+      return Err(
+        new CommerceValidationError(
+          `An order cannot be created in status "${status}"; it is reached by transition. ` +
+            `Orders may be created in: ${this.machine.initialStates.join(", ")}.`,
+        ),
+      );
+    }
 
     const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     const idempotencyScope = processed.idempotencyKey
@@ -617,7 +633,7 @@ export class OrderService {
           ...(opts?.trustedPricing === true && processed.id != null ? { id: processed.id } : {}),
           organizationId: orgId,
           orderNumber,
-          status: "pending",
+          status,
           currency: processed.currency,
           subtotal: computedSubtotal,
           taxTotal: processed.taxTotal,
@@ -718,8 +734,8 @@ export class OrderService {
     await this.repo.createStatusHistory(
       {
         orderId: order.id,
-        fromStatus: "pending",
-        toStatus: "pending",
+        fromStatus: status,
+        toStatus: status,
         reason: "order_created",
         changedBy: actor?.userId ?? "system",
       },

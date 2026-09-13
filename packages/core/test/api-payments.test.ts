@@ -25,9 +25,9 @@ describe("REST API: Payments", () => {
     await cleanup();
   });
 
-  // ─── POST /api/payments/webhook ───────────────────────────────────────────────
+  // ─── POST /api/payments/webhook/:provider ───────────────────────────────────────────────
 
-  describe("POST /api/payments/webhook", () => {
+  describe("POST /api/payments/webhook/:provider", () => {
     it("maps provider webhook failures to safe actionable statuses", async () => {
       const failingAdapter = {
         providerId: "failing-webhook",
@@ -54,7 +54,7 @@ describe("REST API: Payments", () => {
       try {
         const response = await makeRequest(isolated.server, {
           method: "POST",
-          url: "http://localhost/api/payments/webhook",
+          url: "http://localhost/api/payments/webhook/failing-webhook",
           headers: { "content-type": "application/json" },
           body: {},
         });
@@ -74,7 +74,7 @@ describe("REST API: Payments", () => {
     it("accepts valid webhook payload", async () => {
       const response = await makeRequest(server, {
         method: "POST",
-        url: "http://localhost/api/payments/webhook",
+        url: "http://localhost/api/payments/webhook/test-payments",
         headers: {
           "content-type": "application/json",
         },
@@ -96,7 +96,7 @@ describe("REST API: Payments", () => {
     it("rejects webhook with invalid signature", async () => {
       const response = await makeRequest(server, {
         method: "POST",
-        url: "http://localhost/api/payments/webhook",
+        url: "http://localhost/api/payments/webhook/test-payments",
         headers: {
           "content-type": "application/json",
           "stripe-signature": "invalid_signature",
@@ -144,7 +144,7 @@ describe("REST API: Payments", () => {
 
         const response = await makeRequest(server, {
           method: "POST",
-          url: "http://localhost/api/payments/webhook",
+          url: "http://localhost/api/payments/webhook/test-payments",
           headers: {
             "content-type": "application/json",
           },
@@ -169,7 +169,7 @@ describe("REST API: Payments", () => {
     it("handles missing payload gracefully", async () => {
       const response = await makeRequest(server, {
         method: "POST",
-        url: "http://localhost/api/payments/webhook",
+        url: "http://localhost/api/payments/webhook/test-payments",
         headers: {
           "content-type": "application/json",
         },

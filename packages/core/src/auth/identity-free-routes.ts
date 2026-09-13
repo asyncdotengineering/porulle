@@ -65,7 +65,7 @@ function normalize(entry: string): string {
  * The routes that want this are app-local by nature — a signed payment notify,
  * a tracked click-out — and they have no session, taking their organization
  * from the payload they verified rather than from a resolver, which is what
- * core's own `POST /api/payments/webhook` already does.
+ * core's own `POST /api/payments/webhook/:provider` already does.
  *
  * WHAT AN ENTRY COSTS: `authMiddleware` is followed by the wrapper that opens
  * the plugin database scope FROM THE RESOLVED ACTOR. A route listed here gets

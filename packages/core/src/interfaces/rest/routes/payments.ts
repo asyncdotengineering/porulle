@@ -11,8 +11,15 @@ type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 export function paymentRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
 
-  router.post("/webhook", async (c) => {
-    const result = await kernel.services.payments.verifyWebhook(c.req.raw);
+  router.post("/webhook/:provider", async (c) => {
+    const provider = c.req.param("provider");
+    if (!provider) return c.notFound();
+
+    const resolvedAdapter = kernel.services.payments.resolveAdapter(provider);
+    if (!resolvedAdapter.ok) return c.notFound();
+
+    const adapter = resolvedAdapter.value;
+    const result = await adapter.verifyWebhook(c.req.raw);
     if (!result.ok) {
       return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
     }
@@ -28,7 +35,7 @@ export function paymentRoutes(kernel: Kernel) {
         .insert(processedWebhookEvents)
         .values({
           eventId: event.id,
-          provider: "stripe",
+          provider: adapter.providerId,
           eventType: event.type,
         })
         .onConflictDoNothing()
@@ -36,7 +43,7 @@ export function paymentRoutes(kernel: Kernel) {
 
       if (!inserted) return { duplicate: true };
 
-      if (event.type === "payment_intent.succeeded") {
+      if (adapter.providerId === "stripe" && event.type === "payment_intent.succeeded") {
         const data = event.data as Record<string, unknown> | undefined;
         const metadata = data?.metadata as Record<string, unknown> | undefined;
         if (typeof metadata?.orderId === "string") {
