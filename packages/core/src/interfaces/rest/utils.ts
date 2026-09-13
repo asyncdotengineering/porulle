@@ -2,6 +2,10 @@ import type { CommerceError } from "../../kernel/errors.js";
 import { mapErrorToStatus } from "../../kernel/error-mapper.js";
 import { toCommerceError } from "../../kernel/errors.js";
 import type { Actor } from "../../auth/types.js";
+import {
+  AUTHENTICATION_REQUIRED_MESSAGE,
+  isUnauthenticatedActor,
+} from "../../auth/permissions.js";
 
 export const ROUTE_PERMISSION_GUARD = Symbol("porulle.routePermissionGuard");
 
@@ -21,6 +25,7 @@ export function markPublicRoute<T>(handler: T, methods?: readonly string[]): T {
 }
 
 type PermissionContext = {
+  get(key: "actor"): Pick<Actor, "type" | "userId" | "permissions"> | null;
   get(key: string): unknown;
   json(data: unknown, status: number): unknown;
   req: { method: string };
@@ -84,12 +89,9 @@ export { mapErrorToStatus };
  * Usage: router.post("/", requirePerm("webhooks:manage"), handler);
  */
 export function requirePerm(permission: string) {
-  const middleware = async (c: { get(key: string): unknown; json(data: unknown, status: number): unknown }, next: () => Promise<void>) => {
-    const actor = c.get("actor") as { permissions?: string[] } | null;
-    if (!actor) {
-      return c.json({ error: { code: "UNAUTHORIZED", message: "Authentication required." } }, 401);
-    }
-    const perms = actor.permissions ?? [];
+  const middleware = async (c: PermissionContext, next: () => Promise<void>) => {
+    const actor = c.get("actor");
+    const perms = actor?.permissions ?? [];
     if (perms.includes(permission) || perms.includes("*:*")) {
       await next();
       return;
@@ -100,26 +102,29 @@ export function requirePerm(permission: string) {
       await next();
       return;
     }
+    if (isUnauthenticatedActor(actor)) {
+      return c.json({ error: { code: "UNAUTHORIZED", message: AUTHENTICATION_REQUIRED_MESSAGE } }, 401);
+    }
     return c.json({ error: { code: "FORBIDDEN", message: `Permission '${permission}' is required.` } }, 403);
   };
   return markRoutePermissionGuard(middleware);
 }
 
 export function requireAnyPerm(permissions: readonly string[]) {
-  const middleware = async (c: { get(key: string): unknown; json(data: unknown, status: number): unknown }, next: () => Promise<void>) => {
-    const actor = c.get("actor") as { permissions?: string[] } | null;
+  const middleware = async (c: PermissionContext, next: () => Promise<void>) => {
+    const actor = c.get("actor");
     const granted = actor?.permissions ?? [];
     const allowed = permissions.some((permission) =>
       granted.includes(permission) ||
       granted.includes("*:*") ||
       granted.includes(`${permission.split(":")[0]}:*`),
     );
-    if (!actor) {
-      return c.json({ error: { code: "UNAUTHORIZED", message: "Authentication required." } }, 401);
-    }
     if (allowed) {
       await next();
       return;
+    }
+    if (isUnauthenticatedActor(actor)) {
+      return c.json({ error: { code: "UNAUTHORIZED", message: AUTHENTICATION_REQUIRED_MESSAGE } }, 401);
     }
     return c.json({ error: { code: "FORBIDDEN", message: `One of these permissions is required: ${permissions.join(", ")}.` } }, 403);
   };

@@ -6,6 +6,7 @@ import { getCustomerPermissions, resolveActor } from "./actor.js";
 import { DEFAULT_ORG_ID } from "./org.js";
 import { isCredentialRejection } from "./auth-failure.js";
 import { isStrictOrgResolution } from "./strict-org-resolution.js";
+import { isIdentityFreeRoute } from "./identity-free-routes.js";
 
 function emptyToNull(value: string | null | undefined): string | null {
   return value == null || value === "" ? null : value;
@@ -24,6 +25,12 @@ export function authMiddleware(
   config: CommerceConfig,
 ): MiddlewareHandler {
   return async (c, next) => {
+    if (isIdentityFreeRoute(c.req.method, c.req.path, config)) {
+      c.set("actor", null);
+      await next();
+      return;
+    }
+
     // Resolve the default org from config, falling back to deprecated constant
     const defaultOrgId = config.auth?.defaultOrganizationId ?? DEFAULT_ORG_ID;
 

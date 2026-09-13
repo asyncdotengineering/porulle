@@ -1,6 +1,11 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../runtime/kernel.js";
-import { assertPermission, requireUserId } from "../../auth/permissions.js";
+import {
+  AUTHENTICATION_REQUIRED_MESSAGE,
+  assertPermission,
+  isUnauthenticatedActor,
+  requireUserId,
+} from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
 import type { AppEnv } from "./utils.js";
 import {
@@ -23,12 +28,27 @@ type AuthenticatedActor = Actor & { userId: string };
 export function createCustomerPortalRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
 
+  // Two refusals, because two different callers are being turned away and one
+  // answer cannot serve both. The second clause is also what makes the
+  // `AuthenticatedActor` cast below true: every route under this guard reads
+  // `actor.userId` as a string.
   router.use("*", markRoutePermissionGuard(async (c, next) => {
     const actor = c.get("actor") as Actor | null;
+    if (isUnauthenticatedActor(actor)) {
+      return c.json(
+        { error: { code: "UNAUTHORIZED", message: AUTHENTICATION_REQUIRED_MESSAGE } },
+        401,
+      );
+    }
     if (!actor?.userId) {
       return c.json(
-        { error: { code: "FORBIDDEN", message: "Authentication required." } },
-        401,
+        {
+          error: {
+            code: "FORBIDDEN",
+            message: "The customer portal requires a signed-in user, not an API key.",
+          },
+        },
+        403,
       );
     }
     await next();

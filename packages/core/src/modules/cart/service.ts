@@ -1,10 +1,16 @@
 import { resolveOrgIdForCommerce } from "../../auth/org.js";
-import { assertOwnership, assertPermission } from "../../auth/permissions.js";
+import {
+  AUTHENTICATION_REQUIRED_MESSAGE,
+  assertOwnership,
+  assertPermission,
+  isUnauthenticatedActor,
+} from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
 import type { CommerceConfig } from "../../config/types.js";
 import {
   CommerceForbiddenError,
   CommerceNotFoundError,
+  CommerceUnauthorizedError,
   CommerceValidationError,
   toCommerceError,
 } from "../../kernel/errors.js";
@@ -896,10 +902,8 @@ export class CartService {
     if (actor && actor.permissions.includes("*:*")) return;
 
     if (cart.customerId != null) {
-      if (!actor) {
-        throw new CommerceForbiddenError(
-          "Authentication required to read customer cart.",
-        );
+      if (isUnauthenticatedActor(actor)) {
+        throw new CommerceUnauthorizedError(AUTHENTICATION_REQUIRED_MESSAGE);
       }
       const profileId = await this.resolveActorCustomerId(actor, ctx);
       if (profileId !== cart.customerId) {

@@ -305,7 +305,17 @@ describe("round 3 guest credential and checkout regressions", () => {
         },
       },
     ));
-    expect(injectedFulfillment.status).toBe(403);
+    // 401 since 2026-09-13, and the refusal itself is unchanged. A cart secret
+    // is a credential for ONE CART, not an identity: this caller presented no
+    // authentication at all, and signing in as staff is exactly what would let
+    // it create a fulfilment — which is what 401 means and 403 denies. The
+    // security property this row exists for is that a guest read credential
+    // cannot be escalated into a write, and it still holds.
+    expect(injectedFulfillment.status).toBe(401);
+    const refusal = (await injectedFulfillment.json()) as { error?: { code?: string; message?: string } };
+    expect(refusal.error?.code).toBe("UNAUTHORIZED");
+    // The refusal must not name a permission to a caller with no identity.
+    expect(refusal.error?.message ?? "").not.toMatch(/fulfillment|permission/i);
   });
 
   it("accepts the cart secret only from the request header", async () => {

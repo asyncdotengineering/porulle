@@ -33,7 +33,11 @@ import type { CommerceConfig } from "../../config/types.js";
 import type { PluginRouteRegistration } from "../../kernel/plugin/manifest.js";
 import { createScopedDb } from "../../kernel/database/scoped-db.js";
 import { resolveOrgIdForCommerce } from "../../auth/org.js";
-import { hasPermission } from "../../auth/permissions.js";
+import {
+  AUTHENTICATION_REQUIRED_MESSAGE,
+  hasPermission,
+  isUnauthenticatedActor,
+} from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
 
 // ─── Shared OpenAPI Error Responses ──────────────────────────────────────────
@@ -64,7 +68,7 @@ export interface RouteHandlerContext {
   /** Path parameters, auto-extracted from {id} segments. */
   params: Record<string, string>;
   /** Authenticated actor. Guaranteed non-null if .auth() or .permission() was called. */
-  actor: { userId: string | null; role: string; permissions: string[]; vendorId?: string | null; [key: string]: unknown } | null;
+  actor: Actor | null;
   /** Resolved organization ID. Derived from actor.organizationId or the deployment config. */
   orgId: string;
   /** Kernel services (orders, cart, inventory, etc.) */
@@ -218,8 +222,8 @@ class RouteChain {
         // Order: auth first (401), then permission (403).
         const actor = ctx.get("actor") as RouteHandlerContext["actor"];
 
-        if ((requireAuth || requiredPermission) && !actor) {
-          return ctx.json({ error: { code: "UNAUTHORIZED", message: "Authentication required." } }, 401);
+        if ((requireAuth || requiredPermission) && isUnauthenticatedActor(actor)) {
+          return ctx.json({ error: { code: "UNAUTHORIZED", message: AUTHENTICATION_REQUIRED_MESSAGE } }, 401);
         }
 
         if (requiredPermission) {
