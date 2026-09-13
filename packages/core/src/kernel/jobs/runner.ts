@@ -22,6 +22,17 @@ function isExclusiveTask(task: TaskDefinition | undefined): boolean {
   return Boolean(task?.concurrency && task.concurrency.exclusive !== false);
 }
 
+// Scoped slot matches supersedes (organizationId, taskSlug, concurrencyKey): the key alone
+// is not global — two tasks may share an entity id without sharing an exclusive slot.
+const CONCURRENCY_SLOT_SEP = "\u0000";
+
+function scopedConcurrencySlot(
+  taskSlug: string,
+  concurrencyKey: string,
+): string {
+  return `${taskSlug}${CONCURRENCY_SLOT_SEP}${concurrencyKey}`;
+}
+
 function compareByProcessingOrder(
   processingOrder: JobProcessingOrder | undefined,
 ): (left: CommerceJob, right: CommerceJob) => number {
@@ -82,12 +93,17 @@ export async function runPendingJobs(
   // Phase 1: Claim jobs atomically
   const claimed = await db.transaction(async (tx) => {
     const processing = await tx
-      .select({ concurrencyKey: commerceJobs.concurrencyKey })
+      .select({
+        taskSlug: commerceJobs.taskSlug,
+        concurrencyKey: commerceJobs.concurrencyKey,
+      })
       .from(commerceJobs)
       .where(eq(commerceJobs.status, "processing"));
     const processingKeys = new Set(
       processing.flatMap((job) =>
-        job.concurrencyKey ? [job.concurrencyKey] : [],
+        job.concurrencyKey
+          ? [scopedConcurrencySlot(job.taskSlug, job.concurrencyKey)]
+          : [],
       ),
     );
 
@@ -111,7 +127,9 @@ export async function runPendingJobs(
       if (
         candidate.concurrencyKey &&
         isExclusiveTask(tasks.get(candidate.taskSlug)) &&
-        processingKeys.has(candidate.concurrencyKey)
+        processingKeys.has(
+          scopedConcurrencySlot(candidate.taskSlug, candidate.concurrencyKey),
+        )
       ) {
         continue;
       }
@@ -151,14 +169,15 @@ export async function runPendingJobs(
         continue;
       }
 
-      const oldest = oldestByKey.get(job.concurrencyKey);
+      const slot = scopedConcurrencySlot(job.taskSlug, job.concurrencyKey);
+      const oldest = oldestByKey.get(slot);
       if (!oldest) {
-        oldestByKey.set(job.concurrencyKey, job);
+        oldestByKey.set(slot, job);
         continue;
       }
 
       if (job.createdAt < oldest.createdAt) {
-        oldestByKey.set(job.concurrencyKey, job);
+        oldestByKey.set(slot, job);
         jobsToRelease.push(oldest);
       } else {
         jobsToRelease.push(job);
