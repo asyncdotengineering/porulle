@@ -1,8 +1,14 @@
 ---
-"@porulle/core": major
+"@porulle/core": minor
 ---
 
 Address payment webhooks by provider, and let an order be created in a declared initial status.
+
+> **This is a breaking change shipping as a minor, deliberately.** `@porulle/*` is pre-1.0, and
+> semver reserves 0.x for exactly this: "Major version zero is for initial development. Anything
+> MAY change at any time. The public API SHOULD NOT be considered stable." Going to 1.0.0 would
+> declare the API stable, which is not yet true — further core seams are already planned. Every
+> break is documented below and every caller is migrated in the same cycle.
 
 **Breaking: `POST /api/payments/webhook` is now `POST /api/payments/webhook/:provider`.**
 
