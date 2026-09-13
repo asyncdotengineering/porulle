@@ -20,7 +20,7 @@ export const PUBLIC_ROUTES: readonly PublicRoute[] = [
   { method: "POST", path: "/api/checkout", justification: "Anonymous storefront checkout is authorized by the customer actor and cart/payment pipeline." },
   { method: "GET", path: "/api/media/:id", justification: "Public media assets redirect to their configured public storage URL; signed URLs still require an actor in the handler." },
   { method: "POST", path: "/api/promotions/validate", justification: "Storefront shoppers validate a promotion code before checkout; the route is rate-limited." },
-  { method: "POST", path: "/api/payments/webhook", justification: "The payment provider authenticates this endpoint with its signed webhook payload." },
+  { method: "POST", path: "/api/payments/webhook/:provider", justification: "The payment provider authenticates this endpoint with its signed webhook payload." },
 ];
 
 type RouteTableApp = {

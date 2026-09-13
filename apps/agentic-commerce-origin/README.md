@@ -26,7 +26,7 @@ Set `STRIPE_SECRET_KEY` to a Stripe test-mode secret. If you want to exercise
 verified webhooks locally, run:
 
 ```bash
-stripe listen --forward-to localhost:4000/api/payments/webhook
+stripe listen --forward-to localhost:4000/api/payments/webhook/stripe
 ```
 
 Copy the printed endpoint signing secret into `STRIPE_WEBHOOK_SECRET`, then
@@ -78,7 +78,7 @@ bun run worker:deploy
 Register this Stripe test-mode webhook URL after deployment:
 
 ```text
-https://your-origin.example/api/payments/webhook
+https://your-origin.example/api/payments/webhook/stripe
 ```
 
 Porulle verifies `stripe-signature` with Stripe's Worker-compatible asynchronous

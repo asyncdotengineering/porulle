@@ -24,7 +24,7 @@ export class PaymentsService {
    * Resolve a specific adapter by its providerId.
    * Falls back to the default (first) adapter only when paymentMethodId is omitted.
    */
-  private resolveAdapter(paymentMethodId?: string): Result<PaymentAdapter> {
+  resolveAdapter(paymentMethodId?: string): Result<PaymentAdapter> {
     if (paymentMethodId) {
       const adapter = this.adapterMap.get(paymentMethodId);
       if (!adapter) {
