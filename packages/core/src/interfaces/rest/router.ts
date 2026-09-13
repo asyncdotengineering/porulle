@@ -228,20 +228,30 @@ class RouteChain {
       try {
         // ─── Auth + Permission Check ─────────────────────────────────
         // .permission() implies .auth() — both are enforced here.
-        // Order: auth first (401), then permission (403).
+        //
+        // A GRANTED PERMISSION WINS BEFORE THE CLASS IS DECIDED, and the order
+        // matters: an actor can hold a permission without holding an identity.
+        // A storefront widget posting search signals carries only a publishable
+        // key, so it rides the anonymous actor the store resolver builds and is
+        // authorized by that actor's permissions. Asking "is this caller
+        // anonymous?" first refuses it 401 before anyone looks at what it may
+        // do — which broke a working flow. The class question only arises on a
+        // REFUSAL, which is also the order `requirePerm` uses.
         const actor = ctx.get("actor") as RouteHandlerContext["actor"];
 
-        // `RouteHandlerContext["actor"]` is deliberately structural — see its
-        // declaration — but the middleware only ever sets a real `Actor`. Read
-        // the two identity fields through that type here rather than narrowing
-        // the published one, which breaks every plugin that casts it.
-        const identity = actor as Pick<Actor, "type" | "userId"> | null;
-        if ((requireAuth || requiredPermission) && isUnauthenticatedActor(identity)) {
-          return ctx.json({ error: { code: "UNAUTHORIZED", message: AUTHENTICATION_REQUIRED_MESSAGE } }, 401);
-        }
+        if (requiredPermission && hasPermission(actor as Actor | null, requiredPermission)) {
+          // Authorized. Nothing below applies.
+        } else {
+          // `RouteHandlerContext["actor"]` is deliberately structural — see its
+          // declaration — but the middleware only ever sets a real `Actor`. Read
+          // the two identity fields through that type here rather than narrowing
+          // the published one, which breaks every plugin that casts it.
+          const identity = actor as Pick<Actor, "type" | "userId"> | null;
+          if ((requireAuth || requiredPermission) && isUnauthenticatedActor(identity)) {
+            return ctx.json({ error: { code: "UNAUTHORIZED", message: AUTHENTICATION_REQUIRED_MESSAGE } }, 401);
+          }
 
-        if (requiredPermission) {
-          if (!hasPermission(actor as Actor | null, requiredPermission)) {
+          if (requiredPermission) {
             return ctx.json({
               error: { code: "FORBIDDEN", message: `Permission '${requiredPermission}' is required.` },
             }, 403);
