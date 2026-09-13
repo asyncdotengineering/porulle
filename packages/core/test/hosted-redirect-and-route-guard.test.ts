@@ -245,4 +245,37 @@ describe("RouteChain permission wildcards", () => {
     expect(await callGuardedRoute(actorWith(["orders:*"]))).toBe(403);
     expect(await callGuardedRoute(actorWith([]))).toBe(403);
   });
+
+  // The guard reads the actor's identity through a LOCAL CAST, because
+  // `RouteHandlerContext["actor"]` is structural on purpose — it is the
+  // published plugin API and plugins cast it to their own shapes. These two
+  // rows are what exercise that cast: without them the only callers here have
+  // a userId, and the cast could be wrong about a shape nobody drives.
+  it("tells a caller with no credential to authenticate, and an API key that it may not", async () => {
+    const anonymous = {
+      ...testActor,
+      userId: null,
+      role: "customer",
+      name: "Anonymous",
+      permissions: [],
+    } as Actor;
+    expect(
+      await callGuardedRoute(anonymous),
+      "a plugin route must refuse an actor-less caller 401, like every core route",
+    ).toBe(401);
+
+    // Presented a credential and has no person behind it. Telling it to
+    // authenticate would be advice it cannot act on.
+    const keyWithNoPerson = {
+      ...testActor,
+      type: "api_key",
+      userId: null,
+      role: "api_key",
+      permissions: [],
+    } as Actor;
+    expect(
+      await callGuardedRoute(keyWithNoPerson),
+      "an API key keeps 403 — it authenticated, it simply may not",
+    ).toBe(403);
+  });
 });

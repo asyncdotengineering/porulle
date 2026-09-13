@@ -67,8 +67,17 @@ export interface RouteHandlerContext {
   query: Record<string, unknown>;
   /** Path parameters, auto-extracted from {id} segments. */
   params: Record<string, string>;
-  /** Authenticated actor. Guaranteed non-null if .auth() or .permission() was called. */
-  actor: Actor | null;
+  /**
+   * Authenticated actor. Guaranteed non-null if .auth() or .permission() was called.
+   *
+   * Structural rather than `Actor` ON PURPOSE. This is the published plugin
+   * API: plugins outside this repository cast it to their own shapes, and
+   * three call sites in `plugin-layaway` alone read it as
+   * `{ userId: string } & Record<string, unknown>` — a cast TypeScript refuses
+   * against a closed `Actor`. Narrowing it is a breaking change to a published
+   * contract, not a tidy-up, and it belongs to a card that migrates the callers.
+   */
+  actor: { userId: string | null; role: string; permissions: string[]; vendorId?: string | null; [key: string]: unknown } | null;
   /** Resolved organization ID. Derived from actor.organizationId or the deployment config. */
   orgId: string;
   /** Kernel services (orders, cart, inventory, etc.) */
@@ -222,7 +231,12 @@ class RouteChain {
         // Order: auth first (401), then permission (403).
         const actor = ctx.get("actor") as RouteHandlerContext["actor"];
 
-        if ((requireAuth || requiredPermission) && isUnauthenticatedActor(actor)) {
+        // `RouteHandlerContext["actor"]` is deliberately structural — see its
+        // declaration — but the middleware only ever sets a real `Actor`. Read
+        // the two identity fields through that type here rather than narrowing
+        // the published one, which breaks every plugin that casts it.
+        const identity = actor as Pick<Actor, "type" | "userId"> | null;
+        if ((requireAuth || requiredPermission) && isUnauthenticatedActor(identity)) {
           return ctx.json({ error: { code: "UNAUTHORIZED", message: AUTHENTICATION_REQUIRED_MESSAGE } }, 401);
         }
 
