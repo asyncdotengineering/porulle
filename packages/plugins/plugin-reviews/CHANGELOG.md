@@ -1,5 +1,12 @@
 # @porulle/plugin-reviews
 
+## 0.28.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.28.0
+
 ## 0.27.0
 
 ### Patch Changes
