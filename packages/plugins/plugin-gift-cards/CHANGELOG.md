@@ -1,5 +1,12 @@
 # @porulle/plugin-giftcards
 
+## 0.27.0
+
+### Patch Changes
+
+- Updated dependencies [[`687c7df`](https://github.com/asyncdotengineering/porulle/commit/687c7dfb546b023a9686b4af3ed446719b16b2fc)]:
+  - @porulle/core@0.27.0
+
 ## 0.26.0
 
 ### Patch Changes
