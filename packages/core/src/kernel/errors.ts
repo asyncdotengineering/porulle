@@ -81,6 +81,14 @@ export class CommerceForbiddenError extends Error implements CommerceError {
   }
 }
 
+export class CommerceUnauthorizedError extends Error implements CommerceError {
+  code = "UNAUTHORIZED" as const;
+  constructor(message: string, public details?: unknown) {
+    super(message);
+    this.name = "CommerceUnauthorizedError";
+  }
+}
+
 export class CommerceCsrfError extends Error implements CommerceError {
   code = "CSRF_ORIGIN_REJECTED" as const;
   constructor(

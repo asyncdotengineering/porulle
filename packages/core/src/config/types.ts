@@ -200,6 +200,21 @@ export interface AuthConfig {
    */
   storeResolver?: (request: Request) => string | null | Promise<string | null>;
   /**
+   * Routes this app serves that read no actor, as `"<METHOD> <exact path>"` —
+   * e.g. `["POST /api/payments/notify", "GET /api/out/:token"]`. Matching is
+   * exact; there are no globs, because a glob is how one entry silently widens
+   * to cover a route that does need an identity.
+   *
+   * Additive to core's own list, and it can never remove one. Core's defaults
+   * are in `auth/identity-free-routes.ts` with the evidence for each.
+   *
+   * The route then resolves NO actor, which also means it gets no plugin
+   * database scope — that scope is derived from the actor. Such a route must
+   * open its own, the way a signed webhook builds its actor from the payload it
+   * verified. Listing a route that reads `c.get("actor")` will not fail loudly.
+   */
+  identityFreeRoutes?: readonly string[];
+  /**
    * Governs two layers, and its default differs between them.
    *
    * In the store-resolver middleware, `true` makes a failing `storeResolver`

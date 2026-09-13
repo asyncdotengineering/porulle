@@ -42,7 +42,15 @@ export { createSystemActor } from "./auth/system-actor.js";
 export { OrganizationService } from "./modules/organization/service.js";
 export { createScopedDb } from "./kernel/database/scoped-db.js";
 export type { ScopedOrganizationId } from "./kernel/database/scoped-db.js";
-export { assertOwnership, assertPermission, requireUserId } from "./auth/permissions.js";
+export { IDENTITY_FREE_ROUTES, isIdentityFreeRoute } from "./auth/identity-free-routes.js";
+export type { IdentityFreeRoute } from "./auth/identity-free-routes.js";
+export {
+  AUTHENTICATION_REQUIRED_MESSAGE,
+  assertOwnership,
+  assertPermission,
+  isUnauthenticatedActor,
+  requireUserId,
+} from "./auth/permissions.js";
 export type { AccessResult, AccessContext, AccessFn, WhereClause } from "./auth/access.js";
 export {
   accessOR,
@@ -127,6 +135,7 @@ export {
   CommerceNotFoundError,
   CommerceValidationError,
   CommerceForbiddenError,
+  CommerceUnauthorizedError,
   CommerceReauthRequiredError,
   CommerceConflictError,
   CommerceInvalidTransitionError,
