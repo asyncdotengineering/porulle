@@ -246,6 +246,25 @@ describe("RouteChain permission wildcards", () => {
     expect(await callGuardedRoute(actorWith([]))).toBe(403);
   });
 
+  // The row that a real flow had to break to produce. A storefront widget
+  // posting search signals carries only a publishable key, so it rides the
+  // anonymous actor the store resolver builds — no identity, but with the
+  // permission the route asks for. Deciding the class before reading the grant
+  // refuses it 401 before anyone looks at what it may do.
+  it("authorizes an actor that holds the permission but no identity", async () => {
+    const keyedButPersonless = {
+      ...testActor,
+      userId: null,
+      role: "customer",
+      name: "Anonymous",
+      permissions: ["widgets:read"],
+    } as Actor;
+    expect(
+      await callGuardedRoute(keyedButPersonless),
+      "a granted permission must win before the caller's class is decided",
+    ).toBe(200);
+  });
+
   // The guard reads the actor's identity through a LOCAL CAST, because
   // `RouteHandlerContext["actor"]` is structural on purpose — it is the
   // published plugin API and plugins cast it to their own shapes. These two
