@@ -20,6 +20,12 @@ export const user = pgTable("user", {
     .notNull(),
   vendorId: text("vendor_id"),
   posOperatorPin: text("pos_operator_pin"),
+  // Self-declared, "YYYY-MM-DD", optional: a storefront selling age-restricted
+  // goods needs it, and one selling anything else must not be made to collect
+  // it. Stored as text rather than a date so the value a shopper typed is the
+  // value that is read back — a timestamp column would silently apply a
+  // timezone to a day that has none.
+  dateOfBirth: text("date_of_birth"),
   // Contributed by the twoFactor and phoneNumber plugins. Declared
   // unconditionally: the plugins are config-gated, but one shipped schema has
   // to satisfy every configuration a merchant can choose.
