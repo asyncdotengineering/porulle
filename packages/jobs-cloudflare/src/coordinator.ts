@@ -46,25 +46,71 @@ interface CoordinatorKeyState {
 export class JobCoordinatorLogic {
   constructor(private readonly storage: CoordinatorStorage) {}
 
-  /** Registers `instanceId` as pending for `key` before the caller creates it, so
-   * a later supersede can see it even if it has not started running yet. When
-   * `supersedes` is set, the previously pending ids are cleared and returned for
-   * the caller to terminate. Never touches the currently running instance —
-   * matching the drizzle adapter, supersede only drops jobs that have not started. */
-  async enqueue(
+  /** First enqueue phase: storage only. Registers `instanceId` as pending for `key` before the
+   * caller creates it, so a later supersede can see it even if it has not started running yet;
+   * under `supersedes` the previously pending ids are cleared and returned for the caller to
+   * terminate. Never touches the currently running instance — matching the drizzle adapter,
+   * supersede only drops jobs that have not started. When a pending instance carries the same input its id
+   * comes back as a CANDIDATE rather than a decision, so the Durable Object can check outside
+   * the gate whether that instance still exists. */
+  async enqueueRead(
     key: string,
+    supersedes: boolean,
+    instanceId: string,
+    inputHash?: string,
+  ): Promise<{ terminated: string[] } | { coalesceCandidate: string }> {
+    const state = await this.getState(key);
+    if (supersedes && inputHash !== undefined) {
+      for (const pendingId of state.pending) {
+        if (state.pendingHashes[pendingId] === inputHash) {
+          return { coalesceCandidate: pendingId };
+        }
+      }
+    }
+    return this.commitEnqueue(key, supersedes, instanceId, inputHash, state);
+  }
+
+  /** Re-enter after the candidate was confirmed LIVE outside the gate. Coalesces only if the
+   * candidate is STILL pending under the same hash — if it started running meanwhile it has
+   * already read its input and the caller needs its own instance. */
+  async enqueueAfterLiveCandidate(
+    key: string,
+    candidate: string,
     supersedes: boolean,
     instanceId: string,
     inputHash?: string,
   ): Promise<{ terminated: string[]; coalescedInto?: string }> {
     const state = await this.getState(key);
-    if (supersedes && inputHash !== undefined) {
-      for (const pendingId of state.pending) {
-        if (state.pendingHashes[pendingId] === inputHash) {
-          return { terminated: [], coalescedInto: pendingId };
-        }
-      }
+    if (
+      supersedes &&
+      inputHash !== undefined &&
+      state.pending.includes(candidate) &&
+      state.pendingHashes[candidate] === inputHash
+    ) {
+      return { terminated: [], coalescedInto: candidate };
     }
+    return this.commitEnqueue(key, supersedes, instanceId, inputHash, state);
+  }
+
+  /** Re-enter after the candidate was found STALE outside the gate: enqueue normally, which
+   * under `supersedes` drops every pending id including the dead candidate. */
+  async enqueueAfterStaleCandidate(
+    key: string,
+    supersedes: boolean,
+    instanceId: string,
+    inputHash?: string,
+  ): Promise<{ terminated: string[] }> {
+    const state = await this.getState(key);
+    return this.commitEnqueue(key, supersedes, instanceId, inputHash, state);
+  }
+
+  private async commitEnqueue(
+    key: string,
+    supersedes: boolean,
+    instanceId: string,
+    inputHash: string | undefined,
+    state: CoordinatorKeyState,
+  ): Promise<{ terminated: string[] }> {
     const terminated = supersedes ? state.pending.filter((id) => id !== instanceId) : [];
     const kept = supersedes ? [] : state.pending.filter((id) => id !== instanceId);
     const pendingHashes = { ...state.pendingHashes };
@@ -257,14 +303,27 @@ export function porulleJobCoordinator<TBase extends DurableObjectConstructor>(
       }
     }
 
-    enqueue(
+    async enqueue(
       key: string,
       supersedes: boolean,
       instanceId: string,
       inputHash?: string,
     ): Promise<{ terminated: string[]; coalescedInto?: string }> {
+      const first = await this.#state.blockConcurrencyWhile(() =>
+        this.#logic.enqueueRead(key, supersedes, instanceId, inputHash),
+      );
+      if (!("coalesceCandidate" in first)) return first;
+      const stale = await this.#isStale(first.coalesceCandidate);
       return this.#state.blockConcurrencyWhile(() =>
-        this.#logic.enqueue(key, supersedes, instanceId, inputHash),
+        stale
+          ? this.#logic.enqueueAfterStaleCandidate(key, supersedes, instanceId, inputHash)
+          : this.#logic.enqueueAfterLiveCandidate(
+              key,
+              first.coalesceCandidate,
+              supersedes,
+              instanceId,
+              inputHash,
+            ),
       );
     }
 
