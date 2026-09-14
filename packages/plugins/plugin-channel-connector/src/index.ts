@@ -73,6 +73,9 @@ export type {
   CatalogFieldMappingRow,
   CatalogFieldTarget,
 } from "./catalog-field-mapping.js";
+/** ~320 Neon HTTP subrequests per product against a 10,000 per-invocation cap → hard ceiling near 31; 20 leaves margin for heavier products. */
+export const CHANNEL_IMPORT_MAX_ITEMS_PER_INVOCATION = 20;
+
 export { signState, verifyState } from "./oauth-state.js";
 export type {
   BackfillCatalogOptions,
@@ -193,12 +196,25 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
       concurrency: { key: (input: Record<string, unknown>) => String(input.storeId), supersedes: true },
       handler: async ({ input, ctx }: { input: Record<string, unknown>; ctx: import("@porulle/core").TaskContext }) => {
         const service = new ChannelConnectorService(ctx.db, ctx.services, options);
-        const result = await service.importCatalog(String(input.orgId), String(input.storeId), createSystemActor(String(input.orgId)));
+        const orgId = String(input.orgId);
+        const storeId = String(input.storeId);
+        const result = await service.importCatalog(orgId, storeId, createSystemActor(orgId), {
+          maxItems: CHANNEL_IMPORT_MAX_ITEMS_PER_INVOCATION,
+        });
         if (!result.ok) throw new Error(result.error);
+        if (!result.value.exhausted) {
+          const jobs = ctx.services.jobs as JobsAdapter;
+          await jobs.enqueue("channel/import-catalog", { orgId, storeId }, {
+            organizationId: orgId,
+            concurrencyKey: storeId,
+            supersedes: true,
+          });
+        }
         return {
           output: {
             imported: result.value.imported,
             cursor: result.value.cursor,
+            exhausted: result.value.exhausted,
             ...(result.value.warnings ? { warnings: result.value.warnings } : {}),
           },
         };

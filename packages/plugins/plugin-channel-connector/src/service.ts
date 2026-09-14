@@ -241,9 +241,32 @@ interface CatalogConvergenceStats {
   attributesCreated: number;
   mediaImported: number;
   variantsGivenOptionValues: number;
+  consumed: number;
   skipped: CatalogFieldSkip[];
   conflicts: CatalogFieldConflict[];
   warnings: string[];
+}
+
+type ImportResumePosition = { pageCursor: string | null; offset: number };
+
+function parseImportResumePosition(raw: string | null | undefined): ImportResumePosition {
+  if (!raw) return { pageCursor: null, offset: 0 };
+  try {
+    const parsed = JSON.parse(raw) as Partial<ImportResumePosition>;
+    if (typeof parsed === "object" && parsed !== null && "offset" in parsed) {
+      return {
+        pageCursor: parsed.pageCursor ?? null,
+        offset: typeof parsed.offset === "number" && parsed.offset >= 0 ? parsed.offset : 0,
+      };
+    }
+  } catch {
+    // Legacy bare page cursor.
+  }
+  return { pageCursor: raw, offset: 0 };
+}
+
+function encodeImportResumePosition(position: ImportResumePosition): string {
+  return JSON.stringify(position);
 }
 
 export interface BackfillCatalogOptions {
@@ -2175,7 +2198,40 @@ export class ChannelConnectorService {
     orgId: string,
     storeId: string,
     actor: Actor,
-  ): Promise<PluginResult<{ imported: number; cursor: string | null; skipped?: CatalogFieldSkip[]; conflicts?: CatalogFieldConflict[]; warnings?: string[] }>> {
+    options: { maxItems: number },
+  ): Promise<PluginResult<{
+    imported: number;
+    cursor: string | null;
+    exhausted: boolean;
+    skipped?: CatalogFieldSkip[];
+    conflicts?: CatalogFieldConflict[];
+    warnings?: string[];
+  }>>;
+  async importCatalog(
+    orgId: string,
+    storeId: string,
+    actor: Actor,
+    options?: undefined,
+  ): Promise<PluginResult<{
+    imported: number;
+    cursor: string | null;
+    skipped?: CatalogFieldSkip[];
+    conflicts?: CatalogFieldConflict[];
+    warnings?: string[];
+  }>>;
+  async importCatalog(
+    orgId: string,
+    storeId: string,
+    actor: Actor,
+    options?: { maxItems?: number },
+  ): Promise<PluginResult<{
+    imported: number;
+    cursor: string | null;
+    exhausted?: boolean;
+    skipped?: CatalogFieldSkip[];
+    conflicts?: CatalogFieldConflict[];
+    warnings?: string[];
+  }>> {
     const store = await this.getStoreRecord(orgId, storeId);
     if (!store || store.status !== "connected") {
       return PluginErr("Connected store not found.", "NOT_FOUND");
@@ -2183,28 +2239,103 @@ export class ChannelConnectorService {
     const connector = this.connectors.get(store.provider);
     if (!connector) return PluginErr(`No connector registered for provider "${store.provider}".`);
 
-    const items: ChannelCatalogItem[] = [];
-    let cursor: string | undefined = store.catalogCursor ?? undefined;
-    do {
-      const page = await connector.importCatalog(store as ChannelStore, cursor);
+    const maxItems = options?.maxItems;
+    const bounded = maxItems !== undefined;
+
+    if (!bounded) {
+      const resume = parseImportResumePosition(store.catalogCursor);
+      const items: ChannelCatalogItem[] = [];
+      let pageCursor: string | undefined = resume.pageCursor ?? undefined;
+      do {
+        const page = await connector.importCatalog(store as ChannelStore, pageCursor);
+        if (!page.ok) return PluginErr(page.error.message);
+        items.push(...page.value.items);
+        pageCursor = page.value.nextCursor ?? undefined;
+      } while (pageCursor);
+
+      const result = await this.convergeCatalogItems(orgId, storeId, items, actor);
+      if (!result.ok) return result;
+
+      await this.db
+        .update(connectedStores)
+        .set({ catalogCursor: null, lastSyncAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.id, storeId)));
+      return Ok({
+        imported: result.value.imported,
+        cursor: null,
+        ...(result.value.skipped.length > 0 ? { skipped: uniqueSkipped(result.value.skipped) } : {}),
+        ...(result.value.conflicts.length > 0 ? { conflicts: result.value.conflicts } : {}),
+        ...(result.value.warnings.length > 0 ? { warnings: result.value.warnings } : {}),
+      });
+    }
+
+    let { pageCursor, offset } = parseImportResumePosition(store.catalogCursor);
+    let remaining = maxItems;
+    let exhausted = false;
+    let totalImported = 0;
+    const skipped: CatalogFieldSkip[] = [];
+    const conflicts: CatalogFieldConflict[] = [];
+    const warnings: string[] = [];
+
+    while (remaining > 0) {
+      const page = await connector.importCatalog(store as ChannelStore, pageCursor ?? undefined);
       if (!page.ok) return PluginErr(page.error.message);
-      items.push(...page.value.items);
-      cursor = page.value.nextCursor ?? undefined;
-    } while (cursor);
 
-    const result = await this.convergeCatalogItems(orgId, storeId, items, actor);
-    if (!result.ok) return result;
+      const pageItems = page.value.items;
+      const slice = pageItems.slice(offset);
+      const batchSize = Math.min(remaining, slice.length);
 
+      if (batchSize === 0) {
+        if (page.value.nextCursor) {
+          pageCursor = page.value.nextCursor;
+          offset = 0;
+          continue;
+        }
+        exhausted = true;
+        break;
+      }
+
+      const batch = slice.slice(0, batchSize);
+      const result = await this.convergeCatalogItems(orgId, storeId, batch, actor);
+      if (!result.ok) return result;
+
+      totalImported += result.value.imported;
+      remaining -= result.value.consumed;
+      skipped.push(...result.value.skipped);
+      conflicts.push(...result.value.conflicts);
+      warnings.push(...result.value.warnings);
+      offset += result.value.consumed;
+
+      if (offset >= pageItems.length) {
+        if (page.value.nextCursor) {
+          pageCursor = page.value.nextCursor;
+          offset = 0;
+        } else {
+          exhausted = true;
+        }
+      }
+
+      if (remaining === 0) break;
+      if (exhausted) break;
+    }
+
+    const catalogCursor = exhausted ? null : encodeImportResumePosition({ pageCursor, offset });
     await this.db
       .update(connectedStores)
-      .set({ catalogCursor: null, lastSyncAt: new Date(), updatedAt: new Date() })
+      .set({
+        catalogCursor,
+        ...(exhausted ? { lastSyncAt: new Date() } : {}),
+        updatedAt: new Date(),
+      })
       .where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.id, storeId)));
+
     return Ok({
-      imported: result.value.imported,
-      cursor: null,
-      ...(result.value.skipped.length > 0 ? { skipped: uniqueSkipped(result.value.skipped) } : {}),
-      ...(result.value.conflicts.length > 0 ? { conflicts: result.value.conflicts } : {}),
-      ...(result.value.warnings.length > 0 ? { warnings: result.value.warnings } : {}),
+      imported: totalImported,
+      cursor: catalogCursor,
+      exhausted,
+      ...(skipped.length > 0 ? { skipped: uniqueSkipped(skipped) } : {}),
+      ...(conflicts.length > 0 ? { conflicts } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
     });
   }
 
@@ -2388,12 +2519,14 @@ export class ChannelConnectorService {
       attributesCreated: 0,
       mediaImported: 0,
       variantsGivenOptionValues: 0,
+      consumed: 0,
       skipped: [],
       conflicts: [],
       warnings: [],
     };
     const assets = await this.db.select().from(mediaAssets).where(eq(mediaAssets.organizationId, orgId));
     for (const item of items) {
+      stats.consumed += 1;
       const [entityMapping] = await this.db.select().from(channelEntityMap).where(and(
         eq(channelEntityMap.organizationId, orgId),
         eq(channelEntityMap.storeId, storeId),
@@ -2533,10 +2666,12 @@ export class ChannelConnectorService {
     let attributesCreated = 0;
     let mediaImported = 0;
     let variantsGivenOptionValues = 0;
+    let consumed = 0;
     const skipped: CatalogFieldSkip[] = [];
     const conflicts: CatalogFieldConflict[] = [];
     const warnings: string[] = [];
     for (const item of items) {
+      consumed += 1;
       const remoteHash = hash(item);
       const existing = await this.db
         .select()
@@ -2769,6 +2904,7 @@ export class ChannelConnectorService {
       attributesCreated,
       mediaImported,
       variantsGivenOptionValues,
+      consumed,
       skipped,
       conflicts,
       warnings,
