@@ -1,5 +1,12 @@
 # @porulle/adapter-pg-search
 
+## 0.33.0
+
+### Patch Changes
+
+- Updated dependencies [[`bc4328b`](https://github.com/asyncdotengineering/porulle/commit/bc4328badd48a76be1c31df349e881a2a66359be)]:
+  - @porulle/core@0.33.0
+
 ## 0.32.0
 
 ### Patch Changes
