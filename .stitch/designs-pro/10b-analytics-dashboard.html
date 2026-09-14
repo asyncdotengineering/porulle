@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Analytics Dashboard - Modern Merchant POS</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "secondary": "#456552",
+                      "surface": "#f9f9fc",
+                      "outline-variant": "#c0c9c0",
+                      "error": "#ba1a1a",
+                      "on-secondary": "#ffffff",
+                      "inverse-on-surface": "#f0f0f3",
+                      "on-tertiary-container": "#6a6c67",
+                      "primary-fixed": "#b6f0c9",
+                      "on-tertiary-fixed": "#1a1c19",
+                      "on-primary-fixed": "#002111",
+                      "error-container": "#ffdad6",
+                      "surface-container-highest": "#e2e2e5",
+                      "on-primary": "#ffffff",
+                      "surface-dim": "#dadadd",
+                      "on-primary-container": "#417657",
+                      "surface-container-low": "#f3f3f6",
+                      "on-background": "#1a1c1e",
+                      "on-secondary-container": "#496a56",
+                      "on-surface-variant": "#414942",
+                      "tertiary-container": "#eeeee8",
+                      "on-tertiary": "#ffffff",
+                      "tertiary-fixed": "#e3e3dd",
+                      "surface-tint": "#34694b",
+                      "surface-bright": "#f9f9fc",
+                      "on-tertiary-fixed-variant": "#464743",
+                      "on-surface": "#1a1c1e",
+                      "surface-container": "#eeedf0",
+                      "secondary-container": "#c4e8d0",
+                      "on-error-container": "#93000a",
+                      "primary-fixed-dim": "#9bd3ae",
+                      "outline": "#717972",
+                      "surface-container-high": "#e8e8eb",
+                      "secondary-fixed-dim": "#abcfb7",
+                      "on-error": "#ffffff",
+                      "background": "#f9f9fc",
+                      "primary-container": "#c1fbd4",
+                      "tertiary": "#5d5f5a",
+                      "on-secondary-fixed-variant": "#2d4d3b",
+                      "on-primary-fixed-variant": "#1a5034",
+                      "on-secondary-fixed": "#002112",
+                      "secondary-fixed": "#c7ebd3",
+                      "primary": "#34694b",
+                      "tertiary-fixed-dim": "#c6c7c1",
+                      "surface-variant": "#e2e2e5",
+                      "inverse-primary": "#9bd3ae",
+                      "inverse-surface": "#2f3033",
+                      "surface-container-lowest": "#ffffff"
+              },
+              "borderRadius": {
+                      "DEFAULT": "1rem",
+                      "lg": "2rem",
+                      "xl": "3rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "xl": "40px",
+                      "md": "16px",
+                      "lg": "24px",
+                      "sm": "8px",
+                      "xs": "4px",
+                      "margin-mobile": "16px",
+                      "margin-tablet": "32px",
+                      "unit": "4px",
+                      "gutter": "16px"
+              },
+              "fontFamily": {
+                      "label-sm": [
+                              "Inter"
+                      ],
+                      "headline-lg": [
+                              "Inter"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "display-lg": [
+                              "Inter"
+                      ],
+                      "headline-sm": [
+                              "Inter"
+                      ],
+                      "label-md": [
+                              "Inter"
+                      ],
+                      "display-md": [
+                              "Inter"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "label-sm": [
+                              "12px",
+                              {
+                                      "lineHeight": "1",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "headline-lg": [
+                              "24px",
+                              {
+                                      "lineHeight": "1.3",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "300"
+                              }
+                      ],
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "1.6",
+                                      "letterSpacing": "0em",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "display-lg": [
+                              "48px",
+                              {
+                                      "lineHeight": "1.1",
+                                      "letterSpacing": "-0.04em",
+                                      "fontWeight": "300"
+                              }
+                      ],
+                      "headline-sm": [
+                              "20px",
+                              {
+                                      "lineHeight": "1.4",
+                                      "letterSpacing": "0em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "label-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "1",
+                                      "letterSpacing": "0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "display-md": [
+                              "36px",
+                              {
+                                      "lineHeight": "1.2",
+                                      "letterSpacing": "-0.03em",
+                                      "fontWeight": "300"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "1.5",
+                                      "letterSpacing": "0em",
+                                      "fontWeight": "400"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+    </script>
+</head>
+<body class="bg-background text-on-background min-h-screen flex">
+<!-- SideNavBar Component -->
+<nav class="bg-surface-container-lowest dark:bg-inverse-surface border-r border-outline-variant dark:border-outline h-screen w-64 fixed left-0 top-0 flex flex-col h-full py-lg px-md z-40 hidden md:flex">
+<div class="flex items-center gap-sm mb-xl mt-sm px-sm">
+<div class="w-10 h-10 rounded-full bg-secondary-container flex items-center justify-center text-on-secondary-container">
+<span class="material-symbols-outlined" data-weight="fill">storefront</span>
+</div>
+<div>
+<h2 class="font-headline-sm text-headline-sm font-bold text-primary">Main Branch</h2>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Active Terminal</p>
+</div>
+</div>
+<div class="flex-1 flex flex-col gap-sm">
+<a class="flex items-center gap-md px-md py-sm font-label-md text-label-md text-on-surface-variant dark:text-on-tertiary-fixed-variant hover:bg-surface-container dark:hover:bg-surface-variant transition-all scale-95 duration-75 rounded-full" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+                Overview
+            </a>
+<a class="flex items-center gap-md px-md py-sm font-label-md text-label-md bg-secondary-container dark:bg-on-secondary-fixed-variant text-on-secondary-container dark:text-secondary-fixed rounded-full hover:bg-surface-container dark:hover:bg-surface-variant transition-all scale-95 duration-75" href="#">
+<span class="material-symbols-outlined" data-weight="fill">analytics</span>
+                Analytics
+            </a>
+<a class="flex items-center gap-md px-md py-sm font-label-md text-label-md text-on-surface-variant dark:text-on-tertiary-fixed-variant hover:bg-surface-container dark:hover:bg-surface-variant transition-all scale-95 duration-75 rounded-full" href="#">
+<span class="material-symbols-outlined">inventory_2</span>
+                Inventory
+            </a>
+<a class="flex items-center gap-md px-md py-sm font-label-md text-label-md text-on-surface-variant dark:text-on-tertiary-fixed-variant hover:bg-surface-container dark:hover:bg-surface-variant transition-all scale-95 duration-75 rounded-full" href="#">
+<span class="material-symbols-outlined">settings</span>
+                Settings
+            </a>
+</div>
+<button class="bg-primary-container text-on-primary-container font-label-md text-label-md py-md rounded-full w-full mb-lg hover:opacity-90 transition-opacity">
+            View Reports
+        </button>
+<div class="flex flex-col gap-sm border-t border-outline-variant pt-lg">
+<a class="flex items-center gap-md px-md py-sm font-label-md text-label-md text-on-surface-variant dark:text-on-tertiary-fixed-variant hover:bg-surface-container dark:hover:bg-surface-variant transition-all scale-95 duration-75 rounded-full" href="#">
+<span class="material-symbols-outlined">support_agent</span>
+                Support
+            </a>
+<a class="flex items-center gap-md px-md py-sm font-label-md text-label-md text-on-surface-variant dark:text-on-tertiary-fixed-variant hover:bg-surface-container dark:hover:bg-surface-variant transition-all scale-95 duration-75 rounded-full" href="#">
+<span class="material-symbols-outlined">logout</span>
+                Sign Out
+            </a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="flex-1 ml-0 md:ml-64 flex flex-col min-h-screen">
+<!-- TopNavBar Component -->
+<header class="flex justify-between items-center px-lg w-full sticky top-0 z-50 bg-surface dark:bg-surface-dim border-b border-outline-variant dark:border-outline h-16">
+<div class="flex items-center gap-md">
+<div class="md:hidden">
+<button class="p-sm text-on-surface-variant hover:bg-surface-container-low transition-colors rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined">menu</span>
+</button>
+</div>
+<div class="hidden md:flex relative w-64 lg:w-96">
+<span class="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+<input class="w-full pl-xl pr-md py-sm bg-surface-container-lowest border border-outline-variant rounded-full font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" placeholder="Search analytics..." type="text"/>
+</div>
+<h1 class="font-headline-sm text-headline-sm font-bold text-primary dark:text-primary-fixed md:hidden">LUXE POS</h1>
+</div>
+<div class="flex items-center gap-md">
+<button class="p-sm text-on-surface-variant hover:bg-surface-container-low dark:hover:bg-surface-container-highest transition-colors cursor-pointer active:opacity-80 rounded-full flex items-center justify-center relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-1 right-1 w-2 h-2 bg-error rounded-full"></span>
+</button>
+<button class="p-sm text-on-surface-variant hover:bg-surface-container-low dark:hover:bg-surface-container-highest transition-colors cursor-pointer active:opacity-80 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined">help</span>
+</button>
+<button class="flex items-center gap-sm px-sm py-xs hover:bg-surface-container-low dark:hover:bg-surface-container-highest transition-colors rounded-full border border-outline-variant">
+<img alt="Merchant Profile Avatar" class="w-8 h-8 rounded-full object-cover" data-alt="A close-up, professional headshot of a confident individual, serving as a placeholder profile avatar in a digital interface. The lighting is soft and flattering, set against a neutral, blurred background to ensure the subject stands out. The overall aesthetic is modern, clean, and aligns with a high-end, light-mode user experience design system." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCIhAfEbEoVlL3KL0woG-678o943d6P_CsEuIWRLS3HAcGEOI4UaOod_qMLs0H9xMdv84sNFl9OqpGXXZdOwgVqp7GIJp9FwTW3tKAHS_NUnMN94ha6Otl5K4o-47-p-hckvtqt4iWWm8uVpKqggj2Kl7RASeD3KD0S3x7gtiEuAg2hlIdOu5NLpDdYw1mWNKgNgw07viD3fE4L3huqQ2jdyDNSIs1nv27DPep6xHHgkZE5nvZp_WNZVpH8JIV_q9fKunq1FYY0ry7B"/>
+<span class="font-label-md text-label-md text-on-surface hidden lg:block">Profile</span>
+<span class="material-symbols-outlined text-on-surface-variant">arrow_drop_down</span>
+</button>
+</div>
+</header>
+<!-- Dashboard Content -->
+<div class="flex-1 p-margin-mobile md:p-margin-tablet overflow-y-auto">
+<!-- Header Actions -->
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-md mb-lg">
+<div>
+<h1 class="font-display-md text-display-md text-on-background">Analytics Overview</h1>
+<p class="font-body-md text-body-md text-on-surface-variant mt-sm">Track your store's performance and key metrics.</p>
+</div>
+<div class="flex items-center gap-sm w-full sm:w-auto">
+<button class="flex-1 sm:flex-none flex items-center justify-center gap-sm px-lg py-sm bg-surface-container-lowest border border-outline-variant rounded-full font-label-md text-label-md text-on-surface hover:bg-surface-container-low transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant">calendar_today</span>
+                        Last 30 Days
+                        <span class="material-symbols-outlined text-on-surface-variant">arrow_drop_down</span>
+</button>
+<button class="flex-1 sm:flex-none flex items-center justify-center gap-sm px-lg py-sm bg-primary-container text-on-primary-container rounded-full font-label-md text-label-md hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined">download</span>
+                        Export
+                    </button>
+</div>
+</div>
+<!-- KPI Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md mb-lg">
+<!-- Total Revenue -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg flex flex-col gap-md">
+<div class="flex justify-between items-center">
+<h3 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Total Revenue</h3>
+<span class="material-symbols-outlined text-on-surface-variant">payments</span>
+</div>
+<div class="flex items-baseline gap-sm">
+<p class="font-headline-lg text-headline-lg text-on-background">$42,350.00</p>
+</div>
+<div class="flex items-center gap-sm">
+<span class="inline-flex items-center gap-xs px-2 py-1 bg-secondary-container text-on-secondary-container rounded-full font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[14px]">trending_up</span>
+                            +12%
+                        </span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">vs last month</span>
+</div>
+</div>
+<!-- Gross Profit -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg flex flex-col gap-md">
+<div class="flex justify-between items-center">
+<h3 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Gross Profit</h3>
+<span class="material-symbols-outlined text-on-surface-variant">account_balance_wallet</span>
+</div>
+<div class="flex items-baseline gap-sm">
+<p class="font-headline-lg text-headline-lg text-on-background">$18,150.00</p>
+</div>
+<div class="flex items-center gap-sm">
+<span class="inline-flex items-center gap-xs px-2 py-1 bg-secondary-container text-on-secondary-container rounded-full font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[14px]">trending_up</span>
+                            +8%
+                        </span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">vs last month</span>
+</div>
+</div>
+<!-- Total Orders -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg flex flex-col gap-md">
+<div class="flex justify-between items-center">
+<h3 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Total Orders</h3>
+<span class="material-symbols-outlined text-on-surface-variant">shopping_bag</span>
+</div>
+<div class="flex items-baseline gap-sm">
+<p class="font-headline-lg text-headline-lg text-on-background">1,284</p>
+</div>
+<div class="flex items-center gap-sm">
+<span class="inline-flex items-center gap-xs px-2 py-1 bg-secondary-container text-on-secondary-container rounded-full font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[14px]">trending_up</span>
+                            +5%
+                        </span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">vs last month</span>
+</div>
+</div>
+<!-- Average Order Value -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg flex flex-col gap-md">
+<div class="flex justify-between items-center">
+<h3 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Average Order Value</h3>
+<span class="material-symbols-outlined text-on-surface-variant">receipt_long</span>
+</div>
+<div class="flex items-baseline gap-sm">
+<p class="font-headline-lg text-headline-lg text-on-background">$32.98</p>
+</div>
+<div class="flex items-center gap-sm">
+<span class="inline-flex items-center gap-xs px-2 py-1 bg-surface-container-high text-on-surface rounded-full font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[14px]">trending_down</span>
+                            -2%
+                        </span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">vs last month</span>
+</div>
+</div>
+</div>
+<!-- Charts & Lists Section -->
+<div class="grid grid-cols-1 xl:grid-cols-3 gap-md">
+<!-- Sales Performance Chart (Placeholder for visual) -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg xl:col-span-2 flex flex-col h-[400px]">
+<div class="flex justify-between items-center mb-md">
+<h3 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Sales Performance</h3>
+<button class="p-xs text-on-surface-variant hover:bg-surface-container-low rounded-full">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+<div class="flex-1 w-full bg-surface-container-low rounded-lg border border-outline-variant border-dashed flex items-center justify-center">
+<p class="font-body-md text-body-md text-on-surface-variant">[Line Chart Visualization: Revenue over last 30 days]</p>
+</div>
+</div>
+<!-- Right Column: Top Categories & Best Sellers -->
+<div class="flex flex-col gap-md">
+<!-- Top Categories -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg">
+<h3 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-md">Top Categories</h3>
+<div class="flex items-center justify-center py-md">
+<!-- Donut Chart Placeholder -->
+<div class="relative w-32 h-32 rounded-full border-8 border-primary-container border-t-primary border-r-secondary-container border-b-surface-variant flex items-center justify-center">
+<span class="font-headline-sm text-headline-sm font-bold text-on-surface">4</span>
+</div>
+</div>
+<div class="flex flex-col gap-sm mt-sm">
+<div class="flex justify-between items-center">
+<div class="flex items-center gap-sm">
+<span class="w-3 h-3 rounded-full bg-primary"></span>
+<span class="font-body-md text-body-md text-on-surface">Dresses</span>
+</div>
+<span class="font-label-md text-label-md text-on-surface-variant">45%</span>
+</div>
+<div class="flex justify-between items-center">
+<div class="flex items-center gap-sm">
+<span class="w-3 h-3 rounded-full bg-primary-container"></span>
+<span class="font-body-md text-body-md text-on-surface">Tops</span>
+</div>
+<span class="font-label-md text-label-md text-on-surface-variant">25%</span>
+</div>
+<div class="flex justify-between items-center">
+<div class="flex items-center gap-sm">
+<span class="w-3 h-3 rounded-full bg-secondary-container"></span>
+<span class="font-body-md text-body-md text-on-surface">Accessories</span>
+</div>
+<span class="font-label-md text-label-md text-on-surface-variant">20%</span>
+</div>
+<div class="flex justify-between items-center">
+<div class="flex items-center gap-sm">
+<span class="w-3 h-3 rounded-full bg-surface-variant"></span>
+<span class="font-body-md text-body-md text-on-surface">Bottoms</span>
+</div>
+<span class="font-label-md text-label-md text-on-surface-variant">10%</span>
+</div>
+</div>
+</div>
+<!-- Best Selling Products -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg flex-1">
+<h3 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-md">Best Selling Products</h3>
+<div class="flex flex-col">
+<!-- Product 1 -->
+<div class="flex items-center gap-md py-sm border-b border-outline-variant last:border-0">
+<img alt="Silk Midi Dress Thumbnail" class="w-12 h-12 rounded object-cover border border-outline-variant" data-alt="A detailed flat lay photograph of a luxurious silk midi dress in a soft pistachio green. The garment is neatly arranged on a clean, light cream surface, illuminated by bright, diffused studio lighting. The image embodies a modern, minimalist retail aesthetic, suitable for a high-end e-commerce product thumbnail." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC2kg8SOZ2RSy11S3ubeNyzEXQiEMcPqw5VM4MfY9JyA9d5pNszANm4GBTC4IZXJT0pj5JWkxQdkc3NpWS9d1H7FZAAkr7ZGsDqr9ow8xFyeObODxvTFF5yf3Y7TIbbd3J2x4LnR3ilmXt8IML54ieUqGDmvvwvdl11cY3U0Zc7_QKpNOFwLhov5J2FKlRz59XPRW_Pz2f8R8ie86kwxt6FDCfNUFlb5LBf00ngyi3ccvRA-Q1o-5j-HRkGYrCdZK0FqBCpsS8O1ZRN"/>
+<div class="flex-1 min-w-0">
+<p class="font-label-md text-label-md text-on-surface truncate">Silk Midi Dress</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant">124 units sold</p>
+</div>
+<div class="text-right">
+<p class="font-label-md text-label-md text-on-surface">$18,476</p>
+</div>
+</div>
+<!-- Product 2 -->
+<div class="flex items-center gap-md py-sm border-b border-outline-variant last:border-0">
+<img alt="Linen Blend Tunic Thumbnail" class="w-12 h-12 rounded object-cover border border-outline-variant" data-alt="A close-up product shot of a crisp, white linen blend tunic top. The fabric texture is clearly visible, lit evenly to highlight the high-quality material. Set against an off-white background, the image reflects a clean, sophisticated, and light-mode compatible visual style typical of boutique fashion catalogs." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBJ4671Bp_EMxbDhLfbwrPNPzUjGNJxjZNv9E0Bh7yz3eiiS-Yb-gMIrhjNCVNf93Bh0y1zXXPXNnNNjdAv-mZiFjh7wfHVy8uetKp3aT-i24AC84I6Yofyii4i_8LrRqVvebZ8olvlngLctI-52msSO2QB9a8I5ALKJJMe-9PCSw41Uc3UqEFFVbEzAULk9CAGuBs-hnTAPx1VNloBxm0fxF9HsTrBCiz58alivoONThOKYO1aZeRl8Af7uv_hZlI3LrwHTceXtcVc"/>
+<div class="flex-1 min-w-0">
+<p class="font-label-md text-label-md text-on-surface truncate">Linen Blend Tunic</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant">98 units sold</p>
+</div>
+<div class="text-right">
+<p class="font-label-md text-label-md text-on-surface">$8,722</p>
+</div>
+</div>
+<!-- Product 3 -->
+<div class="flex items-center gap-md py-sm border-b border-outline-variant last:border-0">
+<img alt="Leather Crossbody Thumbnail" class="w-12 h-12 rounded object-cover border border-outline-variant" data-alt="A premium product photograph of a sleek, minimalist leather crossbody bag in a muted taupe color. The bag is positioned against a subtle, light grey background with soft, natural-looking shadows that provide depth without high contrast. The overall composition is elegant, orderly, and fits a modern luxury retail interface." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBch8Cw4Nnq-io5V0-QFiH-MutwfOi32JVCLAw9tMlinOLr3tMmYG_6YgYbtdwvD-UTI7E9pmyxuGyvEo2DvawNXO0sF_MOUT3pCd-2OWGA_22c_2Twd6Kg-AtickADw58glPv0SUC6h6gj6c8kxmdySgUuG8rNfE--ncugtMGIh5UK0i_Xx67tz_8LmB1OLFuh44JTN-VfmpYs9twTY9OtjSQhf7S0xNB479jTTogdDqR3Kim3mEyb5xt98xvBxLBh9ydg7YYy19C2"/>
+<div class="flex-1 min-w-0">
+<p class="font-label-md text-label-md text-on-surface truncate">Leather Crossbody</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant">85 units sold</p>
+</div>
+<div class="text-right">
+<p class="font-label-md text-label-md text-on-surface">$12,325</p>
+</div>
+</div>
+</div>
+<button class="w-full mt-md py-sm font-label-md text-label-md text-primary hover:bg-surface-container-low rounded-full transition-colors">
+                            View All Products
+                        </button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

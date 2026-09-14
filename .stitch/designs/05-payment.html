@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+                  "on-primary-fixed": "#002111",
+                  "inverse-on-surface": "#f1f1eb",
+                  "on-primary-fixed-variant": "#1a5034",
+                  "surface-container-high": "#e8e8e3",
+                  "primary-container": "#c1fbd4",
+                  "on-surface": "#1a1c19",
+                  "surface-bright": "#fafaf4",
+                  "on-surface-variant": "#414942",
+                  "outline": "#717972",
+                  "surface-container-lowest": "#ffffff",
+                  "tertiary": "#6a5d42",
+                  "on-error-container": "#93000a",
+                  "inverse-primary": "#9bd3ae",
+                  "error": "#ba1a1a",
+                  "surface-dim": "#dadad5",
+                  "on-secondary-fixed": "#002112",
+                  "tertiary-fixed": "#f4e0bf",
+                  "on-secondary-fixed-variant": "#2d4d3b",
+                  "outline-variant": "#c0c9c0",
+                  "on-background": "#1a1c19",
+                  "on-tertiary-container": "#78694e",
+                  "secondary-container": "#c4e8d0",
+                  "on-primary-container": "#417657",
+                  "surface-tint": "#34694b",
+                  "surface-variant": "#e3e3dd",
+                  "surface-container": "#eeeee8",
+                  "on-secondary-container": "#496a56",
+                  "on-secondary": "#ffffff",
+                  "secondary-fixed": "#c7ebd3",
+                  "tertiary-fixed-dim": "#d7c4a4",
+                  "primary": "#34694b",
+                  "surface-container-highest": "#e3e3dd",
+                  "surface": "#fafaf4",
+                  "tertiary-container": "#ffebc9",
+                  "on-primary": "#ffffff",
+                  "on-tertiary-fixed": "#241a06",
+                  "background": "#fafaf4",
+                  "on-tertiary": "#ffffff",
+                  "primary-fixed-dim": "#9bd3ae",
+                  "secondary-fixed-dim": "#abcfb7",
+                  "on-tertiary-fixed-variant": "#52452d",
+                  "inverse-surface": "#2f312d",
+                  "secondary": "#456552",
+                  "error-container": "#ffdad6",
+                  "primary-fixed": "#b6f0c9",
+                  "on-error": "#ffffff",
+                  "surface-container-low": "#f4f4ee"
+          },
+          "borderRadius": {
+                  "DEFAULT": "1rem",
+                  "lg": "2rem",
+                  "xl": "3rem",
+                  "full": "9999px"
+          },
+          "spacing": {
+                  "margin-desktop": "64px",
+                  "hit-target": "44px",
+                  "gutter": "16px",
+                  "unit": "4px",
+                  "margin-mobile": "20px"
+          },
+          "fontFamily": {
+                  "display-lg-mobile": ["Inter"],
+                  "headline-md": ["Inter"],
+                  "display-lg": ["Inter"],
+                  "label-caps": ["Inter"],
+                  "body-lg": ["Inter"],
+                  "body-sm": ["Inter"]
+          },
+          "fontSize": {
+                  "display-lg-mobile": ["36px", {"lineHeight": "1.1", "letterSpacing": "-0.03em", "fontWeight": "300"}],
+                  "headline-md": ["24px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "400"}],
+                  "display-lg": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.04em", "fontWeight": "300"}],
+                  "label-caps": ["12px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                  "body-lg": ["16px", {"lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400"}],
+                  "body-sm": ["14px", {"lineHeight": "1.5", "letterSpacing": "0em", "fontWeight": "400"}]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+    body { font-family: 'Inter', sans-serif; }
+  </style>
+</head>
+<body class="bg-background text-on-surface min-h-screen flex flex-col">
+<!-- TopAppBar -->
+<header class="bg-background border-b border-outline-variant flex items-center justify-between px-margin-desktop w-full h-20 fixed top-0 z-50">
+<div class="font-headline-md text-headline-md tracking-tight text-on-surface">Luxe Boutique</div>
+<div class="flex items-center gap-gutter">
+<span class="material-symbols-outlined cursor-pointer hover:bg-surface-container transition-colors p-2 rounded-full" data-icon="account_circle">account_circle</span>
+<span class="material-symbols-outlined cursor-pointer hover:bg-surface-container transition-colors p-2 rounded-full" data-icon="settings">settings</span>
+<span class="material-symbols-outlined cursor-pointer hover:bg-surface-container transition-colors p-2 rounded-full" data-icon="help">help</span>
+</div>
+</header>
+<!-- Main Canvas -->
+<main class="flex-grow pt-28 pb-32 px-margin-mobile md:px-margin-desktop flex flex-col items-center max-w-[1280px] mx-auto w-full">
+<!-- Total Amount Display -->
+<div class="text-center mb-10">
+<p class="font-label-caps text-label-caps text-on-surface-variant mb-2">TOTAL AMOUNT DUE</p>
+<h1 class="font-display-lg text-display-lg font-extrabold tracking-tighter text-on-surface">LKR 12,400.00</h1>
+</div>
+<!-- Navigation Tabs -->
+<nav class="flex gap-gutter mb-12 bg-surface-container-low p-1.5 rounded-full">
+<button class="px-8 h-11 flex items-center justify-center rounded-full bg-surface-container-highest text-primary font-semibold transition-colors">
+        Cash
+      </button>
+<button class="px-8 h-11 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container transition-colors">
+        Card
+      </button>
+<button class="px-8 h-11 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container transition-colors">
+        Split
+      </button>
+</nav>
+<!-- Payment Section (Cash Tab) -->
+<div class="w-full grid grid-cols-1 md:grid-cols-2 gap-12 items-start">
+<!-- Keypad & Input Side -->
+<div class="flex flex-col gap-8">
+<!-- Tendered Amount Input -->
+<div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant">
+<label class="font-label-caps text-label-caps text-on-surface-variant mb-4 block">TENDERED AMOUNT</label>
+<div class="flex items-baseline gap-2 border-b-2 border-primary pb-2">
+<span class="font-headline-md text-headline-md text-on-surface-variant">LKR</span>
+<input class="bg-transparent border-none focus:ring-0 w-full font-display-lg text-display-lg-mobile md:text-display-lg p-0 text-on-surface placeholder-outline-variant" readonly="" type="text" value="0.00"/>
+</div>
+</div>
+<!-- Quick Tender Chips -->
+<div class="flex flex-wrap gap-3">
+<button class="px-6 h-hit-target rounded-full border border-outline-variant bg-surface text-on-surface font-body-sm hover:border-primary transition-colors">LKR 13,000</button>
+<button class="px-6 h-hit-target rounded-full border border-outline-variant bg-surface text-on-surface font-body-sm hover:border-primary transition-colors">LKR 15,000</button>
+<button class="px-6 h-hit-target rounded-full border border-outline-variant bg-surface text-on-surface font-body-sm hover:border-primary transition-colors">LKR 20,000</button>
+<button class="px-6 h-hit-target rounded-full bg-primary-container text-on-primary-container font-semibold font-body-sm border border-primary-container">Exact</button>
+</div>
+</div>
+<!-- Numeric Keypad & Change Side -->
+<div class="flex flex-col gap-8">
+<!-- Change Due Area -->
+<div class="bg-secondary-container p-6 rounded-lg border border-outline-variant flex flex-col items-center justify-center text-center h-[120px]">
+<p class="font-label-caps text-label-caps text-on-secondary-container mb-1">CHANGE DUE</p>
+<p class="font-headline-md text-headline-md font-bold text-on-secondary-container">LKR 0.00</p>
+</div>
+<!-- Keypad Grid -->
+<div class="grid grid-cols-3 gap-2">
+<button class="h-16 flex items-center justify-center bg-surface-container-lowest border border-outline-variant rounded-lg font-headline-md text-headline-md hover:bg-surface-container-high active:opacity-80 transition-all">1</button>
+<button class="h-16 flex items-center justify-center bg-surface-container-lowest border border-outline-variant rounded-lg font-headline-md text-headline-md hover:bg-surface-container-high active:opacity-80 transition-all">2</button>
+<button class="h-16 flex items-center justify-center bg-surface-container-lowest border border-outline-variant rounded-lg font-headline-md text-headline-md hover:bg-surface-container-high active:opacity-80 transition-all">3</button>
+<button class="h-16 flex items-center justify-center bg-surface-container-lowest border border-outline-variant rounded-lg font-headline-md text-headline-md hover:bg-surface-container-high active:opacity-80 transition-all">4</button>
+<button class="h-16 flex items-center justify-center bg-surface-container-lowest border border-outline-variant rounded-lg font-headline-md text-headline-md hover:bg-surface-container-high active:opacity-80 transition-all">5</button>
+<button class="h-16 flex items-center justify-center bg-surface-container-lowest border border-outline-variant rounded-lg font-headline-md text-headline-md hover:bg-surface-container-high active:opacity-80 transition-all">6</button>
+<button class="h-16 flex items-center justify-center bg-surface-container-lowest border border-outline-variant rounded-lg font-headline-md text-headline-md hover:bg-surface-container-high active:opacity-80 transition-all">7</button>
+<button class="h-16 flex items-center justify-center bg-surface-container-lowest border border-outline-variant rounded-lg font-headline-md text-headline-md hover:bg-surface-container-high active:opacity-80 transition-all">8</button>
+<button class="h-16 flex items-center justify-center bg-surface-container-lowest border border-outline-variant rounded-lg font-headline-md text-headline-md hover:bg-surface-container-high active:opacity-80 transition-all">9</button>
+<button class="h-16 flex items-center justify-center bg-surface-container-lowest border border-outline-variant rounded-lg font-label-caps text-label-caps hover:bg-surface-container-high active:opacity-80 transition-all text-error">CLEAR</button>
+<button class="h-16 flex items-center justify-center bg-surface-container-lowest border border-outline-variant rounded-lg font-headline-md text-headline-md hover:bg-surface-container-high active:opacity-80 transition-all">0</button>
+<button class="h-16 flex items-center justify-center bg-surface-container-lowest border border-outline-variant rounded-lg hover:bg-surface-container-high active:opacity-80 transition-all">
+<span class="material-symbols-outlined" data-icon="backspace">backspace</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+<!-- Footer Navigation -->
+<footer class="bg-surface-container-low border-t border-outline-variant fixed bottom-0 w-full flex flex-row justify-between items-center py-4 px-margin-desktop z-50">
+<button class="inline-flex items-center gap-gutter font-body-sm px-6 h-hit-target border border-outline-variant rounded-full hover:bg-surface-container transition-colors text-on-surface">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+      Back to cart
+    </button>
+<div class="flex items-center gap-gutter">
+<p class="font-body-sm text-on-surface-variant hidden md:block">© 2024 Luxe Boutique POS System. All Rights Reserved.</p>
+<button class="px-10 h-hit-target bg-primary-container text-on-primary-container font-semibold rounded-full hover:shadow-sm active:opacity-80 transition-all text-body-lg">
+        Confirm Payment
+      </button>
+</div>
+</footer>
+</body></html>

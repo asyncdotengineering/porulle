@@ -1,0 +1,144 @@
+{
+  "name": "projects/13570802420551041196",
+  "projectId": "13570802420551041196",
+  "title": "Fashion POS — Sri Lanka (Pro)",
+  "visibility": "PRIVATE",
+  "projectType": "PROJECT_DESIGN",
+  "origin": "STITCH",
+  "deviceType": "DESKTOP",
+  "model": "GEMINI_3_1_PRO",
+  "stitchWebUrl": "https://stitch.withgoogle.com/app/projects/13570802420551041196",
+  "designSystem": {
+    "assetId": "566e41bb1128493ead493b64b1490174",
+    "displayName": "Modern Merchant",
+    "aesthetic": "Quiet Luxury — high-end editorial commerce",
+    "primaryColor": "#c1fbd4",
+    "secondaryColor": "#d4f9e0",
+    "canvasColor": "#fbfbf5 (override) / #f9f9fc (rendered)",
+    "font": "Inter",
+    "roundness": "ROUND_FULL"
+  },
+  "deliveryStatus": {
+    "totalUniqueScreens": 21,
+    "missing": "12-product-detail — never generated even server-side after multiple attempts",
+    "discovery": "Pro timed out at MCP boundary on most calls but generation succeeded server-side. Polling get_project + get_screen recovered all the 'failed' calls. Net result: 21 screens delivered vs Flash's 11."
+  },
+  "screens": {
+    "01-sign-in": {
+      "id": "8f897a8677514825a97b0037b9ab8e29",
+      "title": "Cashier Sign-In",
+      "files": ["01-sign-in.html", "01-sign-in.png"]
+    },
+    "01b-sign-in-variant": {
+      "id": "f2f7191abbd549deb44767e90749df1c",
+      "title": "Cashier Sign-In - Acme Boutique (first seed attempt)",
+      "note": "Same screen, different prompt seed — duplicates the sign-in screen. Not separately saved."
+    },
+    "02-open-shift": {
+      "id": "ebf808f2d0714bf58c8b65f07a608919",
+      "title": "Open Shift - Starting Cash",
+      "files": ["02-open-shift.html", "02-open-shift.png"]
+    },
+    "03-till-sale-mode": {
+      "id": "3d653185978940d5a6b5b675cd358dec",
+      "title": "POS Cashier Till (Boutique POS, USD)",
+      "files": ["03-till-sale-mode.html", "03-till-sale-mode.png"]
+    },
+    "03b-till-variant-2": {
+      "id": "bbf555d16c0748b4aa28f8e1f1d2fbb1",
+      "title": "Register - Current Sale (Lumiere POS, LKR)",
+      "files": ["03b-till-variant-2.html", "03b-till-variant-2.png"]
+    },
+    "04-customer-attach": {
+      "id": "c418e5f825934666807d73f244f7421a",
+      "title": "Attach Customer Modal",
+      "files": ["04-customer-attach.html", "04-customer-attach.png"]
+    },
+    "05-payment": {
+      "id": "d944a9d406e849c481e1acc0844033a6",
+      "title": "Payment - Cash Tendered",
+      "files": ["05-payment.html", "05-payment.png"]
+    },
+    "05b-payment-variant": {
+      "id": "9306dcd074614e409bc94ddf984f1ac4",
+      "title": "Payment - Cash Tendered (variant 2)",
+      "files": ["05b-payment-cash-tendered-v2.html", "05b-payment-cash-tendered-v2.png"]
+    },
+    "06-sale-complete": {
+      "id": "00a5c5b3f82644beb74faa3acedf9454",
+      "title": "Order Confirmation",
+      "files": ["06-sale-complete.html", "06-sale-complete.png"]
+    },
+    "06b-sale-complete-receipt-preview": {
+      "id": "0164b053066e440e98dd4209351010ae",
+      "title": "Sale Complete - Receipt Preview",
+      "files": ["06b-sale-complete-receipt-preview.html", "06b-sale-complete-receipt-preview.png"]
+    },
+    "07-returns-lookup": {
+      "id": "1685ce6fb5d546e68494ba7da2b0385a",
+      "title": "Returns Lookup - Recent Orders",
+      "files": ["07-returns-lookup.html", "07-returns-lookup.png"]
+    },
+    "07b-returns-lookup-v2": {
+      "id": "95ae0c8d50c34246b150b7c3a6bf3838",
+      "title": "Returns Lookup",
+      "files": ["07b-returns-lookup-v2.html", "07b-returns-lookup-v2.png"]
+    },
+    "08-return-item-select": {
+      "id": "201318f7b6304270b98401d967edd67e",
+      "title": "Process Refund",
+      "files": ["08-return-item-select.html", "08-return-item-select.png"]
+    },
+    "09-close-shift": {
+      "id": "33a25cee300f48d3aae68ffa6c012b64",
+      "title": "Close Shift Report",
+      "files": ["09-close-shift.html", "09-close-shift.png"]
+    },
+    "09b-close-shift-z-report": {
+      "id": "7f443016b560441d820dbf354b2939d7",
+      "title": "Close Shift Z-Report",
+      "files": ["09b-close-shift-z-report.html", "09b-close-shift-z-report.png"]
+    },
+    "09c-close-shift-summary": {
+      "id": "f19a30230bdc4b3a94f85baace5d50bf",
+      "title": "Close Shift Z-Report Summary",
+      "files": ["09c-close-shift-summary.html", "09c-close-shift-summary.png"]
+    },
+    "10-admin-dashboard": {
+      "id": "5c6a4244af49423881e4018a06000f1b",
+      "title": "Admin Dashboard - Overview",
+      "files": ["10-admin-dashboard.html", "10-admin-dashboard.png"]
+    },
+    "10b-analytics-dashboard": {
+      "id": "b9f9a88cbc324506bc180fa3892f1e76",
+      "title": "Analytics Dashboard - Sales Overview",
+      "files": ["10b-analytics-dashboard.html", "10b-analytics-dashboard.png"]
+    },
+    "11-inventory-list": {
+      "id": "5ec3be2af68b4558a9508958aec77270",
+      "title": "Inventory - Product List",
+      "files": ["11-inventory-list.html", "11-inventory-list.png"]
+    },
+    "12-product-detail": {
+      "id": null,
+      "title": "Product Detail / Edit",
+      "status": "not generated",
+      "note": "Never landed even server-side. Use Stitch web app or hand-code from screen-prompts.md."
+    },
+    "13-orders-management": {
+      "id": "dfabb3f914e540f6a32235149e6df91a",
+      "title": "Order Search & Management",
+      "files": ["13-orders-management.html", "13-orders-management.png"]
+    },
+    "14-customer-profile": {
+      "id": "a1f9b3c5ee004e0fbf58a112b185b554",
+      "title": "Customer Profile - Amara Silva",
+      "files": ["14-customer-profile.html", "14-customer-profile.png"]
+    },
+    "15-settings": {
+      "id": "1b9ec3d57cfb49e786f3f535657ac37c",
+      "title": "Settings - Admin Configuration",
+      "files": ["15-settings.html", "15-settings.png"]
+    }
+  }
+}

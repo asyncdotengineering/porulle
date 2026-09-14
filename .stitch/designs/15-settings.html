@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Settings | Luminous Commerce</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "tertiary-fixed-dim": "#d7c4a4",
+                      "surface-tint": "#34694b",
+                      "surface-dim": "#dadad5",
+                      "secondary-fixed": "#c7ebd3",
+                      "on-surface": "#1a1c19",
+                      "on-secondary": "#ffffff",
+                      "secondary-fixed-dim": "#abcfb7",
+                      "on-tertiary": "#ffffff",
+                      "surface": "#fafaf4",
+                      "inverse-on-surface": "#f1f1eb",
+                      "primary-fixed-dim": "#9bd3ae",
+                      "on-primary-container": "#417657",
+                      "error": "#ba1a1a",
+                      "outline": "#717972",
+                      "primary": "#34694b",
+                      "on-secondary-fixed": "#002112",
+                      "error-container": "#ffdad6",
+                      "surface-container-highest": "#e3e3dd",
+                      "on-primary-fixed-variant": "#1a5034",
+                      "background": "#fafaf4",
+                      "on-tertiary-fixed-variant": "#52452d",
+                      "on-error-container": "#93000a",
+                      "on-error": "#ffffff",
+                      "on-background": "#1a1c19",
+                      "tertiary-container": "#ffebc9",
+                      "tertiary-fixed": "#f4e0bf",
+                      "on-tertiary-fixed": "#241a06",
+                      "surface-container-lowest": "#ffffff",
+                      "primary-container": "#c1fbd4",
+                      "on-secondary-container": "#496a56",
+                      "secondary": "#456552",
+                      "on-tertiary-container": "#78694e",
+                      "surface-container": "#eeeee8",
+                      "tertiary": "#6a5d42",
+                      "on-primary": "#ffffff",
+                      "secondary-container": "#c4e8d0",
+                      "surface-container-low": "#f4f4ee",
+                      "inverse-surface": "#2f312d",
+                      "surface-bright": "#fafaf4",
+                      "inverse-primary": "#9bd3ae",
+                      "outline-variant": "#c0c9c0",
+                      "on-surface-variant": "#414942",
+                      "surface-variant": "#e3e3dd",
+                      "on-secondary-fixed-variant": "#2d4d3b",
+                      "surface-container-high": "#e8e8e3",
+                      "on-primary-fixed": "#002111",
+                      "primary-fixed": "#b6f0c9"
+              },
+              "borderRadius": {
+                      "DEFAULT": "1rem",
+                      "lg": "2rem",
+                      "xl": "3rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "margin-mobile": "20px",
+                      "gutter": "16px",
+                      "margin-desktop": "64px",
+                      "hit-target": "44px",
+                      "unit": "4px"
+              },
+              "fontFamily": {
+                      "body-lg": ["Inter"],
+                      "headline-md": ["Inter"],
+                      "display-lg": ["Inter"],
+                      "label-caps": ["Inter"],
+                      "display-lg-mobile": ["Inter"],
+                      "body-sm": ["Inter"]
+              },
+              "fontSize": {
+                      "body-lg": ["16px", {"lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400"}],
+                      "headline-md": ["24px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "400"}],
+                      "display-lg": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.04em", "fontWeight": "300"}],
+                      "label-caps": ["12px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                      "display-lg-mobile": ["36px", {"lineHeight": "1.1", "letterSpacing": "-0.03em", "fontWeight": "300"}],
+                      "body-sm": ["14px", {"lineHeight": "1.5", "letterSpacing": "0em", "fontWeight": "400"}]
+              }
+            },
+          },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex overflow-hidden">
+<!-- SideNavBar Component -->
+<aside class="fixed left-0 top-0 h-full w-64 flex flex-col h-full py-8 px-4 gap-4 bg-surface-container-low dark:bg-surface-container-low border-r border-outline-variant dark:border-outline-variant flat no shadows z-50">
+<div class="px-2 mb-6">
+<h1 class="font-headline-md text-headline-md text-primary">Luminous Admin</h1>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Retail Management</p>
+</div>
+<nav class="flex-1 flex flex-col gap-1">
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all duration-200 cursor-pointer active:scale-95 transition-transform font-body-lg text-body-lg" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all duration-200 cursor-pointer active:scale-95 transition-transform font-body-lg text-body-lg" href="#">
+<span class="material-symbols-outlined" data-icon="inventory_2">inventory_2</span>
+<span>Inventory</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all duration-200 cursor-pointer active:scale-95 transition-transform font-body-lg text-body-lg" href="#">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+<span>Customers</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all duration-200 cursor-pointer active:scale-95 transition-transform font-body-lg text-body-lg" href="#">
+<span class="material-symbols-outlined" data-icon="shopping_cart">shopping_cart</span>
+<span>Orders</span>
+</a>
+</nav>
+<button class="mt-auto w-full bg-primary-container text-on-primary-container font-semibold rounded-full py-3 flex items-center justify-center gap-2 cursor-pointer active:scale-95 transition-transform">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+<span>New Transaction</span>
+</button>
+</aside>
+<main class="ml-64 flex-1 flex flex-col h-screen overflow-y-auto no-scrollbar">
+<!-- TopNavBar Component -->
+<header class="flex justify-between items-center h-[64px] px-margin-desktop w-full sticky top-0 z-40 bg-background dark:bg-background border-b border-outline-variant dark:border-outline-variant flat no shadows">
+<div class="flex items-center gap-6 flex-1">
+<span class="font-headline-md text-headline-md font-bold text-on-surface dark:text-on-surface">Settings</span>
+<div class="relative w-full max-w-md">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" data-icon="search">search</span>
+<input class="w-full bg-surface-container-low border-none rounded-full pl-10 pr-4 h-10 font-body-sm focus:ring-1 focus:ring-primary" placeholder="Search settings..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-1">
+<button class="p-2 rounded-full hover:bg-surface-container-low transition-colors duration-200 cursor-pointer active:opacity-80 text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="p-2 rounded-full text-primary font-bold border-b-2 border-primary transition-colors duration-200 cursor-pointer active:opacity-80">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+</div>
+<div class="h-8 w-8 rounded-full overflow-hidden border border-outline-variant">
+<img alt="Administrator profile" class="w-full h-full object-cover" data-alt="A professional studio headshot of a smiling male administrator in business attire, against a soft neutral background. High-quality corporate photography style with professional lighting and clean, modern aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAln4WpyI1UyotO40yPXGOCeLhh2r3l3zLC2lbG18we0UhWB8gXrITO5Sdm_WOYygzGO7JcmoobvreNlu506umVYLmgAyN84xBedGloVQyJwwr_tjA_lXQB2CLNy_aPDFzil7pu-UNgPgGU5ohu_tjIdtmp3nz0J4NDUo4S3MKwRvnmzmbIaIKBQr8xiSOjmo87IInLBnQ5pkN9RuodL9xapq3oGlhuSANey-r85K6rHcwVlPWb0ESQ6j4D15RMrNoshla_8vb9hs21"/>
+</div>
+</div>
+</header>
+<!-- Page Content -->
+<div class="p-margin-desktop space-y-12 max-w-5xl mx-auto w-full">
+<!-- Section 1: Profile Settings -->
+<section class="space-y-6">
+<div class="flex items-end justify-between border-b border-outline-variant pb-4">
+<div>
+<h2 class="font-headline-md text-headline-md font-bold text-on-surface">Profile Settings</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Manage your public presence and account identifiers.</p>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-lg p-8 border border-outline-variant flex flex-col md:flex-row gap-12 items-start">
+<div class="flex flex-col items-center gap-4 w-full md:w-auto">
+<div class="relative group">
+<div class="w-32 h-32 rounded-full overflow-hidden border-2 border-primary-container">
+<img alt="Administrator profile" class="w-full h-full object-cover" data-alt="A focused portrait of a professional man in his 30s with a warm and approachable expression. The lighting is bright and even, evoking a premium modern corporate feel. The background is a soft, blurred studio setting in neutral tones." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBLaq8EC251HBV5PPR3_-iU9NJQu6vDPm97iUconPZNEI3f5r0d_4QAt5S7-aezWNdv1-NdEu2bLb3C-ys7DqSMiAutvvnQfIuTp93G81rTWC_4wm7kqMJljkvUMzm_oGfeQ0g50HOxWXdiZrUaJfRTUsjM7Fd1PptkHnxxm__Be4jnbbW17XtPNRux3NMLMuBwzhTMuT39IcaFvWdFhPIqBmgSnz_AVUhlyjw8gRBsk2TPrt3r3mO8w1cz0GX_EcO-6L9nXGJl9Urt"/>
+</div>
+<button class="absolute bottom-0 right-0 bg-primary text-on-primary p-2 rounded-full border-4 border-surface-container-lowest hover:scale-105 transition-transform">
+<span class="material-symbols-outlined text-[20px]" data-icon="photo_camera">photo_camera</span>
+</button>
+</div>
+<p class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Update Avatar</p>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 w-full">
+<div class="space-y-2">
+<label class="font-label-caps text-label-caps text-on-surface-variant ml-2">Full Name</label>
+<input class="w-full bg-surface-container-low border border-outline-variant rounded-full px-6 h-[44px] font-body-lg focus:border-on-surface focus:ring-0" type="text" value="Alexander Sterling"/>
+</div>
+<div class="space-y-2">
+<label class="font-label-caps text-label-caps text-on-surface-variant ml-2">Email Address</label>
+<input class="w-full bg-surface-container-low border border-outline-variant rounded-full px-6 h-[44px] font-body-lg focus:border-on-surface focus:ring-0" type="email" value="alexander@luminous.com"/>
+</div>
+<div class="md:col-span-2 space-y-2">
+<label class="font-label-caps text-label-caps text-on-surface-variant ml-2">Bio (Optional)</label>
+<textarea class="w-full bg-surface-container-low border border-outline-variant rounded-[20px] px-6 py-3 font-body-lg focus:border-on-surface focus:ring-0 h-24 resize-none">Administrator for Luminous Commerce retail operations.</textarea>
+</div>
+</div>
+</div>
+</section>
+<!-- Section 2: Store Preferences -->
+<section class="space-y-6">
+<div class="flex items-end justify-between border-b border-outline-variant pb-4">
+<div>
+<h2 class="font-headline-md text-headline-md font-bold text-on-surface">Store Preferences</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Configure regional and identity settings for your storefront.</p>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<div class="bg-surface-container-lowest rounded-lg p-6 border border-outline-variant space-y-2">
+<label class="font-label-caps text-label-caps text-on-surface-variant block ml-1">Store Name</label>
+<input class="w-full bg-surface-container-low border border-outline-variant rounded-full px-4 h-[44px] font-body-lg focus:border-on-surface focus:ring-0" type="text" value="Luminous Commerce Main"/>
+</div>
+<div class="bg-surface-container-lowest rounded-lg p-6 border border-outline-variant space-y-2">
+<label class="font-label-caps text-label-caps text-on-surface-variant block ml-1">Currency</label>
+<select class="w-full bg-surface-container-low border border-outline-variant rounded-full px-4 h-[44px] font-body-lg focus:border-on-surface focus:ring-0 appearance-none cursor-pointer">
+<option selected="">LKR (Sri Lankan Rupee)</option>
+<option>USD (US Dollar)</option>
+<option>EUR (Euro)</option>
+</select>
+</div>
+<div class="bg-surface-container-lowest rounded-lg p-6 border border-outline-variant space-y-2">
+<label class="font-label-caps text-label-caps text-on-surface-variant block ml-1">Timezone</label>
+<select class="w-full bg-surface-container-low border border-outline-variant rounded-full px-4 h-[44px] font-body-lg focus:border-on-surface focus:ring-0 appearance-none cursor-pointer">
+<option selected="">(GMT+05:30) Colombo</option>
+<option>(GMT+00:00) London</option>
+<option>(GMT-05:00) New York</option>
+</select>
+</div>
+</div>
+</section>
+<!-- Section 3: Security & Notifications -->
+<section class="space-y-6 pb-24">
+<div class="flex items-end justify-between border-b border-outline-variant pb-4">
+<div>
+<h2 class="font-headline-md text-headline-md font-bold text-on-surface">Security &amp; Privacy</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Control your account authentication and communication preferences.</p>
+</div>
+</div>
+<div class="space-y-4">
+<!-- Toggle 1 -->
+<div class="bg-surface-container-lowest rounded-lg p-6 border border-outline-variant flex items-center justify-between group hover:border-primary transition-colors duration-200">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined" data-icon="verified_user">verified_user</span>
+</div>
+<div>
+<h3 class="font-body-lg text-body-lg font-semibold text-on-surface">Two-Factor Authentication</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Secure your account with an extra layer of protection.</p>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-14 h-7 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-6 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+<!-- Toggle 2 -->
+<div class="bg-surface-container-lowest rounded-lg p-6 border border-outline-variant flex items-center justify-between group hover:border-primary transition-colors duration-200">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined" data-icon="mail">mail</span>
+</div>
+<div>
+<h3 class="font-body-lg text-body-lg font-semibold text-on-surface">Email Notifications</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Receive automated updates about store activity and sales.</p>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" type="checkbox"/>
+<div class="w-14 h-7 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-6 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+</div>
+<!-- Action Footer -->
+<div class="flex items-center justify-end gap-4 mt-12 pt-8">
+<button class="px-8 h-[44px] rounded-full border border-outline-variant text-on-surface font-semibold font-body-lg hover:bg-surface-container-low transition-colors duration-200">
+                        Discard Changes
+                    </button>
+<button class="px-8 h-[44px] rounded-full bg-primary text-on-primary font-semibold font-body-lg hover:opacity-90 shadow-lg shadow-primary/10 transition-all duration-200">
+                        Save Preferences
+                    </button>
+</div>
+</section>
+</div>
+</main>
+</body></html>

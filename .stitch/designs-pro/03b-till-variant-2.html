@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Cashier Till Sale - Fashion Boutique</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "outline": "#717972",
+                        "surface-dim": "#dadadd",
+                        "on-tertiary-fixed-variant": "#464743",
+                        "on-primary-container": "#417657",
+                        "surface-container-lowest": "#ffffff",
+                        "on-primary-fixed-variant": "#1a5034",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed-dim": "#abcfb7",
+                        "surface-container-low": "#f3f3f6",
+                        "on-secondary-fixed-variant": "#2d4d3b",
+                        "on-tertiary": "#ffffff",
+                        "on-error": "#ffffff",
+                        "on-background": "#1a1c1e",
+                        "inverse-surface": "#2f3033",
+                        "surface-container": "#eeedf0",
+                        "secondary-fixed": "#c7ebd3",
+                        "surface-tint": "#34694b",
+                        "tertiary-fixed-dim": "#c6c7c1",
+                        "secondary-container": "#c4e8d0",
+                        "on-error-container": "#93000a",
+                        "primary": "#34694b",
+                        "primary-container": "#c1fbd4",
+                        "outline-variant": "#c0c9c0",
+                        "on-primary": "#ffffff",
+                        "on-surface-variant": "#414942",
+                        "error": "#ba1a1a",
+                        "on-surface": "#1a1c1e",
+                        "tertiary-container": "#eeeee8",
+                        "background": "#f9f9fc",
+                        "secondary": "#456552",
+                        "tertiary": "#5d5f5a",
+                        "surface": "#f9f9fc",
+                        "primary-fixed": "#b6f0c9",
+                        "on-secondary-container": "#496a56",
+                        "on-tertiary-fixed": "#1a1c19",
+                        "on-secondary-fixed": "#002112",
+                        "on-primary-fixed": "#002111",
+                        "on-secondary": "#ffffff",
+                        "tertiary-fixed": "#e3e3dd",
+                        "surface-variant": "#e2e2e5",
+                        "inverse-primary": "#9bd3ae",
+                        "surface-container-highest": "#e2e2e5",
+                        "inverse-on-surface": "#f0f0f3",
+                        "surface-container-high": "#e8e8eb",
+                        "surface-bright": "#f9f9fc",
+                        "on-tertiary-container": "#6a6c67",
+                        "primary-fixed-dim": "#9bd3ae"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "1rem",
+                        "lg": "2rem",
+                        "xl": "3rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-mobile": "16px",
+                        "margin-tablet": "32px",
+                        "lg": "24px",
+                        "xs": "4px",
+                        "sm": "8px",
+                        "unit": "4px",
+                        "xl": "40px",
+                        "md": "16px",
+                        "gutter": "16px"
+                    },
+                    "fontFamily": {
+                        "headline-sm": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "label-md": ["Inter"],
+                        "display-md": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "body-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-sm": ["20px", { "lineHeight": "1.4", "letterSpacing": "0em", "fontWeight": "500" }],
+                        "body-lg": ["18px", { "lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400" }],
+                        "label-md": ["14px", { "lineHeight": "1", "letterSpacing": "0.02em", "fontWeight": "600" }],
+                        "display-md": ["36px", { "lineHeight": "1.2", "letterSpacing": "-0.03em", "fontWeight": "300" }],
+                        "label-sm": ["12px", { "lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "headline-lg": ["24px", { "lineHeight": "1.3", "letterSpacing": "-0.02em", "fontWeight": "300" }],
+                        "display-lg": ["48px", { "lineHeight": "1.1", "letterSpacing": "-0.04em", "fontWeight": "300" }],
+                        "body-md": ["16px", { "lineHeight": "1.5", "letterSpacing": "0em", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-surface min-h-screen flex flex-col font-body-md antialiased overflow-hidden">
+<!-- TopAppBar -->
+<header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-lg py-md h-[64px] bg-background border-b border-outline-variant">
+<div class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-primary" data-icon="storefront">storefront</span>
+<span class="text-headline-sm font-headline-sm font-bold text-on-surface">Lumiere POS</span>
+</div>
+<div class="flex items-center gap-md">
+<button class="w-[40px] h-[40px] flex items-center justify-center rounded-full hover:bg-surface-container-low transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="wifi">wifi</span>
+</button>
+<button class="w-[40px] h-[40px] flex items-center justify-center rounded-full hover:bg-surface-container-low transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+<button class="w-[40px] h-[40px] flex items-center justify-center rounded-full hover:bg-surface-container-low transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="power_settings_new">power_settings_new</span>
+</button>
+</div>
+</header>
+<!-- SideNavBar -->
+<nav class="fixed left-0 top-0 h-full w-[280px] z-40 flex flex-col pt-[80px] pb-lg bg-surface-container-low border-r border-outline-variant">
+<div class="px-lg pb-md mb-md border-b border-outline-variant flex flex-col items-center">
+<div class="w-16 h-16 rounded-full bg-surface-container-highest mb-sm overflow-hidden flex items-center justify-center">
+<span class="material-symbols-outlined text-[32px] text-on-surface-variant" data-icon="store">store</span>
+</div>
+<h2 class="text-headline-sm font-headline-sm text-on-surface font-medium text-center">Main Street Boutique</h2>
+<p class="text-label-sm font-label-sm text-on-surface-variant mt-xs">Terminal 01</p>
+</div>
+<div class="flex-1 flex flex-col gap-xs">
+<a class="bg-primary-container text-on-primary-container rounded-full mx-md my-xs px-md py-sm flex items-center gap-sm font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined" data-icon="point_of_sale" style="font-variation-settings: 'FILL' 1;">point_of_sale</span>
+                Register
+            </a>
+<a class="text-on-surface-variant rounded-full mx-md my-xs px-md py-sm flex items-center gap-sm font-label-md text-label-md hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="receipt_long">receipt_long</span>
+                Orders
+            </a>
+<a class="text-on-surface-variant rounded-full mx-md my-xs px-md py-sm flex items-center gap-sm font-label-md text-label-md hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="inventory_2">inventory_2</span>
+                Inventory
+            </a>
+<a class="text-on-surface-variant rounded-full mx-md my-xs px-md py-sm flex items-center gap-sm font-label-md text-label-md hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+                Reports
+            </a>
+</div>
+<div class="mt-auto">
+<a class="text-on-surface-variant rounded-full mx-md my-xs px-md py-sm flex items-center gap-sm font-label-md text-label-md hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+                Help
+            </a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="ml-[280px] pt-[64px] flex-1 flex flex-col h-screen overflow-hidden bg-surface-container-lowest">
+<!-- Sale Grid Layout -->
+<div class="flex-1 flex overflow-hidden">
+<!-- Left Column: Cart (40%) -->
+<section class="w-[40%] flex flex-col border-r border-outline-variant bg-surface-container-lowest">
+<!-- Cart Header -->
+<div class="p-lg border-b border-outline-variant flex justify-between items-center bg-surface-container-lowest z-10">
+<h2 class="font-headline-lg text-headline-lg text-on-surface">Current Sale</h2>
+<div class="flex items-center gap-sm px-md py-sm rounded-full border border-outline-variant hover:bg-surface-container-low cursor-pointer transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="person">person</span>
+<span class="font-label-md text-label-md text-on-surface">Walk-in</span>
+</div>
+</div>
+<!-- Cart Items (Scrollable) -->
+<div class="flex-1 overflow-y-auto p-md space-y-sm">
+<!-- Line Item 1 -->
+<div class="p-md bg-surface-container-lowest border border-outline-variant rounded-DEFAULT flex justify-between items-start cursor-pointer hover:bg-surface-container-low transition-colors">
+<div class="flex gap-md">
+<div class="w-12 h-12 rounded-lg bg-surface-container-high overflow-hidden flex-shrink-0">
+<img alt="Silk Blouse" class="w-full h-full object-cover" data-alt="A minimalist overhead product shot of a delicate, soft white silk blouse neatly folded on a pristine cream surface. The lighting is soft and even, highlighting the luxurious texture and drape of the fabric. The composition is clean and modern, evoking a high-end fashion boutique aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCZQyClN1tHgxW4E80nBxiGWqbHR4wbgfjuCRQs4giexV_xR2bKQo-0DsXdRdVp7DiHNMwB3pnrxEDTbIK3YaZ0qYJGK8tpvvrFnVxwThLj98pmT202Gs-VJ3x7zyjGDpq53EJIdpQmWyTYyeforwgYFx2eP_bHEhnnmPvwdWDK8UiDQHCMOXkPQhhZqxhtapquoifjZckO30RpRfTtH4Aa9UD8MddEZcnJYPTTxRVjJp5m2QJpcYNHN5y7SSb_J-Rs1ZsZArnRZEgj"/>
+</div>
+<div>
+<h3 class="font-body-lg text-body-lg text-on-surface leading-tight">Silk Blouse</h3>
+<p class="font-label-sm text-label-sm text-on-surface-variant mt-xs">Ivory • Size M</p>
+<div class="flex items-center gap-md mt-sm">
+<div class="flex items-center gap-xs text-on-surface-variant bg-surface-container-high rounded-full px-sm py-xs">
+<button class="w-6 h-6 flex items-center justify-center hover:text-on-surface"><span class="material-symbols-outlined text-[16px]" data-icon="remove">remove</span></button>
+<span class="font-label-md text-label-md w-4 text-center">1</span>
+<button class="w-6 h-6 flex items-center justify-center hover:text-on-surface"><span class="material-symbols-outlined text-[16px]" data-icon="add">add</span></button>
+</div>
+</div>
+</div>
+</div>
+<span class="font-body-lg text-body-lg text-on-surface">LKR 4,500</span>
+</div>
+<!-- Line Item 2 -->
+<div class="p-md bg-surface-container-lowest border border-outline-variant rounded-DEFAULT flex justify-between items-start cursor-pointer hover:bg-surface-container-low transition-colors">
+<div class="flex gap-md">
+<div class="w-12 h-12 rounded-lg bg-surface-container-high overflow-hidden flex-shrink-0">
+<img alt="Tailored Trousers" class="w-full h-full object-cover" data-alt="A clean, flat-lay product photograph of dark tailored trousers against a pale background. The lighting is soft and diffused, emphasizing the high-quality fabric and precise tailoring. The image has a calm, editorial feel, perfectly suited for a sophisticated retail environment." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAmUUQssQMqCs03epLfcjqrFE2Ku4Tdo_-UGXYZhxwxj4HTrnNqb5Sl7hNTuQorSPaKdzG2gDmspq4emFSRmWhKHEFqgBhCH0s_J1Px-yVOPo77YtHJnKmjbwcCkK_12Pe-uXZBjN6yHl5XdIvFQSf95CHNlAl2aQD292SIhA22AYdMahjs0zizubHGh23GaUwQhSJx7QagI_ta4dMobr_YkKdbyU95nMCr8AJWBgX7lc51ORxQMUpvJo7I3Vy9yO1IjBxNDCLJ40OU"/>
+</div>
+<div>
+<h3 class="font-body-lg text-body-lg text-on-surface leading-tight">Tailored Trousers</h3>
+<p class="font-label-sm text-label-sm text-on-surface-variant mt-xs">Navy • Size 32</p>
+<div class="flex items-center gap-md mt-sm">
+<div class="flex items-center gap-xs text-on-surface-variant bg-surface-container-high rounded-full px-sm py-xs">
+<button class="w-6 h-6 flex items-center justify-center hover:text-on-surface"><span class="material-symbols-outlined text-[16px]" data-icon="remove">remove</span></button>
+<span class="font-label-md text-label-md w-4 text-center">1</span>
+<button class="w-6 h-6 flex items-center justify-center hover:text-on-surface"><span class="material-symbols-outlined text-[16px]" data-icon="add">add</span></button>
+</div>
+</div>
+</div>
+</div>
+<span class="font-body-lg text-body-lg text-on-surface">LKR 6,200</span>
+</div>
+<!-- Line Item 3 -->
+<div class="p-md bg-surface-container-lowest border border-outline-variant rounded-DEFAULT flex justify-between items-start cursor-pointer hover:bg-surface-container-low transition-colors">
+<div class="flex gap-md">
+<div class="w-12 h-12 rounded-lg bg-surface-container-high overflow-hidden flex-shrink-0">
+<img alt="Leather Belt" class="w-full h-full object-cover" data-alt="A macro product shot of a premium tan leather belt with a minimalist silver buckle, resting on a soft cream background. The texture of the leather is visible, and the lighting is bright and clean, reflecting a high-end, quiet luxury aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDTb2Mqn2KXZ0k727gMI2lVDikyq4jcVh4hd7neXZde7oroN-gl2VKRXAFAHRbFAJq3qztlNf_G-otP3965WurKWp2Ka1wfyI2sK-CwoWxrt2qIifodJTLVUn5dy-niI1PoSLVfAqzPG6OyMW5lXSZDaETK7dkBIlwSU9jOfOKeIgU19uoX84E78d-_UoiiKx6mj75miuq1HDPcZCy8QsTYamTuXSi1c92zhbZpYqEcb57vKPG-wY2Vby2fxeaktp_Vprdljfkk_34v"/>
+</div>
+<div>
+<h3 class="font-body-lg text-body-lg text-on-surface leading-tight">Leather Belt</h3>
+<p class="font-label-sm text-label-sm text-on-surface-variant mt-xs">Tan • One Size</p>
+<div class="flex items-center gap-md mt-sm">
+<div class="flex items-center gap-xs text-on-surface-variant bg-surface-container-high rounded-full px-sm py-xs">
+<button class="w-6 h-6 flex items-center justify-center hover:text-on-surface"><span class="material-symbols-outlined text-[16px]" data-icon="remove">remove</span></button>
+<span class="font-label-md text-label-md w-4 text-center">1</span>
+<button class="w-6 h-6 flex items-center justify-center hover:text-on-surface"><span class="material-symbols-outlined text-[16px]" data-icon="add">add</span></button>
+</div>
+</div>
+</div>
+</div>
+<span class="font-body-lg text-body-lg text-on-surface">LKR 1,700</span>
+</div>
+</div>
+<!-- Totals Card (Sticky Bottom) -->
+<div class="p-lg bg-surface border-t border-outline-variant z-10">
+<div class="flex justify-between items-center mb-sm">
+<span class="font-body-md text-body-md text-on-surface-variant">Subtotal</span>
+<span class="font-body-md text-body-md text-on-surface">LKR 11,481.48</span>
+</div>
+<div class="flex justify-between items-center mb-md border-b border-outline-variant pb-md">
+<span class="font-body-md text-body-md text-on-surface-variant">Tax (8%)</span>
+<span class="font-body-md text-body-md text-on-surface">LKR 918.52</span>
+</div>
+<div class="flex justify-between items-center mb-lg">
+<span class="font-headline-lg text-headline-lg text-on-surface font-semibold">Total</span>
+<span class="font-display-md text-display-md text-on-surface font-bold">LKR 12,400</span>
+</div>
+<div class="flex gap-md">
+<button class="flex-1 h-[56px] border border-outline-variant rounded-full font-label-md text-label-md text-on-surface flex items-center justify-center hover:bg-surface-container-low transition-colors">
+                            Hold
+                        </button>
+<button class="flex-[2] h-[56px] bg-primary-container text-on-primary-container rounded-full font-label-md text-label-md flex items-center justify-center gap-sm hover:bg-[#aef5c5] transition-colors">
+                            Pay LKR 12,400
+                            <span class="material-symbols-outlined" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Right Column: Product Catalog (60%) -->
+<section class="w-[60%] flex flex-col bg-surface-container-lowest">
+<!-- Search & Filters Header -->
+<div class="p-lg border-b border-outline-variant bg-surface-container-lowest z-10">
+<div class="relative w-full mb-md">
+<span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant" data-icon="search">search</span>
+<input class="w-full h-[48px] pl-[48px] pr-md rounded-full border border-outline-variant bg-surface-container-lowest text-body-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all placeholder:text-on-surface-variant/70" placeholder="Scan products or search..." type="text"/>
+</div>
+<div class="flex gap-sm overflow-x-auto pb-sm no-scrollbar">
+<button class="px-md py-sm rounded-full bg-surface-tint text-on-primary font-label-md text-label-md whitespace-nowrap">All</button>
+<button class="px-md py-sm rounded-full border border-outline-variant text-on-surface-variant hover:bg-surface-container-low font-label-md text-label-md whitespace-nowrap transition-colors">Dresses</button>
+<button class="px-md py-sm rounded-full border border-outline-variant text-on-surface-variant hover:bg-surface-container-low font-label-md text-label-md whitespace-nowrap transition-colors">Tops</button>
+<button class="px-md py-sm rounded-full border border-outline-variant text-on-surface-variant hover:bg-surface-container-low font-label-md text-label-md whitespace-nowrap transition-colors">Accessories</button>
+<button class="px-md py-sm rounded-full border border-outline-variant text-on-surface-variant hover:bg-surface-container-low font-label-md text-label-md whitespace-nowrap transition-colors">New Arrivals</button>
+</div>
+</div>
+<!-- Product Grid -->
+<div class="flex-1 overflow-y-auto p-lg">
+<div class="grid grid-cols-3 gap-md">
+<!-- Product Tile 1 -->
+<div class="group border border-outline-variant rounded-DEFAULT bg-surface-container-lowest overflow-hidden cursor-pointer hover:border-primary transition-colors flex flex-col">
+<div class="h-[180px] bg-surface-container-low relative overflow-hidden">
+<img alt="Linen Wrap Dress" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A beautifully styled flat lay of a light beige linen wrap dress on a clean white background. Soft, natural lighting enhances the organic texture of the fabric. The composition is minimalist and modern, fitting a high-end boutique aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC7WC4Auo6zPyOzPoC8v9Fpxpuoea77tIJ3QUnUkqqpMxwjE93qBwysJswBDPLDFm-zEljadiP9JGpuCDr-RwCgUwxKTjpMDZVMBkO77flkAM7YyIE05VpehxZ1qsjFr5OEqeMbt84_bv9upDJEVjtSyIY-BP11YhvaPtX6MAc0je656DI91BK0_-cRHgLCKESwz4ZlmS6AJ8CGDHhZZoOrnYzFDUPMLKu7x6etQpDnlXipd8Upom9MtNcHCA1I6e-vIcCfRd3x0MGP"/>
+<div class="absolute top-sm right-sm bg-surface-container-lowest/90 backdrop-blur px-sm py-xs rounded-full border border-outline-variant">
+<span class="font-label-sm text-label-sm text-on-surface">12 in stock</span>
+</div>
+</div>
+<div class="p-md flex flex-col flex-1 justify-between">
+<div>
+<h3 class="font-label-md text-label-md text-on-surface uppercase tracking-wider mb-xs">Linen Wrap Dress</h3>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Beige</p>
+</div>
+<div class="mt-md flex justify-between items-center">
+<span class="font-body-lg text-body-lg text-on-surface">LKR 8,500</span>
+</div>
+</div>
+</div>
+<!-- Product Tile 2 -->
+<div class="group border border-outline-variant rounded-DEFAULT bg-surface-container-lowest overflow-hidden cursor-pointer hover:border-primary transition-colors flex flex-col">
+<div class="h-[180px] bg-surface-container-low relative overflow-hidden">
+<img alt="Pleated Midi Skirt" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A modern product shot of a pleated midi skirt in a soft sage green, laid flat against a pristine cream surface. The lighting is bright and even, highlighting the sharp pleats and flowing fabric. The overall mood is calm and editorial." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCm9WRKOPyO1NGxTKm2qZ1RUtInqWS97DWMpFfPXbgtMB0Y4fhIvmBal1e6z3NKfKxdkIE3GNEzf9EZk4_hnFnw5EuAKhKSuQ1ovomf4RbAYCel8QHWLbx06P5Ak2rlYT4DuMBzGbOd4pcf3ENu1lHSiQnUsBAGpffqkTEG8VJHFBAqKbvea-eEMhFEmqlQ_ISFDRzDCybyNB28TXbPHR9ljvf71qIM-moVZnRofgoJyI0R2Z_VFl4J0K7v2XcUSb80P7v7lTqyCWZj"/>
+</div>
+<div class="p-md flex flex-col flex-1 justify-between">
+<div>
+<h3 class="font-label-md text-label-md text-on-surface uppercase tracking-wider mb-xs">Pleated Midi Skirt</h3>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Sage Green</p>
+</div>
+<div class="mt-md flex justify-between items-center">
+<span class="font-body-lg text-body-lg text-on-surface">LKR 5,200</span>
+</div>
+</div>
+</div>
+<!-- Product Tile 3 -->
+<div class="group border border-outline-variant rounded-DEFAULT bg-surface-container-lowest overflow-hidden cursor-pointer hover:border-primary transition-colors flex flex-col">
+<div class="h-[180px] bg-surface-container-low relative overflow-hidden">
+<img alt="Cotton Basic Tee" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A high-quality, minimalist photograph of a simple white cotton t-shirt neatly folded. It rests on a pale grey, clean background. The bright, soft lighting emphasizes the premium quality of the everyday essential." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCKsxL0DJB7d-NeAOjd1YvEr6uNGFMWBAPdAkw7dhJBSXx9sa8Y1FB-_uGumxrjOON8Dk_Dk0x8S7fMFeGs31VmH1w1cib5YBAI49qWdJRR0vgVScalCKTPftBM-P1_KRGhDTpckUovhA9zNamyTrBQKaJoGTa3l_0bMdNAz5Cohkj1Yy9WZZy8jiWFH6NXHZ8e1LMpw3M96hDxd6T5vJJzEPmprxPyYncvHkhTFAeL5xlo_MuXJriyWpJKD77XwU6HBG7NAYXQ41bl"/>
+</div>
+<div class="p-md flex flex-col flex-1 justify-between">
+<div>
+<h3 class="font-label-md text-label-md text-on-surface uppercase tracking-wider mb-xs">Cotton Basic Tee</h3>
+<p class="font-label-sm text-label-sm text-on-surface-variant">White</p>
+</div>
+<div class="mt-md flex justify-between items-center">
+<span class="font-body-lg text-body-lg text-on-surface">LKR 2,100</span>
+</div>
+</div>
+</div>
+<!-- Product Tile 4 -->
+<div class="group border border-outline-variant rounded-DEFAULT bg-surface-container-lowest overflow-hidden cursor-pointer hover:border-primary transition-colors flex flex-col">
+<div class="h-[180px] bg-surface-container-low relative overflow-hidden">
+<img alt="Leather Crossbody" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A still life product shot of a sleek black leather crossbody bag with minimalist gold hardware. The bag is placed on a soft, light-colored plinth against a clean cream background. The lighting is sophisticated and highlights the premium leather texture." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAcBcIq1BDNCeKUW0TDNVCWLbM1MJei54uvac4O6lwwOM-MU7xIvOalLC5SBm4wEB4e_ZqKiAwTAxPqthKSdCmOmu2CxVb5VfJh0Kfx3ioEB1FotCiYp4tLQQzXPiwO4kdrNCKS6FxlgXRTLDW1jeT2D0l5cT2XLkEQSyYy8EIenHYL5PGGyTIS0mECDyApWibHWO2BAfBp4U3YLk3VCKocw3eYLp4-t54kZqZ9a4-pDWl5gg0Qy2G_XmZYc77EPY2BT3ugpx82M91G"/>
+</div>
+<div class="p-md flex flex-col flex-1 justify-between">
+<div>
+<h3 class="font-label-md text-label-md text-on-surface uppercase tracking-wider mb-xs">Leather Crossbody</h3>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Black</p>
+</div>
+<div class="mt-md flex justify-between items-center">
+<span class="font-body-lg text-body-lg text-on-surface">LKR 14,500</span>
+</div>
+</div>
+</div>
+<!-- Product Tile 5 -->
+<div class="group border border-outline-variant rounded-DEFAULT bg-surface-container-lowest overflow-hidden cursor-pointer hover:border-primary transition-colors flex flex-col">
+<div class="h-[180px] bg-surface-container-low relative overflow-hidden">
+<img alt="Cashmere Cardigan" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A cozy yet elegant shot of a pale grey cashmere cardigan, softly draped on a pristine white surface. Soft, natural light creates subtle shadows that emphasize the plush texture of the knitwear. The mood is quiet luxury." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBnGu9HKopE70zygiMu57AwNzW92TcupvNUPd7fm3wu8ba4_FBUlm4yCn0xsclbsKerF5w2RpVW723rdgMP4zPmxgQtvxUYTpbdyutLJJaU2RkA8TDRsGMlv4UPCsThkAitqvgdJdhA0uGnYI2cSnhJsu6itYuZgsfzSovEcZ0WRHsrdwcb0x1XJiK4_kd3u8Dfb3Vb8JRrNmqAm5wxzlvPlQ9CqbTaCix06HGsOakMUNHXM9yJPCoMEwewA3FQm6yE2ML1cWGo1klY"/>
+</div>
+<div class="p-md flex flex-col flex-1 justify-between">
+<div>
+<h3 class="font-label-md text-label-md text-on-surface uppercase tracking-wider mb-xs">Cashmere Cardigan</h3>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Light Grey</p>
+</div>
+<div class="mt-md flex justify-between items-center">
+<span class="font-body-lg text-body-lg text-on-surface">LKR 11,200</span>
+</div>
+</div>
+</div>
+<!-- Product Tile 6 -->
+<div class="group border border-outline-variant rounded-DEFAULT bg-surface-container-lowest overflow-hidden cursor-pointer hover:border-primary transition-colors flex flex-col">
+<div class="h-[180px] bg-surface-container-low relative overflow-hidden">
+<img alt="Silk Scarf" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="An artful arrangement of a brightly patterned silk scarf resting on a smooth, muted background. The vibrant colors of the scarf contrast beautifully with the minimalist setting. Bright, clear lighting captures the sheen and delicate fold of the silk." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAn8hi0AE8Fyxb3Brpb2HcvH1_Zjin6EnXqDS-BcCoADyd-giA7nNVdCv319wRsdEXhATAJ9hci8-gMFY7cMXmz1vZw6NU6Oj2P4GBlHyjjVHXkk16bPdRFXkQnjVR6q7y_Gb8tvRSzGj0Yzh29LaLTE9jGOxVaPbbwUCEAvzmvaU4JXylVnMNkTSOxwCLrUupF35HNHyLoICRpgFoR6YwvVJfiGbSRWzEqshD7Dh-5s0tDUyTGnlFy4F05_t2rYa_A3j6jwN5SFKwB"/>
+</div>
+<div class="p-md flex flex-col flex-1 justify-between">
+<div>
+<h3 class="font-label-md text-label-md text-on-surface uppercase tracking-wider mb-xs">Silk Scarf</h3>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Floral Print</p>
+</div>
+<div class="mt-md flex justify-between items-center">
+<span class="font-body-lg text-body-lg text-on-surface">LKR 3,800</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- Global Bottom Actions (if needed outside cart) -->
+<!-- Usually in this layout, primary actions are in the cart column, but keeping a bottom bar for cancel/global actions -->
+<div class="fixed bottom-0 left-[280px] right-0 p-md bg-surface-container-lowest border-t border-outline-variant flex justify-between items-center z-30">
+<div class="flex gap-md">
+<button class="h-[48px] px-lg border border-outline-variant rounded-full font-label-md text-label-md text-on-surface hover:bg-surface-container-low transition-colors">
+                Cancel Sale
+            </button>
+<button class="h-[48px] px-lg border border-outline-variant rounded-full font-label-md text-label-md text-on-surface hover:bg-surface-container-low transition-colors flex items-center gap-sm">
+<span class="material-symbols-outlined text-[20px]" data-icon="person_add">person_add</span>
+                Attach Customer
+            </button>
+</div>
+<!-- Note: Pay button is already in the cart totals area for better UX proximity, but could be duplicated here if required by strict layout interpretation. Opted for proximity in Cart Column. -->
+</div>
+</body></html>

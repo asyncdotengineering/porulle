@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Acme Boutique - Cashier Till</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-variant": "#e2e2e5",
+                    "on-tertiary-fixed": "#1a1c19",
+                    "tertiary": "#5d5f5a",
+                    "on-tertiary-fixed-variant": "#464743",
+                    "outline-variant": "#c0c9c0",
+                    "surface-dim": "#dadadd",
+                    "on-tertiary": "#ffffff",
+                    "inverse-surface": "#2f3033",
+                    "surface-container": "#eeedf0",
+                    "outline": "#717972",
+                    "on-error-container": "#93000a",
+                    "on-background": "#1a1c1e",
+                    "on-surface-variant": "#414942",
+                    "primary-container": "#c1fbd4",
+                    "surface-container-high": "#e8e8eb",
+                    "background": "#f9f9fc",
+                    "on-secondary-fixed-variant": "#2d4d3b",
+                    "surface-bright": "#f9f9fc",
+                    "on-primary-container": "#417657",
+                    "on-secondary": "#ffffff",
+                    "on-error": "#ffffff",
+                    "on-primary-fixed-variant": "#1a5034",
+                    "primary-fixed-dim": "#9bd3ae",
+                    "tertiary-container": "#eeeee8",
+                    "inverse-primary": "#9bd3ae",
+                    "surface-tint": "#34694b",
+                    "secondary-fixed": "#c7ebd3",
+                    "tertiary-fixed-dim": "#c6c7c1",
+                    "primary-fixed": "#b6f0c9",
+                    "error-container": "#ffdad6",
+                    "primary": "#34694b",
+                    "surface-container-lowest": "#ffffff",
+                    "on-tertiary-container": "#6a6c67",
+                    "inverse-on-surface": "#f0f0f3",
+                    "surface-container-highest": "#e2e2e5",
+                    "on-secondary-fixed": "#002112",
+                    "on-primary-fixed": "#002111",
+                    "error": "#ba1a1a",
+                    "surface-container-low": "#f3f3f6",
+                    "on-surface": "#1a1c1e",
+                    "secondary-container": "#c4e8d0",
+                    "secondary": "#456552",
+                    "on-secondary-container": "#496a56",
+                    "surface": "#f9f9fc",
+                    "on-primary": "#ffffff",
+                    "tertiary-fixed": "#e3e3dd",
+                    "secondary-fixed-dim": "#abcfb7"
+            },
+            "borderRadius": {
+                    "DEFAULT": "1rem",
+                    "lg": "2rem",
+                    "xl": "3rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "xs": "4px",
+                    "xl": "40px",
+                    "margin-mobile": "16px",
+                    "lg": "24px",
+                    "md": "16px",
+                    "unit": "4px",
+                    "sm": "8px",
+                    "gutter": "16px",
+                    "margin-tablet": "32px"
+            },
+            "fontFamily": {
+                    "label-sm": [
+                            "Inter"
+                    ],
+                    "headline-sm": [
+                            "Inter"
+                    ],
+                    "display-lg": [
+                            "Inter"
+                    ],
+                    "headline-lg": [
+                            "Inter"
+                    ],
+                    "body-md": [
+                            "Inter"
+                    ],
+                    "display-md": [
+                            "Inter"
+                    ],
+                    "label-md": [
+                            "Inter"
+                    ],
+                    "body-lg": [
+                            "Inter"
+                    ]
+            },
+            "fontSize": {
+                    "label-sm": [
+                            "12px",
+                            {
+                                    "lineHeight": "1",
+                                    "letterSpacing": "0.05em",
+                                    "fontWeight": "500"
+                            }
+                    ],
+                    "headline-sm": [
+                            "20px",
+                            {
+                                    "lineHeight": "1.4",
+                                    "letterSpacing": "0em",
+                                    "fontWeight": "500"
+                            }
+                    ],
+                    "display-lg": [
+                            "48px",
+                            {
+                                    "lineHeight": "1.1",
+                                    "letterSpacing": "-0.04em",
+                                    "fontWeight": "300"
+                            }
+                    ],
+                    "headline-lg": [
+                            "24px",
+                            {
+                                    "lineHeight": "1.3",
+                                    "letterSpacing": "-0.02em",
+                                    "fontWeight": "300"
+                            }
+                    ],
+                    "body-md": [
+                            "16px",
+                            {
+                                    "lineHeight": "1.5",
+                                    "letterSpacing": "0em",
+                                    "fontWeight": "400"
+                            }
+                    ],
+                    "display-md": [
+                            "36px",
+                            {
+                                    "lineHeight": "1.2",
+                                    "letterSpacing": "-0.03em",
+                                    "fontWeight": "300"
+                            }
+                    ],
+                    "label-md": [
+                            "14px",
+                            {
+                                    "lineHeight": "1",
+                                    "letterSpacing": "0.02em",
+                                    "fontWeight": "600"
+                            }
+                    ],
+                    "body-lg": [
+                            "18px",
+                            {
+                                    "lineHeight": "1.6",
+                                    "letterSpacing": "0em",
+                                    "fontWeight": "400"
+                            }
+                    ]
+            }
+    },
+        },
+      }
+    </script>
+</head>
+<body class="bg-background text-on-background font-body-md text-body-md h-screen w-screen overflow-hidden flex flex-col antialiased">
+<!-- TopAppBar -->
+<header class="bg-surface border-b border-outline-variant flex justify-between items-center h-16 px-margin-tablet w-full shrink-0">
+<div class="flex items-center gap-md">
+<span class="font-label-md text-label-md uppercase tracking-widest text-on-surface">Modern Merchant</span>
+</div>
+<div class="flex-1 max-w-md mx-lg hidden md:block">
+<div class="relative flex items-center w-full h-12 rounded-full border border-outline-variant bg-surface-container-lowest px-md focus-within:border-primary transition-colors">
+<span class="material-symbols-outlined text-outline mr-sm">search</span>
+<input class="flex-1 bg-transparent border-none outline-none text-on-surface placeholder:text-outline-variant font-body-md text-body-md h-full w-full focus:ring-0" placeholder="Search products, SKUs, or customers..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-sm">
+<button class="p-sm rounded-full hover:bg-surface-container-high transition-colors text-on-surface-variant h-12 w-12 flex items-center justify-center">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-sm rounded-full hover:bg-surface-container-high transition-colors text-on-surface-variant h-12 w-12 flex items-center justify-center">
+<span class="material-symbols-outlined">help</span>
+</button>
+<button class="p-sm rounded-full hover:bg-surface-container-high transition-colors text-on-surface-variant h-12 w-12 flex items-center justify-center">
+<span class="material-symbols-outlined">logout</span>
+</button>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<!-- SideNavBar -->
+<nav class="bg-background h-full w-64 border-r border-outline-variant flex flex-col py-lg px-md shrink-0 hidden md:flex">
+<div class="mb-xl px-sm">
+<h2 class="font-headline-sm text-headline-sm font-bold text-on-background">Boutique POS</h2>
+<p class="font-label-sm text-label-sm text-on-surface-variant mt-xs">Terminal 01</p>
+</div>
+<ul class="flex-1 flex flex-col gap-sm">
+<li>
+<a class="flex items-center gap-md bg-secondary-container text-on-secondary-container rounded-full px-md py-sm opacity-80 duration-150 h-12" href="#">
+<span class="material-symbols-outlined">point_of_sale</span>
+<span class="font-label-md text-label-md">Register</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-md text-on-surface-variant px-md py-sm hover:bg-surface-container-high transition-colors rounded-full h-12" href="#">
+<span class="material-symbols-outlined">receipt_long</span>
+<span class="font-label-md text-label-md">Orders</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-md text-on-surface-variant px-md py-sm hover:bg-surface-container-high transition-colors rounded-full h-12" href="#">
+<span class="material-symbols-outlined">inventory_2</span>
+<span class="font-label-md text-label-md">Inventory</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-md text-on-surface-variant px-md py-sm hover:bg-surface-container-high transition-colors rounded-full h-12" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span class="font-label-md text-label-md">Reports</span>
+</a>
+</li>
+</ul>
+<div class="mt-auto pt-lg border-t border-outline-variant">
+<a class="flex items-center gap-md text-on-surface-variant px-md py-sm hover:bg-surface-container-high transition-colors rounded-full h-12" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-md text-label-md">Settings</span>
+</a>
+</div>
+</nav>
+<!-- Main Layout Split -->
+<main class="flex flex-1 overflow-hidden bg-surface-container-low">
+<!-- Left Column: Cart (Approx 1/3) -->
+<aside class="w-full md:w-[400px] border-r border-outline-variant bg-surface-container-lowest flex flex-col shrink-0">
+<!-- Cart Header -->
+<div class="px-lg py-md border-b border-outline-variant flex justify-between items-center bg-surface shrink-0 h-16">
+<h3 class="font-label-md text-label-md uppercase tracking-wider text-on-surface">Current Order</h3>
+<button class="text-error font-label-sm text-label-sm hover:underline p-xs">Clear</button>
+</div>
+<!-- Cart Items List -->
+<div class="flex-1 overflow-y-auto p-md flex flex-col gap-sm">
+<!-- Item 1 -->
+<div class="flex items-center justify-between py-md border-b border-outline-variant/50">
+<div class="flex-1 pr-md">
+<h4 class="font-body-md text-body-md font-medium text-on-surface">Silk Cami Top</h4>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Cream • Size M</p>
+</div>
+<div class="flex items-center gap-md">
+<div class="flex items-center border border-outline-variant rounded-full h-10">
+<button class="w-10 h-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container rounded-l-full transition-colors"><span class="material-symbols-outlined text-[20px]">remove</span></button>
+<span class="font-label-md text-label-md w-8 text-center">2</span>
+<button class="w-10 h-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container rounded-r-full transition-colors"><span class="material-symbols-outlined text-[20px]">add</span></button>
+</div>
+<span class="font-body-md text-body-md font-medium w-16 text-right">$170.00</span>
+</div>
+</div>
+<!-- Item 2 -->
+<div class="flex items-center justify-between py-md border-b border-outline-variant/50">
+<div class="flex-1 pr-md">
+<h4 class="font-body-md text-body-md font-medium text-on-surface">Linen Wrap Dress</h4>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Olive • Size S</p>
+</div>
+<div class="flex items-center gap-md">
+<div class="flex items-center border border-outline-variant rounded-full h-10">
+<button class="w-10 h-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container rounded-l-full transition-colors"><span class="material-symbols-outlined text-[20px]">remove</span></button>
+<span class="font-label-md text-label-md w-8 text-center">1</span>
+<button class="w-10 h-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container rounded-r-full transition-colors"><span class="material-symbols-outlined text-[20px]">add</span></button>
+</div>
+<span class="font-body-md text-body-md font-medium w-16 text-right">$145.00</span>
+</div>
+</div>
+<!-- Item 3 -->
+<div class="flex items-center justify-between py-md border-b border-outline-variant/50">
+<div class="flex-1 pr-md">
+<h4 class="font-body-md text-body-md font-medium text-on-surface">Leather Crossbody</h4>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Tan • OS</p>
+</div>
+<div class="flex items-center gap-md">
+<div class="flex items-center border border-outline-variant rounded-full h-10">
+<button class="w-10 h-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container rounded-l-full transition-colors"><span class="material-symbols-outlined text-[20px]">remove</span></button>
+<span class="font-label-md text-label-md w-8 text-center">1</span>
+<button class="w-10 h-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container rounded-r-full transition-colors"><span class="material-symbols-outlined text-[20px]">add</span></button>
+</div>
+<span class="font-body-md text-body-md font-medium w-16 text-right">$210.00</span>
+</div>
+</div>
+</div>
+<!-- Cart Footer / Totals -->
+<div class="bg-surface p-lg border-t border-outline-variant shrink-0 flex flex-col gap-sm">
+<div class="flex justify-between items-center text-on-surface-variant">
+<span class="font-body-md text-body-md">Subtotal</span>
+<span class="font-body-md text-body-md">$525.00</span>
+</div>
+<div class="flex justify-between items-center text-on-surface-variant">
+<span class="font-body-md text-body-md">Tax (8.5%)</span>
+<span class="font-body-md text-body-md">$44.63</span>
+</div>
+<div class="flex justify-between items-center pt-sm border-t border-outline-variant/50 mt-xs text-on-surface">
+<span class="font-headline-sm text-headline-sm font-bold">Total</span>
+<span class="font-headline-sm text-headline-sm font-bold">$569.63</span>
+</div>
+<button class="mt-md w-full bg-primary-container text-on-tertiary-fixed font-label-md text-label-md uppercase tracking-wider rounded-full h-14 flex items-center justify-center hover:opacity-90 transition-opacity">
+                        Checkout
+                    </button>
+</div>
+</aside>
+<!-- Right Column: Product Grid (Approx 2/3) -->
+<section class="flex-1 flex flex-col overflow-hidden">
+<!-- Categories Bar -->
+<div class="h-16 border-b border-outline-variant bg-surface flex items-center px-lg gap-sm overflow-x-auto shrink-0 no-scrollbar">
+<button class="px-lg h-10 rounded-full bg-[#d4f9e0] text-[#002112] font-label-md text-label-md whitespace-nowrap border border-transparent transition-colors">All Products</button>
+<button class="px-lg h-10 rounded-full bg-surface-container-lowest text-on-surface border border-outline-variant hover:bg-surface-container transition-colors font-label-md text-label-md whitespace-nowrap">Tops</button>
+<button class="px-lg h-10 rounded-full bg-surface-container-lowest text-on-surface border border-outline-variant hover:bg-surface-container transition-colors font-label-md text-label-md whitespace-nowrap">Dresses</button>
+<button class="px-lg h-10 rounded-full bg-surface-container-lowest text-on-surface border border-outline-variant hover:bg-surface-container transition-colors font-label-md text-label-md whitespace-nowrap">Bottoms</button>
+<button class="px-lg h-10 rounded-full bg-surface-container-lowest text-on-surface border border-outline-variant hover:bg-surface-container transition-colors font-label-md text-label-md whitespace-nowrap">Outerwear</button>
+<button class="px-lg h-10 rounded-full bg-surface-container-lowest text-on-surface border border-outline-variant hover:bg-surface-container transition-colors font-label-md text-label-md whitespace-nowrap">Accessories</button>
+</div>
+<!-- Product Grid Scrollable Area -->
+<div class="flex-1 overflow-y-auto p-lg">
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-md">
+<!-- Product Card 1 -->
+<button class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT overflow-hidden hover:border-[#d4f9e0] hover:bg-[#fbfbf5] transition-all text-left flex flex-col h-[280px]">
+<div class="h-[180px] w-full bg-surface-variant relative overflow-hidden shrink-0">
+<img alt="Silk Cami Top" class="w-full h-full object-cover" data-alt="A meticulously styled flat lay of a delicate cream-colored silk camisole top against a stark, high-key white background. The lighting is soft and diffused, creating a premium, airy editorial look typical of high-end boutique e-commerce. The fabric drapes organically, emphasizing its smooth texture." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDhTtehuydceXZhja56mSjVCmxZ8BrvisQgmEKYHM0-hhPYSqRQ4JQvwd1Xhtmqz5813tmtijAN8TXSc9S3yP_oemal9QWEaRa4VezE3nqGo6lO1kMrnAB_EXDGjQaNuxwMW-KniM5doFXw5r4CHvKWywhHsGUrCPyDLMLxC2kf1Zc1gszPFDScrU3w1mNyCn-Qgd8F5CjwuBFe4dklTPkQHUHOLhAr_8u5E5wvI_SoAj8uABRT2dKYYn_-z6bpy5OsihPAEXMFBQeD"/>
+</div>
+<div class="p-sm flex flex-col flex-1 justify-between">
+<h5 class="font-body-md text-body-md font-medium text-on-surface line-clamp-2">Silk Cami Top</h5>
+<div class="flex justify-between items-end mt-xs">
+<span class="font-label-sm text-label-sm text-on-surface-variant">Cream</span>
+<span class="font-label-md text-label-md font-semibold">$85.00</span>
+</div>
+</div>
+</button>
+<!-- Product Card 2 -->
+<button class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT overflow-hidden hover:border-[#d4f9e0] hover:bg-[#fbfbf5] transition-all text-left flex flex-col h-[280px]">
+<div class="h-[180px] w-full bg-surface-variant relative overflow-hidden shrink-0">
+<img alt="Linen Wrap Dress" class="w-full h-full object-cover" data-alt="An elegant, minimalist photograph of an olive green linen wrap dress hanging cleanly on a thin metal hanger against a pristine white wall. The lighting is bright and natural, casting very subtle, soft shadows to create depth without clutter. The aesthetic is calm, organic, and luxurious." src="https://lh3.googleusercontent.com/aida-public/AB6AXuArfnIrV24di7FINKgqlABfci6sCBWHTkWL5AOAf9nnxq8YC5R0fR_pk4PXK0-vKZbT-jVcMeY5CVmRW10zBlVGysI4zR6ZmPGVAslgmZdm7XsU1kPt01Rc2fVx_OkDu56-vF9l-JCGXc-QHGDv1ffgLxSuMqHK8oEVExMPyfb7O0mp5c--b8NtNS7QyBLc6fURGaGbTvoop5Q5m4mGWWm6jlnQyab2rEzeKLj30MaQOzo78wN9G-oFnwNtqtTvIB7Q4K8FOxHzoqMP"/>
+</div>
+<div class="p-sm flex flex-col flex-1 justify-between">
+<h5 class="font-body-md text-body-md font-medium text-on-surface line-clamp-2">Linen Wrap Dress</h5>
+<div class="flex justify-between items-end mt-xs">
+<span class="font-label-sm text-label-sm text-on-surface-variant">Olive</span>
+<span class="font-label-md text-label-md font-semibold">$145.00</span>
+</div>
+</div>
+</button>
+<!-- Product Card 3 -->
+<button class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT overflow-hidden hover:border-[#d4f9e0] hover:bg-[#fbfbf5] transition-all text-left flex flex-col h-[280px]">
+<div class="h-[180px] w-full bg-surface-variant relative overflow-hidden shrink-0">
+<img alt="Leather Crossbody" class="w-full h-full object-cover" data-alt="A close-up, high-fashion product shot of a smooth tan leather crossbody bag resting on a pale stone surface. The background is a bright, neutral cream tone. The lighting highlights the fine grain of the leather and the minimal brass hardware, conveying a sense of quiet luxury and precise craftsmanship." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCBD_N5gttk-OqmzXCQyB2AfCCru5WE38Qh3DBIyVYckdc1GrjSaSt9VHdBh3UX-1Xo86uB-OyyBlExROYsakqu2b92sh_lna4-d1YBhpnQYVIIiNPzOjISMD7_Tc0NU-WKaGlQwRBk5j0LUB0hC0b_kYPx0vcjQ60kWQKLF6QjSI-rr-PJ4_hi_V9yWl7OyzGe64eBBGjozghb3AL9W0JUF8b47B32r7rI_S9R-Uayd00mvkkob3u_eMEnO6Mm5FTjALphgejIWU7n"/>
+</div>
+<div class="p-sm flex flex-col flex-1 justify-between">
+<h5 class="font-body-md text-body-md font-medium text-on-surface line-clamp-2">Leather Crossbody</h5>
+<div class="flex justify-between items-end mt-xs">
+<span class="font-label-sm text-label-sm text-on-surface-variant">Tan</span>
+<span class="font-label-md text-label-md font-semibold">$210.00</span>
+</div>
+</div>
+</button>
+<!-- Product Card 4 -->
+<button class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT overflow-hidden hover:border-[#d4f9e0] hover:bg-[#fbfbf5] transition-all text-left flex flex-col h-[280px]">
+<div class="h-[180px] w-full bg-surface-variant relative overflow-hidden shrink-0 flex items-center justify-center bg-[#f3f3f6]">
+<span class="material-symbols-outlined text-outline-variant text-[48px]">imagesmode</span>
+</div>
+<div class="p-sm flex flex-col flex-1 justify-between">
+<h5 class="font-body-md text-body-md font-medium text-on-surface line-clamp-2">Ribbed Knit Sweater</h5>
+<div class="flex justify-between items-end mt-xs">
+<span class="font-label-sm text-label-sm text-on-surface-variant">Charcoal</span>
+<span class="font-label-md text-label-md font-semibold">$120.00</span>
+</div>
+</div>
+</button>
+<!-- Product Card 5 -->
+<button class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT overflow-hidden hover:border-[#d4f9e0] hover:bg-[#fbfbf5] transition-all text-left flex flex-col h-[280px]">
+<div class="h-[180px] w-full bg-surface-variant relative overflow-hidden shrink-0 flex items-center justify-center bg-[#f3f3f6]">
+<span class="material-symbols-outlined text-outline-variant text-[48px]">imagesmode</span>
+</div>
+<div class="p-sm flex flex-col flex-1 justify-between">
+<h5 class="font-body-md text-body-md font-medium text-on-surface line-clamp-2">Tailored Trousers</h5>
+<div class="flex justify-between items-end mt-xs">
+<span class="font-label-sm text-label-sm text-on-surface-variant">Navy</span>
+<span class="font-label-md text-label-md font-semibold">$165.00</span>
+</div>
+</div>
+</button>
+<!-- Product Card 6 -->
+<button class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT overflow-hidden hover:border-[#d4f9e0] hover:bg-[#fbfbf5] transition-all text-left flex flex-col h-[280px]">
+<div class="h-[180px] w-full bg-surface-variant relative overflow-hidden shrink-0 flex items-center justify-center bg-[#f3f3f6]">
+<span class="material-symbols-outlined text-outline-variant text-[48px]">imagesmode</span>
+</div>
+<div class="p-sm flex flex-col flex-1 justify-between">
+<h5 class="font-body-md text-body-md font-medium text-on-surface line-clamp-2">Gold Hoop Earrings</h5>
+<div class="flex justify-between items-end mt-xs">
+<span class="font-label-sm text-label-sm text-on-surface-variant">Gold</span>
+<span class="font-label-md text-label-md font-semibold">$65.00</span>
+</div>
+</div>
+</button>
+<!-- Product Card 7 -->
+<button class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT overflow-hidden hover:border-[#d4f9e0] hover:bg-[#fbfbf5] transition-all text-left flex flex-col h-[280px] opacity-50 cursor-not-allowed">
+<div class="h-[180px] w-full bg-surface-variant relative overflow-hidden shrink-0 flex items-center justify-center bg-[#f3f3f6]">
+<span class="material-symbols-outlined text-outline-variant text-[48px]">imagesmode</span>
+<div class="absolute inset-0 bg-surface/50 flex items-center justify-center">
+<span class="bg-surface px-md py-xs rounded-full font-label-sm text-label-sm border border-outline-variant">Out of Stock</span>
+</div>
+</div>
+<div class="p-sm flex flex-col flex-1 justify-between">
+<h5 class="font-body-md text-body-md font-medium text-on-surface line-clamp-2">Cashmere Scarf</h5>
+<div class="flex justify-between items-end mt-xs">
+<span class="font-label-sm text-label-sm text-on-surface-variant">Oatmeal</span>
+<span class="font-label-md text-label-md font-semibold">$95.00</span>
+</div>
+</div>
+</button>
+</div>
+</div>
+</section>
+</main>
+</div>
+</body></html>

@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Modern Merchant - Process Refund</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "secondary-fixed-dim": "#abcfb7",
+                      "inverse-primary": "#9bd3ae",
+                      "surface-container-high": "#e8e8eb",
+                      "surface-dim": "#dadadd",
+                      "on-secondary": "#ffffff",
+                      "tertiary-fixed-dim": "#c6c7c1",
+                      "inverse-surface": "#2f3033",
+                      "on-secondary-fixed": "#002112",
+                      "on-secondary-fixed-variant": "#2d4d3b",
+                      "background": "#f9f9fc",
+                      "tertiary": "#5d5f5a",
+                      "surface-variant": "#e2e2e5",
+                      "surface-tint": "#34694b",
+                      "surface": "#f9f9fc",
+                      "secondary-fixed": "#c7ebd3",
+                      "on-tertiary": "#ffffff",
+                      "primary-fixed": "#b6f0c9",
+                      "on-tertiary-container": "#6a6c67",
+                      "on-primary-fixed-variant": "#1a5034",
+                      "tertiary-fixed": "#e3e3dd",
+                      "on-error": "#ffffff",
+                      "secondary-container": "#c4e8d0",
+                      "on-tertiary-fixed": "#1a1c19",
+                      "tertiary-container": "#eeeee8",
+                      "inverse-on-surface": "#f0f0f3",
+                      "error-container": "#ffdad6",
+                      "surface-container-lowest": "#ffffff",
+                      "on-secondary-container": "#496a56",
+                      "outline": "#717972",
+                      "on-error-container": "#93000a",
+                      "surface-container-low": "#f3f3f6",
+                      "primary-fixed-dim": "#9bd3ae",
+                      "on-surface-variant": "#414942",
+                      "error": "#ba1a1a",
+                      "surface-container": "#eeedf0",
+                      "on-primary": "#ffffff",
+                      "surface-bright": "#f9f9fc",
+                      "outline-variant": "#c0c9c0",
+                      "on-primary-fixed": "#002111",
+                      "primary": "#34694b",
+                      "on-background": "#1a1c1e",
+                      "surface-container-highest": "#e2e2e5",
+                      "primary-container": "#c1fbd4",
+                      "on-primary-container": "#417657",
+                      "on-surface": "#1a1c1e",
+                      "secondary": "#456552",
+                      "on-tertiary-fixed-variant": "#464743"
+              },
+              "borderRadius": {
+                      "DEFAULT": "1rem",
+                      "lg": "2rem",
+                      "xl": "3rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "sm": "8px",
+                      "md": "16px",
+                      "margin-mobile": "16px",
+                      "gutter": "16px",
+                      "xs": "4px",
+                      "lg": "24px",
+                      "xl": "40px",
+                      "unit": "4px",
+                      "margin-tablet": "32px"
+              },
+              "fontFamily": {
+                      "label-sm": [
+                              "Inter"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "display-md": [
+                              "Inter"
+                      ],
+                      "display-lg": [
+                              "Inter"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "headline-sm": [
+                              "Inter"
+                      ],
+                      "label-md": [
+                              "Inter"
+                      ],
+                      "headline-lg": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "label-sm": [
+                              "12px",
+                              {
+                                      "lineHeight": "1",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "1.5",
+                                      "letterSpacing": "0em",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "display-md": [
+                              "36px",
+                              {
+                                      "lineHeight": "1.2",
+                                      "letterSpacing": "-0.03em",
+                                      "fontWeight": "300"
+                              }
+                      ],
+                      "display-lg": [
+                              "48px",
+                              {
+                                      "lineHeight": "1.1",
+                                      "letterSpacing": "-0.04em",
+                                      "fontWeight": "300"
+                              }
+                      ],
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "1.6",
+                                      "letterSpacing": "0em",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-sm": [
+                              "20px",
+                              {
+                                      "lineHeight": "1.4",
+                                      "letterSpacing": "0em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "label-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "1",
+                                      "letterSpacing": "0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-lg": [
+                              "24px",
+                              {
+                                      "lineHeight": "1.3",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "300"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+    </script>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen antialiased flex">
+<!-- Nav Shell Suppressed due to Transactional/Linear Task Intent -->
+<!-- Main Content Canvas -->
+<main class="flex-1 max-w-4xl mx-auto w-full p-margin-mobile md:p-margin-tablet">
+<!-- Header -->
+<header class="flex items-center justify-between mb-xl">
+<div class="flex items-center gap-sm">
+<button class="w-12 h-12 flex items-center justify-center rounded-full border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+</button>
+<div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface">Process Refund</h1>
+<p class="font-body-md text-body-md text-on-surface-variant">Order #ORD-88321-A</p>
+</div>
+</div>
+<button class="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors">
+                Cancel
+            </button>
+</header>
+<div class="grid grid-cols-1 md:grid-cols-12 gap-lg">
+<!-- Left Column: Items to Refund -->
+<div class="md:col-span-7 flex flex-col gap-md">
+<section class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT p-lg">
+<h2 class="font-label-md text-label-md uppercase tracking-wider text-on-surface-variant mb-md pb-sm border-b border-outline-variant">Items Selected for Refund</h2>
+<ul class="flex flex-col">
+<!-- Item 1 -->
+<li class="py-md border-b border-outline-variant flex gap-md items-start last:border-b-0 last:pb-0">
+<div class="w-20 h-24 rounded-sm bg-surface-container overflow-hidden shrink-0 border border-outline-variant">
+<img alt="Ivory Silk Blouse hanging on a simple rack" class="w-full h-full object-cover" data-alt="A meticulously styled product photograph of an ivory silk blouse hanging on a minimalist brass hanger. The background is a soft, pristine cream canvas, illuminated by diffused, high-key studio lighting that highlights the luxurious sheen and fluid drape of the fabric. The composition is clean, sophisticated, and perfectly aligned with a high-end, editorial commerce aesthetic. Colors are strictly neutral with soft warm undertones, emphasizing quiet luxury." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCsF4WfNiDDSh9cVA2HHnPMZCF-qJMdO8iTiYtoZbZr9jsHNIFa-KdxnI9ScSj-gyywCY7ZAOSHBMzXTpflm9bGgrmYnWU2CIbD0J44wqiRWmu8tTvn6Dt5Siaq_CDQCfYyKa8vvdp0QhXanXSGpKsQbcFZdDP7ajHqVzVEzhiXChTVk3tkaqP5_rdM-BRdFcWyFoJPyqsmgkcIv5gB_0P6W02KWqQv4lroWVZNLcz4LCgZdwppK5fdxKXinncg00rB_XtG73UESeHu"/>
+</div>
+<div class="flex-1 flex flex-col justify-between h-full min-h-[6rem]">
+<div>
+<h3 class="font-body-lg text-body-lg text-on-surface">Ivory Silk Blouse</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">Size: M • Color: Ivory</p>
+<p class="font-label-sm text-label-sm text-outline mt-xs">SKU: BLS-IVR-M-092</p>
+</div>
+<div class="flex justify-between items-center mt-sm">
+<span class="font-body-md text-body-md text-on-surface">Qty: 1</span>
+<span class="font-body-lg text-body-lg text-on-surface">$245.00</span>
+</div>
+</div>
+</li>
+<!-- Item 2 -->
+<li class="py-md flex gap-md items-start">
+<div class="w-20 h-24 rounded-sm bg-surface-container overflow-hidden shrink-0 border border-outline-variant">
+<img alt="Tailored charcoal trousers folded neatly" class="w-full h-full object-cover" data-alt="A precise, editorial top-down shot of finely tailored charcoal grey trousers, expertly folded and placed against a smooth, light grey seamless backdrop. The lighting is soft and even, casting almost invisible, gentle shadows that emphasize the texture and quality of the wool blend fabric. The visual tone is deeply minimalist and professional, adhering strictly to a modern, quiet luxury aesthetic with no distracting elements." src="https://lh3.googleusercontent.com/aida-public/AB6AXuD0c41sMhoI8Ggmw2c-wIwDa3lD84tDT0Fh1zBT-Q63NQbGaJ7tkjiHDvM9ZX816OcRrp6im-ZMKHkVn3OFb6FRqFqgLseQULZvtMQ_E71zm_BaB9EPMWu-xxoZkcIwsGvuq4BHSF0G5gcCUZxnSivc2qE4WPsTxegvpqbnqK4T_-90I3l1kL_Dw0afZfurt31OV3ZG5zLF93A72G_HCcwwsTPWOprooRek0-INJCk50U-pd7Xlcm-GR60bdH3sYvrCFijDIE7gIvh3"/>
+</div>
+<div class="flex-1 flex flex-col justify-between h-full min-h-[6rem]">
+<div>
+<h3 class="font-body-lg text-body-lg text-on-surface">Tailored Trousers</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">Size: 32 • Color: Charcoal</p>
+<p class="font-label-sm text-label-sm text-outline mt-xs">SKU: TRS-CHA-32-114</p>
+</div>
+<div class="flex justify-between items-center mt-sm">
+<span class="font-body-md text-body-md text-on-surface">Qty: 1</span>
+<span class="font-body-lg text-body-lg text-on-surface">$185.00</span>
+</div>
+</div>
+</li>
+</ul>
+</section>
+<section class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT p-lg">
+<h2 class="font-label-md text-label-md uppercase tracking-wider text-on-surface-variant mb-md">Reason for Return</h2>
+<div class="relative">
+<select class="w-full appearance-none bg-transparent border border-outline-variant rounded-full py-md px-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-outline focus:ring-1 focus:ring-outline cursor-pointer">
+<option value="">Select a reason...</option>
+<option value="fit">Poor Fit / Incorrect Size</option>
+<option value="defective">Defective or Damaged</option>
+<option value="changed_mind">Changed Mind</option>
+<option value="not_as_described">Not as Described</option>
+</select>
+<span class="material-symbols-outlined absolute right-lg top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none" data-icon="expand_more">expand_more</span>
+</div>
+</section>
+</div>
+<!-- Right Column: Calculation & Actions -->
+<div class="md:col-span-5 flex flex-col gap-md">
+<section class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT p-lg flex flex-col h-full">
+<h2 class="font-label-md text-label-md uppercase tracking-wider text-on-surface-variant mb-md pb-sm border-b border-outline-variant">Refund Summary</h2>
+<div class="flex flex-col gap-sm mb-lg">
+<div class="flex justify-between items-center">
+<span class="font-body-md text-body-md text-on-surface-variant">Subtotal (2 Items)</span>
+<span class="font-body-md text-body-md text-on-surface">$430.00</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="font-body-md text-body-md text-on-surface-variant">Taxes (8.5%)</span>
+<span class="font-body-md text-body-md text-on-surface">$36.55</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="font-body-md text-body-md text-on-surface-variant">Original Shipping</span>
+<span class="font-body-md text-body-md text-on-surface">Non-refundable</span>
+</div>
+</div>
+<div class="flex justify-between items-end mb-xl pb-sm border-b border-outline-variant">
+<span class="font-headline-sm text-headline-sm text-on-surface">Total Refund</span>
+<span class="font-display-md text-display-md text-on-surface">$466.55</span>
+</div>
+<h3 class="font-label-md text-label-md uppercase tracking-wider text-on-surface-variant mb-md">Refund Method</h3>
+<div class="flex flex-col gap-sm mb-xl flex-1">
+<!-- Option 1 -->
+<label class="flex items-center gap-md p-md border border-outline-variant rounded-DEFAULT cursor-pointer hover:bg-surface-container-low transition-colors bg-surface-container-low ring-1 ring-outline">
+<input checked="" class="w-5 h-5 text-primary border-outline-variant focus:ring-primary accent-primary" name="refund_method" type="radio" value="original"/>
+<div class="flex-1">
+<p class="font-body-md text-body-md font-medium text-on-surface">Original Payment</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Visa ending in 4242</p>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="credit_card">credit_card</span>
+</label>
+<!-- Option 2 -->
+<label class="flex items-center gap-md p-md border border-outline-variant rounded-DEFAULT cursor-pointer hover:bg-surface-container-low transition-colors">
+<input class="w-5 h-5 text-primary border-outline-variant focus:ring-primary accent-primary" name="refund_method" type="radio" value="store_credit"/>
+<div class="flex-1">
+<p class="font-body-md text-body-md font-medium text-on-surface">Store Credit</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Issue digital gift card</p>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="card_giftcard">card_giftcard</span>
+</label>
+<!-- Option 3 -->
+<label class="flex items-center gap-md p-md border border-outline-variant rounded-DEFAULT cursor-pointer hover:bg-surface-container-low transition-colors">
+<input class="w-5 h-5 text-primary border-outline-variant focus:ring-primary accent-primary" name="refund_method" type="radio" value="cash"/>
+<div class="flex-1">
+<p class="font-body-md text-body-md font-medium text-on-surface">Cash</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Return from drawer</p>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="payments">payments</span>
+</label>
+</div>
+<!-- Actions -->
+<div class="flex flex-col gap-sm mt-auto">
+<button class="w-full h-12 bg-primary-container text-on-primary-container rounded-full font-label-md text-label-md uppercase tracking-wide flex items-center justify-center gap-sm hover:bg-primary-fixed transition-colors">
+                            Confirm Refund
+                            <span class="material-symbols-outlined text-lg" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+</section>
+</div>
+</div>
+</main>
+</body></html>

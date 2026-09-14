@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Settings - Modern Merchant</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "secondary-fixed": "#c7ebd3",
+                        "on-primary-fixed-variant": "#1a5034",
+                        "primary-container": "#c1fbd4",
+                        "secondary-fixed-dim": "#abcfb7",
+                        "surface-tint": "#34694b",
+                        "outline-variant": "#c0c9c0",
+                        "primary-fixed-dim": "#9bd3ae",
+                        "secondary-container": "#c4e8d0",
+                        "surface-container-low": "#f3f3f6",
+                        "tertiary": "#5d5f5a",
+                        "surface-variant": "#e2e2e5",
+                        "on-error": "#ffffff",
+                        "on-tertiary": "#ffffff",
+                        "outline": "#717972",
+                        "on-tertiary-fixed": "#1a1c19",
+                        "on-primary-container": "#417657",
+                        "surface-container": "#eeedf0",
+                        "secondary": "#456552",
+                        "tertiary-fixed": "#e3e3dd",
+                        "surface-container-high": "#e8e8eb",
+                        "surface-dim": "#dadadd",
+                        "error-container": "#ffdad6",
+                        "primary": "#34694b",
+                        "on-secondary-fixed": "#002112",
+                        "background": "#f9f9fc",
+                        "inverse-surface": "#2f3033",
+                        "primary-fixed": "#b6f0c9",
+                        "on-tertiary-container": "#6a6c67",
+                        "on-surface-variant": "#414942",
+                        "on-background": "#1a1c1e",
+                        "inverse-primary": "#9bd3ae",
+                        "surface": "#f9f9fc",
+                        "on-error-container": "#93000a",
+                        "surface-container-highest": "#e2e2e5",
+                        "on-primary-fixed": "#002111",
+                        "on-primary": "#ffffff",
+                        "tertiary-container": "#eeeee8",
+                        "surface-container-lowest": "#ffffff",
+                        "on-secondary-fixed-variant": "#2d4d3b",
+                        "on-tertiary-fixed-variant": "#464743",
+                        "error": "#ba1a1a",
+                        "on-surface": "#1a1c1e",
+                        "tertiary-fixed-dim": "#c6c7c1",
+                        "on-secondary": "#ffffff",
+                        "surface-bright": "#f9f9fc",
+                        "on-secondary-container": "#496a56",
+                        "inverse-on-surface": "#f0f0f3"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "1rem",
+                        "lg": "2rem",
+                        "xl": "3rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "lg": "24px",
+                        "sm": "8px",
+                        "md": "16px",
+                        "xs": "4px",
+                        "unit": "4px",
+                        "xl": "40px",
+                        "gutter": "16px",
+                        "margin-mobile": "16px",
+                        "margin-tablet": "32px"
+                    },
+                    "fontFamily": {
+                        "headline-sm": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "display-md": ["Inter"],
+                        "label-md": ["Inter"],
+                        "label-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-sm": ["20px", { "lineHeight": "1.4", "letterSpacing": "0em", "fontWeight": "500" }],
+                        "headline-lg": ["24px", { "lineHeight": "1.3", "letterSpacing": "-0.02em", "fontWeight": "300" }],
+                        "display-lg": ["48px", { "lineHeight": "1.1", "letterSpacing": "-0.04em", "fontWeight": "300" }],
+                        "body-md": ["16px", { "lineHeight": "1.5", "letterSpacing": "0em", "fontWeight": "400" }],
+                        "body-lg": ["18px", { "lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400" }],
+                        "display-md": ["36px", { "lineHeight": "1.2", "letterSpacing": "-0.03em", "fontWeight": "300" }],
+                        "label-md": ["14px", { "lineHeight": "1", "letterSpacing": "0.02em", "fontWeight": "600" }],
+                        "label-sm": ["12px", { "lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex">
+<!-- SideNavBar -->
+<aside class="h-screen w-72 flex flex-col fixed left-0 top-0 bg-background border-r border-outline-variant z-40">
+<div class="flex flex-col h-full p-gutter">
+<!-- Header -->
+<div class="mb-xl flex items-center gap-md">
+<div class="w-12 h-12 rounded-full bg-surface-container-high overflow-hidden flex-shrink-0">
+<img alt="Merchant Profile" class="w-full h-full object-cover" data-alt="A close-up, high-quality portrait of a modern retail merchant standing in a bright, minimalist boutique. The lighting is soft and natural, emphasizing a calm, professional demeanor. The color palette features light neutral tones and subtle greens, perfectly aligning with a sophisticated, light-mode POS interface style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDSoyf3T2yih8XtkE8t0Zw4-xpCDjs9zHjPXQPNnxMZRiFzX-YVwN89aGDp7MSq4_79B_fGWdjXF-IPrdCDZHZnJ0qJwB9oFPJNT2raGa-I7U1NkmXsVtN80YOOuOUd2WTJvIQBEzN_puRhw_CJodvLqy54SHOzYufV18e3ndZPJuICY4zKrmiW8eerX5-7czPUy7o8SZPaWI2AC6ZQFaw3UPZ9F-JMIbkF7eIBecbEmkeTJb1D7q8Y_X2nsvYkMvzZquk4O7vgK46j"/>
+</div>
+<div>
+<h2 class="font-headline-sm text-headline-sm font-bold text-on-surface">Modern Merchant</h2>
+<p class="font-label-md text-label-md text-on-surface-variant mt-xs">Flagship Store</p>
+</div>
+</div>
+<!-- CTA -->
+<button class="w-full bg-primary-container text-on-primary-container font-label-md text-label-md py-md rounded-full mb-xl hover:bg-secondary-container transition-colors active:scale-[0.98]">
+                New Transaction
+            </button>
+<!-- Navigation Tabs -->
+<nav class="flex-1 flex flex-col gap-xs">
+<!-- Dashboard (Inactive) -->
+<a class="flex items-center gap-md px-md py-sm text-on-surface-variant hover:bg-surface-container-low transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-label-md text-label-md">Dashboard</span>
+</a>
+<!-- Store Details (Active - mapping to Store Profile/Settings intent) -->
+<a class="flex items-center gap-md px-md py-sm bg-primary-container text-on-primary-container rounded-lg transition-all duration-200 ease-in-out active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">storefront</span>
+<span class="font-label-md text-label-md">Store Details</span>
+</a>
+<!-- Staff Accounts (Inactive) -->
+<a class="flex items-center gap-md px-md py-sm text-on-surface-variant hover:bg-surface-container-low transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined">badge</span>
+<span class="font-label-md text-label-md">Staff Accounts</span>
+</a>
+<!-- Payment Methods (Inactive) -->
+<a class="flex items-center gap-md px-md py-sm text-on-surface-variant hover:bg-surface-container-low transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined">payments</span>
+<span class="font-label-md text-label-md">Payment Methods</span>
+</a>
+<!-- Receipt Config (Inactive) -->
+<a class="flex items-center gap-md px-md py-sm text-on-surface-variant hover:bg-surface-container-low transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined">receipt</span>
+<span class="font-label-md text-label-md">Receipt Config</span>
+</a>
+</nav>
+<!-- Footer Tabs -->
+<div class="mt-auto border-t border-outline-variant pt-md flex flex-col gap-xs">
+<a class="flex items-center gap-md px-md py-sm text-on-surface-variant hover:bg-surface-container-low transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined">help_outline</span>
+<span class="font-label-md text-label-md">Support</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm text-on-surface-variant hover:bg-surface-container-low transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined">logout</span>
+<span class="font-label-md text-label-md">Sign Out</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<div class="flex-1 ml-72 flex flex-col min-h-screen">
+<!-- TopAppBar -->
+<header class="w-full h-16 sticky top-0 z-30 bg-surface border-b border-outline-variant flex justify-between items-center px-xl">
+<!-- Brand Logo / Title -->
+<div class="flex items-center gap-md">
+<span class="font-headline-sm text-headline-sm font-black text-primary">Modern Merchant</span>
+</div>
+<!-- Search (Left aligned relatively in the center space if it existed, but here we just keep it simple) -->
+<div class="flex-1 max-w-md mx-xl">
+<!-- Search bar placeholder if needed, omitted for minimalism unless requested -->
+</div>
+<!-- Trailing Actions -->
+<div class="flex items-center gap-md text-on-surface-variant font-label-md text-label-md">
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:text-primary transition-colors cursor-pointer active:opacity-80">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-full text-primary font-bold border-b-2 border-primary transition-colors cursor-pointer active:opacity-80">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">settings</span>
+</button>
+<div class="w-8 h-8 rounded-full overflow-hidden ml-sm border border-outline-variant">
+<img alt="Admin User" class="w-full h-full object-cover" data-alt="A clean, professional headshot of an administrative user, suitable for a small avatar in a light-mode dashboard. The background is a soft, solid light grey. The subject looks approachable yet professional, perfectly blending with a minimalist, high-end commerce interface." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCEHm29VPRcIJg1KcyDKtNDYTAjHl4eO_9pKkd-0c6zFlVnDMsFvDciyU8OuQU7hQg-ORrKkcPuUiHQaFIbEDAU0Wseh4Rw6mA9fPBuKsW7mHlxCQWNLK5oEmnshURkCjP7xHAOEor2fGOrbxGcI53vh18WJj3wtyQ_Wu_9cATYvklZD7cjYqmjND-EjwGPCs1VFWcuQ6OeJd-lgS_D3AypCA8keif0wA8AS1YDRcvYW2jCNsoc1bzidAdwEb2JHx1x6RzyUpmnx4ru"/>
+</div>
+</div>
+</header>
+<!-- Canvas / Main Content -->
+<main class="flex-1 p-margin-tablet max-w-7xl mx-auto w-full">
+<div class="mb-xl">
+<h1 class="font-display-md text-display-md text-on-background mb-sm">Store Settings</h1>
+<p class="font-body-md text-body-md text-on-surface-variant">Manage your flagship store's profile, staff, and hardware configurations.</p>
+</div>
+<div class="flex flex-col md:flex-row gap-xl">
+<!-- Vertical Nav (In-page categories) -->
+<nav class="w-full md:w-64 flex-shrink-0 flex flex-col gap-xs">
+<button class="text-left px-md py-sm rounded-lg bg-surface-container-low text-on-surface font-label-md text-label-md border-l-2 border-primary">
+                        Store Profile
+                    </button>
+<button class="text-left px-md py-sm rounded-lg text-on-surface-variant hover:bg-surface-container-lowest font-label-md text-label-md border-l-2 border-transparent transition-colors">
+                        Staff Accounts
+                    </button>
+<button class="text-left px-md py-sm rounded-lg text-on-surface-variant hover:bg-surface-container-lowest font-label-md text-label-md border-l-2 border-transparent transition-colors">
+                        Payment Methods
+                    </button>
+<button class="text-left px-md py-sm rounded-lg text-on-surface-variant hover:bg-surface-container-lowest font-label-md text-label-md border-l-2 border-transparent transition-colors">
+                        Receipt Config
+                    </button>
+<button class="text-left px-md py-sm rounded-lg text-on-surface-variant hover:bg-surface-container-lowest font-label-md text-label-md border-l-2 border-transparent transition-colors">
+                        Hardware
+                    </button>
+</nav>
+<!-- Settings Canvas Area (Bento-style grids) -->
+<div class="flex-1 grid grid-cols-1 gap-lg">
+<!-- Store Profile Section (Active) -->
+<section class="bg-surface rounded-DEFAULT border border-outline-variant p-lg flex flex-col gap-lg">
+<div class="flex items-center justify-between border-b border-outline-variant pb-md">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Store Profile</h3>
+<button class="px-md py-xs rounded-full border border-outline-variant text-on-surface font-label-md text-label-md hover:bg-surface-container-low transition-colors">
+                                Edit
+                            </button>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-lg">
+<div class="flex flex-col gap-xs">
+<label class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Business Name</label>
+<div class="px-md py-sm border border-outline-variant rounded-full bg-surface-bright font-body-md text-body-md text-on-surface h-12 flex items-center">
+                                    Modern Merchant Flagship
+                                </div>
+</div>
+<div class="flex flex-col gap-xs">
+<label class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Contact Email</label>
+<div class="px-md py-sm border border-outline-variant rounded-full bg-surface-bright font-body-md text-body-md text-on-surface h-12 flex items-center">
+                                    hello@modernmerchant.com
+                                </div>
+</div>
+<div class="flex flex-col gap-xs md:col-span-2">
+<label class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Store Location</label>
+<div class="px-md py-sm border border-outline-variant rounded-[1.5rem] bg-surface-bright font-body-md text-body-md text-on-surface min-h-[48px] flex items-center">
+                                    123 Commerce Avenue, Suite 100, Retail District, NY 10001
+                                </div>
+</div>
+</div>
+</section>
+<!-- Quick Stats / Status (Bento element) -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-lg">
+<div class="bg-surface rounded-DEFAULT border border-outline-variant p-md flex flex-col gap-sm justify-center items-center text-center">
+<span class="material-symbols-outlined text-primary text-display-md">storefront</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase">Status</span>
+<span class="font-headline-sm text-headline-sm text-on-surface inline-flex items-center gap-xs">
+<span class="w-2 h-2 rounded-full bg-primary-container border border-primary"></span> Open
+                            </span>
+</div>
+<div class="bg-surface rounded-DEFAULT border border-outline-variant p-md flex flex-col gap-sm justify-center items-center text-center">
+<span class="material-symbols-outlined text-on-surface-variant text-display-md">badge</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase">Active Staff</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">12 Members</span>
+</div>
+<div class="bg-surface rounded-DEFAULT border border-outline-variant p-md flex flex-col gap-sm justify-center items-center text-center">
+<span class="material-symbols-outlined text-on-surface-variant text-display-md">print</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase">Hardware</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">All Online</span>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

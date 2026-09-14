@@ -1,0 +1,152 @@
+{
+  "name": "projects/16456017047316932851",
+  "projectId": "16456017047316932851",
+  "title": "Fashion POS — Sri Lanka",
+  "visibility": "PRIVATE",
+  "projectType": "PROJECT_DESIGN",
+  "origin": "STITCH",
+  "deviceType": "DESKTOP",
+  "stitchWebUrl": "https://stitch.withgoogle.com/app/projects/16456017047316932851",
+  "designSystem": {
+    "assetId": "1f254f3beef74f48bb56b84704f15d18",
+    "name": "Luminous Commerce",
+    "extractedFrom": "Shopify cream/mint transactional track (.stitch/DESIGN.md)",
+    "primaryColor": "#c1fbd4",
+    "canvasColor": "#fbfbf5",
+    "pistachioAccent": "#d4f9e0",
+    "font": "Inter",
+    "roundness": "ROUND_FULL"
+  },
+  "deliveryStatus": {
+    "round1": "7/7 visual coverage (6 with HTML+PNG, 1 PNG-only — Till screen)",
+    "round2": "4/8 with HTML+PNG (customer attach, returns lookup, inventory list, settings)",
+    "total": "11/15 screens with full visual coverage, plus 1 PNG-only Till",
+    "gap": "4 screens (return-item-select, product detail, customer list, customer detail) consistently timed out on Stitch's MCP boundary — all share two-column-with-sidebar-or-tabs layout pattern. Retry via web UI or hand-code from prompts in screen-prompts.md."
+  },
+  "screens": {
+    "01-sign-in": {
+      "id": "5eec3ae4f75b4d06b127a7367d331917",
+      "sourceScreen": "projects/16456017047316932851/screens/5eec3ae4f75b4d06b127a7367d331917",
+      "title": "Cashier Sign-In - Acme Boutique",
+      "width": 2560,
+      "height": 2048,
+      "files": ["01-sign-in.html", "01-sign-in.png"],
+      "status": "complete"
+    },
+    "02-open-shift": {
+      "id": "83bcc342c28a477bb98111436e9844fa",
+      "sourceScreen": "projects/16456017047316932851/screens/83bcc342c28a477bb98111436e9844fa",
+      "title": "Open Shift - Acme Boutique",
+      "width": 2560,
+      "height": 2048,
+      "files": ["02-open-shift.html", "02-open-shift.png"],
+      "status": "complete"
+    },
+    "03-till-sale-mode": {
+      "id": null,
+      "sourceScreen": null,
+      "title": "Cashier Till — Sale Mode",
+      "width": 2560,
+      "height": 2048,
+      "files": ["03-till-sale-mode.png"],
+      "status": "png-only",
+      "note": "Stitch consistently timed out on the dense split-pane+grid layout (5+ attempts). Beautiful render preserved from the first cached server-side render. HTML to be hand-coded from PNG in the React conversion phase, or regenerated via Stitch web UI."
+    },
+    "04-customer-attach": {
+      "id": "5db36a84162441b3bf8dd543b1b7df07",
+      "sourceScreen": "projects/16456017047316932851/screens/5db36a84162441b3bf8dd543b1b7df07",
+      "title": "Attach Customer Modal - Luminous Commerce",
+      "width": 2560,
+      "height": 2048,
+      "files": ["04-customer-attach.html", "04-customer-attach.png"],
+      "status": "complete"
+    },
+    "05-payment": {
+      "id": "8ccaa7ed880a4cf48cbeb1c54f83d3f4",
+      "sourceScreen": "projects/16456017047316932851/screens/8ccaa7ed880a4cf48cbeb1c54f83d3f4",
+      "title": "Payment Screen - Luminous Commerce",
+      "width": 2560,
+      "height": 2048,
+      "files": ["05-payment.html", "05-payment.png"],
+      "status": "complete"
+    },
+    "06-sale-complete": {
+      "id": "ae303d8db73340739201ea6cf0160f41",
+      "sourceScreen": "projects/16456017047316932851/screens/ae303d8db73340739201ea6cf0160f41",
+      "title": "Sale Complete - Acme Boutique",
+      "width": 2560,
+      "height": 2048,
+      "files": ["06-sale-complete.html", "06-sale-complete.png"],
+      "status": "complete"
+    },
+    "07-returns-lookup": {
+      "id": "381140e90233476d8e5a50060662b3c3",
+      "sourceScreen": "projects/16456017047316932851/screens/381140e90233476d8e5a50060662b3c3",
+      "title": "Returns Lookup - Acme Boutique",
+      "width": 2560,
+      "height": 2048,
+      "files": ["07-returns-lookup.html", "07-returns-lookup.png"],
+      "status": "complete"
+    },
+    "08-return-item-select": {
+      "id": null,
+      "title": "Return Item Select",
+      "status": "pending",
+      "note": "Timed out 4× on two-column refund layout. Retry via Stitch web UI or hand-code from screen-prompts.md."
+    },
+    "09-close-shift": {
+      "id": "c0ba9b4a01224dd9a8caabef100d3e35",
+      "sourceScreen": "projects/16456017047316932851/screens/c0ba9b4a01224dd9a8caabef100d3e35",
+      "title": "Close Shift Z-Report - Asha",
+      "width": 2560,
+      "height": 2434,
+      "files": ["09-close-shift.html", "09-close-shift.png"],
+      "status": "complete"
+    },
+    "10-admin-dashboard": {
+      "id": "cac63c4d2bc74a9890c8955deed7ac4c",
+      "sourceScreen": "projects/16456017047316932851/screens/cac63c4d2bc74a9890c8955deed7ac4c",
+      "title": "Owner Admin Dashboard - Luminous Commerce",
+      "width": 2560,
+      "height": 2544,
+      "files": ["10-admin-dashboard.html", "10-admin-dashboard.png"],
+      "status": "complete"
+    },
+    "11-inventory-list": {
+      "id": "49ca6c2d50824e91bc31f35dc14a5667",
+      "sourceScreen": "projects/16456017047316932851/screens/49ca6c2d50824e91bc31f35dc14a5667",
+      "title": "Inventory Management - Luminous Commerce",
+      "width": 2560,
+      "height": 2048,
+      "files": ["11-inventory-list.html", "11-inventory-list.png"],
+      "status": "complete"
+    },
+    "12-product-detail": {
+      "id": null,
+      "title": "Product Detail / Edit",
+      "status": "pending",
+      "note": "Timed out 3× on two-column form-with-variants-matrix layout. Retry via Stitch web UI or hand-code from screen-prompts.md."
+    },
+    "13-customer-list": {
+      "id": null,
+      "title": "Customer List",
+      "status": "pending",
+      "note": "Timed out 3× on data-table layout. Retry via Stitch web UI or hand-code from screen-prompts.md."
+    },
+    "14-customer-detail": {
+      "id": null,
+      "title": "Customer Detail",
+      "status": "pending",
+      "note": "Timed out 2× on header-card + tabs layout. Retry via Stitch web UI or hand-code from screen-prompts.md."
+    },
+    "15-settings": {
+      "id": "e94b6180ab8541c3ae799efaeff5fec2",
+      "sourceScreen": "projects/16456017047316932851/screens/e94b6180ab8541c3ae799efaeff5fec2",
+      "title": "Settings - Luminous Commerce",
+      "width": 2560,
+      "height": 2048,
+      "files": ["15-settings.html", "15-settings.png"],
+      "status": "complete"
+    }
+  }
+}

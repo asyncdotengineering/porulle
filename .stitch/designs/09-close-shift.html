@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<title>Close Shift - LUMIÈRE POS</title>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "primary-fixed": "#b6f0c9",
+                    "tertiary": "#6a5d42",
+                    "surface-container-lowest": "#ffffff",
+                    "surface-container-low": "#f4f4ee",
+                    "primary-fixed-dim": "#9bd3ae",
+                    "on-error-container": "#93000a",
+                    "on-secondary-fixed": "#002112",
+                    "on-primary-fixed": "#002111",
+                    "primary": "#34694b",
+                    "on-primary-fixed-variant": "#1a5034",
+                    "on-primary": "#ffffff",
+                    "surface-variant": "#e3e3dd",
+                    "on-tertiary-fixed-variant": "#52452d",
+                    "on-background": "#1a1c19",
+                    "secondary-container": "#c4e8d0",
+                    "outline-variant": "#c0c9c0",
+                    "inverse-primary": "#9bd3ae",
+                    "surface-bright": "#fafaf4",
+                    "on-tertiary": "#ffffff",
+                    "inverse-on-surface": "#f1f1eb",
+                    "surface-dim": "#dadad5",
+                    "on-tertiary-container": "#78694e",
+                    "on-surface-variant": "#414942",
+                    "on-secondary-container": "#496a56",
+                    "on-secondary-fixed-variant": "#2d4d3b",
+                    "background": "#fafaf4",
+                    "on-error": "#ffffff",
+                    "tertiary-fixed-dim": "#d7c4a4",
+                    "surface": "#fafaf4",
+                    "on-secondary": "#ffffff",
+                    "on-tertiary-fixed": "#241a06",
+                    "inverse-surface": "#2f312d",
+                    "tertiary-container": "#ffebc9",
+                    "surface-container-highest": "#e3e3dd",
+                    "secondary-fixed": "#c7ebd3",
+                    "error-container": "#ffdad6",
+                    "secondary-fixed-dim": "#abcfb7",
+                    "error": "#ba1a1a",
+                    "on-primary-container": "#417657",
+                    "surface-tint": "#34694b",
+                    "tertiary-fixed": "#f4e0bf",
+                    "secondary": "#456552",
+                    "primary-container": "#c1fbd4",
+                    "on-surface": "#1a1c19",
+                    "surface-container-high": "#e8e8e3",
+                    "surface-container": "#eeeee8",
+                    "outline": "#717972"
+            },
+            "borderRadius": {
+                    "DEFAULT": "1rem",
+                    "lg": "2rem",
+                    "xl": "3rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "hit-target": "44px",
+                    "unit": "4px",
+                    "gutter": "16px",
+                    "margin-desktop": "64px",
+                    "margin-mobile": "20px"
+            },
+            "fontFamily": {
+                    "body-lg": ["Inter"],
+                    "label-caps": ["Inter"],
+                    "headline-md": ["Inter"],
+                    "body-sm": ["Inter"],
+                    "display-lg-mobile": ["Inter"],
+                    "display-lg": ["Inter"]
+            },
+            "fontSize": {
+                    "body-lg": ["16px", {"lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400"}],
+                    "label-caps": ["12px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "headline-md": ["24px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "400"}],
+                    "body-sm": ["14px", {"lineHeight": "1.5", "letterSpacing": "0em", "fontWeight": "400"}],
+                    "display-lg-mobile": ["36px", {"lineHeight": "1.1", "letterSpacing": "-0.03em", "fontWeight": "300"}],
+                    "display-lg": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.04em", "fontWeight": "300"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            background-color: #fafaf4;
+            color: #1a1c19;
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-background min-h-screen pb-32">
+<!-- TopNavBar -->
+<header class="fixed top-0 w-full z-50 flex justify-between items-center px-margin-desktop h-hit-target bg-surface border-b border-outline-variant">
+<div class="flex items-center gap-4">
+<span class="font-headline-md text-headline-md font-bold text-on-surface">LUMIÈRE POS</span>
+</div>
+<div class="flex items-center gap-gutter">
+<div class="relative hidden md:flex items-center">
+<input class="bg-surface-container-low border-none rounded-full h-10 px-4 text-body-sm focus:ring-1 focus:ring-primary w-64" placeholder="Search" type="text"/>
+<span class="material-symbols-outlined absolute right-3 text-on-surface-variant">search</span>
+</div>
+<div class="flex items-center gap-4">
+<button class="hover:bg-surface-container-low transition-colors p-2 rounded-full">
+<span class="material-symbols-outlined text-on-surface-variant">notifications</span>
+</button>
+<button class="hover:bg-surface-container-low transition-colors p-2 rounded-full">
+<span class="material-symbols-outlined text-on-surface-variant">settings</span>
+</button>
+<div class="flex items-center gap-3 pl-2 border-l border-outline-variant">
+<div class="text-right">
+<p class="font-label-caps text-label-caps text-on-surface">Asha</p>
+<p class="text-[10px] text-on-surface-variant">Cashier</p>
+</div>
+<img alt="Cashier Profile" class="w-8 h-8 rounded-full border border-outline-variant" data-alt="A professional headshot of a female cashier named Asha in a modern retail environment. She has a warm, professional expression and is wearing a neat, dark-colored uniform. The lighting is soft and natural, reflecting a high-end light-mode store aesthetic with soft cream and mint tones in the background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDw-nIRveCnMLuEOQDHH0jWUj-XcGWsUkwKp6KY0tOMO-fWat5rtmYSl7813476yfURxvp2ua0I9JqNKoNXGYOaa-MeyaDxxg2V-CiAJ6086hD-ji9xRsGsArRCTvueP1HGZOi5ChIAgeQoh6liR6Ti5Cn6Fp6FdZF2mk2o0HxpFIYieXNWy6WtDuUZ3xG6Xem84VA8aMdYRvXABCy-EUdb1ZYoeh5ix1vbC90UY3bXaot1aXhwyyFf1qF1VDJ1pdJv3mO7f1DiRSi_"/>
+</div>
+</div>
+</div>
+</header>
+<main class="max-w-[1280px] mx-auto pt-32 px-margin-desktop">
+<!-- Page Title -->
+<div class="mb-12">
+<h1 class="font-display-lg text-display-lg text-on-background">Close shift</h1>
+<p class="text-body-lg text-on-surface-variant mt-2">End of day Z-Report for terminal 04</p>
+</div>
+<!-- Shift Summary Card -->
+<section class="mb-gutter">
+<div class="bg-surface-container-lowest border border-outline-variant p-8 rounded-lg shadow-sm">
+<div class="grid grid-cols-1 md:grid-cols-4 gap-8">
+<div>
+<p class="font-label-caps text-label-caps text-on-surface-variant mb-1">CASHIER</p>
+<p class="font-headline-md text-headline-md font-bold">Asha</p>
+</div>
+<div>
+<p class="font-label-caps text-label-caps text-on-surface-variant mb-1">SHIFT DURATION</p>
+<p class="font-headline-md text-headline-md">08:00 AM – 04:30 PM</p>
+</div>
+<div>
+<p class="font-label-caps text-label-caps text-on-surface-variant mb-1">TRANSACTIONS</p>
+<p class="font-headline-md text-headline-md">42</p>
+</div>
+<div class="md:text-right">
+<p class="font-label-caps text-label-caps text-on-surface-variant mb-1">TOTAL REVENUE</p>
+<p class="font-display-lg text-display-lg text-primary font-bold">LKR 84,200</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Body Columns -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+<!-- Left Column: Cash Reconciliation -->
+<div class="lg:col-span-7">
+<div class="bg-surface-container-lowest border border-outline-variant p-8 rounded-lg h-full">
+<h2 class="font-headline-md text-headline-md mb-8">Cash Reconciliation</h2>
+<div class="space-y-6">
+<div class="flex justify-between items-center py-4 border-b border-outline-variant">
+<span class="text-body-lg text-on-surface-variant">Starting cash</span>
+<span class="font-body-lg font-bold">LKR 10,000</span>
+</div>
+<div class="flex justify-between items-center py-4 border-b border-outline-variant">
+<span class="text-body-lg text-on-surface-variant">Cash sales</span>
+<span class="font-body-lg font-bold">LKR 32,500</span>
+</div>
+<div class="flex justify-between items-center py-4 border-b border-outline-variant">
+<span class="text-body-lg font-bold">Expected in drawer</span>
+<span class="font-headline-md text-headline-md font-bold">LKR 42,500</span>
+</div>
+<div class="pt-4">
+<label class="font-label-caps text-label-caps text-on-surface-variant block mb-4">DECLARED CASH AMOUNT</label>
+<div class="flex items-center gap-4">
+<button class="w-hit-target h-hit-target flex items-center justify-center border border-outline-variant rounded-full hover:bg-surface-container-low active:scale-95 transition-all">
+<span class="material-symbols-outlined">remove</span>
+</button>
+<div class="relative flex-1">
+<span class="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant text-body-lg">LKR</span>
+<input class="w-full h-hit-target pl-14 pr-4 bg-surface-container-low border-b border-on-background focus:ring-0 focus:border-on-background font-headline-md text-headline-md" type="text" value="42,500"/>
+</div>
+<button class="w-hit-target h-hit-target flex items-center justify-center border border-outline-variant rounded-full hover:bg-surface-container-low active:scale-95 transition-all">
+<span class="material-symbols-outlined">add</span>
+</button>
+</div>
+</div>
+<div class="mt-8 p-4 bg-primary-container rounded-lg flex justify-between items-center">
+<span class="font-label-caps text-label-caps text-on-primary-container">VARIANCE</span>
+<span class="font-headline-md text-headline-md font-bold text-on-primary-container">LKR 0.00</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Payment Breakdown -->
+<div class="lg:col-span-5">
+<div class="bg-surface-container-lowest border border-outline-variant p-8 rounded-lg h-full">
+<h2 class="font-headline-md text-headline-md mb-8">Payment Breakdown</h2>
+<div class="space-y-4">
+<div class="flex items-center justify-between p-4 bg-surface-bright border border-outline-variant rounded-lg">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">payments</span>
+<span class="text-body-lg font-bold">Cash</span>
+</div>
+<span class="font-body-lg">LKR 32,500</span>
+</div>
+<div class="flex items-center justify-between p-4 bg-surface-bright border border-outline-variant rounded-lg">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">credit_card</span>
+<span class="text-body-lg font-bold">Card</span>
+</div>
+<span class="font-body-lg">LKR 45,700</span>
+</div>
+<div class="flex items-center justify-between p-4 bg-surface-bright border border-outline-variant rounded-lg">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">call_split</span>
+<span class="text-body-lg font-bold">Split</span>
+</div>
+<span class="font-body-lg">LKR 6,000</span>
+</div>
+<div class="pt-8 border-t border-outline-variant mt-8">
+<div class="flex items-center justify-between">
+<span class="font-headline-md text-headline-md font-bold">Total</span>
+<span class="font-headline-md text-headline-md font-bold text-primary">LKR 84,200</span>
+</div>
+</div>
+</div>
+<div class="mt-12">
+<img alt="Retail Statistics" class="w-full h-40 object-cover rounded-lg opacity-80" data-alt="An abstract, high-angle close-up of a sleek digital point of sale terminal displaying colorful sales charts. The environment is a brightly lit, high-end boutique with creamy white textures and soft mint green accents in the decor. The focus is sharp on the data visualization, conveying a sense of transactional clarity and premium retail efficiency." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDJD9VPw4CzOZqjKjK-RBpXFxidwFHveSJuBCugv6ofNFaGQXZBWtM1w0tOGsAVgCcEDN17sevhdPgRBh8TaQoejhwEMkSyXauG17HTsbjnEcYXdsrqDt4684JXxvoAi3KAvh5wW00CQVd9O3Ymv7aKAef-1KlWQDe2j-t7ie5LsnD4bnnQiGYNYZ5EPHgfRrat6yKh42OVrev_n5paVchJcdrGJadvtXh0azvfQEVssJlfEVE8cK7PhUR6mz0ooEYTuZt0FNo7kpaU"/>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Bottom Action Bar (Z-Report Close Button) -->
+<div class="fixed bottom-0 left-0 w-full z-50 flex justify-end items-center px-margin-desktop py-6 gap-gutter bg-surface border-t border-outline-variant">
+<button class="text-on-surface-variant flex items-center gap-2 px-8 py-3 hover:bg-surface-container-low transition-all rounded-full">
+<span class="material-symbols-outlined">save</span>
+<span class="font-label-caps text-label-caps">Save Draft</span>
+</button>
+<button class="bg-primary text-on-primary rounded-full px-12 py-4 flex items-center gap-3 shadow-sm hover:opacity-90 active:scale-95 transition-all">
+<span class="material-symbols-outlined">print</span>
+<span class="font-label-caps text-label-caps font-bold">Close Shift &amp; Print Z-Report</span>
+</button>
+</div>
+</body></html>

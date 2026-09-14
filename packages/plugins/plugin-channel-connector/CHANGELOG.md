@@ -1,5 +1,32 @@
 # @porulle/plugin-channel-connector
 
+## 0.29.0
+
+### Minor Changes
+
+- Finish a catalog in one import sweep instead of roughly thirty products of it.
+
+  `channel/import-catalog` imported about thirty products and then died: on a
+  Cloudflare Worker every query on the job path is its own HTTPS subrequest —
+  roughly 320 per imported product — so an unbounded import exhausts the
+  per-invocation subrequest cap and fails on whichever query comes next.
+
+  `importCatalog` now takes `options: { maxItems }` and reports `exhausted`. It is
+  overloaded, so the unbounded signature is unchanged and carries no `exhausted`,
+  and every existing caller is untouched. The resume position is carried in
+  `connectedStores.catalogCursor` as `{ pageCursor, offset }`, because a connector
+  may return a whole catalog in one page and a cursor that can only name a page
+  cannot resume inside one; a legacy bare cursor still parses. Resumption skips in
+  memory before anything is converged, so a batch's cost does not grow with the
+  catalog behind it. The task enqueues its own continuation until the catalog is
+  exhausted, and a bounded invocation succeeds rather than erroring, so a real
+  failure stays distinguishable from normal progress.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.29.0
+
 ## 0.28.0
 
 ### Minor Changes

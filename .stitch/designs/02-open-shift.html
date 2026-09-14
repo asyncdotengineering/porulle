@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+                  "tertiary": "#6a5d42",
+                  "on-tertiary": "#ffffff",
+                  "on-secondary-fixed-variant": "#2d4d3b",
+                  "error-container": "#ffdad6",
+                  "on-surface": "#1a1c19",
+                  "on-secondary-container": "#496a56",
+                  "outline": "#717972",
+                  "surface-bright": "#fafaf4",
+                  "primary-fixed-dim": "#9bd3ae",
+                  "on-primary-container": "#417657",
+                  "primary-fixed": "#b6f0c9",
+                  "primary-container": "#c1fbd4",
+                  "surface-dim": "#dadad5",
+                  "outline-variant": "#c0c9c0",
+                  "tertiary-container": "#ffebc9",
+                  "on-tertiary-fixed": "#241a06",
+                  "secondary-fixed-dim": "#abcfb7",
+                  "secondary": "#456552",
+                  "on-error-container": "#93000a",
+                  "surface-tint": "#34694b",
+                  "surface-container-low": "#f4f4ee",
+                  "on-secondary-fixed": "#002112",
+                  "surface-container-highest": "#e3e3dd",
+                  "surface-container-high": "#e8e8e3",
+                  "inverse-primary": "#9bd3ae",
+                  "on-secondary": "#ffffff",
+                  "inverse-surface": "#2f312d",
+                  "surface": "#fafaf4",
+                  "tertiary-fixed": "#f4e0bf",
+                  "surface-variant": "#e3e3dd",
+                  "primary": "#34694b",
+                  "on-background": "#1a1c19",
+                  "on-tertiary-container": "#78694e",
+                  "background": "#fafaf4",
+                  "on-primary-fixed-variant": "#1a5034",
+                  "error": "#ba1a1a",
+                  "secondary-fixed": "#c7ebd3",
+                  "on-tertiary-fixed-variant": "#52452d",
+                  "secondary-container": "#c4e8d0",
+                  "on-primary": "#ffffff",
+                  "surface-container-lowest": "#ffffff",
+                  "tertiary-fixed-dim": "#d7c4a4",
+                  "inverse-on-surface": "#f1f1eb",
+                  "on-surface-variant": "#414942",
+                  "surface-container": "#eeeee8",
+                  "on-primary-fixed": "#002111",
+                  "on-error": "#ffffff"
+          },
+          "borderRadius": {
+                  "DEFAULT": "1rem",
+                  "lg": "2rem",
+                  "xl": "3rem",
+                  "full": "9999px"
+          },
+          "spacing": {
+                  "margin-mobile": "20px",
+                  "unit": "4px",
+                  "margin-desktop": "64px",
+                  "gutter": "16px",
+                  "hit-target": "44px"
+          },
+          "fontFamily": {
+                  "display-lg-mobile": ["Inter"],
+                  "body-lg": ["Inter"],
+                  "body-sm": ["Inter"],
+                  "label-caps": ["Inter"],
+                  "headline-md": ["Inter"],
+                  "display-lg": ["Inter"]
+          },
+          "fontSize": {
+                  "display-lg-mobile": ["36px", {"lineHeight": "1.1", "letterSpacing": "-0.03em", "fontWeight": "300"}],
+                  "body-lg": ["16px", {"lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400"}],
+                  "body-sm": ["14px", {"lineHeight": "1.5", "letterSpacing": "0em", "fontWeight": "400"}],
+                  "label-caps": ["12px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                  "headline-md": ["24px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "400"}],
+                  "display-lg": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.04em", "fontWeight": "300"}]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+    body {
+      background-color: #fafaf4;
+    }
+  </style>
+</head>
+<body class="min-h-screen text-on-surface">
+<!-- TopNavBar Implementation -->
+<nav class="flex justify-between items-center w-full px-margin-mobile md:px-margin-desktop h-[72px] bg-surface border-b border-outline-variant fixed top-0 left-0 z-50">
+<div class="flex items-center gap-4">
+<span class="text-headline-md font-headline-md tracking-tight text-on-surface">Acme Boutique</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-3 pr-4 border-r border-outline-variant">
+<div class="w-8 h-8 rounded-full overflow-hidden bg-surface-container-high">
+<img alt="Asha" class="w-full h-full object-cover" data-alt="A professional headshot of a boutique manager named Asha. She has a warm, friendly expression and is set against a clean, minimalist studio background with soft, high-key lighting. The overall aesthetic is modern and sophisticated, utilizing a palette of soft creams and muted tones to match a premium retail environment." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDHjWbAFqoS3aZLU4ee3UIMklDJNxfw4sQCqL-drdio51ThOGxmFtJCMH_2lYhn4hxdmkiBAf9DtCrod1aWTbGsPCzvCFQNUec77LCitse3CVILc7JPFPF6W-BgAy1GH8I6ZA-dWlzFcuj3GEnnpMgBckKJsmjKRyTeOFE2GL2T34ouWEmQK-5trImACJi8XJ7ghXtwlKIKzS-IquhbGAtWqh_2GRDaYIwEab0cWhg6QsdKUIzT0NxtOqumfL2MKehWRp-81v41XLyI"/>
+</div>
+<span class="text-label-caps font-label-caps text-on-surface-variant">Asha</span>
+</div>
+<div class="flex items-center gap-2">
+<button class="w-hit-target h-hit-target flex items-center justify-center hover:bg-surface-container-high rounded-full transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="dark_mode">dark_mode</span>
+</button>
+<button class="w-hit-target h-hit-target flex items-center justify-center hover:bg-surface-container-high rounded-full transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="logout">logout</span>
+</button>
+</div>
+</div>
+</nav>
+<!-- Main Content Canvas -->
+<main class="pt-[72px] min-h-screen flex items-center justify-center px-margin-mobile md:px-margin-desktop">
+<!-- Open Till Card -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-lg p-8 md:p-12 max-w-xl w-full flex flex-col items-center text-center">
+<!-- Icon Indicator -->
+<div class="mb-6 w-16 h-16 bg-primary-container text-on-primary-container rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-[32px]" data-icon="point_of_sale">point_of_sale</span>
+</div>
+<!-- Typography Header -->
+<h1 class="text-display-lg-mobile md:text-display-lg font-display-lg mb-4 text-on-surface">Open till for today's shift</h1>
+<p class="text-body-lg font-body-lg text-on-surface-variant mb-10">Count the cash drawer and declare the starting amount in LKR</p>
+<!-- Numeric Input Section -->
+<div class="w-full mb-8">
+<label class="text-label-caps font-label-caps text-on-surface-variant mb-2 block text-left">Starting cash (LKR)</label>
+<div class="flex items-center bg-surface-container border-b-2 border-on-surface h-[64px] px-4">
+<button class="w-hit-target h-hit-target flex items-center justify-center hover:bg-surface-container-high rounded-full transition-all">
+<span class="material-symbols-outlined text-primary" data-icon="remove">remove</span>
+</button>
+<input class="flex-1 bg-transparent border-none text-center text-headline-md font-headline-md focus:ring-0 focus:outline-none" readonly="" type="text" value="0.00"/>
+<button class="w-hit-target h-hit-target flex items-center justify-center hover:bg-surface-container-high rounded-full transition-all">
+<span class="material-symbols-outlined text-primary" data-icon="add">add</span>
+</button>
+</div>
+</div>
+<!-- Quick Add Chips -->
+<div class="flex flex-wrap justify-center gap-3 mb-8">
+<button class="px-6 py-2 border border-outline-variant rounded-full text-label-caps font-label-caps text-on-surface hover:bg-surface-container-high transition-all active:scale-95">LKR 5,000</button>
+<button class="px-6 py-2 border border-outline-variant rounded-full text-label-caps font-label-caps text-on-surface hover:bg-surface-container-high transition-all active:scale-95">LKR 10,000</button>
+<button class="px-6 py-2 border border-outline-variant rounded-full text-label-caps font-label-caps text-on-surface hover:bg-surface-container-high transition-all active:scale-95">LKR 20,000</button>
+<button class="px-6 py-2 border border-outline-variant rounded-full text-label-caps font-label-caps text-on-surface hover:bg-surface-container-high transition-all active:scale-95">LKR 50,000</button>
+</div>
+<!-- Helper Text -->
+<div class="flex items-center gap-2 mb-10 text-on-surface-variant">
+<span class="material-symbols-outlined text-body-sm" data-icon="info">info</span>
+<span class="text-body-sm font-body-sm italic">Float will be reconciled at shift close.</span>
+</div>
+<!-- Action Cluster -->
+<div class="w-full flex flex-col gap-4">
+<button class="w-full h-hit-target bg-primary-container text-on-primary-fixed-variant font-bold rounded-full text-body-lg flex items-center justify-center hover:bg-primary transition-all hover:text-on-primary active:scale-95">
+          Open Till
+        </button>
+<button class="w-full h-hit-target border border-outline-variant text-on-surface-variant font-bold rounded-full text-body-lg flex items-center justify-center hover:bg-surface-container-low transition-all active:scale-95">
+          Cancel
+        </button>
+</div>
+</div>
+</main>
+<!-- Optional SideNav (Contextual Check: Not rendered as this is a focused transactional screen) -->
+</body></html>

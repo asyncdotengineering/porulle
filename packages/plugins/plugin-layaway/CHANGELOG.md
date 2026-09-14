@@ -1,5 +1,12 @@
 # @porulle/plugin-layaway
 
+## 0.29.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.29.0
+
 ## 0.28.0
 
 ### Patch Changes

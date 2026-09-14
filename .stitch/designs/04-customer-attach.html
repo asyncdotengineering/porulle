@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed": "#b6f0c9",
+                        "on-primary": "#ffffff",
+                        "secondary": "#456552",
+                        "primary": "#34694b",
+                        "on-secondary": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "surface-bright": "#fafaf4",
+                        "on-primary-fixed": "#002111",
+                        "inverse-on-surface": "#f1f1eb",
+                        "on-secondary-container": "#496a56",
+                        "inverse-surface": "#2f312d",
+                        "on-background": "#1a1c19",
+                        "surface-container-low": "#f4f4ee",
+                        "secondary-fixed": "#c7ebd3",
+                        "on-tertiary": "#ffffff",
+                        "outline-variant": "#c0c9c0",
+                        "secondary-container": "#c4e8d0",
+                        "on-tertiary-fixed-variant": "#52452d",
+                        "surface-container-highest": "#e3e3dd",
+                        "tertiary": "#6a5d42",
+                        "surface": "#fafaf4",
+                        "on-primary-container": "#417657",
+                        "surface-dim": "#dadad5",
+                        "on-secondary-fixed": "#002112",
+                        "error": "#ba1a1a",
+                        "on-primary-fixed-variant": "#1a5034",
+                        "on-error": "#ffffff",
+                        "primary-fixed-dim": "#9bd3ae",
+                        "outline": "#717972",
+                        "tertiary-fixed": "#f4e0bf",
+                        "tertiary-fixed-dim": "#d7c4a4",
+                        "on-error-container": "#93000a",
+                        "on-tertiary-fixed": "#241a06",
+                        "background": "#fafaf4",
+                        "surface-variant": "#e3e3dd",
+                        "secondary-fixed-dim": "#abcfb7",
+                        "tertiary-container": "#ffebc9",
+                        "surface-container": "#eeeee8",
+                        "inverse-primary": "#9bd3ae",
+                        "primary-container": "#c1fbd4",
+                        "on-tertiary-container": "#78694e",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container-high": "#e8e8e3",
+                        "on-secondary-fixed-variant": "#2d4d3b",
+                        "surface-tint": "#34694b",
+                        "on-surface-variant": "#414942",
+                        "on-surface": "#1a1c19"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "1rem",
+                        "lg": "2rem",
+                        "xl": "3rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-mobile": "20px",
+                        "margin-desktop": "64px",
+                        "unit": "4px",
+                        "hit-target": "44px",
+                        "gutter": "16px"
+                    },
+                    "fontFamily": {
+                        "display-lg": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "display-lg": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.04em", "fontWeight": "300"}],
+                        "body-sm": ["14px", {"lineHeight": "1.5", "letterSpacing": "0em", "fontWeight": "400"}],
+                        "body-lg": ["16px", {"lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400"}],
+                        "label-caps": ["12px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "headline-md": ["24px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e3e3dd; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-lg overflow-hidden h-screen flex flex-col">
+<!-- Top Navigation Bar -->
+<header class="w-full top-0 sticky flex justify-between items-center h-hit-target px-margin-desktop bg-surface border-b border-outline-variant z-50">
+<div class="flex items-center gap-4">
+<h1 class="font-display-lg text-[24px] font-light tracking-tighter text-primary">LUXE BOUTIQUE</h1>
+</div>
+<div class="flex items-center gap-3 bg-surface-container rounded-full px-4 py-1.5 border border-outline-variant">
+<img alt="Asha Profile" class="w-8 h-8 rounded-full object-cover" data-alt="A professional studio portrait of a woman named Asha with a friendly expression. She has warm skin tones and is styled in a minimalist, high-fashion aesthetic. The lighting is soft and high-key, set against a neutral, cream-colored background that matches a premium retail environment." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDZmftkPZeFkhl7ObgyLUkaROAn8kk8CbtB5bHZQe1U4TZWjHDMqhaw4CDmB-ITNmpAvEXPi71Y9h2HKtPmawx82I1woMjmSzwgki8ISRR_ESdU-dugwAT24FdzZyH37h3FKz7_lCjm7XOOwKUj15J5caVzNCs8Cc8w-VLR924j7v06o5SXdSvXWkEghIB3ea4GMjeGp_GXjxkT8aWHnhldwUfN3ZlxA0C6D_k6JWlWi7rpHq3OjfWQDqWej15mT1-bcE3R1Q1daPRV"/>
+<span class="font-label-caps text-on-surface">Asha</span>
+</div>
+<div class="flex items-center gap-6">
+<button class="bg-error-container text-on-error-container px-4 py-1 rounded-full font-label-caps text-[10px] hover:opacity-90 transition-opacity">
+                Returns mode
+            </button>
+<div class="flex items-center gap-4 text-on-surface-variant">
+<span class="material-symbols-outlined cursor-pointer hover:text-primary transition-colors">dark_mode</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-error transition-colors">logout</span>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="flex flex-1 overflow-hidden">
+<!-- Left Column: Cart (40%) -->
+<section class="w-[40%] flex flex-col border-r border-outline-variant bg-surface-container-lowest">
+<div class="p-6 border-b border-outline-variant flex justify-between items-center">
+<h2 class="font-headline-md text-on-surface">Current Cart</h2>
+<span class="font-label-caps text-on-surface-variant">3 Items</span>
+</div>
+<!-- Cart Items -->
+<div class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+<!-- Item 1 -->
+<div class="flex gap-4 group">
+<img alt="Silk Gathered Blouse" class="w-20 h-24 object-cover rounded-sm bg-surface-container" data-alt="A close-up of a luxurious black silk gathered blouse displayed on a minimalist background. The fabric has a soft sheen and elegant draping. The photography is high-end, clean, and uses soft directional lighting to emphasize the texture of the silk in a premium boutique setting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAsZdlFM-rQKfH1QQQNamEM3QXhX9kqasVeP2ZolAxmIS2_cISjemE9aiIKmXc_CC_Ff1Te3_ZGyuypJFCvZ8eP4pZUSLxmD9CeY67CVZOinJhRmeOxV7ArsawhQSD36Qu9Er08I2Dhh0tYD-YG6keBlfWQjUUpKCvqU4Jn-fuLq596v5q3Dk0p5-XFDdanGk4lbb9uHzlehbxmm3A17H3Q-sYvLO9Jc-rqOKE47HTePT6RsL9LjeLASUPepHw6N6z1kzykHFUeilbd"/>
+<div class="flex-1 flex flex-col justify-between">
+<div>
+<div class="flex justify-between">
+<h3 class="font-body-lg font-semibold text-on-surface">Silk Gathered Blouse</h3>
+<span class="font-body-lg text-on-surface">LKR 4,200</span>
+</div>
+<span class="inline-block mt-1 bg-secondary-container text-on-secondary-container px-2 py-0.5 rounded-full text-[10px] font-label-caps">SIZE M / BLACK</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center border border-outline-variant rounded-full px-2 py-1 gap-4">
+<span class="material-symbols-outlined text-[18px] cursor-pointer hover:text-primary">remove</span>
+<span class="font-label-caps">1</span>
+<span class="material-symbols-outlined text-[18px] cursor-pointer hover:text-primary">add</span>
+</div>
+<button class="text-error font-label-caps text-[11px] uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity">Remove</button>
+</div>
+</div>
+</div>
+<!-- Item 2 -->
+<div class="flex gap-4 group">
+<img alt="Tailored Linen Trousers" class="w-20 h-24 object-cover rounded-sm bg-surface-container" data-alt="A pair of charcoal grey tailored linen trousers shown in a professional fashion shot. The linen texture is visible, suggesting high-quality natural fibers. The lighting is bright and even, consistent with a luxury e-commerce aesthetic, emphasizing the clean lines and tailored fit." src="https://lh3.googleusercontent.com/aida-public/AB6AXuATG_-S8jkfirHPhc_mTM0IjGTSH8OxZFj3mH6AyhduoFmsZtl5zkBXN_TrY1pISCjpKPTHZCifkpTVstkKWLXB4aLFtpomRqNRA4Y15kk22NiyLnuTD5n6JXTTAEqQG_-uB-ldB9Fuj5qQdKcbR3wValM65I4jO2QDEzOriFYnefgDJW1zjuQh4WGoTnG3uIPsIdAm1Njx-h64FZ-TnIZz0W1G_m575UwRHVA2WevoedUeQ2Yubzxh6YRDOI2xjzGNVolNpOuTyCR0"/>
+<div class="flex-1 flex flex-col justify-between">
+<div>
+<div class="flex justify-between">
+<h3 class="font-body-lg font-semibold text-on-surface">Tailored Linen Trousers</h3>
+<span class="font-body-lg text-on-surface">LKR 5,800</span>
+</div>
+<span class="inline-block mt-1 bg-secondary-container text-on-secondary-container px-2 py-0.5 rounded-full text-[10px] font-label-caps">SIZE L / CHARCOAL</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center border border-outline-variant rounded-full px-2 py-1 gap-4">
+<span class="material-symbols-outlined text-[18px] cursor-pointer hover:text-primary">remove</span>
+<span class="font-label-caps">1</span>
+<span class="material-symbols-outlined text-[18px] cursor-pointer hover:text-primary">add</span>
+</div>
+<button class="text-error font-label-caps text-[11px] uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity">Remove</button>
+</div>
+</div>
+</div>
+<!-- Item 3 -->
+<div class="flex gap-4 group">
+<img alt="Essential Cotton Tee" class="w-20 h-24 object-cover rounded-sm bg-surface-container" data-alt="A pristine white essential cotton t-shirt neatly presented. The fabric looks soft and premium. Shot in a minimalist style with high-key lighting, capturing the clean and crisp aesthetic of a luxury basics collection. The background is a very soft cream." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBQr6iKKtZFDXhP7IAZCwnIN1P-9eqrerlZlVBMb5lqASEYFNDrQm7S6pXk-JRwlrZclah04vXRohEfE03bExYm5HMAFTO-_PI8cyUCOk1g6jCB_C4k_RIDtEGgGM1E7Jvi-dx-oiPje_8F2iaLtBpZhFuYfClOAe7_hC5MtYrPcZ1_JhjOUjEa0fL9BJXmA-LXm4iIhwUYLxsnBFTFzelT6D2X0yev_y9dWYlGDSUzYZBi_nwgkFL9w0__f1bTLdclYn8mRMiKCAdg"/>
+<div class="flex-1 flex flex-col justify-between">
+<div>
+<div class="flex justify-between">
+<h3 class="font-body-lg font-semibold text-on-surface">Essential Cotton Tee</h3>
+<span class="font-body-lg text-on-surface">LKR 1,800</span>
+</div>
+<span class="inline-block mt-1 bg-secondary-container text-on-secondary-container px-2 py-0.5 rounded-full text-[10px] font-label-caps">SIZE S / WHITE</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center border border-outline-variant rounded-full px-2 py-1 gap-4">
+<span class="material-symbols-outlined text-[18px] cursor-pointer hover:text-primary">remove</span>
+<span class="font-label-caps">1</span>
+<span class="material-symbols-outlined text-[18px] cursor-pointer hover:text-primary">add</span>
+</div>
+<button class="text-error font-label-caps text-[11px] uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity">Remove</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Sticky Bottom Totals -->
+<div class="p-6 bg-surface-container border-t border-outline-variant space-y-3">
+<div class="flex justify-between text-on-surface-variant font-body-sm">
+<span>Subtotal</span>
+<span>LKR 11,800</span>
+</div>
+<div class="flex justify-between text-on-surface-variant font-body-sm">
+<span>Tax (5%)</span>
+<span>LKR 600</span>
+</div>
+<div class="flex justify-between items-end pt-2">
+<span class="font-headline-md font-bold text-on-surface">Total</span>
+<span class="font-display-lg text-[32px] font-bold text-primary leading-none">LKR 12,400</span>
+</div>
+</div>
+</section>
+<!-- Right Column: Product Grid (60%) -->
+<section class="w-[60%] flex flex-col bg-surface-bright">
+<!-- Search and Categories -->
+<div class="p-6 space-y-6">
+<div class="relative group">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline">search</span>
+<input class="w-full h-hit-target pl-12 pr-4 bg-surface-container border-none border-b border-outline-variant focus:ring-1 focus:ring-primary rounded-lg transition-all font-body-lg placeholder:text-outline-variant" placeholder="Scan or search products — SKU, name, barcode" type="text"/>
+</div>
+<div class="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+<button class="px-6 py-2 rounded-full font-label-caps bg-primary text-on-primary">All</button>
+<button class="px-6 py-2 rounded-full font-label-caps border border-outline-variant text-on-surface hover:bg-secondary-container transition-colors">Tops</button>
+<button class="px-6 py-2 rounded-full font-label-caps border border-outline-variant text-on-surface hover:bg-secondary-container transition-colors">Bottoms</button>
+<button class="px-6 py-2 rounded-full font-label-caps border border-outline-variant text-on-surface hover:bg-secondary-container transition-colors">Dresses</button>
+<button class="px-6 py-2 rounded-full font-label-caps border border-outline-variant text-on-surface hover:bg-secondary-container transition-colors">Accessories</button>
+<button class="px-6 py-2 rounded-full font-label-caps border border-outline-variant text-on-surface hover:bg-secondary-container transition-colors">Shoes</button>
+</div>
+</div>
+<!-- Product Grid -->
+<div class="flex-1 overflow-y-auto px-6 pb-6 grid grid-cols-3 gap-gutter custom-scrollbar">
+<!-- Product Card 1 -->
+<div class="group cursor-pointer active:scale-95 transition-transform">
+<div class="aspect-[3/4] overflow-hidden rounded-lg bg-surface-container mb-3 relative">
+<img alt="Saffron Summer Mini" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A vibrant saffron yellow summer mini dress captured in a sun-drenched outdoor setting with soft shadows. The style is modern and feminine. The photo has a warm, bright tone that emphasizes the rich color of the fabric against a soft-focus background, maintaining a high-fashion editorial quality." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCWXWaLv-c4yVEPdap4ROG57XM6Dq8O2Wxuq12NDv4BdhuD7aqTu6H2MJM4kOsS_fU8bmExgx6Hsll3L3r0RyKNZgvirKpN4dH15vey8Y_9fvAcXXxM_Wv-DVXhiRVTfTiWLNvrvywNM9j5kuKbtd0AyOp3GC7p-0Zn3SNcUwDIfVWtY3FRKjziFubZVjl-e64P-rAImXic4yBlR8ZRQz2Gnq9ebUYaROiQtnNuMFGHJs42qIvg-GHrV9DB62rX-e-qweP0qHTizGHz"/>
+<div class="absolute bottom-3 right-3 bg-surface/90 backdrop-blur-sm p-2 rounded-full shadow-sm">
+<span class="material-symbols-outlined text-primary">add_shopping_cart</span>
+</div>
+</div>
+<h4 class="font-body-lg font-semibold text-on-surface">Saffron Summer Mini</h4>
+<p class="font-body-sm text-primary">LKR 6,900</p>
+</div>
+<!-- Product Card 2 -->
+<div class="group cursor-pointer active:scale-95 transition-transform">
+<div class="aspect-[3/4] overflow-hidden rounded-lg bg-surface-container mb-3 relative">
+<img alt="Hand-Crafted Mule" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="Exquisite hand-crafted leather mules in a soft tan color, arranged artfully on a clean white surface. The craftsmanship is highlighted by sharp focus and soft lighting. The aesthetic is extremely high-end, focusing on material quality and minimalist design, suitable for a premium boutique inventory." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCaJM0_uQ_sv_D-Qp4fx9Kma8Jql3TjvRlEX_5zzLoFwpNnKvqAbxKC-GkOp1AYHpyqM_ktOOu22ZQLYomKF072F9Xal5dn5mfh9OujYlzJI_-6ccfNIFk_UDT4Q9x54kCeXVgvZwj6Gmn4uDjLKed19qclL9XQZL2NHoH9NV3CYx56A5L2cDS6eE-VzjECtz5eqKQv4TEfx4EPyQFFtC6Kyjdx_nQWq-h0OVoLNuf3m8gKN0Irp3tXAur6y-6COLunpJyTB1KOvVIO"/>
+<div class="absolute bottom-3 right-3 bg-surface/90 backdrop-blur-sm p-2 rounded-full shadow-sm">
+<span class="material-symbols-outlined text-primary">add_shopping_cart</span>
+</div>
+</div>
+<h4 class="font-body-lg font-semibold text-on-surface">Hand-Crafted Mule</h4>
+<p class="font-body-sm text-primary">LKR 3,500</p>
+</div>
+<!-- Product Card 3 -->
+<div class="group cursor-pointer active:scale-95 transition-transform">
+<div class="aspect-[3/4] overflow-hidden rounded-lg bg-surface-container mb-3 relative">
+<img alt="Cashmere Ribbed Knit" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A soft, cream-colored cashmere ribbed knit sweater shown with emphasis on its luxurious texture. The lighting is diffused and gentle, creating a cozy yet high-fashion feel. The image represents premium quality and comfort, set against a tonal background that complements the minimalist brand palette." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA4W_7e72tjlUK2VTSUfVBkoswBls6i0KYIoBF99UCLwET5IKyBLgI_1Zx2dTMFdnL4Jfv-7Z0KFRyRdTkXuJIho0sV6qiH3ubiacfYU0b2FOWQ7NphJjzZdu6MQQalSsYIq7LyKXbDSyypWYCNvXMx4ghfB0uUZFV03ORzpYUKNd_5dUtS2wMygcckrnWAodO9eqWVS9rNY815UKN0ERtzE5f0Jn2VEGPS88T7egD_-pei8LEC1-x14ML_HTidlHxJHQctKPpIThpF"/>
+<div class="absolute bottom-3 right-3 bg-surface/90 backdrop-blur-sm p-2 rounded-full shadow-sm">
+<span class="material-symbols-outlined text-primary">add_shopping_cart</span>
+</div>
+</div>
+<h4 class="font-body-lg font-semibold text-on-surface">Cashmere Ribbed Knit</h4>
+<p class="font-body-sm text-primary">LKR 12,400</p>
+</div>
+<!-- Product Card 4 -->
+<div class="group cursor-pointer active:scale-95 transition-transform">
+<div class="aspect-[3/4] overflow-hidden rounded-lg bg-surface-container mb-3 relative">
+<img alt="Structured Navy Blazer" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A sharp, professionally tailored navy blazer displayed on a high-end mannequin. The lighting is crisp and sophisticated, highlighting the structured shoulders and clean lines of the garment. The overall mood is corporate yet fashionable, aligned with a modern luxury retail experience." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBqbqFrG_cMHdtd9ST1RcnVHiG4QRST_pzkxZT8GClSWgp5KR-ispsXIj5dNksQCEmaH9oeAtD3H-JDV8UdPHcoLwe-DcBs2ALoSfvU_FIifLHayl3gm6Ww_x8a1TNV1gQjkHKBtrlELyXzz2hfoc6qgK0O7IIfKuTBDbbGE6EVh_6pjoju7CRRD-Tf7ef5Q8v1w5z0qWFycbrnWNS7kyHLye0RnTgIv5m-oFsoPYZje-JlR5H2ur7StjbpSOPOcTp2uhsg1rD4pJ8E"/>
+<div class="absolute bottom-3 right-3 bg-surface/90 backdrop-blur-sm p-2 rounded-full shadow-sm">
+<span class="material-symbols-outlined text-primary">add_shopping_cart</span>
+</div>
+</div>
+<h4 class="font-body-lg font-semibold text-on-surface">Structured Navy Blazer</h4>
+<p class="font-body-sm text-primary">LKR 9,800</p>
+</div>
+<!-- Product Card 5 -->
+<div class="group cursor-pointer active:scale-95 transition-transform">
+<div class="aspect-[3/4] overflow-hidden rounded-lg bg-surface-container mb-3 relative">
+<img alt="Classic Denim Jean" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="High-quality classic blue denim jeans shown in a minimalist studio setting. The photo captures the authentic wash and texture of the denim. The lighting is bright and clean, typical of premium retail photography, focusing on fit and material integrity in a high-fashion context." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA2A80i5tzxUy9QxpQyBh6NzTPNEt5CY3CxagR1VaQFfspiLHjBUj9MOA-E6s32SZKlHfMVy43G-oCFwqXt9R3LyEiz3UX7Mt1R6bwM-SNl3REyhUxkN5Jr9ByUk7s9SQP4cuAVOiOsY_Nt14cx-femA61pu4D1ozAn6wnEhOn1Myv0gj3c2Lwt0R2QSFBuRIcOwAKobfV-H7f1V2McFTVS-gQ7CbXsnY4Ml-Fto5iXLa_wih3qOXzbFwq1ZA9D1lMVjlXgbctLQCyr"/>
+<div class="absolute bottom-3 right-3 bg-surface/90 backdrop-blur-sm p-2 rounded-full shadow-sm">
+<span class="material-symbols-outlined text-primary">add_shopping_cart</span>
+</div>
+</div>
+<h4 class="font-body-lg font-semibold text-on-surface">Classic Denim Jean</h4>
+<p class="font-body-sm text-primary">LKR 4,900</p>
+</div>
+<!-- Product Card 6 -->
+<div class="group cursor-pointer active:scale-95 transition-transform">
+<div class="aspect-[3/4] overflow-hidden rounded-lg bg-surface-container mb-3 relative">
+<img alt="Modern Mock Neck" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A sleek, black modern mock neck top presented in a minimalist fashion shot. The lighting highlights the fine knit of the fabric and the clean silhouette. The style is sophisticated and versatile, captured with a professional high-key aesthetic that fits a high-end designer boutique." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB5v-XE6e6sgXKw6WrmT4Ap2IUyT8f0zAK769mgGMTguZKmxkp6OYowJwAds48P5PoiWCZPrC7DTrvK7vzEOjGvEhnS9oQxsmB2nlzCo4G0wxb8ScjT5ORB6FKTab3QJqOxj0kFDYNQrUiBr7FtFBUp2gWV_lUt2C0GMA5-Tp-uTISTiRB8IEyk8KuHil7AyFugCiGpIBEu1dAoSgjSjEDKVTJhgZb0Par_-WywLA0rTNrSjOulbY1ClVlH37Ei8BUaCxP1Mwe_FDTn"/>
+<div class="absolute bottom-3 right-3 bg-surface/90 backdrop-blur-sm p-2 rounded-full shadow-sm">
+<span class="material-symbols-outlined text-primary">add_shopping_cart</span>
+</div>
+</div>
+<h4 class="font-body-lg font-semibold text-on-surface">Modern Mock Neck</h4>
+<p class="font-body-sm text-primary">LKR 2,400</p>
+</div>
+</div>
+</section>
+</main>
+<!-- Sticky Bottom Action Bar -->
+<footer class="h-24 w-full bg-surface-container-highest border-t border-outline-variant px-margin-desktop flex items-center justify-between z-50">
+<div class="flex gap-4">
+<button class="px-8 py-3 rounded-full font-label-caps border border-outline text-on-surface hover:bg-surface-container transition-all active:scale-95">Cancel Sale</button>
+<button class="px-8 py-3 rounded-full font-label-caps border border-outline text-on-surface hover:bg-surface-container transition-all active:scale-95">Hold Sale</button>
+</div>
+<div class="flex gap-4 items-center">
+<button class="flex items-center gap-2 px-6 py-3 rounded-full font-label-caps text-on-surface-variant hover:bg-secondary-container transition-all">
+<span class="material-symbols-outlined text-[20px]">person_add</span>
+                Attach Customer
+            </button>
+<button class="bg-primary-container text-primary font-bold px-12 py-4 rounded-full font-label-caps text-lg shadow-sm hover:brightness-95 active:scale-95 transition-all flex items-center gap-3">
+                Pay LKR 12,400
+                <span class="material-symbols-outlined">payments</span>
+</button>
+</div>
+</footer>
+<div class="fixed inset-0 z-[100] flex items-end justify-center">
+<div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+<div class="relative w-full max-w-4xl bg-surface rounded-t-xl shadow-2xl flex flex-col max-h-[85vh] animate-slide-up">
+<div class="flex justify-center py-3">
+<div class="w-12 h-1.5 bg-outline-variant rounded-full opacity-50"></div>
+</div>
+<div class="px-margin-desktop pb-8 flex flex-col h-full overflow-hidden">
+<div class="flex justify-between items-center mb-6">
+<h2 class="font-headline-md text-on-surface">Attach customer to sale</h2>
+<button class="p-2 hover:bg-surface-container rounded-full transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant">close</span>
+</button>
+</div>
+<div class="space-y-6 flex flex-col flex-1 overflow-hidden">
+<div class="relative group">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline">search</span>
+<input autofocus="" class="w-full h-hit-target pl-12 pr-4 bg-surface-container border border-outline-variant focus:ring-2 focus:ring-primary rounded-lg transition-all font-body-lg placeholder:text-outline-variant" placeholder="Search by name, phone, or email" type="text"/>
+</div>
+<div class="flex gap-3">
+<button class="px-6 py-2 rounded-full font-label-caps border border-outline text-on-surface hover:bg-secondary-container transition-all flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">person_off</span>
+            Skip — Walk-in
+          </button>
+<button class="px-6 py-2 rounded-full font-label-caps border border-primary text-primary hover:bg-primary-container transition-all flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">person_add</span>
+            + New customer
+          </button>
+</div>
+<div class="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-2">
+<div class="p-4 rounded-xl bg-surface-container hover:bg-secondary-container cursor-pointer transition-all border border-transparent hover:border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-full bg-primary-fixed flex items-center justify-center text-on-primary-fixed-variant font-bold text-lg italic">SM</div>
+<div>
+<h4 class="font-body-lg font-semibold text-on-surface">Sahan Mendis</h4>
+<div class="flex items-center gap-3 text-on-surface-variant font-body-sm">
+<span>+94 77 123 4567</span>
+<span class="w-1 h-1 bg-outline-variant rounded-full"></span>
+<span>Last visit: 2 days ago</span>
+</div>
+</div>
+</div>
+<span class="px-3 py-1 rounded-full text-[10px] font-label-caps bg-tertiary-container text-on-tertiary-container">GOLD TIER</span>
+</div>
+<div class="p-4 rounded-xl bg-surface-container hover:bg-secondary-container cursor-pointer transition-all border border-transparent hover:border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-full bg-secondary-fixed flex items-center justify-center text-on-secondary-fixed-variant font-bold text-lg italic">PR</div>
+<div>
+<h4 class="font-body-lg font-semibold text-on-surface">Priya Raj</h4>
+<div class="flex items-center gap-3 text-on-surface-variant font-body-sm">
+<span>+94 71 987 6543</span>
+<span class="w-1 h-1 bg-outline-variant rounded-full"></span>
+<span>Last visit: 1 week ago</span>
+</div>
+</div>
+</div>
+<span class="px-3 py-1 rounded-full text-[10px] font-label-caps bg-surface-container-highest text-on-surface-variant">SILVER TIER</span>
+</div>
+<div class="p-4 rounded-xl bg-surface-container hover:bg-secondary-container cursor-pointer transition-all border border-transparent hover:border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-full bg-outline-variant flex items-center justify-center text-on-surface font-bold text-lg italic">DA</div>
+<div>
+<h4 class="font-body-lg font-semibold text-on-surface">Dilshan Abeysekara</h4>
+<div class="flex items-center gap-3 text-on-surface-variant font-body-sm">
+<span>+94 76 555 0192</span>
+<span class="w-1 h-1 bg-outline-variant rounded-full"></span>
+<span>Last visit: Today</span>
+</div>
+</div>
+</div>
+<span class="px-3 py-1 rounded-full text-[10px] font-label-caps bg-surface-container-high text-on-surface-variant opacity-60">BRONZE TIER</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div></body></html>

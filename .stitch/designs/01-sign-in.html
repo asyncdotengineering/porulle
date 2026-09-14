@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary": "#34694b",
+                        "surface": "#fafaf4",
+                        "on-error": "#ffffff",
+                        "on-primary-fixed-variant": "#1a5034",
+                        "surface-dim": "#dadad5",
+                        "on-error-container": "#93000a",
+                        "secondary-container": "#c4e8d0",
+                        "secondary": "#456552",
+                        "background": "#fafaf4",
+                        "surface-container-low": "#f4f4ee",
+                        "on-background": "#1a1c19",
+                        "on-tertiary-container": "#78694e",
+                        "on-surface": "#1a1c19",
+                        "on-tertiary-fixed": "#241a06",
+                        "inverse-primary": "#9bd3ae",
+                        "surface-container-highest": "#e3e3dd",
+                        "error-container": "#ffdad6",
+                        "on-primary-fixed": "#002111",
+                        "tertiary-fixed": "#f4e0bf",
+                        "outline": "#717972",
+                        "primary-fixed": "#b6f0c9",
+                        "on-secondary-fixed": "#002112",
+                        "on-tertiary": "#ffffff",
+                        "on-primary": "#ffffff",
+                        "tertiary-fixed-dim": "#d7c4a4",
+                        "primary-fixed-dim": "#9bd3ae",
+                        "on-secondary-container": "#496a56",
+                        "on-secondary": "#ffffff",
+                        "tertiary": "#6a5d42",
+                        "surface-container-high": "#e8e8e3",
+                        "surface-variant": "#e3e3dd",
+                        "inverse-surface": "#2f312d",
+                        "surface-tint": "#34694b",
+                        "tertiary-container": "#ffebc9",
+                        "surface-container": "#eeeee8",
+                        "primary-container": "#c1fbd4",
+                        "on-primary-container": "#417657",
+                        "secondary-fixed-dim": "#abcfb7",
+                        "on-tertiary-fixed-variant": "#52452d",
+                        "secondary-fixed": "#c7ebd3",
+                        "outline-variant": "#c0c9c0",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-bright": "#fafaf4",
+                        "error": "#ba1a1a",
+                        "on-surface-variant": "#414942",
+                        "inverse-on-surface": "#f1f1eb",
+                        "on-secondary-fixed-variant": "#2d4d3b"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "1rem",
+                        "lg": "2rem",
+                        "xl": "3rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "unit": "4px",
+                        "hit-target": "44px",
+                        "gutter": "16px",
+                        "margin-desktop": "64px",
+                        "margin-mobile": "20px"
+                    },
+                    "fontFamily": {
+                        "headline-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "display-lg-mobile": ["Inter"],
+                        "display-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-md": ["24px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "400"}],
+                        "body-lg": ["16px", {"lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400"}],
+                        "label-caps": ["12px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "body-sm": ["14px", {"lineHeight": "1.5", "letterSpacing": "0em", "fontWeight": "400"}],
+                        "display-lg-mobile": ["36px", {"lineHeight": "1.1", "letterSpacing": "-0.03em", "fontWeight": "300"}],
+                        "display-lg": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.04em", "fontWeight": "300"}]
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-surface text-on-surface font-body-lg min-h-screen flex flex-col items-center justify-center p-margin-mobile md:p-margin-desktop">
+<!-- Brand Identity Header -->
+<header class="mb-12 text-center">
+<h1 class="font-display-lg text-display-lg text-primary tracking-tight">Acme Boutique</h1>
+</header>
+<!-- Main Authentication Container -->
+<main class="w-full max-w-[480px] bg-surface-container-lowest border border-outline-variant rounded-lg p-8 md:p-12">
+<!-- Cashier Selection Grid -->
+<section class="mb-10">
+<h2 class="font-label-caps text-label-caps text-on-surface-variant text-center mb-6 uppercase tracking-widest">Select Cashier</h2>
+<div class="grid grid-cols-3 gap-gutter">
+<!-- Cashier: Asha -->
+<div class="flex flex-col items-center gap-3 cursor-pointer group active:scale-95 duration-200">
+<div class="w-20 h-20 rounded-full border-2 border-primary overflow-hidden ring-offset-2 ring-primary transition-all group-hover:ring-2">
+<img alt="Cashier Asha" class="w-full h-full object-cover" data-alt="A professional close-up portrait of a friendly South Asian female cashier named Asha in a high-end boutique setting. She has a warm, welcoming smile and is wearing professional yet modern retail attire. The lighting is soft and natural, reflecting a bright, premium light-mode aesthetic with cream and mint tones in the background. The image has a clean, minimalist photographic style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAgCUJA4CSlMvlaBP1oI0s6c5vK1QGMxBv5LgQCacSPH3-ZdraBlKLSheSyYGrzxYzgm2rulAXfibWpK6rn61I4x4LnNZMceHu4H3uc9JwJvUgmmFDBgbPFg5MYQVMJ1PgWw89j03uHtN8mP9geudiUWz8zQ40ntlKYnFYQWPSYAVQYfNyv3SmTMyWIHGfDEDXYBm-wayZOe5dUfvclrVXBk0xSyKxoXrJt19aCsgGjPOi4ltkuZlRU3O4716TmNxg6lwuWVF2EJH65"/>
+</div>
+<span class="font-body-sm text-body-sm text-on-surface font-semibold">Asha</span>
+</div>
+<!-- Cashier: Nuwan -->
+<div class="flex flex-col items-center gap-3 cursor-pointer group active:scale-95 duration-200 opacity-60 hover:opacity-100 transition-opacity">
+<div class="w-20 h-20 rounded-full border border-outline-variant overflow-hidden group-hover:border-primary">
+<img alt="Cashier Nuwan" class="w-full h-full object-cover" data-alt="A professional headshot of a South Asian male cashier named Nuwan. He looks professional and poised, with a slight, confident smile. The setting is a minimalist, modern luxury retail environment with soft high-key lighting. The background features subtle textures of a premium store in a light-mode palette of cream and mint. The overall mood is efficient and high-end." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCyHLnPpcpEWkXIBLa0WAV17LC_62jT-88KI1AZEA6bcVcDCwD21j0uMM-4gm5UNWaCNmSzJnbGeUx5m-TeqjlGHnepMu1ps7hXpohT4V5NG4Qo8M4cO9osPHrQGI9CjpdFI_tBzWZ1x_LnKOjYFNR2wTTDi62ueq2HhjOUXh9e9n-Ca6HGWvV7JTnlxY4YLQPPUwpWuWobAXr20eoXAkNdiT8wahPCp2wS_daSb7sHTvXDxpClEN-7hTuWAv4hk_0xreyIMO2gwYd1"/>
+</div>
+<span class="font-body-sm text-body-sm text-on-surface">Nuwan</span>
+</div>
+<!-- Cashier: Priya -->
+<div class="flex flex-col items-center gap-3 cursor-pointer group active:scale-95 duration-200 opacity-60 hover:opacity-100 transition-opacity">
+<div class="w-20 h-20 rounded-full border border-outline-variant overflow-hidden group-hover:border-primary">
+<img alt="Cashier Priya" class="w-full h-full object-cover" data-alt="A high-quality portrait of a welcoming South Asian female cashier named Priya. She is smiling warmly at the camera, projecting a helpful and kind personality. The environment is an upmarket boutique with clean lines and a soft, airy feel. The lighting is bright and even, emphasizing a luxury cream and mint color scheme. Minimalist corporate photography style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCTT_MR05Y-VCp_4B4LX601d3mL4qbRVNLplFCXfa-kMH_s-KJ_3P68-rBHTnnUXIM8zBmRx_wiVtUs2ZkJg6DRC9G9ymIrbl9rVukoh0HS9FvIIMzPn7qzHm69W1Ct8E2L5sqsSlf3BmZgipoKLDF6ZaK1-y-e6o7MMZZqRlIdpdgUdmvzz4oCq_W8Kjk97XmXis3B0Vt11AkEQQSxlVHZEDK9l7ZIn-mV52Ju6RwiLBq23NV1vTFWnq8GvtYksjP8_Xr-GRJ8ca5a"/>
+</div>
+<span class="font-body-sm text-body-sm text-on-surface">Priya</span>
+</div>
+</div>
+</section>
+<!-- PIN Entry Section -->
+<section class="flex flex-col items-center">
+<!-- PIN Indicators -->
+<div class="flex gap-4 mb-8">
+<div class="w-3 h-3 rounded-full bg-primary"></div>
+<div class="w-3 h-3 rounded-full bg-outline-variant"></div>
+<div class="w-3 h-3 rounded-full bg-outline-variant"></div>
+<div class="w-3 h-3 rounded-full bg-outline-variant"></div>
+</div>
+<!-- Numeric Keypad -->
+<div class="grid grid-cols-3 gap-4 w-full mb-10">
+<button class="h-hit-target flex items-center justify-center font-headline-md text-headline-md border border-outline-variant rounded-full hover:bg-surface-container transition-colors active:scale-90">1</button>
+<button class="h-hit-target flex items-center justify-center font-headline-md text-headline-md border border-outline-variant rounded-full hover:bg-surface-container transition-colors active:scale-90">2</button>
+<button class="h-hit-target flex items-center justify-center font-headline-md text-headline-md border border-outline-variant rounded-full hover:bg-surface-container transition-colors active:scale-90">3</button>
+<button class="h-hit-target flex items-center justify-center font-headline-md text-headline-md border border-outline-variant rounded-full hover:bg-surface-container transition-colors active:scale-90">4</button>
+<button class="h-hit-target flex items-center justify-center font-headline-md text-headline-md border border-outline-variant rounded-full hover:bg-surface-container transition-colors active:scale-90">5</button>
+<button class="h-hit-target flex items-center justify-center font-headline-md text-headline-md border border-outline-variant rounded-full hover:bg-surface-container transition-colors active:scale-90">6</button>
+<button class="h-hit-target flex items-center justify-center font-headline-md text-headline-md border border-outline-variant rounded-full hover:bg-surface-container transition-colors active:scale-90">7</button>
+<button class="h-hit-target flex items-center justify-center font-headline-md text-headline-md border border-outline-variant rounded-full hover:bg-surface-container transition-colors active:scale-90">8</button>
+<button class="h-hit-target flex items-center justify-center font-headline-md text-headline-md border border-outline-variant rounded-full hover:bg-surface-container transition-colors active:scale-90">9</button>
+<div class="h-hit-target"></div>
+<button class="h-hit-target flex items-center justify-center font-headline-md text-headline-md border border-outline-variant rounded-full hover:bg-surface-container transition-colors active:scale-90">0</button>
+<button class="h-hit-target flex items-center justify-center border border-outline-variant rounded-full hover:bg-surface-container transition-colors active:scale-90">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="backspace">backspace</span>
+</button>
+</div>
+<!-- CTA -->
+<button class="w-full bg-primary-container text-on-primary-container font-headline-md text-headline-md py-4 rounded-full shadow-sm hover:opacity-90 active:scale-[0.98] transition-all duration-150">
+                Sign In
+            </button>
+</section>
+</main>
+<!-- Footer Action -->
+<footer class="mt-8">
+<a class="font-body-sm text-body-sm text-outline hover:text-primary transition-colors border-b border-transparent hover:border-primary pb-0.5" href="#">
+            Forgot PIN? Ask the owner
+        </a>
+</footer>
+</body></html>

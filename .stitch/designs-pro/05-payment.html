@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Lumiere POS - Payment</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "outline-variant": "#c0c9c0",
+                    "on-tertiary-fixed-variant": "#464743",
+                    "on-background": "#1a1c1e",
+                    "on-surface": "#1a1c1e",
+                    "secondary": "#456552",
+                    "surface-container": "#eeedf0",
+                    "on-primary-container": "#417657",
+                    "on-surface-variant": "#414942",
+                    "primary-container": "#c1fbd4",
+                    "on-primary": "#ffffff",
+                    "background": "#f9f9fc",
+                    "surface-tint": "#34694b",
+                    "surface-dim": "#dadadd",
+                    "tertiary": "#5d5f5a",
+                    "on-tertiary": "#ffffff",
+                    "inverse-primary": "#9bd3ae",
+                    "on-primary-fixed-variant": "#1a5034",
+                    "surface-container-low": "#f3f3f6",
+                    "surface": "#f9f9fc",
+                    "tertiary-fixed": "#e3e3dd",
+                    "surface-container-lowest": "#ffffff",
+                    "on-secondary-fixed": "#002112",
+                    "on-secondary-container": "#496a56",
+                    "on-error-container": "#93000a",
+                    "secondary-fixed-dim": "#abcfb7",
+                    "inverse-on-surface": "#f0f0f3",
+                    "tertiary-fixed-dim": "#c6c7c1",
+                    "tertiary-container": "#eeeee8",
+                    "secondary-container": "#c4e8d0",
+                    "on-secondary-fixed-variant": "#2d4d3b",
+                    "surface-variant": "#e2e2e5",
+                    "primary": "#34694b",
+                    "primary-fixed": "#b6f0c9",
+                    "on-primary-fixed": "#002111",
+                    "surface-bright": "#f9f9fc",
+                    "on-secondary": "#ffffff",
+                    "surface-container-high": "#e8e8eb",
+                    "inverse-surface": "#2f3033",
+                    "secondary-fixed": "#c7ebd3",
+                    "on-tertiary-container": "#6a6c67",
+                    "error": "#ba1a1a",
+                    "error-container": "#ffdad6",
+                    "outline": "#717972",
+                    "surface-container-highest": "#e2e2e5",
+                    "primary-fixed-dim": "#9bd3ae",
+                    "on-tertiary-fixed": "#1a1c19",
+                    "on-error": "#ffffff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "1rem",
+                    "lg": "2rem",
+                    "xl": "3rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "xl": "40px",
+                    "sm": "8px",
+                    "margin-tablet": "32px",
+                    "unit": "4px",
+                    "margin-mobile": "16px",
+                    "xs": "4px",
+                    "gutter": "16px",
+                    "lg": "24px",
+                    "md": "16px"
+            },
+            "fontFamily": {
+                    "display-lg": ["Inter"],
+                    "headline-sm": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "label-md": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "display-md": ["Inter"],
+                    "label-sm": ["Inter"],
+                    "body-md": ["Inter"]
+            },
+            "fontSize": {
+                    "display-lg": ["48px", { "lineHeight": "1.1", "letterSpacing": "-0.04em", "fontWeight": "300" }],
+                    "headline-sm": ["20px", { "lineHeight": "1.4", "letterSpacing": "0em", "fontWeight": "500" }],
+                    "body-lg": ["18px", { "lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400" }],
+                    "label-md": ["14px", { "lineHeight": "1", "letterSpacing": "0.02em", "fontWeight": "600" }],
+                    "headline-lg": ["24px", { "lineHeight": "1.3", "letterSpacing": "-0.02em", "fontWeight": "300" }],
+                    "display-md": ["36px", { "lineHeight": "1.2", "letterSpacing": "-0.03em", "fontWeight": "300" }],
+                    "label-sm": ["12px", { "lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                    "body-md": ["16px", { "lineHeight": "1.5", "letterSpacing": "0em", "fontWeight": "400" }]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md text-body-md antialiased min-h-screen overflow-hidden flex">
+<!-- TopAppBar Shared Component -->
+<header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-lg py-md h-[64px] bg-background border-b border-outline-variant">
+<div class="flex items-center gap-md pl-[280px]"> <!-- Adjusted for SideNav -->
+<span class="text-headline-sm font-headline-sm font-bold text-on-surface">Lumiere POS</span>
+</div>
+<div class="flex items-center gap-md">
+<button class="text-on-surface-variant hover:bg-surface-container-low transition-colors p-sm rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="wifi">wifi</span>
+</button>
+<button class="text-on-surface-variant hover:bg-surface-container-low transition-colors p-sm rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+<button class="text-on-surface-variant hover:bg-surface-container-low transition-colors p-sm rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="power_settings_new">power_settings_new</span>
+</button>
+</div>
+</header>
+<!-- SideNavBar Shared Component -->
+<nav class="fixed left-0 top-0 h-full w-[280px] z-40 flex flex-col pt-[80px] pb-lg bg-surface-container-low border-r border-outline-variant">
+<div class="px-md mb-lg">
+<div class="flex items-center gap-sm px-sm">
+<div class="w-10 h-10 rounded-full bg-surface-variant flex items-center justify-center overflow-hidden border border-outline-variant">
+<span class="material-symbols-outlined text-outline" data-icon="store">store</span>
+</div>
+<div>
+<h2 class="font-label-md text-label-md text-on-surface">Main Street Boutique</h2>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Terminal 01</p>
+</div>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto">
+<ul class="flex flex-col">
+<!-- Active Nav Item -->
+<li>
+<a class="bg-primary-container text-on-primary-container rounded-full mx-md my-xs px-md py-sm flex items-center gap-md opacity-80 transition-all duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="point_of_sale" data-weight="fill" style="font-variation-settings: 'FILL' 1;">point_of_sale</span>
+<span class="font-label-md text-label-md">Register</span>
+</a>
+</li>
+<!-- Inactive Nav Items -->
+<li>
+<a class="text-on-surface-variant mx-md my-xs px-md py-sm hover:bg-secondary-container transition-all flex items-center gap-md rounded-full" href="#">
+<span class="material-symbols-outlined" data-icon="receipt_long">receipt_long</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Orders</span>
+</a>
+</li>
+<li>
+<a class="text-on-surface-variant mx-md my-xs px-md py-sm hover:bg-secondary-container transition-all flex items-center gap-md rounded-full" href="#">
+<span class="material-symbols-outlined" data-icon="inventory_2">inventory_2</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Inventory</span>
+</a>
+</li>
+<li>
+<a class="text-on-surface-variant mx-md my-xs px-md py-sm hover:bg-secondary-container transition-all flex items-center gap-md rounded-full" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Reports</span>
+</a>
+</li>
+</ul>
+</div>
+<div class="mt-auto">
+<ul>
+<li>
+<a class="text-on-surface-variant mx-md my-xs px-md py-sm hover:bg-secondary-container transition-all flex items-center gap-md rounded-full" href="#">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Help</span>
+</a>
+</li>
+</ul>
+</div>
+</nav>
+<!-- Main Canvas -->
+<main class="ml-[280px] pt-[64px] flex-1 h-screen overflow-y-auto p-margin-tablet">
+<div class="max-w-[1200px] mx-auto h-full flex flex-col md:flex-row gap-lg">
+<!-- Left Column: Summary & Total Display (Bento Style) -->
+<div class="flex-1 flex flex-col gap-md">
+<!-- Primary Total Card -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-xl flex flex-col items-center justify-center flex-1 relative overflow-hidden">
+<!-- Subtle background graphic for premium feel -->
+<div class="absolute inset-0 opacity-5 pointer-events-none" style="background-image: radial-gradient(circle at 50% 0%, #34694b 0%, transparent 70%);"></div>
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-sm relative z-10">Total Due</span>
+<h1 class="font-display-lg text-display-lg text-on-surface tracking-tight relative z-10">LKR 12,400</h1>
+<div class="mt-lg w-full max-w-sm border-t border-outline-variant pt-md relative z-10">
+<div class="flex justify-between items-center mb-xs">
+<span class="font-body-md text-body-md text-on-surface-variant">Subtotal</span>
+<span class="font-body-md text-body-md text-on-surface">LKR 11,500</span>
+</div>
+<div class="flex justify-between items-center mb-xs">
+<span class="font-body-md text-body-md text-on-surface-variant">Tax (8%)</span>
+<span class="font-body-md text-body-md text-on-surface">LKR 900</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Payment Processing Action Area -->
+<div class="w-full md:w-[480px] bg-surface-container-lowest border border-outline-variant rounded-xl flex flex-col overflow-hidden">
+<!-- Payment Method Tabs -->
+<div class="flex border-b border-outline-variant bg-surface-container-low/50">
+<button class="flex-1 py-md flex flex-col items-center justify-center gap-xs border-b-[3px] border-primary bg-surface-container-lowest transition-colors">
+<span class="material-symbols-outlined text-primary" data-icon="payments">payments</span>
+<span class="font-label-md text-label-md text-primary">Cash</span>
+</button>
+<button class="flex-1 py-md flex flex-col items-center justify-center gap-xs border-b-[3px] border-transparent hover:bg-surface-container-lowest transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="credit_card">credit_card</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Card</span>
+</button>
+<button class="flex-1 py-md flex flex-col items-center justify-center gap-xs border-b-[3px] border-transparent hover:bg-surface-container-lowest transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="call_split">call_split</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Split</span>
+</button>
+</div>
+<!-- Cash Payment Content -->
+<div class="flex-1 p-lg flex flex-col">
+<!-- Input Area -->
+<div class="mb-lg">
+<label class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider mb-sm block">Amount Tendered</label>
+<div class="flex items-center justify-between border border-outline-variant rounded-full px-md py-sm bg-surface-container-lowest focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition-all">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant pl-sm">LKR</span>
+<input class="w-full bg-transparent border-none text-right font-headline-sm text-headline-sm text-on-surface focus:ring-0 p-0 m-0" readonly="" type="text" value="15,000"/>
+</div>
+<div class="flex justify-between items-center mt-sm px-sm">
+<span class="font-label-md text-label-md text-on-surface-variant">Change Due</span>
+<span class="font-headline-sm text-headline-sm text-primary">LKR 2,600</span>
+</div>
+</div>
+<!-- Quick Cash Chips -->
+<div class="grid grid-cols-4 gap-sm mb-lg">
+<button class="bg-surface-container-low border border-outline-variant rounded-full py-sm px-xs font-label-md text-label-md text-on-surface hover:bg-secondary-container transition-colors">+500</button>
+<button class="bg-surface-container-low border border-outline-variant rounded-full py-sm px-xs font-label-md text-label-md text-on-surface hover:bg-secondary-container transition-colors">+1,000</button>
+<button class="bg-surface-container-low border border-outline-variant rounded-full py-sm px-xs font-label-md text-label-md text-on-surface hover:bg-secondary-container transition-colors">+2,000</button>
+<button class="bg-surface-container-low border border-outline-variant rounded-full py-sm px-xs font-label-md text-label-md text-on-surface hover:bg-secondary-container transition-colors">+5,000</button>
+</div>
+<!-- Numeric Keypad -->
+<div class="grid grid-cols-3 gap-sm flex-1">
+<button class="bg-surface-container-lowest border border-outline-variant rounded-full h-[64px] flex items-center justify-center font-headline-lg text-headline-lg text-on-surface active:bg-surface-container-low hover:border-outline transition-colors">1</button>
+<button class="bg-surface-container-lowest border border-outline-variant rounded-full h-[64px] flex items-center justify-center font-headline-lg text-headline-lg text-on-surface active:bg-surface-container-low hover:border-outline transition-colors">2</button>
+<button class="bg-surface-container-lowest border border-outline-variant rounded-full h-[64px] flex items-center justify-center font-headline-lg text-headline-lg text-on-surface active:bg-surface-container-low hover:border-outline transition-colors">3</button>
+<button class="bg-surface-container-lowest border border-outline-variant rounded-full h-[64px] flex items-center justify-center font-headline-lg text-headline-lg text-on-surface active:bg-surface-container-low hover:border-outline transition-colors">4</button>
+<button class="bg-surface-container-lowest border border-outline-variant rounded-full h-[64px] flex items-center justify-center font-headline-lg text-headline-lg text-on-surface active:bg-surface-container-low hover:border-outline transition-colors">5</button>
+<button class="bg-surface-container-lowest border border-outline-variant rounded-full h-[64px] flex items-center justify-center font-headline-lg text-headline-lg text-on-surface active:bg-surface-container-low hover:border-outline transition-colors">6</button>
+<button class="bg-surface-container-lowest border border-outline-variant rounded-full h-[64px] flex items-center justify-center font-headline-lg text-headline-lg text-on-surface active:bg-surface-container-low hover:border-outline transition-colors">7</button>
+<button class="bg-surface-container-lowest border border-outline-variant rounded-full h-[64px] flex items-center justify-center font-headline-lg text-headline-lg text-on-surface active:bg-surface-container-low hover:border-outline transition-colors">8</button>
+<button class="bg-surface-container-lowest border border-outline-variant rounded-full h-[64px] flex items-center justify-center font-headline-lg text-headline-lg text-on-surface active:bg-surface-container-low hover:border-outline transition-colors">9</button>
+<button class="bg-surface-container-low border border-outline-variant rounded-full h-[64px] flex items-center justify-center font-headline-sm text-headline-sm text-on-surface-variant active:bg-surface-variant hover:border-outline transition-colors">C</button>
+<button class="bg-surface-container-lowest border border-outline-variant rounded-full h-[64px] flex items-center justify-center font-headline-lg text-headline-lg text-on-surface active:bg-surface-container-low hover:border-outline transition-colors">0</button>
+<button class="bg-surface-container-low border border-outline-variant rounded-full h-[64px] flex items-center justify-center font-headline-sm text-headline-sm text-on-surface-variant active:bg-surface-variant hover:border-outline transition-colors">
+<span class="material-symbols-outlined" data-icon="backspace">backspace</span>
+</button>
+</div>
+<!-- Confirm Action -->
+<button class="mt-lg w-full bg-primary-container text-on-primary-fixed rounded-full h-[64px] flex items-center justify-center font-label-md text-label-md uppercase tracking-wider hover:opacity-90 transition-opacity">
+                        Confirm Payment
+                    </button>
+</div>
+</div>
+</div>
+</main>
+</body></html>

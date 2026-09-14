@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>LuxeInventory | Inventory Management</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #fafaf4;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-fixed": "#f4e0bf",
+                        "tertiary": "#6a5d42",
+                        "outline-variant": "#c0c9c0",
+                        "surface-tint": "#34694b",
+                        "outline": "#717972",
+                        "on-secondary-container": "#496a56",
+                        "on-secondary": "#ffffff",
+                        "on-tertiary-container": "#78694e",
+                        "background": "#fafaf4",
+                        "secondary-fixed-dim": "#abcfb7",
+                        "on-error-container": "#93000a",
+                        "on-primary-fixed-variant": "#1a5034",
+                        "surface": "#fafaf4",
+                        "primary-fixed-dim": "#9bd3ae",
+                        "on-background": "#1a1c19",
+                        "inverse-on-surface": "#f1f1eb",
+                        "secondary-container": "#c4e8d0",
+                        "surface-container-highest": "#e3e3dd",
+                        "on-tertiary": "#ffffff",
+                        "primary-fixed": "#b6f0c9",
+                        "primary": "#34694b",
+                        "tertiary-container": "#ffebc9",
+                        "surface-bright": "#fafaf4",
+                        "on-primary-container": "#417657",
+                        "on-surface": "#1a1c19",
+                        "surface-variant": "#e3e3dd",
+                        "surface-container-low": "#f4f4ee",
+                        "on-primary": "#ffffff",
+                        "inverse-surface": "#2f312d",
+                        "surface-container": "#eeeee8",
+                        "secondary": "#456552",
+                        "primary-container": "#c1fbd4",
+                        "error": "#ba1a1a",
+                        "error-container": "#ffdad6",
+                        "surface-dim": "#dadad5",
+                        "surface-container-lowest": "#ffffff",
+                        "on-surface-variant": "#414942",
+                        "on-secondary-fixed": "#002112",
+                        "on-tertiary-fixed-variant": "#52452d",
+                        "on-secondary-fixed-variant": "#2d4d3b",
+                        "on-error": "#ffffff",
+                        "surface-container-high": "#e8e8e3",
+                        "on-tertiary-fixed": "#241a06",
+                        "inverse-primary": "#9bd3ae",
+                        "tertiary-fixed-dim": "#d7c4a4",
+                        "secondary-fixed": "#c7ebd3",
+                        "on-primary-fixed": "#002111"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "1rem",
+                        "lg": "2rem",
+                        "xl": "3rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-desktop": "64px",
+                        "margin-mobile": "20px",
+                        "gutter": "16px",
+                        "hit-target": "44px",
+                        "unit": "4px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "display-lg-mobile": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "label-caps": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["16px", {"lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400"}],
+                        "headline-md": ["24px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "400"}],
+                        "display-lg": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.04em", "fontWeight": "300"}],
+                        "display-lg-mobile": ["36px", {"lineHeight": "1.1", "letterSpacing": "-0.03em", "fontWeight": "300"}],
+                        "body-sm": ["14px", {"lineHeight": "1.5", "letterSpacing": "0em", "fontWeight": "400"}],
+                        "label-caps": ["12px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "600"}]
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-background text-on-surface">
+<!-- Fixed SideNavBar (Source: JSON SideNavBar) -->
+<aside class="h-screen w-64 fixed left-0 top-0 bg-surface-container-low dark:bg-surface-container-lowest border-r border-outline-variant dark:border-outline z-50 flex flex-col h-full py-gutter px-4">
+<div class="mb-10 px-4">
+<h1 class="font-headline-md text-headline-md font-bold text-primary dark:text-primary-fixed-dim">LuxeInventory</h1>
+<p class="text-body-sm font-body-sm text-on-surface-variant opacity-70">Luxury Retail Group</p>
+</div>
+<nav class="flex-grow space-y-2">
+<div class="flex items-center gap-3 px-4 py-3 text-on-surface-variant dark:text-outline-variant hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-all cursor-pointer rounded-full group">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-body-lg text-body-lg">Dashboard</span>
+</div>
+<!-- Active State: Inventory -->
+<div class="flex items-center gap-3 px-4 py-3 bg-secondary-container dark:bg-secondary-fixed-dim text-on-secondary-container dark:text-on-secondary-fixed font-bold rounded-full cursor-pointer transition-all active:scale-95 duration-150">
+<span class="material-symbols-outlined" data-icon="inventory_2" style="font-variation-settings: 'FILL' 1;">inventory_2</span>
+<span class="font-body-lg text-body-lg">Inventory</span>
+</div>
+<div class="flex items-center gap-3 px-4 py-3 text-on-surface-variant dark:text-outline-variant hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-all cursor-pointer rounded-full group">
+<span class="material-symbols-outlined" data-icon="shopping_bag">shopping_bag</span>
+<span class="font-body-lg text-body-lg">Orders</span>
+</div>
+<div class="flex items-center gap-3 px-4 py-3 text-on-surface-variant dark:text-outline-variant hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-all cursor-pointer rounded-full group">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+<span class="font-body-lg text-body-lg">Customers</span>
+</div>
+<div class="flex items-center gap-3 px-4 py-3 text-on-surface-variant dark:text-outline-variant hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-all cursor-pointer rounded-full group">
+<span class="material-symbols-outlined" data-icon="leaderboard">leaderboard</span>
+<span class="font-body-lg text-body-lg">Analytics</span>
+</div>
+</nav>
+<div class="mt-auto border-t border-outline-variant pt-4 space-y-2">
+<div class="flex items-center gap-3 px-4 py-3 text-on-surface-variant dark:text-outline-variant hover:bg-surface-container-high transition-all cursor-pointer rounded-full">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-body-lg text-body-lg">Settings</span>
+</div>
+<div class="flex items-center gap-3 px-4 py-3 text-on-surface-variant dark:text-outline-variant hover:bg-surface-container-high transition-all cursor-pointer rounded-full">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span class="font-body-lg text-body-lg">Support</span>
+</div>
+<div class="mt-4 px-4 py-3 bg-primary-container text-on-primary-container rounded-full text-center font-bold text-body-sm cursor-pointer hover:opacity-90 transition-opacity">
+                System Status
+            </div>
+</div>
+</aside>
+<!-- TopAppBar Content Integration -->
+<header class="fixed top-0 right-0 left-64 h-16 flex justify-between items-center px-margin-desktop bg-surface dark:bg-surface-dim z-40 border-b border-outline-variant dark:border-outline">
+<div class="flex items-center flex-1">
+<div class="relative w-full max-w-md">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+<input class="w-full bg-surface-container-low border-none rounded-full pl-10 pr-4 h-10 focus:ring-1 focus:ring-primary font-body-sm" placeholder="Search Inventory..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-high rounded-full transition-colors">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-high rounded-full transition-colors">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+<button class="bg-primary-container text-on-primary-container px-6 h-10 rounded-full font-bold flex items-center gap-2 hover:opacity-80 transition-opacity active:scale-95">
+<span class="material-symbols-outlined text-sm">add</span>
+                Add Product
+            </button>
+</div>
+</header>
+<!-- Main Content -->
+<main class="ml-64 pt-16 min-h-screen">
+<div class="px-margin-desktop py-12">
+<!-- Header Section -->
+<div class="flex justify-between items-end mb-8">
+<div>
+<h2 class="font-display-lg text-display-lg text-on-surface mb-2">Inventory Management</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Oversee your luxury assets and stock health across all boutiques.</p>
+</div>
+</div>
+<!-- Filters -->
+<div class="flex items-center gap-3 mb-8">
+<button class="px-6 py-2 bg-primary text-on-primary rounded-full font-bold text-body-sm">All</button>
+<button class="px-6 py-2 bg-surface-container-highest text-on-surface-variant rounded-full font-bold text-body-sm hover:bg-surface-container-high transition-colors">Apparel</button>
+<button class="px-6 py-2 bg-surface-container-highest text-on-surface-variant rounded-full font-bold text-body-sm hover:bg-surface-container-high transition-colors">Accessories</button>
+<button class="px-6 py-2 bg-surface-container-highest text-on-surface-variant rounded-full font-bold text-body-sm hover:bg-surface-container-high transition-colors">Footwear</button>
+<div class="ml-auto flex items-center gap-2 text-on-surface-variant cursor-pointer hover:text-primary transition-colors">
+<span class="material-symbols-outlined">filter_list</span>
+<span class="font-label-caps text-label-caps uppercase">Advanced Filters</span>
+</div>
+</div>
+<!-- Inventory Table Container -->
+<div class="bg-surface-container-lowest rounded-lg border border-outline-variant overflow-hidden">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-outline-variant bg-surface-container-low">
+<th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Product Details</th>
+<th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Category</th>
+<th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Stock Level</th>
+<th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Unit Price</th>
+<th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Status</th>
+<th class="px-6 py-4"></th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant">
+<!-- Row 1 -->
+<tr class="hover:bg-background transition-colors group">
+<td class="px-6 py-5">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded bg-surface-container-high overflow-hidden border border-outline-variant">
+<img alt="Heels" class="w-full h-full object-cover" data-alt="A professional product photograph of high-end luxury stiletto heels in a soft cream color, shot on a minimalist marble surface with soft, diffused morning light. The composition is clean and focuses on the craftsmanship of the leather, adhering to a high-fashion, bright light-mode aesthetic with mint-toned secondary accents in the background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAjsitafqZJQfU3DAPeeMlVne57-WQBvlWSVGTmqpGWo-yfukaeo4ss1IYe6Nhjkf6CZ7lPZHiSmyaUKEofusS9xMWkDS2hMZgs1e2khuP0xr0N1TTcbaIhBMHUqN5GPipVT06B7P6OAL7PEj09aojM04-_1qzZYnuOWASTZZVnE5v31S7WCXOzhiQD1d5ihyhZ5PxPCiuQFjF9JWGtpNINVgO0tZhnucasfQbJcaqGymJZ_iEs2pw2y1It70J9EnevMKypfERpsHGa"/>
+</div>
+<div>
+<div class="font-body-lg font-bold text-on-surface">Midnight Suede Pump</div>
+<div class="font-body-sm text-on-surface-variant opacity-70">SKU: FTW-882-L</div>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 font-body-lg text-on-surface">Footwear</td>
+<td class="px-6 py-5">
+<div class="w-full max-w-[120px]">
+<div class="flex justify-between mb-1">
+<span class="font-body-sm font-bold">124</span>
+<span class="font-body-sm text-on-surface-variant">82%</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 82%"></div>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 font-body-lg font-semibold text-on-surface">$890.00</td>
+<td class="px-6 py-5">
+<span class="px-3 py-1 bg-primary-container text-on-primary-container rounded-full text-label-caps font-bold">IN STOCK</span>
+</td>
+<td class="px-6 py-5 text-right">
+<button class="p-2 text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity hover:bg-surface-container-high rounded-full">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-background transition-colors group">
+<td class="px-6 py-5">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded bg-surface-container-high overflow-hidden border border-outline-variant">
+<img alt="Perfume" class="w-full h-full object-cover" data-alt="A premium close-up of a designer perfume bottle with gold metallic hardware and a minimalist label, set against a pristine white and cream backdrop. The lighting is sophisticated and directional, creating soft shadows that emphasize the crystal-clear glass and the pale pistachio-colored liquid inside. The overall mood is expensive, serene, and modern." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAduRaagmYQvbiQIvogOaPU2julbP3A_YYOx1dF27et8BIcNgojPHq1D0gNRQb79DZPT_S8sNA4lkH-vt2qdFmO2yfHDQtvXjocfPpvxm62m2ZJrO0sq9jNzXhncO25U1M0adRrgOKvEdS6j-warXf99IYZ5wGkuWl1tZZsSyNdRmnVz4UZyYAhmjibahxbpfYAmS3ACWagcBAt4l0hRfyB21IDPqL30GBbGtxyPkPQf6B5YKjPRHsPOSe4Xcqm9sXitdv3rMeQsOxf"/>
+</div>
+<div>
+<div class="font-body-lg font-bold text-on-surface">L'Essence de Menthe</div>
+<div class="font-body-sm text-on-surface-variant opacity-70">SKU: ACC-104-M</div>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 font-body-lg text-on-surface">Accessories</td>
+<td class="px-6 py-5">
+<div class="w-full max-w-[120px]">
+<div class="flex justify-between mb-1">
+<span class="font-body-sm font-bold">12</span>
+<span class="font-body-sm text-on-surface-variant">15%</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-error" style="width: 15%"></div>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 font-body-lg font-semibold text-on-surface">$1,250.00</td>
+<td class="px-6 py-5">
+<span class="px-3 py-1 bg-error-container text-on-error-container rounded-full text-label-caps font-bold">LOW STOCK</span>
+</td>
+<td class="px-6 py-5 text-right">
+<button class="p-2 text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity hover:bg-surface-container-high rounded-full">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-background transition-colors group">
+<td class="px-6 py-5">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded bg-surface-container-high overflow-hidden border border-outline-variant">
+<img alt="Coat" class="w-full h-full object-cover" data-alt="A luxury wool overcoat in a soft ivory shade draped elegantly over a minimal ash-wood hanger. The background is a textured cream wall with clean geometric lines. The lighting is bright and airy, reflecting a premium boutique atmosphere. A single mint-green silk scarf is styled subtly in the pocket to tie into the brand's signature palette." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC7EGh56l0MaqTmRLH4PCbu0sJqOFXX0mnJ2r9ChGNqe_W7xYv8Lw75MqOaiCyZGE17EAhvObvuRZn-mH_Apj8x9CnfIDvmJGNCeGM2XzmghZU1gHy-gNKwKOhRV11DC3vZnPPCbtnESDgc9xiHIDq-BM_QLWZcYOOc6bTvWTSOZHq1NrW3q7V8pOdxIya_kedPSpwrWfg4_uwFlz8HJMMkBuKC9zeCoA_9hsoXoz26ujOMN0EAQhFG7rA88y7YYa7FqL_5PqcxrLDf"/>
+</div>
+<div>
+<div class="font-body-lg font-bold text-on-surface">Cashmere Trench</div>
+<div class="font-body-sm text-on-surface-variant opacity-70">SKU: APP-420-S</div>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 font-body-lg text-on-surface">Apparel</td>
+<td class="px-6 py-5">
+<div class="w-full max-w-[120px]">
+<div class="flex justify-between mb-1">
+<span class="font-body-sm font-bold">0</span>
+<span class="font-body-sm text-on-surface-variant">0%</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-outline" style="width: 0%"></div>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 font-body-lg font-semibold text-on-surface">$3,400.00</td>
+<td class="px-6 py-5">
+<span class="px-3 py-1 bg-surface-container-high text-on-surface-variant rounded-full text-label-caps font-bold">OUT OF STOCK</span>
+</td>
+<td class="px-6 py-5 text-right">
+<button class="p-2 text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity hover:bg-surface-container-high rounded-full">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-background transition-colors group">
+<td class="px-6 py-5">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded bg-surface-container-high overflow-hidden border border-outline-variant">
+<img alt="Bag" class="w-full h-full object-cover" data-alt="An exquisite high-end leather handbag in a deep forest green, displayed in a brightly lit, high-ceilinged modern gallery. The surrounding environment is minimalist with cream-colored stone floors and soft lighting that highlights the bag's pebbled texture and polished silver hardware. The vibe is sophisticated, professional, and reflects effortless luxury." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0VHI8YEXar3ic0epw8ULf5o3XDc7bN5gBGUV6QNe2VupCN3ctATWM6P9Kld8eendOrao1o5bokMPeinqNqvVlX-XKYCP7vftDnDCIJWIk95JtA3cvJ9CuHFZNJEv2qSTfXBB_9535EhVaX_Eh97yqpNya67jwKTksHdemg1eH8A_QEqSRPs-kMH0nL5-_wb1dmuogXgh9ldSs0HxujLosTmZrOv7sbVlScLvV3A1BOy9pJBsQB6iu1-edZEJM-2oUNPFaev07TAVB"/>
+</div>
+<div>
+<div class="font-body-lg font-bold text-on-surface">The Signature Satchel</div>
+<div class="font-body-sm text-on-surface-variant opacity-70">SKU: ACC-991-K</div>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 font-body-lg text-on-surface">Accessories</td>
+<td class="px-6 py-5">
+<div class="w-full max-w-[120px]">
+<div class="flex justify-between mb-1">
+<span class="font-body-sm font-bold">45</span>
+<span class="font-body-sm text-on-surface-variant">42%</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-primary opacity-60" style="width: 42%"></div>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 font-body-lg font-semibold text-on-surface">$2,100.00</td>
+<td class="px-6 py-5">
+<span class="px-3 py-1 bg-primary-container text-on-primary-container rounded-full text-label-caps font-bold">IN STOCK</span>
+</td>
+<td class="px-6 py-5 text-right">
+<button class="p-2 text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity hover:bg-surface-container-high rounded-full">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+<!-- Pagination -->
+<div class="px-6 py-4 flex items-center justify-between bg-surface-container-low border-t border-outline-variant">
+<span class="font-body-sm text-on-surface-variant">Showing 1 to 10 of 48 products</span>
+<div class="flex gap-2">
+<button class="p-2 border border-outline-variant rounded-full hover:bg-surface-container-high transition-colors disabled:opacity-30" disabled="">
+<span class="material-symbols-outlined">chevron_left</span>
+</button>
+<button class="w-10 h-10 bg-primary text-on-primary rounded-full font-bold flex items-center justify-center font-body-sm">1</button>
+<button class="w-10 h-10 border border-outline-variant hover:bg-surface-container-high rounded-full font-bold flex items-center justify-center font-body-sm text-on-surface-variant">2</button>
+<button class="w-10 h-10 border border-outline-variant hover:bg-surface-container-high rounded-full font-bold flex items-center justify-center font-body-sm text-on-surface-variant">3</button>
+<button class="p-2 border border-outline-variant rounded-full hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

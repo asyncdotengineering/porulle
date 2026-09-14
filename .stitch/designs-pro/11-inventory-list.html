@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Modern Merchant - Inventory</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "background": "#f9f9fc",
+                        "on-tertiary-fixed-variant": "#464743",
+                        "surface-dim": "#dadadd",
+                        "on-secondary-container": "#496a56",
+                        "on-secondary-fixed-variant": "#2d4d3b",
+                        "surface-container-low": "#f3f3f6",
+                        "on-surface-variant": "#414942",
+                        "surface-bright": "#f9f9fc",
+                        "primary-fixed-dim": "#9bd3ae",
+                        "tertiary-fixed": "#e3e3dd",
+                        "secondary-fixed": "#c7ebd3",
+                        "tertiary-fixed-dim": "#c6c7c1",
+                        "on-error-container": "#93000a",
+                        "on-background": "#1a1c1e",
+                        "primary-fixed": "#b6f0c9",
+                        "on-primary-container": "#417657",
+                        "tertiary-container": "#eeeee8",
+                        "on-secondary-fixed": "#002112",
+                        "surface-container": "#eeedf0",
+                        "primary-container": "#c1fbd4",
+                        "on-primary-fixed": "#002111",
+                        "primary": "#34694b",
+                        "on-secondary": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed-dim": "#abcfb7",
+                        "on-surface": "#1a1c1e",
+                        "surface-container-high": "#e8e8eb",
+                        "secondary-container": "#c4e8d0",
+                        "outline-variant": "#c0c9c0",
+                        "surface-variant": "#e2e2e5",
+                        "on-primary": "#ffffff",
+                        "outline": "#717972",
+                        "inverse-on-surface": "#f0f0f3",
+                        "on-tertiary-container": "#6a6c67",
+                        "inverse-surface": "#2f3033",
+                        "secondary": "#456552",
+                        "surface-tint": "#34694b",
+                        "tertiary": "#5d5f5a",
+                        "on-error": "#ffffff",
+                        "on-tertiary": "#ffffff",
+                        "on-primary-fixed-variant": "#1a5034",
+                        "surface-container-lowest": "#ffffff",
+                        "inverse-primary": "#9bd3ae",
+                        "error": "#ba1a1a",
+                        "surface-container-highest": "#e2e2e5",
+                        "surface": "#f9f9fc",
+                        "on-tertiary-fixed": "#1a1c19"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "1rem",
+                        "lg": "2rem",
+                        "xl": "3rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "lg": "24px",
+                        "margin-mobile": "16px",
+                        "md": "16px",
+                        "xs": "4px",
+                        "unit": "4px",
+                        "gutter": "16px",
+                        "sm": "8px",
+                        "margin-tablet": "32px",
+                        "xl": "40px"
+                    },
+                    "fontFamily": {
+                        "body-md": ["Inter"],
+                        "label-md": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "display-md": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "display-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-md": ["16px", { "lineHeight": "1.5", "letterSpacing": "0em", "fontWeight": "400" }],
+                        "label-md": ["14px", { "lineHeight": "1", "letterSpacing": "0.02em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "1.3", "letterSpacing": "-0.02em", "fontWeight": "300" }],
+                        "display-md": ["36px", { "lineHeight": "1.2", "letterSpacing": "-0.03em", "fontWeight": "300" }],
+                        "label-sm": ["12px", { "lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "headline-sm": ["20px", { "lineHeight": "1.4", "letterSpacing": "0em", "fontWeight": "500" }],
+                        "body-lg": ["18px", { "lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400" }],
+                        "display-lg": ["48px", { "lineHeight": "1.1", "letterSpacing": "-0.04em", "fontWeight": "300" }]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #fbfbf5; }
+        .hairline-border { border: 1px solid #e4e4e7; }
+        .table-row-hover:hover { background-color: #f3f3f6; transition: background-color 0.2s ease; }
+    </style>
+</head>
+<body class="bg-[#fbfbf5] text-on-background h-screen flex overflow-hidden">
+<!-- SideNavBar Component -->
+<nav class="bg-background dark:bg-on-background h-screen w-64 border-r border-outline-variant flex flex-col h-full py-lg px-md hidden md:flex">
+<div class="mb-xl">
+<h1 class="font-headline-sm text-headline-sm font-bold text-on-background dark:text-background">Boutique POS</h1>
+<p class="font-label-sm text-label-sm text-on-surface-variant dark:text-outline-variant mt-sm">Terminal 01</p>
+</div>
+<div class="flex-1 flex flex-col gap-sm">
+<a class="flex items-center gap-md text-on-surface-variant dark:text-outline-variant px-md py-sm hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors rounded-full touch-manipulation min-h-[48px]" href="#">
+<span class="material-symbols-outlined" data-icon="point_of_sale">point_of_sale</span>
+<span class="font-label-md text-label-md">Register</span>
+</a>
+<a class="flex items-center gap-md text-on-surface-variant dark:text-outline-variant px-md py-sm hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors rounded-full touch-manipulation min-h-[48px]" href="#">
+<span class="material-symbols-outlined" data-icon="receipt_long">receipt_long</span>
+<span class="font-label-md text-label-md">Orders</span>
+</a>
+<a class="flex items-center gap-md bg-secondary-container dark:bg-on-secondary-fixed-variant text-on-secondary-container dark:text-secondary-fixed rounded-full px-md py-sm hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors touch-manipulation min-h-[48px] opacity-80 duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="inventory_2" data-weight="fill" style="font-variation-settings: 'FILL' 1;">inventory_2</span>
+<span class="font-label-md text-label-md">Inventory</span>
+</a>
+<a class="flex items-center gap-md text-on-surface-variant dark:text-outline-variant px-md py-sm hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors rounded-full touch-manipulation min-h-[48px]" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-label-md text-label-md">Reports</span>
+</a>
+</div>
+<div class="mt-auto pt-lg border-t border-outline-variant dark:border-outline">
+<a class="flex items-center gap-md text-on-surface-variant dark:text-outline-variant px-md py-sm hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors rounded-full touch-manipulation min-h-[48px]" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-label-md text-label-md">Settings</span>
+</a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col h-screen overflow-hidden">
+<!-- TopAppBar Component -->
+<header class="bg-surface dark:bg-surface-dim full-width border-b border-outline-variant flex justify-between items-center h-16 px-margin-tablet w-full shrink-0">
+<div class="flex items-center gap-md">
+<!-- Mobile Menu Button (Hidden on Desktop) -->
+<button class="md:hidden text-on-surface-variant min-h-[48px] min-w-[48px] flex items-center justify-center">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<span class="font-label-md text-label-md uppercase tracking-widest text-on-surface dark:text-on-surface-variant font-bold">Modern Merchant</span>
+</div>
+<div class="flex items-center gap-lg">
+<div class="relative hidden sm:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span>
+<input class="pl-10 pr-4 py-2 bg-transparent hairline-border rounded-full font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary min-w-[240px] min-h-[48px]" placeholder="Search inventory..." type="text"/>
+</div>
+<div class="flex items-center gap-sm">
+<button class="text-on-surface-variant dark:text-outline-variant hover:text-primary transition-opacity min-h-[48px] min-w-[48px] flex items-center justify-center rounded-full hover:bg-surface-container-highest">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="text-on-surface-variant dark:text-outline-variant hover:text-primary transition-opacity min-h-[48px] min-w-[48px] flex items-center justify-center rounded-full hover:bg-surface-container-highest">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+</button>
+<button class="text-on-surface-variant dark:text-outline-variant hover:text-primary transition-opacity min-h-[48px] min-w-[48px] flex items-center justify-center rounded-full hover:bg-surface-container-highest">
+<span class="material-symbols-outlined" data-icon="logout">logout</span>
+</button>
+</div>
+</div>
+</header>
+<!-- Page Content -->
+<div class="flex-1 overflow-y-auto p-margin-mobile md:p-margin-tablet pb-24 md:pb-margin-tablet">
+<div class="flex justify-between items-end mb-lg">
+<div>
+<h2 class="font-display-md text-display-md text-on-background">Inventory Management</h2>
+<p class="font-body-md text-body-md text-on-surface-variant mt-xs">Manage your boutique's stock, pricing, and product details.</p>
+</div>
+</div>
+<!-- Summary Bento Grid -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-md mb-xl">
+<!-- Total Items -->
+<div class="bg-surface-container-lowest hairline-border rounded-DEFAULT p-lg flex flex-col justify-between h-32 relative overflow-hidden group hover:bg-surface-container-low transition-colors duration-300">
+<div class="flex justify-between items-start">
+<span class="font-label-sm text-label-sm uppercase tracking-widest text-on-surface-variant">Total Items</span>
+<span class="material-symbols-outlined text-outline">category</span>
+</div>
+<div class="font-display-md text-display-md text-on-background">1,248</div>
+</div>
+<!-- Low Stock -->
+<div class="bg-surface-container-lowest hairline-border rounded-DEFAULT p-lg flex flex-col justify-between h-32 relative overflow-hidden group hover:bg-surface-container-low transition-colors duration-300">
+<div class="flex justify-between items-start">
+<span class="font-label-sm text-label-sm uppercase tracking-widest text-on-surface-variant">Low Stock Alert</span>
+<span class="material-symbols-outlined text-[#b45309]">warning</span>
+</div>
+<div class="font-display-md text-display-md text-on-background">24</div>
+</div>
+<!-- Out of Stock -->
+<div class="bg-surface-container-lowest hairline-border rounded-DEFAULT p-lg flex flex-col justify-between h-32 relative overflow-hidden group hover:bg-surface-container-low transition-colors duration-300">
+<div class="flex justify-between items-start">
+<span class="font-label-sm text-label-sm uppercase tracking-widest text-on-surface-variant">Out of Stock</span>
+<span class="material-symbols-outlined text-error">error</span>
+</div>
+<div class="font-display-md text-display-md text-on-background">8</div>
+</div>
+<!-- Total Value -->
+<div class="bg-surface-container-lowest hairline-border rounded-DEFAULT p-lg flex flex-col justify-between h-32 relative overflow-hidden group hover:bg-surface-container-low transition-colors duration-300">
+<div class="flex justify-between items-start">
+<span class="font-label-sm text-label-sm uppercase tracking-widest text-on-surface-variant">Est. Total Value</span>
+<span class="material-symbols-outlined text-outline">payments</span>
+</div>
+<div class="font-display-md text-display-md text-on-background">$142.5K</div>
+</div>
+</div>
+<!-- Toolbar / Filters -->
+<div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-md mb-md">
+<div class="flex flex-wrap items-center gap-sm w-full lg:w-auto">
+<!-- Category Dropdown -->
+<div class="relative">
+<select class="appearance-none bg-transparent hairline-border rounded-full pl-4 pr-10 py-2 font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary min-h-[48px] min-w-[140px] cursor-pointer">
+<option value="all">All Categories</option>
+<option value="tops">Tops</option>
+<option value="dresses">Dresses</option>
+<option value="bottoms">Bottoms</option>
+<option value="accessories">Accessories</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-outline">expand_more</span>
+</div>
+<!-- Status Filter -->
+<div class="relative">
+<select class="appearance-none bg-transparent hairline-border rounded-full pl-4 pr-10 py-2 font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary min-h-[48px] min-w-[140px] cursor-pointer">
+<option value="all">All Status</option>
+<option value="in_stock">In Stock</option>
+<option value="low_stock">Low Stock</option>
+<option value="out_of_stock">Out of Stock</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-outline">expand_more</span>
+</div>
+</div>
+<div class="flex items-center gap-md w-full lg:w-auto justify-end">
+<button class="bg-surface-container-lowest hairline-border text-on-surface font-label-md text-label-md px-lg py-sm rounded-full hover:bg-surface-container-highest transition-colors min-h-[48px] flex items-center gap-sm">
+<span class="material-symbols-outlined">ios_share</span>
+                        Export
+                    </button>
+<button class="bg-primary-container text-[#000000] font-label-md text-label-md px-lg py-sm rounded-full hover:bg-secondary-fixed transition-colors min-h-[48px] flex items-center gap-sm">
+<span class="material-symbols-outlined">add</span>
+                        Add Product
+                    </button>
+</div>
+</div>
+<!-- Data Table Card -->
+<div class="bg-surface-container-lowest hairline-border rounded-lg overflow-hidden">
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-outline-variant bg-surface-container-low">
+<th class="py-md px-lg font-label-md text-label-md uppercase tracking-widest text-on-surface-variant font-semibold">Product</th>
+<th class="py-md px-lg font-label-md text-label-md uppercase tracking-widest text-on-surface-variant font-semibold">SKU</th>
+<th class="py-md px-lg font-label-md text-label-md uppercase tracking-widest text-on-surface-variant font-semibold hidden md:table-cell">Category</th>
+<th class="py-md px-lg font-label-md text-label-md uppercase tracking-widest text-on-surface-variant font-semibold text-right">Price</th>
+<th class="py-md px-lg font-label-md text-label-md uppercase tracking-widest text-on-surface-variant font-semibold text-center">Status</th>
+<th class="py-md px-lg font-label-md text-label-md uppercase tracking-widest text-on-surface-variant font-semibold text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="font-body-md text-body-md text-on-surface divide-y divide-outline-variant">
+<!-- Row 1: In Stock -->
+<tr class="table-row-hover group">
+<td class="py-md px-lg">
+<div class="flex items-center gap-md">
+<div class="w-12 h-12 rounded bg-surface-container-highest overflow-hidden shrink-0 hairline-border">
+<img alt="Silk Blouse" class="w-full h-full object-cover" data-alt="A meticulously folded cream-colored silk blouse resting on a minimalist concrete table. The soft, natural light creates subtle highlights on the luxurious fabric, emphasizing its smooth texture. The scene is shot with high-end editorial lighting, embodying a quiet luxury aesthetic suitable for a boutique fashion inventory display." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBZrkwnSujz72mSG3gVQl8L6acmQqgWnxTy-xshWk4xcSdA4YtEk4itjLMfjqCmJJYw6x3K7u0jEpJICJaRAGpf21ee0z_Aihpq8cRz1RbHHyIFZsSkmethHPfjH3FAgvoCBK_4AHLrqRrVVgnLedlwUKGB2fH48sGeoJ3lH7TnSgZQMwc06nFbRA-A9wqhMldpXM4PkLd44R-2BpwYk-FJv-r2XXmOBVs05fyyYvgsblyTVQzs7Vs2rUkUOu03lgB3HUHXRvBNQZU1"/>
+</div>
+<div>
+<div class="font-label-md text-label-md text-on-background">Ivory Silk Blouse</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant hidden sm:block mt-xs">Size: M, L</div>
+</div>
+</div>
+</td>
+<td class="py-md px-lg text-on-surface-variant font-mono text-sm">TB-001</td>
+<td class="py-md px-lg text-on-surface-variant hidden md:table-cell">Tops</td>
+<td class="py-md px-lg text-right font-medium">$185.00</td>
+<td class="py-md px-lg text-center">
+<span class="inline-flex items-center justify-center px-3 py-1 rounded-full bg-[#d4f9e0] text-[#002112] font-label-sm text-label-sm">
+                                        24 In Stock
+                                    </span>
+</td>
+<td class="py-md px-lg text-right">
+<button class="text-on-surface-variant hover:text-primary min-h-[48px] min-w-[48px] rounded-full hover:bg-surface-container-high transition-colors inline-flex items-center justify-center">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 2: Low Stock -->
+<tr class="table-row-hover group">
+<td class="py-md px-lg">
+<div class="flex items-center gap-md">
+<div class="w-12 h-12 rounded bg-surface-container-highest overflow-hidden shrink-0 hairline-border">
+<img alt="Linen Dress" class="w-full h-full object-cover" data-alt="A beautifully draped olive green linen slip dress hanging on a simple wooden hanger against a pure white studio background. The lighting is crisp and flat, ensuring the fabric's natural weave is subtly visible. The composition is clean, centered, and reflects a modern, minimalist retail aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDxpDJeIcJnj7Ud_JNMplIrLQlqAK5-n0gXL7_ftOWfcU7wEp5N799eWAlvx5mp7nXKrSKeMgVs5q5vhkhxSJqOxDgCHPW4xNQ8RQuWcaK-tNzV64TiTVM3IIzETpt2LqWz_Ikeszq5bt-oX8iy_fnW54S3CuURsYW6tTdOiG-Ch5mpgW8LqQ0JkjMM1IPMl-qsT7RrVEuzencO-dUgztefrBvmAmFRp5ICywY8ROmoanmB4xSyGu3EDlSAMp_HEEZ8T8Xs0uwronwY"/>
+</div>
+<div>
+<div class="font-label-md text-label-md text-on-background">Olive Linen Slip Dress</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant hidden sm:block mt-xs">Size: S</div>
+</div>
+</div>
+</td>
+<td class="py-md px-lg text-on-surface-variant font-mono text-sm">DR-042</td>
+<td class="py-md px-lg text-on-surface-variant hidden md:table-cell">Dresses</td>
+<td class="py-md px-lg text-right font-medium">$240.00</td>
+<td class="py-md px-lg text-center">
+<span class="inline-flex items-center justify-center px-3 py-1 rounded-full bg-[#fef08a] text-[#713f12] font-label-sm text-label-sm">
+                                        3 Low Stock
+                                    </span>
+</td>
+<td class="py-md px-lg text-right">
+<button class="text-on-surface-variant hover:text-primary min-h-[48px] min-w-[48px] rounded-full hover:bg-surface-container-high transition-colors inline-flex items-center justify-center">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 3: Out of Stock -->
+<tr class="table-row-hover group bg-surface-container-low opacity-75">
+<td class="py-md px-lg">
+<div class="flex items-center gap-md">
+<div class="w-12 h-12 rounded bg-surface-container-highest overflow-hidden shrink-0 hairline-border grayscale">
+<img alt="Leather Tote" class="w-full h-full object-cover" data-alt="A structural tan leather tote bag placed on a sleek marble plinth. The environment is sparsely decorated, emphasizing the bag's craftsmanship and clean lines. Soft, diffused overhead lighting casts minimal shadows, creating a calm, high-end catalog presentation for luxury accessories." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAa3AA0q8iTEG0_FBU0DeSxVuT6FgDK3WkyoLrbCS6Ma7NeJCzohc8d_AOd4TwNFvuopxFUjayRTXo5w8YkZEqjWUW4Sby4dsYBKyEyezm5vIoioqkPQFLAtopOhU1PnQrMfplp2Er_GsealfGqbRXnQI7SrSUo3CXLKM0nzL-pzECaDuoRYM-DfqZK4H6qo9JGPElBTOJtFGAogBppluWr1nV15fLLRzkx4CQLplY_YO7nl5AcwAIM3nv8DyIxzr2v-3Q670xKZIi9"/>
+</div>
+<div>
+<div class="font-label-md text-label-md text-on-surface-variant">Classic Leather Tote</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant hidden sm:block mt-xs">Color: Tan</div>
+</div>
+</div>
+</td>
+<td class="py-md px-lg text-on-surface-variant font-mono text-sm">AC-110</td>
+<td class="py-md px-lg text-on-surface-variant hidden md:table-cell">Accessories</td>
+<td class="py-md px-lg text-right text-on-surface-variant">$350.00</td>
+<td class="py-md px-lg text-center">
+<span class="inline-flex items-center justify-center px-3 py-1 rounded-full bg-error-container text-on-error-container font-label-sm text-label-sm">
+                                        Out of Stock
+                                    </span>
+</td>
+<td class="py-md px-lg text-right">
+<button class="text-on-surface-variant hover:text-primary min-h-[48px] min-w-[48px] rounded-full hover:bg-surface-container-high transition-colors inline-flex items-center justify-center">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 4: In Stock -->
+<tr class="table-row-hover group">
+<td class="py-md px-lg">
+<div class="flex items-center gap-md">
+<div class="w-12 h-12 rounded bg-surface-container-highest overflow-hidden shrink-0 hairline-border">
+<img alt="Cashmere Sweater" class="w-full h-full object-cover" data-alt="A neatly stacked pair of charcoal grey cashmere sweaters resting on a light oak surface. The texture of the fine knit is highlighted by gentle, directional window light coming from the left. The overall mood is warm, inviting, and sophisticated, reflecting premium boutique quality." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAZSGmLfRbDjbr6SApXnMceNo8rxyuD51m99_MBi29k5Bjz7OEf0YVF5SqMvOTGpKn84kp4iQbdbiUGJzBU3lHl_7OPbGea1oQ8Vt9e84pEBBxg5Hi8e437WC5zLsUfUNtTBESkZvjhc3pq3svNqce1vT-TYgbWoKZP8DDc-L4c041K3a-tEQFZRill6tcehVKmihm_OpXQx_flUy0AXkV9Vb-PNbOxtM3JzA7-BSkL_ESUHuyJii945Vsg38DDN1L14UASIpegUUiD"/>
+</div>
+<div>
+<div class="font-label-md text-label-md text-on-background">Charcoal Cashmere Knit</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant hidden sm:block mt-xs">Size: S, M, L</div>
+</div>
+</div>
+</td>
+<td class="py-md px-lg text-on-surface-variant font-mono text-sm">SW-008</td>
+<td class="py-md px-lg text-on-surface-variant hidden md:table-cell">Tops</td>
+<td class="py-md px-lg text-right font-medium">$285.00</td>
+<td class="py-md px-lg text-center">
+<span class="inline-flex items-center justify-center px-3 py-1 rounded-full bg-[#d4f9e0] text-[#002112] font-label-sm text-label-sm">
+                                        12 In Stock
+                                    </span>
+</td>
+<td class="py-md px-lg text-right">
+<button class="text-on-surface-variant hover:text-primary min-h-[48px] min-w-[48px] rounded-full hover:bg-surface-container-high transition-colors inline-flex items-center justify-center">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination Footer -->
+<div class="bg-surface-container-low border-t border-outline-variant p-md flex flex-col sm:flex-row justify-between items-center gap-sm">
+<span class="font-label-sm text-label-sm text-on-surface-variant">Showing 1 to 4 of 1,248 items</span>
+<div class="flex items-center gap-sm">
+<button class="bg-surface-container-lowest hairline-border text-on-surface-variant hover:text-on-surface min-h-[40px] px-md rounded-full text-label-sm font-label-sm transition-colors disabled:opacity-50" disabled="">Previous</button>
+<button class="bg-surface-container-lowest hairline-border text-on-surface-variant hover:text-on-surface min-h-[40px] px-md rounded-full text-label-sm font-label-sm transition-colors">Next</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>
