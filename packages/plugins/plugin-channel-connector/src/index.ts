@@ -29,6 +29,7 @@ import {
 import {
   ChannelConnectorService,
   catalogPushConcurrencyKey,
+  CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION,
   type CatalogConflictState,
   type ChannelComplianceData,
   type ChannelConnectorPluginOptions,
@@ -55,6 +56,7 @@ export {
   canExportTransition,
   catalogPushConcurrencyKey,
   catalogPushRetryDelayMs,
+  CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION,
   isCatalogPushBreakerOpen,
 } from "./service.js";
 export {
@@ -265,9 +267,20 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
       concurrency: { key: (input: Record<string, unknown>) => String(input.storeId) },
       handler: async ({ input, ctx }: { input: Record<string, unknown>; ctx: import("@porulle/core").TaskContext }) => {
         const service = new ChannelConnectorService(ctx.db, ctx.services, options);
-        const result = await service.syncInventory(String(input.orgId), String(input.storeId), createSystemActor(String(input.orgId)));
+        const orgId = String(input.orgId);
+        const storeId = String(input.storeId);
+        const result = await service.syncInventory(orgId, storeId, createSystemActor(orgId), {
+          maxItems: CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION,
+        });
         if (!result.ok) throw new Error(result.error);
-        return { output: { synced: result.value.synced } };
+        const jobs = ctx.services.jobs as JobsAdapter;
+        if (!result.value.exhausted) {
+          await jobs.enqueue("channel/sync-inventory", { orgId, storeId }, {
+            organizationId: orgId,
+            concurrencyKey: storeId,
+          });
+        }
+        return { output: { synced: result.value.synced, exhausted: result.value.exhausted } };
       },
     },
     {

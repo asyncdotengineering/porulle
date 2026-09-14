@@ -93,6 +93,20 @@ export const CATALOG_PUSH_BATCH_SIZES: Record<string, number> = {
 const DEFAULT_CATALOG_PUSH_BATCH_SIZE = 50;
 const CATALOG_PUSH_BREAKER_RETRY_MS = 60_000;
 export const CATALOG_PUSH_MAX_ATTEMPTS = 8;
+
+/**
+ * How many inventory levels one `channel/sync-inventory` invocation may write before it persists a
+ * resume position and hands off to its own continuation.
+ *
+ * The catalog's bound exists because a single invocation ran out of subrequests. This one exists
+ * because a single invocation runs out of TIME: measured on the deployed Worker on 2026-09-14,
+ * instance 1428d7e0, `channel/sync-inventory` was killed by `WorkflowTimeoutError: Execution timed
+ * out after 600000ms` having written 232 of ~1,299 levels — 2.6 s per level, so a bound of 20 is
+ * roughly 52 s of work and a 1,000-product merchant becomes ~650 bounded invocations instead of one
+ * nine-hour one that discards everything if it fails.
+ */
+export const CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION = 20;
+
 const CATALOG_PUSH_RETRY_BASE_MS = 60_000;
 const CATALOG_PUSH_RETRY_MAX_MS = 60 * 60 * 1000;
 
@@ -266,6 +280,29 @@ function parseImportResumePosition(raw: string | null | undefined): ImportResume
 }
 
 function encodeImportResumePosition(position: ImportResumePosition): string {
+  return JSON.stringify(position);
+}
+
+type InventoryResumePosition = { offset: number };
+
+/** Resume position for bounded `syncInventory` — stored on `connected_stores.inventory_cursor`.
+ *  Last-sync time lives on `connected_stores.lastSyncAt` (set when a run exhausts). */
+function parseInventoryResumePosition(raw: string | null | undefined): InventoryResumePosition {
+  if (!raw) return { offset: 0 };
+  try {
+    const parsed = JSON.parse(raw) as Partial<InventoryResumePosition>;
+    if (typeof parsed === "object" && parsed !== null && "offset" in parsed) {
+      return {
+        offset: typeof parsed.offset === "number" && parsed.offset >= 0 ? parsed.offset : 0,
+      };
+    }
+  } catch {
+    // Legacy value was an ISO timestamp written when a sync completed.
+  }
+  return { offset: 0 };
+}
+
+function encodeInventoryResumePosition(position: InventoryResumePosition): string {
   return JSON.stringify(position);
 }
 
@@ -3159,7 +3196,8 @@ export class ChannelConnectorService {
     orgId: string,
     storeId: string,
     actor: Actor,
-  ): Promise<PluginResult<{ synced: number }>> {
+    options?: { maxItems?: number },
+  ): Promise<PluginResult<{ synced: number; exhausted?: boolean }>> {
     const store = await this.getStoreRecord(orgId, storeId);
     if (!store || store.status !== "connected") return PluginErr("Connected store not found.", "NOT_FOUND");
     const connector = this.connectors.get(store.provider);
@@ -3173,10 +3211,42 @@ export class ChannelConnectorService {
     const inventoryService = this.services.inventory as {
       setAbsolute(input: { entityId: string; variantId?: string; quantity: number; reason?: string }, actor: Actor): Promise<{ ok: boolean; error?: { message: string } }>;
     };
+    const maxItems = options?.maxItems ?? CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION;
+    const levels = inventory.value;
+    let { offset } = parseInventoryResumePosition(store.inventoryCursor);
+
+    const entityIdsForSlice = (from: number, to: number) => {
+      const ids = new Set<string>();
+      for (const level of levels.slice(from, to)) {
+        const mapping = mappings.find((entry) => entry.externalId === level.externalId);
+        if (mapping) ids.add(mapping.entityId);
+      }
+      return ids;
+    };
+    const loadedThrough = Math.min(offset + maxItems, levels.length);
+    const batchEntityIds = entityIdsForSlice(offset, loadedThrough);
+    const existingLevels = batchEntityIds.size === 0
+      ? []
+      : await this.db.select().from(inventoryLevels).where(and(
+        eq(inventoryLevels.organizationId, orgId),
+        inArray(inventoryLevels.entityId, [...batchEntityIds]),
+      ));
+
     let synced = 0;
-    for (const level of inventory.value) {
+    let levelsWalked = 0;
+    let exhausted = false;
+
+    // No refill inside the loop: the window loaded above spans exactly `maxItems` levels and the
+    // walk breaks at `maxItems`, so `offset` can never pass `loadedThrough` within one invocation.
+    while (offset < levels.length) {
+      if (levelsWalked >= maxItems) break;
+      const level = levels[offset]!;
+      offset += 1;
+      levelsWalked += 1;
       const mapping = mappings.find((entry) => entry.externalId === level.externalId);
       if (!mapping) continue;
+      const current = existingLevels.find((entry) => entry.entityId === mapping.entityId && entry.variantId === (mapping.variantId ?? null));
+      if (current?.quantityOnHand === level.available) continue;
       const result = await inventoryService.setAbsolute({
         entityId: mapping.entityId,
         ...(mapping.variantId ? { variantId: mapping.variantId } : {}),
@@ -3186,11 +3256,16 @@ export class ChannelConnectorService {
       if (!result.ok) return PluginErr(result.error?.message ?? "Inventory sync failed.");
       synced += 1;
     }
-    await this.db.update(connectedStores).set({ inventoryCursor: new Date().toISOString(), lastSyncAt: new Date(), updatedAt: new Date() }).where(and(
-      eq(connectedStores.organizationId, orgId),
-      eq(connectedStores.id, storeId),
-    ));
-    return Ok({ synced });
+
+    if (offset >= levels.length) exhausted = true;
+    const inventoryCursor = exhausted ? null : encodeInventoryResumePosition({ offset });
+    await this.db.update(connectedStores).set({
+      inventoryCursor,
+      ...(exhausted ? { lastSyncAt: new Date() } : {}),
+      updatedAt: new Date(),
+    }).where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.id, storeId)));
+
+    return Ok({ synced, exhausted });
   }
 
   async handleWebhook(orgId: string, storeId: string, event: { id: string; type: string; data: unknown }): Promise<PluginResult<{ processed: true; data?: ChannelComplianceData; redacted?: number }>> {

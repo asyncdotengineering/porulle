@@ -4,6 +4,7 @@ import type {
   WorkflowBinding,
   WorkflowStep,
 } from "./index.js";
+import { hashJobInput } from "./index.js";
 
 const STALE_INSTANCE_STATUSES = new Set(["complete", "errored", "terminated"]);
 const TURN_EVENT_TYPE = "porulle-turn";
@@ -33,6 +34,8 @@ export interface CoordinatorStorage {
 interface CoordinatorKeyState {
   pending: string[];
   running: string | null;
+  /** Hash of `payload.input` for each pending instance — pruned whenever the id leaves `pending`. */
+  pendingHashes: Record<string, string>;
 }
 
 /**
@@ -41,10 +44,7 @@ interface CoordinatorKeyState {
  * with an in-memory `CoordinatorStorage` and a fake `isStale` check.
  */
 export class JobCoordinatorLogic {
-  constructor(
-    private readonly storage: CoordinatorStorage,
-    private readonly isStale: (instanceId: string) => Promise<boolean>,
-  ) {}
+  constructor(private readonly storage: CoordinatorStorage) {}
 
   /** Registers `instanceId` as pending for `key` before the caller creates it, so
    * a later supersede can see it even if it has not started running yet. When
@@ -55,27 +55,93 @@ export class JobCoordinatorLogic {
     key: string,
     supersedes: boolean,
     instanceId: string,
-  ): Promise<{ terminated: string[] }> {
+    inputHash?: string,
+  ): Promise<{ terminated: string[]; coalescedInto?: string }> {
     const state = await this.getState(key);
+    if (supersedes && inputHash !== undefined) {
+      for (const pendingId of state.pending) {
+        if (state.pendingHashes[pendingId] === inputHash) {
+          return { terminated: [], coalescedInto: pendingId };
+        }
+      }
+    }
     const terminated = supersedes ? state.pending.filter((id) => id !== instanceId) : [];
     const kept = supersedes ? [] : state.pending.filter((id) => id !== instanceId);
-    await this.putState(key, { ...state, pending: [...kept, instanceId] });
+    const pendingHashes = { ...state.pendingHashes };
+    for (const id of terminated) delete pendingHashes[id];
+    if (inputHash !== undefined) pendingHashes[instanceId] = inputHash;
+    await this.putState(key, {
+      ...state,
+      pending: [...kept, instanceId],
+      pendingHashes,
+    });
     return { terminated };
   }
 
-  async acquire(key: string, instanceId: string): Promise<"granted" | "pending"> {
-    let state = await this.getState(key);
+  /** First gate phase: storage only. Returns `needsStaleCheck` when another instance
+   * holds the key so the Durable Object can ask the Workflow binding outside the gate. */
+  async acquireRead(
+    key: string,
+    instanceId: string,
+  ): Promise<"granted" | { needsStaleCheck: string }> {
+    const state = await this.getState(key);
     if (state.running === instanceId) return "granted";
-    if (state.running !== null && (await this.isStale(state.running))) {
-      state = { ...state, running: null };
-    }
     if (state.running === null) {
-      await this.putState(key, {
-        pending: state.pending.filter((id) => id !== instanceId),
-        running: instanceId,
-      });
+      await this.grantKey(key, instanceId, state);
       return "granted";
     }
+    return { needsStaleCheck: state.running };
+  }
+
+  /** Re-enter after a live holder was confirmed outside the gate. */
+  async acquireWhenHolderLive(
+    key: string,
+    instanceId: string,
+  ): Promise<"granted" | "pending"> {
+    const state = await this.getState(key);
+    if (state.running === instanceId) return "granted";
+    if (state.running === null) {
+      await this.grantKey(key, instanceId, state);
+      return "granted";
+    }
+    return this.enqueuePending(key, instanceId, state);
+  }
+
+  /** Re-enter after the holder was stale outside the gate — only grants when the
+   * same id still holds the key, so a concurrent acquirer cannot be raced. */
+  async acquireAfterStale(
+    key: string,
+    instanceId: string,
+    checkedHolderId: string,
+  ): Promise<"granted" | "pending"> {
+    const state = await this.getState(key);
+    if (state.running === instanceId) return "granted";
+    if (state.running === checkedHolderId) {
+      await this.grantKey(key, instanceId, state);
+      return "granted";
+    }
+    return this.acquireWhenHolderLive(key, instanceId);
+  }
+
+  private async grantKey(
+    key: string,
+    instanceId: string,
+    state: CoordinatorKeyState,
+  ): Promise<void> {
+    const pendingHashes = { ...state.pendingHashes };
+    delete pendingHashes[instanceId];
+    await this.putState(key, {
+      pending: state.pending.filter((id) => id !== instanceId),
+      running: instanceId,
+      pendingHashes,
+    });
+  }
+
+  private async enqueuePending(
+    key: string,
+    instanceId: string,
+    state: CoordinatorKeyState,
+  ): Promise<"pending"> {
     if (!state.pending.includes(instanceId)) {
       await this.putState(key, {
         ...state,
@@ -92,13 +158,20 @@ export class JobCoordinatorLogic {
     const state = await this.getState(key);
     if (state.running !== instanceId) return { next: null };
     const [next, ...rest] = state.pending;
-    await this.putState(key, { pending: rest, running: next ?? null });
+    const pendingHashes = { ...state.pendingHashes };
+    if (next) delete pendingHashes[next];
+    await this.putState(key, { pending: rest, running: next ?? null, pendingHashes });
     return { next: next ?? null };
   }
 
   private async getState(key: string): Promise<CoordinatorKeyState> {
     const existing = await this.storage.get<CoordinatorKeyState>(this.storageKey(key));
-    return existing ?? { pending: [], running: null };
+    if (!existing) return { pending: [], running: null, pendingHashes: {} };
+    // `pendingHashes` arrived after this object was already storing state in production, so a row
+    // written by an earlier release has no such key. Backfilling on READ rather than migrating
+    // keeps a coordinator from crashing on its own history — and a crash here takes every job on
+    // that key with it.
+    return { ...existing, pendingHashes: existing.pendingHashes ?? {} };
   }
 
   private async putState(key: string, state: CoordinatorKeyState): Promise<void> {
@@ -144,12 +217,12 @@ type DurableObjectConstructor = abstract new (...args: any[]) => object;
  * export class PorulleJobCoordinator extends porulleJobCoordinator(DurableObject) {}
  * ```
  *
- * Every RPC runs under `blockConcurrencyWhile`: the stale-holder check is a
- * Workflow subrequest, which would otherwise open the input gate between the
- * read and the write and let two acquirers both be granted. On `enqueue` with
- * `supersedes` the object reports the pending instances the caller must
- * terminate. It needs a `PORULLE_WORKFLOW` binding on its environment to detect
- * dead lock holders and to wake the next waiting instance.
+ * State mutations run under `blockConcurrencyWhile`; Workflow binding calls
+ * (stale-holder checks and turn events) run outside it so a long release loop
+ * cannot block every other RPC on the object. On `enqueue` with `supersedes`
+ * the object reports the pending instances the caller must terminate. It needs
+ * a `PORULLE_WORKFLOW` binding on its environment to detect dead lock holders
+ * and to wake the next waiting instance.
  */
 export function porulleJobCoordinator<TBase extends DurableObjectConstructor>(
   Base: TBase,
@@ -164,40 +237,47 @@ export function porulleJobCoordinator<TBase extends DurableObjectConstructor>(
       const [ctx, env] = args as [DurableObjectStateLike, PorulleJobCoordinatorEnv];
       this.#state = ctx;
       this.#workflow = env.PORULLE_WORKFLOW;
-      this.#logic = new JobCoordinatorLogic(
-        {
-          get<T>(key: string) {
-            return ctx.storage.get<T>(key);
-          },
-          put<T>(key: string, value: T) {
-            return ctx.storage.put(key, value);
-          },
+      this.#logic = new JobCoordinatorLogic({
+        get<T>(key: string) {
+          return ctx.storage.get<T>(key);
         },
-        async (instanceId) => {
-          try {
-            const handle = await env.PORULLE_WORKFLOW.get(instanceId);
-            const { status } = await handle.status();
-            return STALE_INSTANCE_STATUSES.has(status);
-          } catch {
-            return true;
-          }
+        put<T>(key: string, value: T) {
+          return ctx.storage.put(key, value);
         },
-      );
+      });
+    }
+
+    async #isStale(instanceId: string): Promise<boolean> {
+      try {
+        const handle = await this.#workflow.get(instanceId);
+        const { status } = await handle.status();
+        return STALE_INSTANCE_STATUSES.has(status);
+      } catch {
+        return true;
+      }
     }
 
     enqueue(
       key: string,
       supersedes: boolean,
       instanceId: string,
-    ): Promise<{ terminated: string[] }> {
+      inputHash?: string,
+    ): Promise<{ terminated: string[]; coalescedInto?: string }> {
       return this.#state.blockConcurrencyWhile(() =>
-        this.#logic.enqueue(key, supersedes, instanceId),
+        this.#logic.enqueue(key, supersedes, instanceId, inputHash),
       );
     }
 
-    acquire(key: string, instanceId: string): Promise<"granted" | "pending"> {
+    async acquire(key: string, instanceId: string): Promise<"granted" | "pending"> {
+      const first = await this.#state.blockConcurrencyWhile(() =>
+        this.#logic.acquireRead(key, instanceId),
+      );
+      if (first === "granted") return "granted";
+      const stale = await this.#isStale(first.needsStaleCheck);
       return this.#state.blockConcurrencyWhile(() =>
-        this.#logic.acquire(key, instanceId),
+        stale
+          ? this.#logic.acquireAfterStale(key, instanceId, first.needsStaleCheck)
+          : this.#logic.acquireWhenHolderLive(key, instanceId),
       );
     }
 
@@ -205,19 +285,20 @@ export function porulleJobCoordinator<TBase extends DurableObjectConstructor>(
      * pending instance that died or was terminated meanwhile is skipped so the
      * key never ends up held by an instance that will never release it. */
     release(key: string, instanceId: string): Promise<void> {
-      return this.#state.blockConcurrencyWhile(async () => {
-        let holder = instanceId;
-        for (;;) {
-          const { next } = await this.#logic.release(key, holder);
-          if (!next) return;
-          const woken = await this.#workflow
-            .get(next)
-            .then((handle) => handle.sendEvent({ type: TURN_EVENT_TYPE }))
-            .then(() => true, () => false);
-          if (woken) return;
-          holder = next;
-        }
-      });
+      return this.#releaseAndWake(key, instanceId);
+    }
+
+    async #releaseAndWake(key: string, holder: string): Promise<void> {
+      const { next } = await this.#state.blockConcurrencyWhile(() =>
+        this.#logic.release(key, holder),
+      );
+      if (!next) return;
+      const woken = await this.#workflow
+        .get(next)
+        .then((handle) => handle.sendEvent({ type: TURN_EVENT_TYPE }))
+        .then(() => true, () => false);
+      if (woken) return;
+      return this.#releaseAndWake(key, next);
     }
   }
   return PorulleJobCoordinator;
@@ -231,7 +312,8 @@ export interface CoordinatorStub {
     key: string,
     supersedes: boolean,
     instanceId: string,
-  ): Promise<{ terminated: string[] }>;
+    inputHash?: string,
+  ): Promise<{ terminated: string[]; coalescedInto?: string }>;
   acquire(key: string, instanceId: string): Promise<"granted" | "pending">;
   release(key: string, instanceId: string): Promise<void>;
 }
@@ -259,9 +341,11 @@ export class DurableObjectConcurrencyCoordinator
   ): Promise<{ id: string }> {
     if (!payload.concurrencyKey) return create();
     const key = coordinatorKey(payload);
-    const { terminated } = await this.options
+    const inputHash = hashJobInput(payload.input);
+    const { terminated, coalescedInto } = await this.options
       .stub(key)
-      .enqueue(key, payload.supersedes, payload.jobId);
+      .enqueue(key, payload.supersedes, payload.jobId, inputHash);
+    if (coalescedInto) return { id: coalescedInto };
     await Promise.all(
       terminated.map((id) =>
         this.options.workflow
