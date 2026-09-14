@@ -22,6 +22,21 @@ function createMemoryStorage(): CoordinatorStorage {
   };
 }
 
+/** Mirrors the Durable Object's acquire path so logic tests can inject a fake `isStale`. */
+async function acquireWithStaleCheck(
+  logic: JobCoordinatorLogic,
+  key: string,
+  instanceId: string,
+  isStale: (instanceId: string) => Promise<boolean>,
+): Promise<"granted" | "pending"> {
+  const first = await logic.acquireRead(key, instanceId);
+  if (first === "granted") return "granted";
+  const stale = await isStale(first.needsStaleCheck);
+  return stale
+    ? logic.acquireAfterStale(key, instanceId, first.needsStaleCheck)
+    : logic.acquireWhenHolderLive(key, instanceId);
+}
+
 function payloadFor(overrides: Partial<CloudflareJobPayload> = {}): CloudflareJobPayload {
   return {
     jobId: "instance-1",
@@ -38,14 +53,14 @@ function payloadFor(overrides: Partial<CloudflareJobPayload> = {}): CloudflareJo
 
 describe("JobCoordinatorLogic", () => {
   it("grants the lock immediately when the key is free", async () => {
-    const logic = new JobCoordinatorLogic(createMemoryStorage(), async () => false);
-    await expect(logic.acquire("key", "a")).resolves.toBe("granted");
+    const logic = new JobCoordinatorLogic(createMemoryStorage());
+    await expect(acquireWithStaleCheck(logic, "key", "a", async () => false)).resolves.toBe("granted");
   });
 
   it("queues a second instance and hands it the lock on release", async () => {
-    const logic = new JobCoordinatorLogic(createMemoryStorage(), async () => false);
-    await expect(logic.acquire("key", "a")).resolves.toBe("granted");
-    await expect(logic.acquire("key", "b")).resolves.toBe("pending");
+    const logic = new JobCoordinatorLogic(createMemoryStorage());
+    await expect(acquireWithStaleCheck(logic, "key", "a", async () => false)).resolves.toBe("granted");
+    await expect(acquireWithStaleCheck(logic, "key", "b", async () => false)).resolves.toBe("pending");
 
     await expect(logic.release("key", "a")).resolves.toEqual({ next: "b" });
     // "b" now holds the lock — a second release call for "a" (which no longer
@@ -55,52 +70,137 @@ describe("JobCoordinatorLogic", () => {
   });
 
   it("treats a stale running instance as free and grants the new one", async () => {
-    const logic = new JobCoordinatorLogic(createMemoryStorage(), async (id) => id === "a");
-    await expect(logic.acquire("key", "a")).resolves.toBe("granted");
-    await expect(logic.acquire("key", "b")).resolves.toBe("granted");
+    const logic = new JobCoordinatorLogic(createMemoryStorage());
+    const isStale = async (id: string) => id === "a";
+    await expect(acquireWithStaleCheck(logic, "key", "a", isStale)).resolves.toBe("granted");
+    await expect(acquireWithStaleCheck(logic, "key", "b", isStale)).resolves.toBe("granted");
   });
 
   it("drops a waiter from the pending queue when it re-acquires a key whose holder died", async () => {
     let holderDead = false;
-    const logic = new JobCoordinatorLogic(createMemoryStorage(), async (id) => id === "a" && holderDead);
-    await logic.acquire("key", "a");
-    await expect(logic.acquire("key", "b")).resolves.toBe("pending");
+    const logic = new JobCoordinatorLogic(createMemoryStorage());
+    const isStale = async (id: string) => id === "a" && holderDead;
+    await acquireWithStaleCheck(logic, "key", "a", isStale);
+    await expect(acquireWithStaleCheck(logic, "key", "b", isStale)).resolves.toBe("pending");
     holderDead = true;
-    await expect(logic.acquire("key", "b")).resolves.toBe("granted");
+    await expect(acquireWithStaleCheck(logic, "key", "b", isStale)).resolves.toBe("granted");
     await expect(logic.release("key", "b")).resolves.toEqual({ next: null });
   });
 
   it("enqueue with supersedes clears and returns the pending queue and registers the new instance", async () => {
-    const logic = new JobCoordinatorLogic(createMemoryStorage(), async () => false);
-    await logic.acquire("key", "running");
-    await logic.acquire("key", "pending-1");
-    await logic.acquire("key", "pending-2");
+    const logic = new JobCoordinatorLogic(createMemoryStorage());
+    const acquire = (id: string) => acquireWithStaleCheck(logic, "key", id, async () => false);
+    await acquire("running");
+    await acquire("pending-1");
+    await acquire("pending-2");
 
     await expect(logic.enqueue("key", true, "new")).resolves.toEqual({
       terminated: ["pending-1", "pending-2"],
     });
     // The running instance was never touched by supersede; "new" is next in line.
-    await expect(logic.acquire("key", "running")).resolves.toBe("granted");
+    await expect(acquire("running")).resolves.toBe("granted");
     await expect(logic.release("key", "running")).resolves.toEqual({ next: "new" });
   });
 
+  /**
+   * Durable Object storage written BEFORE `pendingHashes` existed is still out there: the deployed
+   * Worker's coordinators hold rows from every sweep before this release, and a key whose holder was
+   * terminated without releasing leaves a non-empty `pending` behind. Reading one of those must not
+   * throw — a coordinator that crashes on its own history takes every job on that key with it, and
+   * no suite that starts from empty storage can see it.
+   */
+  it("reads state written before pendingHashes existed without throwing", async () => {
+    const storage = createMemoryStorage();
+    // Exactly the shape the previous release persisted: no `pendingHashes` key at all.
+    await storage.put("porulle-job-coordinator:key", { pending: ["old-1"], running: null });
+    const logic = new JobCoordinatorLogic(storage);
+
+    await expect(logic.enqueue("key", true, "new-1", "hash-a")).resolves.toEqual({
+      terminated: ["old-1"],
+    });
+    await expect(acquireWithStaleCheck(logic, "key", "new-1", async () => false)).resolves.toBe("granted");
+  });
+
   it("enqueue without supersedes appends to the queue", async () => {
-    const logic = new JobCoordinatorLogic(createMemoryStorage(), async () => false);
-    await logic.acquire("key", "running");
-    await logic.acquire("key", "pending-1");
+    const logic = new JobCoordinatorLogic(createMemoryStorage());
+    const acquire = (id: string) => acquireWithStaleCheck(logic, "key", id, async () => false);
+    await acquire("running");
+    await acquire("pending-1");
 
     await expect(logic.enqueue("key", false, "new")).resolves.toEqual({ terminated: [] });
     await expect(logic.release("key", "running")).resolves.toEqual({ next: "pending-1" });
     await expect(logic.release("key", "pending-1")).resolves.toEqual({ next: "new" });
   });
 
+  // --- Coalescing a superseding enqueue BEFORE a Workflow instance exists -------------------
+  //
+  // Today `enqueue` takes the turn and the CALLER then creates an instance regardless, so N
+  // superseding enqueues on one key produce N instances and N-1 terminations to run one job.
+  // Measured on the deployed Worker on 2026-09-14 during one gflock-100 sweep: 26 Terminated
+  // against 22 Completed in the latest 50 instances, and one coordinator Durable Object reset
+  // with "A call to blockConcurrencyWhile() waited for too long" after a product's ~13
+  // variant-level enqueues piled onto it.
+  //
+  // The fix coalesces on INPUT EQUALITY rather than by mutating a pending instance, because
+  // Cloudflare Workflow params are fixed at creation — `WorkflowBinding` is create/get and the
+  // handle has status/terminate/sendEvent and no update. Identical input means an identical job,
+  // so reusing the pending instance is a true no-op; a DIFFERENT input must keep today's
+  // latest-wins behaviour, or supersede silently inverts to oldest-wins.
+
+  it("coalesces a superseding enqueue into the pending instance when the input is identical", async () => {
+    const logic = new JobCoordinatorLogic(createMemoryStorage());
+    const same = "hash-entity-a";
+    await expect(logic.enqueue("key", true, "gen-1", same)).resolves.toEqual({ terminated: [] });
+    await expect(logic.enqueue("key", true, "gen-2", same)).resolves.toEqual({
+      terminated: [],
+      coalescedInto: "gen-1",
+    });
+    await expect(logic.enqueue("key", true, "gen-3", same)).resolves.toEqual({
+      terminated: [],
+      coalescedInto: "gen-1",
+    });
+    // Only the ORIGINAL is pending; gen-2 and gen-3 never became instances, so neither may be
+    // parked in the queue waiting for a turn that will never be taken.
+    await expect(acquireWithStaleCheck(logic, "key", "gen-1", async () => false)).resolves.toBe("granted");
+    await expect(logic.release("key", "gen-1")).resolves.toEqual({ next: null });
+  });
+
+  it("does NOT coalesce when the input differs — supersede stays latest-wins", async () => {
+    const logic = new JobCoordinatorLogic(createMemoryStorage());
+    await expect(logic.enqueue("key", true, "gen-1", "hash-a")).resolves.toEqual({ terminated: [] });
+    await expect(logic.enqueue("key", true, "gen-2", "hash-b")).resolves.toEqual({
+      terminated: ["gen-1"],
+    });
+    await expect(acquireWithStaleCheck(logic, "key", "gen-2", async () => false)).resolves.toBe("granted");
+  });
+
+  it("never coalesces into a RUNNING instance — it has already read its input", async () => {
+    const logic = new JobCoordinatorLogic(createMemoryStorage());
+    const same = "hash-entity-a";
+    await logic.enqueue("key", true, "running", same);
+    await expect(acquireWithStaleCheck(logic, "key", "running", async () => false)).resolves.toBe("granted");
+    // The running instance read `same` before the new state existed, so a new enqueue carrying the
+    // same input must still become its own instance and queue behind it.
+    await expect(logic.enqueue("key", true, "gen-2", same)).resolves.toEqual({ terminated: [] });
+    await expect(logic.release("key", "running")).resolves.toEqual({ next: "gen-2" });
+  });
+
+  it("coalesces per key — an identical input under a different key is its own instance", async () => {
+    const logic = new JobCoordinatorLogic(createMemoryStorage());
+    const same = "hash-entity-a";
+    await logic.enqueue("key-a", true, "gen-1", same);
+    await expect(logic.enqueue("key-b", true, "gen-2", same)).resolves.toEqual({ terminated: [] });
+    await expect(acquireWithStaleCheck(logic, "key-a", "gen-1", async () => false)).resolves.toBe("granted");
+    await expect(acquireWithStaleCheck(logic, "key-b", "gen-2", async () => false)).resolves.toBe("granted");
+  });
+
   it("supersede terminates an instance that was enqueued but has not started running yet", async () => {
-    const logic = new JobCoordinatorLogic(createMemoryStorage(), async () => false);
+    const logic = new JobCoordinatorLogic(createMemoryStorage());
     await logic.enqueue("key", true, "gen-1");
     await expect(logic.enqueue("key", true, "gen-2")).resolves.toEqual({ terminated: ["gen-1"] });
     await expect(logic.enqueue("key", true, "gen-3")).resolves.toEqual({ terminated: ["gen-2"] });
     // Only the survivor can take the key; it is dropped from pending as it does.
-    await expect(logic.acquire("key", "gen-3")).resolves.toBe("granted");
+    await expect(acquireWithStaleCheck(logic, "key", "gen-3", async () => false)).resolves.toBe("granted");
     await expect(logic.release("key", "gen-3")).resolves.toEqual({ next: null });
   });
 });
@@ -146,11 +246,46 @@ describe("DurableObjectConcurrencyCoordinator", () => {
 
     await expect(coordinator.enqueue(payloadFor(), create)).resolves.toEqual({ id: "new-1" });
     expect(stubFor).toHaveBeenCalledWith("org-1:catalog/import:store-1");
-    expect(stub.enqueue).toHaveBeenCalledWith("org-1:catalog/import:store-1", true, "instance-1");
+    expect(stub.enqueue).toHaveBeenCalledWith("org-1:catalog/import:store-1", true, "instance-1", expect.any(String));
     expect(workflow.get).toHaveBeenCalledWith("old-1");
     expect(workflow.get).toHaveBeenCalledWith("old-2");
     expect(handle.terminate).toHaveBeenCalledTimes(2);
     expect(create).toHaveBeenCalledOnce();
+  });
+
+  it("skips create() and returns the existing instance when the stub coalesces", async () => {
+    const { workflow, handle } = createWorkflowMock();
+    const stub: CoordinatorStub = {
+      enqueue: vi.fn(async () => ({ terminated: [], coalescedInto: "already-pending" })),
+      acquire: vi.fn(),
+      release: vi.fn(),
+    };
+    const coordinator = new DurableObjectConcurrencyCoordinator({ stub: () => stub, workflow });
+    const create = vi.fn(async () => ({ id: "new-1" }));
+
+    await expect(coordinator.enqueue(payloadFor(), create)).resolves.toEqual({ id: "already-pending" });
+    // The whole point: no instance is created, so nothing has to be terminated either.
+    expect(create).not.toHaveBeenCalled();
+    expect(handle.terminate).not.toHaveBeenCalled();
+  });
+
+  it("passes a stable input hash to the stub so the DO can decide equality without the payload", async () => {
+    const { workflow } = createWorkflowMock();
+    const stub: CoordinatorStub = {
+      enqueue: vi.fn(async () => ({ terminated: [] })),
+      acquire: vi.fn(),
+      release: vi.fn(),
+    };
+    const coordinator = new DurableObjectConcurrencyCoordinator({ stub: () => stub, workflow });
+    const create = vi.fn(async () => ({ id: "new-1" }));
+
+    await coordinator.enqueue(payloadFor({ jobId: "a", input: { entityId: "e1", organizationId: "o1" } }), create);
+    await coordinator.enqueue(payloadFor({ jobId: "b", input: { organizationId: "o1", entityId: "e1" } }), create);
+    const hashes = (stub.enqueue as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[3]);
+    expect(hashes[0]).toBeTypeOf("string");
+    expect(hashes[0]).not.toHaveLength(0);
+    // Key ORDER must not change the hash, or two identical enqueues coalesce only by luck.
+    expect(hashes[0]).toBe(hashes[1]);
   });
 
   it("runs immediately without waiting when the stub grants the lock", async () => {
@@ -252,15 +387,21 @@ describe("porulleJobCoordinator", () => {
   ) {
     const store = new Map<string, unknown>();
     const sent: string[] = [];
+    // Every Workflow-binding call made while blockConcurrencyWhile is held is recorded here. The
+    // gate exists to serialise STATE; network I/O under it blocks every other RPC on the object.
+    const workflowCallsInsideGate: string[] = [];
+    let insideGate = false;
     const workflow: WorkflowBinding = {
       create: vi.fn(),
       async get(id) {
+        if (insideGate) workflowCallsInsideGate.push(`get:${id}`);
         const entry = handles[id] ?? { status: "running" };
         if (entry.unknown) throw new Error(`instance ${id} does not exist`);
         return {
           status: async () => ({ status: entry.status as "running" }),
           terminate: async () => undefined,
           sendEvent: async () => {
+            if (insideGate) workflowCallsInsideGate.push(`sendEvent:${id}`);
             if (entry.sendEventFails) throw new Error(`instance ${id} is not waiting`);
             sent.push(id);
           },
@@ -280,14 +421,22 @@ describe("porulleJobCoordinator", () => {
           },
         },
         blockConcurrencyWhile<T>(callback: () => Promise<T>) {
-          const run = gate.then(callback, callback);
+          const guarded = async () => {
+            insideGate = true;
+            try {
+              return await callback();
+            } finally {
+              insideGate = false;
+            }
+          };
+          const run = gate.then(guarded, guarded);
           gate = run.catch(() => undefined);
           return run;
         },
       },
       { PORULLE_WORKFLOW: workflow },
     );
-    return { object, sent };
+    return { object, sent, workflowCallsInsideGate };
   }
 
   it("extends the supplied base class and wakes the next pending instance on release", async () => {
@@ -300,6 +449,40 @@ describe("porulleJobCoordinator", () => {
     expect(sent).toEqual(["b"]);
     // "b" holds the key now: a fresh acquire from "b" is granted without queueing.
     await expect(object.acquire("key", "b")).resolves.toBe("granted");
+  });
+
+  /**
+   * The Durable Object reset measured on the deployed Worker on 2026-09-14 — instance 9809aac0,
+   * `porulle-turn:acquire:0-1` held 33 seconds, "A call to blockConcurrencyWhile() in a Durable
+   * Object waited for too long. The call was canceled and the Durable Object was reset."
+   *
+   * `acquire` does one storage read and one write; it cannot take 33 s on its own. It was queued
+   * behind `release`, which loops `workflow.get(next)` then `sendEvent(...)` — two binding round
+   * trips per iteration, over as many dead pending ids as a supersede storm left behind — entirely
+   * INSIDE the gate. The gate is there to serialise state. Waking is not state.
+   *
+   * Compute the next holder inside; wake outside.
+   */
+  it("never touches the Workflow binding while the concurrency gate is held", async () => {
+    // Two waiters, the first of which can no longer be woken, so release must consider both —
+    // one round of the loop would not discriminate.
+    const { object, sent, workflowCallsInsideGate } = createDurableObject({
+      b: { status: "terminated", sendEventFails: true },
+    });
+    await object.acquire("key", "a");
+    await object.acquire("key", "b");
+    await object.acquire("key", "c");
+
+    await object.release("key", "a");
+
+    expect(
+      workflowCallsInsideGate,
+      "release must compute the next holder inside blockConcurrencyWhile and wake it OUTSIDE — a "
+        + "loop of Workflow round trips under the gate is what resets the Durable Object under load",
+    ).toEqual([]);
+    // And it still does its job: the unwakeable waiter is skipped and the key reaches the next one.
+    expect(sent, "the key must still reach the first waiter that can be woken").toEqual(["c"]);
+    await expect(object.acquire("key", "c")).resolves.toBe("granted");
   });
 
   it("skips a pending instance that can no longer be woken and hands the key to the one after it", async () => {

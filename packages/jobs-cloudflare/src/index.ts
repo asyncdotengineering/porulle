@@ -67,6 +67,25 @@ export interface RawWorkflowBinding {
   }>;
 }
 
+/** Deterministic JSON with sorted object keys — key order must not change the hash. */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`).join(",")}}`;
+}
+
+/** Short, dependency-free hash of task input for coordinator coalescing. */
+export function hashJobInput(input: Record<string, unknown>): string {
+  const serialized = stableStringify(input);
+  let hash = 5381;
+  for (let index = 0; index < serialized.length; index += 1) {
+    hash = ((hash << 5) + hash) ^ serialized.charCodeAt(index);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 const INSTANCE_STATUS_MAP: Record<string, JobInstanceStatus> = {
   queued: "queued",
   running: "running",
@@ -200,6 +219,12 @@ export class CloudflareExecutionEngine implements ExecutionEngine {
     this.setup = setup;
   }
 
+  /** Enqueues a Workflow instance for `taskSlug`.
+   *
+   * When a superseding enqueue coalesces into an existing pending instance with identical input,
+   * instance creation is skipped. That loses nothing: a job derives its work from state read when
+   * it **starts**; the enqueue payload is identity, not data. A pending instance created before a
+   * later write will still observe that write when it runs. */
   async enqueue(
     taskSlug: string,
     input: Record<string, unknown>,

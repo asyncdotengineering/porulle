@@ -366,7 +366,7 @@ describe("plugin-channel-connector foundations", () => {
       eq(channelEntityMap.kind, "variant"),
     ));
     const synced = await service.syncInventory(TEST_ORG_ID, mapped[0]!.storeId, createSystemActor(TEST_ORG_ID));
-    expect(synced).toEqual({ ok: true, value: { synced: 1 } });
+    expect(synced).toEqual({ ok: true, value: { synced: 1, exhausted: true } });
     const levelsRaw = await built.db.execute(sql`
       SELECT quantity_on_hand FROM inventory_levels WHERE organization_id = ${TEST_ORG_ID}
     `);
