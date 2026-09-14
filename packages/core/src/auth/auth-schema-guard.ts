@@ -31,6 +31,7 @@ export const AUTH_SCHEMA_GUARD_OPTIONS = {
     additionalFields: {
       vendorId: { type: "string", required: false },
       posOperatorPin: { type: "string", required: false },
+      dateOfBirth: { type: "string", required: false },
     },
   },
 } satisfies BetterAuthOptions;

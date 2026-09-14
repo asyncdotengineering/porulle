@@ -197,6 +197,7 @@ export function createAuth(
         additionalFields: {
           vendorId: { type: "string", required: false },
           posOperatorPin: { type: "string", required: false },
+          dateOfBirth: { type: "string", required: false, input: true },
         },
       },
     });
