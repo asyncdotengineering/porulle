@@ -41,6 +41,7 @@ import { commerceJobs, inventoryLevels } from "@porulle/core/schema";
 import { createPluginTestApp, jsonHeaders, TEST_ORG_ID, testAdminActor } from "@porulle/core/testing";
 import {
   channelConnectorPlugin,
+  ChannelConnectorService,
   mockChannelConnector,
   CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION,
 } from "../src/index.js";
@@ -80,10 +81,23 @@ async function scenario(catalog: ChannelCatalogItem[], domain: string) {
   });
   expect(response.status).toBe(201);
   const storeId = (await response.json()).data.id as string;
-  return { built, storeId };
+  const service = new ChannelConnectorService(built.db, built.kernel.services, { connectors: [connector] });
+  return { built, storeId, service };
 }
 
 type Built = Awaited<ReturnType<typeof scenario>>["built"];
+type Service = Awaited<ReturnType<typeof scenario>>["service"];
+
+/** One bounded call, unwrapped. These rows are about the SERVICE's bound and cursor; the task that
+ *  drives it to exhaustion is asserted in `batched-tasks-do-not-chain.test.ts`. */
+async function oneBatch(service: Service, storeId: string) {
+  const result = await service.syncInventory(TEST_ORG_ID, storeId, actor(), {
+    maxItems: CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION,
+  });
+  expect(result.ok, `a bounded sync must succeed: ${result.ok ? "" : JSON.stringify(result.error)}`).toBe(true);
+  if (!result.ok) throw new Error("unreachable");
+  return { synced: result.value.synced, exhausted: result.value.exhausted === true };
+}
 
 /** Run a registered task exactly as the jobs engine does — the branch under test lives in the task
  *  definition, not only in the service, so driving the service directly would prove half of it. */
@@ -127,13 +141,19 @@ describe("one inventory sync finishes a store's stock", () => {
    */
   it("bounds each invocation, resumes without re-walking, and stops when the store is drained", async () => {
     const total = CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION + 1;
-    const { built, storeId } = await scenario(catalogOf(total, "invdrain"), "invdrain.sync.test");
+    const { built, storeId, service } = await scenario(catalogOf(total, "invdrain"), "invdrain.sync.test");
     await importWholeCatalog(built, storeId);
-    const continuationsBefore = (await jobsFor(built, "channel/sync-inventory", storeId)).length;
+
+    // These stages drive `service.syncInventory` DIRECTLY, and that is a deliberate change from
+    // when they drove the task. The task no longer returns after one batch — it walks the store to
+    // exhaustion inside its own instance, because a continuation created from inside its
+    // predecessor spends one of a request chain's 32 Worker invocations and the chain died
+    // part-way through every import. What did NOT change is the bound, the cursor, and the
+    // no-re-walk property, which were always the service's and are what these stages assert.
+    // The task-level invariants moved to `batched-tasks-do-not-chain.test.ts`.
 
     // --- stage 1: one invocation is BOUNDED and says so -------------------------------------
-    const first = await runTask(built, "channel/sync-inventory", storeId);
-    const firstOut = (first as { output: { synced: number; exhausted: boolean } }).output;
+    const firstOut = await oneBatch(service, storeId);
 
     expect(
       firstOut.exhausted,
@@ -148,16 +168,8 @@ describe("one inventory sync finishes a store's stock", () => {
       "the first invocation must leave the store part-levelled, or the resume clause below proves nothing",
     ).toBeLessThan(total);
 
-    // Measured as a DELTA: the catalog's exhausted branch already enqueued one sync, so an
-    // absolute count here would assert that hand-off rather than this continuation.
-    expect(
-      (await jobsFor(built, "channel/sync-inventory", storeId)).length - continuationsBefore,
-      "an unfinished inventory sync must enqueue its own continuation",
-    ).toBe(1);
-
     // --- stage 2: the next invocation RESUMES and does not re-walk ---------------------------
-    const second = await runTask(built, "channel/sync-inventory", storeId);
-    const secondOut = (second as { output: { synced: number; exhausted: boolean } }).output;
+    const secondOut = await oneBatch(service, storeId);
 
     // The discriminating clause. `setAbsolute` computes its delta from the stored level, so
     // re-levelling an already-levelled variant is a no-op in DATA and full price in WORK. A count
@@ -183,9 +195,7 @@ describe("one inventory sync finishes a store's stock", () => {
     // and must walk the store again — it cannot know nothing changed without looking. What must
     // hold is that it is still BOUNDED while doing so. With more levels than the bound and zero
     // work to do, the first invocation of the re-sync must report NOT exhausted.
-    const resyncBefore = (await jobsFor(built, "channel/sync-inventory", storeId)).length;
-    const third = await runTask(built, "channel/sync-inventory", storeId);
-    const thirdOut = (third as { output: { synced: number; exhausted: boolean } }).output;
+    const thirdOut = await oneBatch(service, storeId);
 
     expect(
       thirdOut.synced,
@@ -197,10 +207,6 @@ describe("one inventory sync finishes a store's stock", () => {
         + "and report NOT exhausted — a bound that counts work done instead of levels walked is no "
         + "bound at all on a store where nothing changed",
     ).toBe(false);
-    expect(
-      (await jobsFor(built, "channel/sync-inventory", storeId)).length - resyncBefore,
-      "a bounded re-sync must enqueue its continuation like any other unfinished sync",
-    ).toBe(1);
   }, 1_800_000);
 
   /** The other branch, and cheap: a store small enough to fit one bound must not chain at all. */
