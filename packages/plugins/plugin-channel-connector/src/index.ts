@@ -202,12 +202,27 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           maxItems: CHANNEL_IMPORT_MAX_ITEMS_PER_INVOCATION,
         });
         if (!result.ok) throw new Error(result.error);
+        const jobs = ctx.services.jobs as JobsAdapter;
         if (!result.value.exhausted) {
-          const jobs = ctx.services.jobs as JobsAdapter;
           await jobs.enqueue("channel/import-catalog", { orgId, storeId }, {
             organizationId: orgId,
             concurrencyKey: storeId,
             supersedes: true,
+          });
+        } else {
+          // A finished catalog is not a usable one. `importCatalog` writes entities, variants and
+          // prices and never touches `inventory_levels`, so a store whose sweep ends here has a
+          // catalog in which every variant rolls up as out of stock — which is what a consumer
+          // projection publishes and what a shopper is shown.
+          //
+          // Inventory used to arrive from `reconcile`, reachable only through the
+          // `channel/reconcile-sweep` cron. A deployment that removes its crons therefore loses a
+          // data-plane write silently, with every suite still green. Levelling inventory here keeps
+          // it inside the one operator action — "import this store" — instead of behind a second
+          // one somebody has to remember.
+          await jobs.enqueue("channel/sync-inventory", { orgId, storeId }, {
+            organizationId: orgId,
+            concurrencyKey: storeId,
           });
         }
         return {
