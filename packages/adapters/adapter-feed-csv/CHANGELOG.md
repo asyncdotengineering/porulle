@@ -1,5 +1,12 @@
 # @porulle/adapter-feed-csv
 
+## 0.31.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.31.0
+
 ## 0.30.0
 
 ### Patch Changes
