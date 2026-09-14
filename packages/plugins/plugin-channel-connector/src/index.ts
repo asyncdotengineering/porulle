@@ -9,6 +9,7 @@ import {
   createSystemActor,
   isValidFieldPath,
   requireUserId,
+  TaskNonRetryableError,
 } from "@porulle/core";
 import type { FieldPath, JobsAdapter, PluginResult, PluginRouteRegistration, TaskDefinition } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
@@ -77,6 +78,103 @@ export type {
 } from "./catalog-field-mapping.js";
 /** ~320 Neon HTTP subrequests per product against a 10,000 per-invocation cap → hard ceiling near 31; 20 leaves margin for heavier products. */
 export const CHANNEL_IMPORT_MAX_ITEMS_PER_INVOCATION = 20;
+
+/**
+ * How many bounded batches one sweep may walk before it refuses rather than loops.
+ *
+ * A batched task walks its whole store inside ONE Workflow instance, so the ceiling that matters is
+ * the Workflows steps-per-instance limit: 10,000 on Workers Paid by default, raisable to 25,000
+ * (`limits.steps`), and 1,024 on Free. Every batch is one step. A 1,000-product merchant is roughly
+ * 650 inventory batches, so this bound is about eight times the largest real sweep and still an
+ * order of magnitude under the platform default — it exists to turn a cursor that stops advancing
+ * into a loud failure, not to ration normal work.
+ *
+ * It is NOT the limit that used to kill these sweeps. That was the request-chain depth of 32 Worker
+ * invocations, which a self-enqueueing continuation spends one of per batch; see the comment on the
+ * sweep loop below.
+ */
+export const CHANNEL_MAX_BATCHES_PER_SWEEP = 5_000;
+
+/** What one bounded batch reports back: whether the store is drained, how much work it did, and
+ *  where it stopped. Everything here crosses a durable-step boundary, so it must stay JSON. */
+interface BatchOutcome {
+  exhausted: boolean;
+  counted: number;
+  cursor: unknown;
+  warnings?: string[];
+}
+
+/**
+ * Walks a store's bounded batches to exhaustion INSIDE THE CALLING INSTANCE, one durable step per
+ * batch.
+ *
+ * WHY THIS SHAPE, in arithmetic rather than in adjectives. Each batch used to create its successor
+ * by calling `jobs.enqueue` from inside its own running Workflow instance. Cloudflare caps a single
+ * request chain at **32 Worker invocations** ("A single request has a maximum of 32 Worker
+ * invocations, and each call to a Service binding counts towards this limit" — Service bindings,
+ * Runtime APIs), and a continuation created inside its predecessor spends one, permanently. Two
+ * deaths on the deployed Worker on 2026-09-15, same error, same step (`porulle-turn:acquire:0`, the
+ * coordinator call, the chain's FIRST step):
+ *
+ *   chain begun inside the catalog import   -> died after 18 batches, at offset 360
+ *   chain begun from a fetch handler        -> died after 30 batches, at offset 960
+ *
+ * 18 + the ~14 the import had already spent ≈ 32; 30 + 2 ≈ 32. What varied was never the volume of
+ * work — it was the depth the chain STARTED at, which is why this read as an unreproducible "batch
+ * 7 one day, batch 37 the next" for three sessions. gflock-100 needs 65 inventory batches. **No
+ * chain survives a catalog of any real size at any batch size, and halving the batch doubles the
+ * chain**, which is why the intuitive fix is backwards.
+ *
+ * A `ctx.step.do` is not an invocation of another Worker. It spends no chain depth, so the walk
+ * below is flat however many batches it takes. Do not reintroduce an enqueue of the same slug here:
+ * that is the defect, and it looks like a one-line convenience.
+ *
+ * THE BUDGET PER BATCH GOT BIGGER, NOT SMALLER. A Workflow step's default timeout is 10 minutes
+ * (Workflows → Sleeping and retrying: limit 5, 10 s delay, exponential backoff, 10-minute timeout),
+ * which is exactly the budget the WHOLE sweep used to have — instance 1428d7e0 died on it with
+ * `WorkflowTimeoutError: Execution timed out after 600000ms`, having written 232 of ~1,299 levels.
+ * Each batch now gets that budget on its own, and a failed batch retries alone from the cursor its
+ * predecessor persisted rather than restarting the store.
+ *
+ * THE NAME IS LOAD-BEARING. The engine keys a step by its name and replays the cached result for a
+ * repeat, so a loop naming every step the same finishes instantly, reports success, and writes one
+ * batch. The batch index in the name is the only thing preventing that, and
+ * `batched-tasks-do-not-chain.test.ts` asserts the names are distinct.
+ */
+async function walkBatches(
+  ctx: import("@porulle/core").TaskContext,
+  label: string,
+  storeId: string,
+  runBatch: () => Promise<BatchOutcome>,
+): Promise<{ counted: number; batches: number; last: BatchOutcome; warnings: string[] }> {
+  let counted = 0;
+  let batches = 0;
+  const warnings: string[] = [];
+  let last: BatchOutcome = { exhausted: true, counted: 0, cursor: null };
+  // `ctx.step` is absent on engines that have not wired one (pg-boss, Inngest, Trigger). Running
+  // the batch inline there is the same walk without durability — which is exactly what the drizzle
+  // engine's own pass-through step does — so the plugin keeps working rather than throwing on a
+  // property it only needs for resumability.
+  const step = ctx.step ?? { do: <T,>(_name: string, fn: () => Promise<T>) => fn() };
+
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop -- batches are sequential by construction: each one resumes from the cursor the previous one persisted.
+    last = await step.do(`${label}:${storeId}:batch:${batches}`, runBatch);
+    counted += last.counted;
+    if (last.warnings) warnings.push(...last.warnings);
+    batches += 1;
+    if (last.exhausted) return { counted, batches, last, warnings };
+    if (batches >= CHANNEL_MAX_BATCHES_PER_SWEEP) {
+      // A cursor that stops advancing would otherwise spin until the step budget ran out and
+      // report nothing useful. Refusing names the store and the count, which is what an operator
+      // needs to tell "enormous catalog" from "cursor stuck".
+      throw new TaskNonRetryableError(
+        `channel/${label} for store ${storeId} did not exhaust within ${CHANNEL_MAX_BATCHES_PER_SWEEP} batches `
+          + `(${counted} items walked). Either the catalog is larger than this sweep supports or the cursor is not advancing.`,
+      );
+    }
+  }
+}
 
 export { signState, verifyState } from "./oauth-state.js";
 export type {
@@ -196,23 +294,35 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
     {
       slug: "channel/import-catalog",
       concurrency: { key: (input: Record<string, unknown>) => String(input.storeId), supersedes: true },
+      durableSteps: true,
       handler: async ({ input, ctx }: { input: Record<string, unknown>; ctx: import("@porulle/core").TaskContext }) => {
         const service = new ChannelConnectorService(ctx.db, ctx.services, options);
         const orgId = String(input.orgId);
         const storeId = String(input.storeId);
-        const result = await service.importCatalog(orgId, storeId, createSystemActor(orgId), {
-          maxItems: CHANNEL_IMPORT_MAX_ITEMS_PER_INVOCATION,
-        });
-        if (!result.ok) throw new Error(result.error);
+        const result = await walkBatches(
+          ctx,
+          "import-catalog",
+          storeId,
+          async () => {
+            const page = await service.importCatalog(orgId, storeId, createSystemActor(orgId), {
+              maxItems: CHANNEL_IMPORT_MAX_ITEMS_PER_INVOCATION,
+            });
+            if (!page.ok) throw new Error(page.error);
+            return {
+              exhausted: page.value.exhausted,
+              counted: page.value.imported,
+              cursor: page.value.cursor ?? null,
+              ...(page.value.warnings ? { warnings: page.value.warnings } : {}),
+            };
+          },
+        );
         const jobs = ctx.services.jobs as JobsAdapter;
-        if (!result.value.exhausted) {
-          await jobs.enqueue("channel/import-catalog", { orgId, storeId }, {
-            organizationId: orgId,
-            concurrencyKey: storeId,
-            supersedes: true,
-          });
-        } else {
-          // A finished catalog is not a usable one. `importCatalog` writes entities, variants and
+        // The catalog is always exhausted by the time the walk above returns, so this hand-off is
+        // unconditional. It is the ONE enqueue this task is allowed: it starts a DIFFERENT task
+        // once, spending a single level of the request chain's 32, rather than one per page the
+        // way the continuation it replaced did.
+        //
+        // A finished catalog is not a usable one. `importCatalog` writes entities, variants and
           // prices and never touches `inventory_levels`, so a store whose sweep ends here has a
           // catalog in which every variant rolls up as out of stock — which is what a consumer
           // projection publishes and what a shopper is shown.
@@ -224,15 +334,15 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           // one somebody has to remember.
           await jobs.enqueue("channel/sync-inventory", { orgId, storeId }, {
             organizationId: orgId,
-            concurrencyKey: storeId,
-          });
-        }
+          concurrencyKey: storeId,
+        });
         return {
           output: {
-            imported: result.value.imported,
-            cursor: result.value.cursor,
-            exhausted: result.value.exhausted,
-            ...(result.value.warnings ? { warnings: result.value.warnings } : {}),
+            imported: result.counted,
+            cursor: result.last.cursor ?? null,
+            exhausted: true,
+            batches: result.batches,
+            ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
           },
         };
       },
@@ -265,22 +375,29 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
     {
       slug: "channel/sync-inventory",
       concurrency: { key: (input: Record<string, unknown>) => String(input.storeId) },
+      durableSteps: true,
       handler: async ({ input, ctx }: { input: Record<string, unknown>; ctx: import("@porulle/core").TaskContext }) => {
         const service = new ChannelConnectorService(ctx.db, ctx.services, options);
         const orgId = String(input.orgId);
         const storeId = String(input.storeId);
-        const result = await service.syncInventory(orgId, storeId, createSystemActor(orgId), {
-          maxItems: CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION,
-        });
-        if (!result.ok) throw new Error(result.error);
-        const jobs = ctx.services.jobs as JobsAdapter;
-        if (!result.value.exhausted) {
-          await jobs.enqueue("channel/sync-inventory", { orgId, storeId }, {
-            organizationId: orgId,
-            concurrencyKey: storeId,
-          });
-        }
-        return { output: { synced: result.value.synced, exhausted: result.value.exhausted } };
+        const result = await walkBatches(
+          ctx,
+          "sync-inventory",
+          storeId,
+          async () => {
+            const batch = await service.syncInventory(orgId, storeId, createSystemActor(orgId), {
+              maxItems: CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION,
+            });
+            if (!batch.ok) throw new Error(batch.error);
+            // `exhausted` is optional on the sync result, and the shape this replaces read a
+            // missing one as NOT exhausted (`if (!result.value.exhausted)` chained another batch).
+            // Keeping that reading exactly: an absent flag continues, and a cursor that never
+            // reports exhaustion is caught loudly by the batch ceiling rather than stopping the
+            // sweep early and leaving the store half-levelled.
+            return { exhausted: batch.value.exhausted === true, counted: batch.value.synced, cursor: null };
+          },
+        );
+        return { output: { synced: result.counted, exhausted: true, batches: result.batches } };
       },
     },
     {

@@ -1,7 +1,7 @@
 /**
  * An import sweep that finishes a catalog must leave a catalog somebody can BUY.
  *
- * `channel/import-catalog` chains itself while the catalog is not exhausted and, when it is,
+ * `channel/import-catalog` walks its pages to exhaustion inside its own instance and then
  * returns. Nothing then writes `inventory_levels`. The only writers are `reconcile` and
  * `syncInventory`, and in the one deployment that runs this plugin the former was reachable only
  * through the hourly `channel/reconcile-sweep` CRON — which was removed on 2026-09-13. Since that
@@ -123,34 +123,48 @@ describe("an import sweep leaves a buyable catalog", () => {
   /**
    * SLOW BY CONSTRUCTION — and it is the row that keeps the chain catalog-first.
    *
-   * The per-invocation bound is a constant, and the mock connector does not page, so the only way
-   * to observe a NOT-exhausted invocation is to give it more products than the bound. Each imported
-   * product costs roughly twenty seconds here because `deliverWebhooks` times out inside the import
-   * transaction on PGlite, so this row imports the bound's worth and takes minutes. It gets cheap
-   * the day the after-hooks card lands and those hooks run after commit.
+   * The row above uses a catalog that fits ONE batch, so it cannot tell "enqueued once per sweep"
+   * from "enqueued once per batch" — they are the same number there. This one gives the import more
+   * products than its bound, so the walk takes several batches, and asserts the inventory hand-off
+   * is still exactly one. Moving that enqueue into the batch loop leaves the row above green while
+   * arming an inventory writer per batch, which is a race against itself.
    *
-   * Without it, moving the inventory enqueue out of the exhausted branch and into every batch would
-   * leave row 1 green while arming a second inventory writer per batch.
+   * It also pins the shape of the walk: ZERO continuations of `channel/import-catalog` however many
+   * batches it took. Every continuation created from inside its predecessor spends one of a request
+   * chain's 32 Worker invocations, which is what killed these sweeps part-way through every import
+   * — the arithmetic is in `batched-tasks-do-not-chain.test.ts` and on the `walkBatches` helper.
+   *
+   * Each imported product costs roughly twenty seconds here because `deliverWebhooks` times out
+   * inside the import transaction on PGlite, so this row takes minutes. It gets cheap the day the
+   * after-hooks card lands and those hooks run after commit.
    */
-  it("does not reach for inventory while the catalog is still being imported", async () => {
-    const { built, storeId } = await scenario(
-      catalogOf(CHANNEL_IMPORT_MAX_ITEMS_PER_INVOCATION + 1, "partial"),
-      "partial.chain.test",
-    );
+  it("hands off to inventory once per sweep, not once per batch, and chains nothing", async () => {
+    const total = CHANNEL_IMPORT_MAX_ITEMS_PER_INVOCATION + 1;
+    const { built, storeId } = await scenario(catalogOf(total, "partial"), "partial.chain.test");
+    // A DELTA, for the same reason the row above measures one: connecting a store already
+    // enqueues a `channel/import-catalog`, so an absolute count asserts that connect-time job
+    // rather than a continuation, and goes red against a correct implementation.
+    const catalogJobsBefore = forStore(await jobsFor(built, "channel/import-catalog"), storeId).length;
 
     const result = await runImportTask(built, storeId);
+    const output = (result as { output: { exhausted: boolean; batches: number } }).output;
     expect(
-      (result as { output: { exhausted: boolean } }).output.exhausted,
-      "one invocation over more products than the bound must report the catalog NOT exhausted",
-    ).toBe(false);
+      output.exhausted,
+      "one invocation must exhaust the catalog however many batches that takes — a chain is what the depth limit kills",
+    ).toBe(true);
+    expect(
+      output.batches,
+      `${total} products at a bound of ${CHANNEL_IMPORT_MAX_ITEMS_PER_INVOCATION} must be walked as more than one batch, `
+        + "or this row cannot tell once-per-sweep from once-per-batch",
+    ).toBeGreaterThan(1);
 
     expect(
-      forStore(await jobsFor(built, "channel/import-catalog"), storeId),
-      "an unfinished catalog must enqueue its own continuation",
-    ).toHaveLength(1);
+      forStore(await jobsFor(built, "channel/import-catalog"), storeId).length - catalogJobsBefore,
+      "the import must chain NO continuation of itself — each one spends a level of the 32-invocation chain budget",
+    ).toBe(0);
     expect(
       forStore(await jobsFor(built, "channel/sync-inventory"), storeId),
-      "inventory is levelled once, after the catalog is whole — not once per batch",
-    ).toHaveLength(0);
+      "inventory is levelled once per sweep, after the catalog is whole — not once per batch",
+    ).toHaveLength(1);
   }, 900_000);
 });
