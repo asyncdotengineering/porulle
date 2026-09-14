@@ -1,6 +1,10 @@
 {
-  "version": "plandesk-connect-v1",
+  "version": "plandesk-connect-v2",
   "serverUrl": "http://127.0.0.1:7526",
-  "projectId": "ecedc31b-9915-4834-8524-076bf3927459",
-  "projectName": "Porulle"
+  "orgId": "00000000-0000-4000-8000-0000000000a1",
+  "workspaceId": "w1TZ4WWhVt2U0aBEZWk4Exif41QviU0A",
+  "workspaceName": "porulle",
+  "projectIds": [
+    "ecedc31b-9915-4834-8524-076bf3927459"
+  ]
 }
