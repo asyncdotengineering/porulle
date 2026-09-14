@@ -1,5 +1,12 @@
 # @porulle/plugin-scheduled-orders
 
+## 0.34.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.34.0
+
 ## 0.33.0
 
 ### Patch Changes
