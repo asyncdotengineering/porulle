@@ -29,7 +29,7 @@ import { isValidFieldPath, requireUserId } from "@porulle/core";
 import type { FieldOwner, FieldPath } from "@porulle/core";
 import type { JobsAdapter } from "@porulle/core";
 import { CHANNEL_CONVERGENCE_CTX } from "./catalog-push-trigger.js";
-import { and, desc, eq, inArray, isNull, lte } from "@porulle/core/drizzle";
+import { and, desc, eq, inArray, isNull, lte, or, sql } from "@porulle/core/drizzle";
 import {
   brands,
   categories,
@@ -1436,30 +1436,87 @@ export class ChannelConnectorService {
     warnings: string[],
     owners: Map<FieldPath, FieldOwner>,
   ): Promise<PluginResult<{ imported: number; changed: boolean; skipped: FieldPath[] }>> {
-    const assets = await this.db.select().from(mediaAssets).where(eq(mediaAssets.organizationId, orgId));
+    const images = item.images ?? [];
+    const externalIds = [...new Set(images.map((image) => image.externalId).filter((id): id is string => id != null))];
+    const urlHashes = [...new Set(images.map((image) => hash(image.url)))];
+    const keyPredicates = [];
+    if (externalIds.length > 0) {
+      keyPredicates.push(inArray(sql`${mediaAssets.metadata}->>'channelImageExternalId'`, externalIds));
+    }
+    if (urlHashes.length > 0) {
+      keyPredicates.push(inArray(sql`${mediaAssets.metadata}->>'channelImageUrlHash'`, urlHashes));
+    }
+    const assets = keyPredicates.length === 0
+      ? []
+      : await this.db.select().from(mediaAssets).where(and(
+        eq(mediaAssets.organizationId, orgId),
+        or(...keyPredicates),
+      ));
     const links = await this.db.select().from(entityMedia).where(eq(entityMedia.entityId, entityId));
     let imported = 0;
     let changed = false;
     const skipped: FieldPath[] = [];
-    for (const image of item.images ?? []) {
-      const urlHash = hash(image.url);
-      const asset = assets.find((row) => {
+
+    // A Cloudflare Worker may hold at most six simultaneous outbound connections per
+    // invocation, and one image costs two of them — the download and the storage put — so
+    // 6 / 2 = 3 images may be in flight. A fourth would queue behind the platform limit
+    // rather than go faster.
+    const MAX_CONCURRENT_IMAGE_IMPORTS = 6 / 2;
+
+    type ResolvedImage = {
+      mediaAssetId?: string;
+      imageWarnings: string[];
+      imported: number;
+      imageChanged: boolean;
+    };
+
+    const findMatchingAsset = (image: { externalId?: string; url: string }, urlHash: string) =>
+      assets.find((row) => {
         const metadata = row.metadata ?? {};
         return (image.externalId != null && metadata.channelImageExternalId === image.externalId)
           || metadata.channelImageUrlHash === urlHash;
       });
-      let mediaAssetId = asset?.id;
-      if (!mediaAssetId) {
+
+    const inFlightKeys = (image: { externalId?: string }, urlHash: string) => {
+      const keys = [`hash:${urlHash}`];
+      if (image.externalId != null) keys.push(`ext:${image.externalId}`);
+      return keys;
+    };
+
+    const inFlightUploads = new Map<string, Promise<ResolvedImage>>();
+
+    const resolveImageAsset = async (image: NonNullable<ChannelCatalogItem["images"]>[number]): Promise<ResolvedImage> => {
+      const urlHash = hash(image.url);
+      const existing = findMatchingAsset(image, urlHash);
+      if (existing) {
+        return { mediaAssetId: existing.id, imageWarnings: [], imported: 0, imageChanged: false };
+      }
+      const keys = inFlightKeys(image, urlHash);
+      for (const key of keys) {
+        const pending = inFlightUploads.get(key);
+        // Sharing one upload must not mean sharing its tally. Serially, a second reference to the
+        // same image found the asset the first had just pushed into `assets` and counted nothing;
+        // returning the first reference's result object here would count one stored object twice
+        // and push its warning twice, and `mediaImported` is reported to the caller.
+        if (pending) return { ...(await pending), imageWarnings: [], imported: 0, imageChanged: false };
+      }
+      const uploadPromise = (async (): Promise<ResolvedImage> => {
         let response: Response;
         try {
           response = await fetch(image.url);
         } catch (error) {
-          warnings.push(`Skipped image "${image.externalId ?? image.url}": ${error instanceof Error ? error.message : "download failed"}.`);
-          continue;
+          return {
+            imageWarnings: [`Skipped image "${image.externalId ?? image.url}": ${error instanceof Error ? error.message : "download failed"}.`],
+            imported: 0,
+            imageChanged: false,
+          };
         }
         if (!response.ok) {
-          warnings.push(`Skipped image "${image.externalId ?? image.url}": download returned ${response.status}.`);
-          continue;
+          return {
+            imageWarnings: [`Skipped image "${image.externalId ?? image.url}": download returned ${response.status}.`],
+            imported: 0,
+            imageChanged: false,
+          };
         }
         const contentType = response.headers.get("content-type")?.split(";", 1)[0] ?? "image/jpeg";
         const extension = contentType.split("/", 2)[1] ?? "jpg";
@@ -1475,15 +1532,56 @@ export class ChannelConnectorService {
           origin: "imported",
         }, actor);
         if (!uploaded.ok) {
-          warnings.push(`Skipped image "${image.externalId ?? image.url}": ${uploaded.error.code === "STORAGE_NOT_SUPPORTED" ? "storage adapter is not configured" : uploaded.error.message}.`);
-          continue;
+          return {
+            imageWarnings: [`Skipped image "${image.externalId ?? image.url}": ${uploaded.error.code === "STORAGE_NOT_SUPPORTED" ? "storage adapter is not configured" : uploaded.error.message}.`],
+            imported: 0,
+            imageChanged: false,
+          };
         }
-        mediaAssetId = uploaded.value.id;
-        imported += 1;
-        changed = true;
+        const mediaAssetId = uploaded.value.id;
         const [createdAsset] = await this.db.select().from(mediaAssets).where(eq(mediaAssets.id, mediaAssetId));
         if (createdAsset) assets.push(createdAsset);
+        return { mediaAssetId, imageWarnings: [], imported: 1, imageChanged: true };
+      })();
+      for (const key of keys) inFlightUploads.set(key, uploadPromise);
+      try {
+        return await uploadPromise;
+      } finally {
+        for (const key of keys) inFlightUploads.delete(key);
       }
+    };
+
+    const resolvedImages: ResolvedImage[] = images.length === 0
+      ? []
+      : await (async () => {
+        const results: ResolvedImage[] = new Array(images.length);
+        let nextIndex = 0;
+        const worker = async () => {
+          while (true) {
+            const index = nextIndex;
+            nextIndex += 1;
+            // `index >= images.length` and `images[index] === undefined` are the same condition
+            // here, and under noUncheckedIndexedAccess only the second one the compiler can see.
+            const image = images[index];
+            if (image === undefined) return;
+            results[index] = await resolveImageAsset(image);
+          }
+        };
+        await Promise.all(Array.from(
+          { length: Math.min(MAX_CONCURRENT_IMAGE_IMPORTS, images.length) },
+          () => worker(),
+        ));
+        return results;
+      })();
+
+    for (const resolved of resolvedImages) {
+      warnings.push(...resolved.imageWarnings);
+      imported += resolved.imported;
+      if (resolved.imageChanged) changed = true;
+    }
+
+    for (const [imageIndex, image] of images.entries()) {
+      const mediaAssetId = resolvedImages[imageIndex]?.mediaAssetId;
       if (!mediaAssetId) continue;
 
       const targets = image.variantExternalIds?.length

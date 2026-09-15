@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { DEFAULT_ORG_ID } from "../src/auth/org.js";
 import type { Actor } from "../src/auth/types.js";
 import { defineCommercePlugin } from "../src/kernel/plugin/manifest.js";
+import type { PluginHookRegistration } from "../src/kernel/plugin/manifest.js";
 import type { HookContext } from "../src/kernel/hooks/types.js";
 import { createKernel } from "../src/runtime/kernel.js";
 import { createTwoConnectionTestAdapter } from "../src/test-utils/create-two-connection-adapter.js";
@@ -93,9 +94,20 @@ describe("a hook marked in-transaction is handed the transaction, not the outsid
     const plugin = defineCommercePlugin({
       id: "in-transaction-handle-probe",
       version: "1.0.0",
-      hooks: () => [
-        { key: "catalog.afterCreate", handler: outboxWriter, inTransaction: true },
-        { key: "catalog.afterCreate", handler: externalEffect },
+      // `PluginHookRegistration.handler` is deliberately `(...args: unknown[]) => unknown`, and
+      // `afterHook` narrows it with this same cast in the one sanctioned place — but it takes no
+      // `inTransaction`, so an in-transaction registration has to be written by hand. Under
+      // `exactOptionalPropertyTypes` the object literal below then fails to assign, which is why
+      // this package's `check-types` has been red since 0.37.0 while `build` stayed green:
+      // `tsconfig.build.json` does not compile `test/`. Whether `afterHook` should grow an
+      // `inTransaction` option is its own card; the cast here is the one it already performs.
+      hooks: (): PluginHookRegistration[] => [
+        {
+          key: "catalog.afterCreate",
+          handler: outboxWriter as PluginHookRegistration["handler"],
+          inTransaction: true,
+        },
+        { key: "catalog.afterCreate", handler: externalEffect as PluginHookRegistration["handler"] },
       ],
     });
 

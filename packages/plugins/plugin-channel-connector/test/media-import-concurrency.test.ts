@@ -71,7 +71,7 @@ function recordingImageFetch(delayMs: number) {
   return { state, restore: () => { globalThis.fetch = original; } };
 }
 
-async function importOneProductWithImages(imageCount: number, delayMs: number) {
+async function importOneProductWithImages(imageCount: number, delayMs: number, duplicateOfIndex?: number) {
   const externalId = `media-concurrency-${crypto.randomUUID()}`;
   const item: ChannelCatalogItem = {
     externalId,
@@ -80,12 +80,17 @@ async function importOneProductWithImages(imageCount: number, delayMs: number) {
     status: "active",
     attributes: [{ locale: "en", title: "Six angles of the same dress" }],
     variants: [],
-    images: Array.from({ length: imageCount }, (_, index) => ({
-      url: `${IMAGE_HOST}/${externalId}/${index}.png`,
-      externalId: `${externalId}-image-${index}`,
-      role: index === 0 ? ("primary" as const) : ("gallery" as const),
-      sortOrder: index,
-    })),
+    images: Array.from({ length: imageCount }, (_, index) => {
+      // `duplicateOfIndex` makes the LAST image a second reference to an earlier one — the same
+      // url and the same externalId. A product whose feed lists one photo twice is ordinary.
+      const source = duplicateOfIndex !== undefined && index === imageCount - 1 ? duplicateOfIndex : index;
+      return {
+        url: `${IMAGE_HOST}/${externalId}/${source}.png`,
+        externalId: `${externalId}-image-${source}`,
+        role: index === 0 ? ("primary" as const) : ("gallery" as const),
+        sortOrder: index,
+      };
+    }),
   };
   const connector = mockChannelConnector({ catalog: [item] });
   const built = await createPluginTestApp(channelConnectorPlugin({ connectors: [connector] }), {
@@ -102,9 +107,12 @@ async function importOneProductWithImages(imageCount: number, delayMs: number) {
 
   const recorder = recordingImageFetch(delayMs);
   try {
-    const imported = await service.importCatalog(TEST_ORG_ID, storeId, createSystemActor(TEST_ORG_ID));
+    // backfillCatalog rather than importCatalog: the three-argument importCatalog answers
+    // `{ imported, cursor }` and drops the media tally, and `mediaImported` is the number a
+    // double count would corrupt.
+    const imported = await service.backfillCatalog(TEST_ORG_ID, storeId, createSystemActor(TEST_ORG_ID));
     expect(imported).toMatchObject({ ok: true });
-    return { built, peak: recorder.state.peak, calls: recorder.state.calls };
+    return { built, peak: recorder.state.peak, calls: recorder.state.calls, result: imported };
   } finally {
     recorder.restore();
   }
@@ -122,8 +130,33 @@ describe("applyMedia downloads the images of one product concurrently, within th
     expect(peak).toBeGreaterThan(1);
   });
 
-  it("never holds more than three image downloads open — six subrequests, the Worker's whole budget", async () => {
-    const { peak } = await importOneProductWithImages(9, 25);
-    expect(peak).toBeLessThanOrEqual(3);
+  it("counts one upload once when a product lists the same image twice", async () => {
+    // Serially, the second reference found the asset the first had just pushed into `assets` and
+    // imported nothing. Concurrently the two must share ONE in-flight upload — and sharing it must
+    // not mean sharing its tally. A deduped image that returns the first one's result object
+    // reports `imported` twice for one stored object, which is a count the caller acts on.
+    // Three images with the LAST a second reference to index 1, and a bound of three, so all three
+    // start in the same tick and the duplicate necessarily meets its twin IN FLIGHT rather than
+    // already in `assets`. Without that the race decides which branch runs and the row is flaky.
+    const { built, calls, result } = await importOneProductWithImages(3, 40, 1);
+
+    expect(calls).toBe(2);
+    const assets = await built.db.select().from(mediaAssets).where(eq(mediaAssets.organizationId, TEST_ORG_ID));
+    expect(assets).toHaveLength(2);
+
+    // The number the caller acts on. Two stored objects reported as three is a lie about what an
+    // import did, and sharing one upload must not mean sharing its tally.
+    expect((result as { value: { mediaImported: number } }).value.mediaImported).toBe(2);
+  });
+
+  it("reaches exactly three open downloads and never a fourth — six subrequests, the Worker's whole budget", async () => {
+    const { peak, calls } = await importOneProductWithImages(9, 60);
+    expect(calls).toBe(9);
+
+    // Both ends in one row, deliberately. `<= 3` alone is satisfied by a serial loop, so a run that
+    // never parallelised at all would be indistinguishable from a correctly bounded one — and the
+    // deployed per-product number would then be quoted as evidence of a bound that was never
+    // reached. `=== 3` says the pool filled AND that a fourth connection was never opened.
+    expect(peak).toBe(3);
   });
 });
