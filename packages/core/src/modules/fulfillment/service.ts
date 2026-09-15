@@ -331,7 +331,7 @@ export class FulfillmentService {
         database: { db: this.deps.database.db as PluginDb },
         commerceConfig: this.deps.config,
       });
-      await runAfterHooks(afterHooks, null, record, "create", hookCtx);
+      await runAfterHooks(afterHooks, null, record, "create", hookCtx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
       // Create a fulfillment line item linking this fulfillment to the order line item
       for (const li of record.lineItems) {
@@ -490,7 +490,7 @@ export class FulfillmentService {
       database: { db: this.deps.database.db as PluginDb },
       commerceConfig: this.deps.config,
     });
-    await runAfterHooks(afterHooks, null, record, "create", hookCtx);
+    await runAfterHooks(afterHooks, null, record, "create", hookCtx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
     return Ok(record);
   }

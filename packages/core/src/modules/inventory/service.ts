@@ -446,6 +446,7 @@ export class InventoryService {
         level,
         "update",
         hookCtx,
+        (hook) => this.deps.hooks.runsInTransaction(hook),
       );
 
       return Ok({ level, before, after, delta, movementId: movement.id });

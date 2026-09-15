@@ -285,7 +285,7 @@ export class EntityService {
     if (existingBySlug) return Err(new CommerceConflictError(`Entity with slug ${input.slug} already exists.`));
     const beforeHooks = this.deps.hooks.resolve("catalog.beforeCreate") as CatalogCreateBeforeHook[];
     const afterHooks = this.deps.hooks.resolve("catalog.afterCreate") as CatalogCreateAfterHook[];
-    const context: HookContext = createHookContext({ actor, tx: ctx?.tx ?? null, logger: createLogger("catalog.create"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database), commerceConfig: this.deps.config });
+    const context: HookContext = catalogHookContext(this.deps, actor, ctx, "create");
     const processedInput = await runBeforeHooks(beforeHooks, input, "create", context);
     if (processedInput.sourceStoreId != null) assertPermission(actor, "catalog:sync");
     const customFieldsResult = await this.validateCustomFields(processedInput.type, processedInput.customFields, actor, ctx);
@@ -297,7 +297,7 @@ export class EntityService {
       await this.repo.createAttribute({ entityId: entity.id, locale: processedInput.attributes.locale ?? "en", title: processedInput.attributes.title, subtitle: processedInput.attributes.subtitle, description: processedInput.attributes.description, richDescription: processedInput.attributes.richDescription, seoTitle: processedInput.attributes.seoTitle, seoDescription: processedInput.attributes.seoDescription }, ctx);
     }
     await this.writeCustomFields(entity.id, customFieldsResult.value, ctx);
-    const hookReport = await runAfterHooks(afterHooks, null, entity, "create", context);
+    const hookReport = await runAfterHooks(afterHooks, null, entity, "create", context, (hook) => this.deps.hooks.runsInTransaction(hook));
     const hydrated = await this.hydrateEntity(entity, undefined, ctx);
     return Ok(hydrated, hookReport.hasErrors ? { hookErrors: hookReport.errors } : undefined);
   } catch (error) { return Err(toCommerceError(error)); } }
@@ -318,7 +318,7 @@ export class EntityService {
     const updated = await this.repo.updateEntity(id, { ...(processed.slug !== undefined ? { slug: processed.slug } : {}), ...(processed.status !== undefined ? { status: processed.status as SellableEntity["status"] } : {}), ...(processed.taxClass !== undefined ? { taxClass: processed.taxClass } : {}), ...(processed.metadata !== undefined ? { metadata: processed.metadata } : {}), ...(processed.isVisible !== undefined ? { isVisible: processed.isVisible } : {}) }, txCtx);
     if (!updated) return Err(new CommerceNotFoundError("Entity not found."));
     await this.writeCustomFields(existing.id, customFieldsResult.value, txCtx, true);
-    const hookReport = await runAfterHooks(afterHooks, existing, updated, "update", context);
+    const hookReport = await runAfterHooks(afterHooks, existing, updated, "update", context, (hook) => this.deps.hooks.runsInTransaction(hook));
     const hydrated = await this.hydrateEntity(updated, undefined, txCtx);
     return Ok(hydrated, hookReport.hasErrors ? { hookErrors: hookReport.errors } : undefined);
   } catch (error) { return Err(toCommerceError(error)); } }
@@ -367,7 +367,7 @@ export class EntityService {
     }
     const result = await this.hydrateEntity(entity, processed.options ?? options, ctx);
     const entityAfterHooks = this.deps.hooks.resolve(`catalog.${entity.type}.afterRead`) as CatalogReadAfterHook[];
-    const report = mergeHookReports(await runAfterHooks(globalAfterHooks, null, result, "read", context), await runAfterHooks(entityAfterHooks, null, result, "read", context));
+    const report = mergeHookReports(await runAfterHooks(globalAfterHooks, null, result, "read", context, (hook) => this.deps.hooks.runsInTransaction(hook)), await runAfterHooks(entityAfterHooks, null, result, "read", context, (hook) => this.deps.hooks.runsInTransaction(hook)));
     return Ok(result, report.hasErrors ? { hookErrors: report.errors } : undefined);
   }
 
@@ -418,7 +418,7 @@ export class EntityService {
     }
     const result = await this.hydrateEntity(entity, processed.options ?? options, ctx);
     const entityAfterHooks = this.deps.hooks.resolve(`catalog.${entity.type}.afterRead`) as CatalogReadAfterHook[];
-    const report = mergeHookReports(await runAfterHooks(globalAfterHooks, null, result, "read", context), await runAfterHooks(entityAfterHooks, null, result, "read", context));
+    const report = mergeHookReports(await runAfterHooks(globalAfterHooks, null, result, "read", context, (hook) => this.deps.hooks.runsInTransaction(hook)), await runAfterHooks(entityAfterHooks, null, result, "read", context, (hook) => this.deps.hooks.runsInTransaction(hook)));
     return Ok(result, report.hasErrors ? { hookErrors: report.errors } : undefined);
   }
 
@@ -490,7 +490,7 @@ export class EntityService {
     const result = { items: hydratedItems, pagination: paged.pagination };
     const listTypeFilter = processed.filter?.type;
     const entityAfterHooks = listTypeFilter ? (this.deps.hooks.resolve(`catalog.${listTypeFilter}.afterList`) as CatalogListAfterHook[]) : [];
-    const report = mergeHookReports(await runAfterHooks(globalAfterHooks, null, result, "list", context), await runAfterHooks(entityAfterHooks, null, result, "list", context));
+    const report = mergeHookReports(await runAfterHooks(globalAfterHooks, null, result, "list", context, (hook) => this.deps.hooks.runsInTransaction(hook)), await runAfterHooks(entityAfterHooks, null, result, "list", context, (hook) => this.deps.hooks.runsInTransaction(hook)));
     return Ok(result, report.hasErrors ? { hookErrors: report.errors } : undefined);
   }
 
@@ -533,7 +533,7 @@ export class EntityService {
       const afterHooks = this.deps.hooks.resolve("catalog.afterUpdate") as CatalogUpdateAfterHook[];
       const context = catalogHookContext(this.deps, actor, ctx, "update");
       context.context.changedFieldPaths = changedFieldPaths;
-      await runAfterHooks(afterHooks, entity, entity, "update", context);
+      await runAfterHooks(afterHooks, entity, entity, "update", context, (hook) => this.deps.hooks.runsInTransaction(hook));
     }
     return Ok(undefined);
   }

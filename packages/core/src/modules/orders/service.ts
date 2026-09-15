@@ -749,6 +749,7 @@ export class OrderService {
       hydrated,
       "create",
       hookCtx,
+      (hook) => this.deps.hooks.runsInTransaction(hook),
     );
 
     return Ok(
@@ -797,7 +798,7 @@ export class OrderService {
     ) as AfterHook<HydratedOrder>[];
     if (afterGetHooks.length > 0) {
       const hookCtx = context(actor, this.deps.services, this.deps.database, this.deps.config, ctx?.tx);
-      await runAfterHooks(afterGetHooks, null, hydrated, "read", hookCtx);
+      await runAfterHooks(afterGetHooks, null, hydrated, "read", hookCtx, (hook) => this.deps.hooks.runsInTransaction(hook));
     }
 
     return Ok(hydrated);
@@ -1257,6 +1258,7 @@ export class OrderService {
       hydrated,
       "statusChange",
       hookCtx,
+      (hook) => this.deps.hooks.runsInTransaction(hook),
     );
 
     return Ok(

@@ -102,7 +102,7 @@ export class CustomerService {
       "customers.afterCreate",
     ) as AfterHook<Customer>[];
     const hctx = hookContext(actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null);
-    await runAfterHooks(afterHooks, null, customer, "create", hctx);
+    await runAfterHooks(afterHooks, null, customer, "create", hctx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
     return Ok(customer);
   }
@@ -195,7 +195,7 @@ export class CustomerService {
       "customers.afterCreate",
     ) as AfterHook<Customer>[];
     const hctx = hookContext(actor, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null);
-    await runAfterHooks(afterHooks, null, customer, "create", hctx);
+    await runAfterHooks(afterHooks, null, customer, "create", hctx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
     return customer;
   }
@@ -277,7 +277,7 @@ export class CustomerService {
     const hctx = hookContext(
       actor ?? ctx?.actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null,
     );
-    await runAfterHooks(afterHooks, existing, updated, "update", hctx);
+    await runAfterHooks(afterHooks, existing, updated, "update", hctx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
     return Ok(updated);
   }
@@ -308,7 +308,7 @@ export class CustomerService {
       "customers.afterUpdate",
     ) as AfterHook<Customer>[];
     const hctx = hookContext(resolvedActor, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null);
-    await runAfterHooks(afterHooks, customer, updated, "update", hctx);
+    await runAfterHooks(afterHooks, customer, updated, "update", hctx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
     return Ok(updated);
   }

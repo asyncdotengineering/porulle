@@ -74,8 +74,11 @@ async function pushCoreSchema(db: DrizzleDatabase): Promise<void> {
  *   - db: The Drizzle ORM instance for direct queries
  *   - cleanup: Function to truncate all tables (call between tests)
  */
+/** The test adapter carries one thing a production adapter does not: see `inTransaction`. */
+export type PGliteTestAdapter = DatabaseAdapter & { inTransaction(): boolean };
+
 export async function createPGliteTestAdapter(): Promise<{
-  adapter: DatabaseAdapter;
+  adapter: PGliteTestAdapter;
   db: DrizzleDatabase;
   cleanup: () => Promise<void>;
   queryLog: QueryLog;
@@ -160,10 +163,25 @@ export async function createPGliteTestAdapter(): Promise<{
     return run as Promise<T>;
   }
 
-  const adapter: DatabaseAdapter = {
+  const adapter: DatabaseAdapter & { inTransaction(): boolean } = {
     provider: "postgresql",
     db,
     transaction,
+    /**
+     * Whether a transaction body is executing RIGHT NOW on this adapter.
+     *
+     * Exposed for one reason: an after-hook that fires before its transaction commits is
+     * invisible to every assertion a PGlite suite can otherwise make. This adapter hands the
+     * transaction body the SAME `db` handle it hands everyone else, so a hook's query inside an
+     * open transaction succeeds and reads uncommitted rows exactly as if it had committed — the
+     * instrument is blind to the defect by construction. A recording jobs adapter stamping each
+     * enqueue with this flag is the only thing in a PGlite test that can tell "enqueued after
+     * commit" from "enqueued inside the transaction that may still roll back".
+     *
+     * Test-utils only. Production adapters do not carry it, and nothing outside a test may branch
+     * on it — a behaviour that depends on this flag would be a behaviour no production adapter has.
+     */
+    inTransaction: () => inTransaction,
   };
 
   /**

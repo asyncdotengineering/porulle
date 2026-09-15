@@ -58,6 +58,6 @@ export function registerConfiguredKernelHooks(
   hooks.append("catalog.afterUpdate", syncToSearchIndex);
 
   for (const [key, handler] of Object.entries(auditHooks)) {
-    hooks.append(key, handler);
+    hooks.appendInTransaction(key, handler);
   }
 }
