@@ -1,5 +1,17 @@
 # @porulle/core
 
+## 0.36.0
+
+### Patch Changes
+
+- [#119](https://github.com/asyncdotengineering/porulle/pull/119) [`1603287`](https://github.com/asyncdotengineering/porulle/commit/1603287a8a47a0ad4f5d14cc3a6e6b339cdee31d) Thanks [@octalpixel](https://github.com/octalpixel)! - Report after-hook failures to an optional observer, and fail a test that causes one.
+
+  An after-hook must never fail the write it is announcing, so `runAfterHooks` collects failures into a `HookReport` and the after-COMMIT path cannot even do that — by the time a deferred hook runs, the service method has already returned its Result. The consequence measured on 2026-09-15: removing the after-commit boundary from the plugin db path made four channel-connector suites take 578 s instead of 27 s and log 51 `Hook "deliverWebhooks" timed out after 20000ms`, with exit 0 and every test passing.
+
+  `runAfterHooks` now reports each failure to an observer as well as logging it. Production installs none and pays one undefined check; the vitest setup file wired in `vitest.shared.ts` installs one and turns an unallowed failure into a test failure, calling out timeouts specifically because a hook that times out is almost always deadlocked against the transaction it was fired from. A suite that fails a hook on purpose calls `allowHookFailure("<hookName>")`, exported from `@porulle/core/testing`, per test and per hook.
+
+- [#118](https://github.com/asyncdotengineering/porulle/pull/118) [`9527725`](https://github.com/asyncdotengineering/porulle/commit/952772518cc07e2fedc8792847c3a9d22072f0e9) Thanks [@octalpixel](https://github.com/octalpixel)! - Export `isInsideTransaction` from `@porulle/core/testing`, so a suite can assert that the code under test is really inside an after-commit boundary instead of waiting for the deadlock that a missing one causes. A plugin reaches the database through the `ctx.db` handle rather than the adapter, and the boundary on that path exists only because `normalizeExecuteShape` wraps `transaction`; without it an after-hook runs inside the still-open transaction and blocks on its own connection. That failure is silent — `runAfterHooks` collects after-hook failures into a `HookReport` and never throws.
+
 ## 0.35.1
 
 ### Patch Changes

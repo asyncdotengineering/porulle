@@ -1,5 +1,12 @@
 # @porulle/plugin-channel-connector
 
+## 0.36.0
+
+### Patch Changes
+
+- Updated dependencies [[`1603287`](https://github.com/asyncdotengineering/porulle/commit/1603287a8a47a0ad4f5d14cc3a6e6b339cdee31d), [`9527725`](https://github.com/asyncdotengineering/porulle/commit/952772518cc07e2fedc8792847c3a9d22072f0e9)]:
+  - @porulle/core@0.36.0
+
 ## 0.35.1
 
 ### Patch Changes
