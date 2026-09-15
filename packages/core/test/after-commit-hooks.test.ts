@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { allowHookFailure } from "../src/test-utils/hook-failures.js";
 import { eq } from "drizzle-orm";
 import { DEFAULT_ORG_ID } from "../src/auth/org.js";
 import type { Actor } from "../src/auth/types.js";
@@ -280,6 +281,8 @@ describe("after-commit hooks", () => {
   });
 
   it("runs after-hooks inline with HookReport errors when no transaction is open", async () => {
+    // This row exists to make a hook fail, so the standing no-failed-hooks check is told which one.
+    allowHookFailure("failingHook");
     const mockDb = { execute: async () => [] } as unknown as PluginDb;
     const context: HookContext = {
       actor: null,

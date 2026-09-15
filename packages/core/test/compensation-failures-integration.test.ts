@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
+import { allowHookFailure } from "../src/test-utils/hook-failures.js";
 import { CommerceValidationError } from "../src/kernel/errors.js";
 import { Ok } from "../src/kernel/result.js";
 import type { PaymentAdapter } from "../src/modules/payments/adapter.js";
@@ -122,6 +123,8 @@ describe("compensation failures — persistence + admin API (PGlite)", () => {
   });
 
   it("records compensation failure, lists via admin GET, resolves, second resolve is 409", async () => {
+    // The scenario simulates a capture failure inside completeCheckout, which is the whole point.
+    allowHookFailure("completeCheckout");
     const cartRes = await makeRequest(server, {
       method: "POST",
       url: "http://localhost/api/carts",
