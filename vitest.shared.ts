@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 /**
@@ -29,8 +30,21 @@ import { defineConfig } from "vitest/config";
  */
 const maxForks = Number(process.env.VITEST_MAX_FORKS ?? 4);
 
+/**
+ * Every package inherits the after-hook failure check. An after-hook must never fail the write it
+ * announces, so a hook that throws — or deadlocks for its full 20-second timeout — is swallowed
+ * into a HookReport and the test passes. Removing the after-commit boundary from the plugin db path
+ * on 2026-09-15 made four connector suites take 578 s instead of 27 s and log 51 hook timeouts,
+ * with exit 0 and every test passing. It belongs here rather than in a helper a suite opts into,
+ * because the case it catches is a suite nobody thought to instrument.
+ */
+const hookFailureSetup = fileURLToPath(
+  new URL("./packages/core/src/test-utils/hook-failure-setup.ts", import.meta.url),
+);
+
 export const sharedTestConfig = defineConfig({
   test: {
+    setupFiles: [hookFailureSetup],
     environment: "node",
     pool: "forks",
     poolOptions: {

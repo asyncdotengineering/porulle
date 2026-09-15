@@ -26,5 +26,12 @@ export { markOrderPaidForTest } from "./test-utils/order-test-helpers.js";
 // the question directly rather than wait for a symptom.
 export { isInsideTransaction } from "./kernel/hooks/deferred.js";
 
+// A hook that fails is announced to nobody: an after-hook must not fail the write it records, so
+// `runAfterHooks` collects failures into a HookReport and the after-commit path cannot even do
+// that. The vitest setup file wired in vitest.shared.js turns them into a test failure; this is the
+// escape hatch for a suite that causes one deliberately.
+export { allowHookFailure, recordedHookFailures } from "./test-utils/hook-failures.js";
+export type { HookFailure } from "./kernel/hooks/failures.js";
+
 // Actor type re-export for plugin tests that build custom test actors.
 export type { Actor } from "./auth/types.js";

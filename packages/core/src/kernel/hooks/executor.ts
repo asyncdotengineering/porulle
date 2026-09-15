@@ -1,5 +1,6 @@
 import type { AfterHook, BeforeHook, HookContext, HookOperation } from "./types.js";
 import { deferAfterCommit } from "./deferred.js";
+import { reportHookFailure } from "./failures.js";
 
 export interface HookError {
   hookName: string;
@@ -108,10 +109,9 @@ export async function runAfterHooks<T>(
       try {
         await runHook();
       } catch (error) {
-        errors.push({
-          hookName,
-          message: error instanceof Error ? error.message : String(error),
-        });
+        const message = error instanceof Error ? error.message : String(error);
+        errors.push({ hookName, message });
+        reportHookFailure({ hookName, message, deferred: false });
         context.logger.error(`After-hook "${hookName}" failed`, {
           error,
         });
@@ -123,6 +123,13 @@ export async function runAfterHooks<T>(
       try {
         await runHook();
       } catch (error) {
+        // Reported rather than collected: this runs after the commit, so the HookReport below has
+        // already been returned to the caller and there is nowhere else for this failure to go.
+        reportHookFailure({
+          hookName,
+          message: error instanceof Error ? error.message : String(error),
+          deferred: true,
+        });
         context.logger.error(`After-commit hook "${hookName}" failed`, {
           error,
         });
@@ -133,10 +140,9 @@ export async function runAfterHooks<T>(
       try {
         await runHook();
       } catch (error) {
-        errors.push({
-          hookName,
-          message: error instanceof Error ? error.message : String(error),
-        });
+        const message = error instanceof Error ? error.message : String(error);
+        errors.push({ hookName, message });
+        reportHookFailure({ hookName, message, deferred: false });
         context.logger.error(`After-hook "${hookName}" failed`, {
           error,
         });

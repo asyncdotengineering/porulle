@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { allowHookFailure } from "../src/test-utils/hook-failures.js";
 import { HookRegistry } from "../src/kernel/hooks/registry.js";
 import { runAfterHooks, runBeforeHooks } from "../src/kernel/hooks/executor.js";
 import type { HookContext } from "../src/kernel/hooks/types.js";
@@ -73,6 +74,8 @@ describe("hook executor", () => {
   });
 
   it("captures after-hook errors without throwing", async () => {
+    // The hook under test is an anonymous arrow, so that is the name the executor reports.
+    allowHookFailure("(anonymous afterHook)");
     const report = await runAfterHooks(
       [
         async () => {
