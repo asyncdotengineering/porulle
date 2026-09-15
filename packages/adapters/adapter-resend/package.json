@@ -1,6 +1,6 @@
 {
   "name": "@porulle/adapter-resend",
-  "version": "0.35.0",
+  "version": "0.35.1",
   "license": "MIT",
   "type": "module",
   "exports": {
