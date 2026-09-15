@@ -1,5 +1,12 @@
 # @porulle/jobs-pg-boss
 
+## 0.37.0
+
+### Patch Changes
+
+- Updated dependencies [[`f28bef1`](https://github.com/asyncdotengineering/porulle/commit/f28bef11a0ae73b1011aa29f7772d2c8fa6b05cd)]:
+  - @porulle/core@0.37.0
+
 ## 0.36.0
 
 ### Patch Changes
