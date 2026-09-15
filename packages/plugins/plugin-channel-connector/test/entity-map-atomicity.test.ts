@@ -45,27 +45,44 @@ function product(externalId: string): ChannelCatalogItem {
 }
 
 /**
- * Builds the app and a service whose transaction function is observable: `calls` counts every
- * transaction the service opens, and setting `rollbackNext` makes the next one throw after its body
- * has run, which is exactly an import killed part-way through a single item.
+ * Builds the app and a service whose transactions are observable: `calls` counts every transaction
+ * the service opens, and setting `rollbackNext` makes the next one throw after its body has run,
+ * which is exactly an import killed part-way through a single item.
+ *
+ * The observation sits on the db HANDLE — the service's first constructor argument, which a task
+ * handler also supplies — rather than on a fourth `transaction` argument only `routes:` passes.
+ * Injecting that fourth argument is what made this suite measure the REST path while asserting on
+ * the import: with the adapter's transaction injected, removing the after-commit wrap from
+ * `normalizeExecuteShape` left this file's runtime unchanged at 13 s while the two suites built the
+ * task way went from 27 s to 467 s and 576 s.
  */
+function observableDb(db: PluginDb, tx: { calls: number; rollbackNext: boolean }): PluginDb {
+  return new Proxy(db as object, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (property === "transaction" && typeof value === "function") {
+        return <T>(fn: (inner: PluginDb) => Promise<T>): Promise<T> => {
+          tx.calls += 1;
+          return (value as PluginTxFn).call(target, async (inner: PluginDb) => {
+            const result = await fn(inner);
+            if (tx.rollbackNext) {
+              tx.rollbackNext = false;
+              throw new Error("injected interruption");
+            }
+            return result;
+          }) as Promise<T>;
+        };
+      }
+      return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as PluginDb;
+}
+
 async function scenario(catalog: ChannelCatalogItem[]) {
   const connector = mockChannelConnector({ catalog });
   const built = await createPluginTestApp(channelConnectorPlugin({ connectors: [connector] }));
-  const base = built.kernel.database.transaction as PluginTxFn;
   const tx = { calls: 0, rollbackNext: false };
-  const observed: PluginTxFn = async <T>(fn: (db: PluginDb) => Promise<T>): Promise<T> => {
-    tx.calls += 1;
-    return base(async (inner) => {
-      const value = await fn(inner);
-      if (tx.rollbackNext) {
-        tx.rollbackNext = false;
-        throw new Error("injected interruption");
-      }
-      return value;
-    });
-  };
-  const service = new ChannelConnectorService(built.db, built.kernel.services, { connectors: [connector] }, observed);
+  const service = new ChannelConnectorService(observableDb(built.db, tx), built.kernel.services, { connectors: [connector] });
   const response = await built.app.request("http://localhost/api/channels/stores", {
     method: "POST",
     headers: jsonHeaders(testAdminActor),

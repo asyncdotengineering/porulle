@@ -4,7 +4,6 @@ import {
   type Actor,
   type ChannelPushCatalogItem,
   type JobsAdapter,
-  type PluginTxFn,
 } from "@porulle/core";
 import { createPluginTestApp, jsonHeaders, TEST_ORG_ID } from "@porulle/core/testing";
 import { and, eq, inArray } from "@porulle/core/drizzle";
@@ -51,7 +50,6 @@ describe("channel/push-catalog job", () => {
       built.db,
       built.kernel.services,
       { connectors: [mockChannelConnector({ catalog: [] })] },
-      built.kernel.database.transaction as PluginTxFn,
     );
   }, 30_000);
 
@@ -212,7 +210,6 @@ describe("channel/push-catalog job", () => {
       failingBuilt.db,
       failingBuilt.kernel.services,
       { connectors: [connector] },
-      failingBuilt.kernel.database.transaction as PluginTxFn,
     );
     const store = await (async () => {
       const response = await failingBuilt.app.request("http://localhost/api/channels/stores", {
@@ -511,7 +508,6 @@ describe("channel/push-catalog job", () => {
       retryBuilt.db,
       retryBuilt.kernel.services,
       { connectors: [connector] },
-      retryBuilt.kernel.database.transaction as PluginTxFn,
     );
     const store = await (async () => {
       const response = await retryBuilt.app.request("http://localhost/api/channels/stores", {
@@ -625,7 +621,6 @@ describe("channel/push-catalog job", () => {
       cursorBuilt.db,
       cursorBuilt.kernel.services,
       { connectors: [cursorConnector] },
-      cursorBuilt.kernel.database.transaction as PluginTxFn,
     );
     const previousBatchSize = CATALOG_PUSH_BATCH_SIZES.mock ?? 100;
     CATALOG_PUSH_BATCH_SIZES.mock = 2;

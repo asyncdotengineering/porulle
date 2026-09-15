@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { createSystemActor, type Actor, type ChannelCatalogItem, type PluginTxFn } from "@porulle/core";
+import { createSystemActor, type Actor, type ChannelCatalogItem } from "@porulle/core";
 import { and, eq } from "@porulle/core/drizzle";
 import { commerceJobs } from "@porulle/core/schema";
 import { createPluginTestApp, jsonHeaders, TEST_ORG_ID, testAdminActor } from "@porulle/core/testing";
@@ -35,7 +35,6 @@ describe("catalog push trigger", () => {
       built.db,
       built.kernel.services,
       { connectors: [mockChannelConnector({ catalog: [] })] },
-      built.kernel.database.transaction as PluginTxFn,
     );
   }, 30_000);
 
@@ -103,7 +102,6 @@ describe("catalog push trigger", () => {
       scenario.db,
       scenario.kernel.services,
       { connectors: [connector] },
-      scenario.kernel.database.transaction as PluginTxFn,
     );
     const response = await scenario.app.request("http://localhost/api/channels/stores", {
       method: "POST",

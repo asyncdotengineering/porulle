@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSystemActor, type ChannelCatalogItem, type ChannelConnector, type ChannelPushCatalogItem, type PluginTxFn } from "@porulle/core";
+import { createSystemActor, type ChannelCatalogItem, type ChannelConnector, type ChannelPushCatalogItem } from "@porulle/core";
 import { and, eq } from "@porulle/core/drizzle";
 import { sellableAttributes, sellableCustomFields, sellableEntityRevisions } from "@porulle/core/schema";
 import { createPluginTestApp, jsonHeaders, TEST_ORG_ID, testAdminActor } from "@porulle/core/testing";
@@ -12,7 +12,6 @@ async function createOutboundScenario(slug: string, connector: ChannelConnector)
     built.db,
     built.kernel.services,
     { connectors: [connector] },
-    built.kernel.database.transaction as PluginTxFn,
   );
   const response = await built.app.request("http://localhost/api/channels/stores", {
     method: "POST",
@@ -53,7 +52,6 @@ describe("channel outbound hash suppression", () => {
       built.db,
       built.kernel.services,
       { connectors: [connector] },
-      built.kernel.database.transaction as PluginTxFn,
     );
     const response = await built.app.request("http://localhost/api/channels/stores", {
       method: "POST",
@@ -145,7 +143,6 @@ describe("channel outbound hash suppression", () => {
       built.db,
       built.kernel.services,
       { connectors: [connector] },
-      built.kernel.database.transaction as PluginTxFn,
     );
     const response = await built.app.request("http://localhost/api/channels/stores", {
       method: "POST",

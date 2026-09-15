@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { createSystemActor, type ChannelCatalogItem, type PluginTxFn } from "@porulle/core";
+import { createSystemActor, type ChannelCatalogItem } from "@porulle/core";
 import { and, eq } from "@porulle/core/drizzle";
 import { catalogFieldOwnership, entityMedia, mediaAssets, sellableAttributes, sellableEntities, sellableEntityRevisions } from "@porulle/core/schema";
 import { createPluginTestApp, jsonHeaders, TEST_ORG_ID, testAdminActor } from "@porulle/core/testing";
@@ -18,7 +18,6 @@ async function createScenario(item: ChannelCatalogItem) {
     built.db,
     built.kernel.services,
     { connectors: [connector] },
-    built.kernel.database.transaction as PluginTxFn,
   );
   const response = await built.app.request("http://localhost/api/channels/stores", {
     method: "POST",

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { createSystemActor, type ChannelCatalogItem, type ChannelStore, type PluginTxFn, type StorageAdapter } from "@porulle/core";
+import { createSystemActor, type ChannelCatalogItem, type ChannelStore, type StorageAdapter } from "@porulle/core";
 import { and, eq } from "@porulle/core/drizzle";
 import { optionTypes, optionValues, sellableAttributes, sellableEntities, variantOptionValues, variants } from "@porulle/core/schema";
 import { createPluginTestApp, jsonHeaders, TEST_ORG_ID, testAdminActor } from "@porulle/core/testing";
@@ -63,7 +63,6 @@ describe("channel catalog backfill", () => {
       built.db,
       built.kernel.services,
       { connectors: [connector] },
-      built.kernel.database.transaction as PluginTxFn,
     );
 
     const [store] = await built.db.insert(connectedStores).values({
@@ -240,7 +239,6 @@ describe("channel catalog backfill", () => {
       built.db,
       built.kernel.services,
       { connectors: [unavailableConnector] },
-      built.kernel.database.transaction as PluginTxFn,
     );
     const [unavailableStore] = await built.db.insert(connectedStores).values({
       organizationId: TEST_ORG_ID,
@@ -271,7 +269,6 @@ describe("channel catalog backfill", () => {
       mediaBuilt.db,
       mediaBuilt.kernel.services,
       { connectors: [mediaConnector] },
-      mediaBuilt.kernel.database.transaction as PluginTxFn,
     );
     const [mediaStore] = await mediaBuilt.db.insert(connectedStores).values({
       organizationId: TEST_ORG_ID,
@@ -325,7 +322,6 @@ describe("channel catalog backfill", () => {
       pagedBuilt.db,
       pagedBuilt.kernel.services,
       { connectors: [pagedConnector] },
-      pagedBuilt.kernel.database.transaction as PluginTxFn,
     );
     const [pagedStore] = await pagedBuilt.db.insert(connectedStores).values({
       organizationId: TEST_ORG_ID,

@@ -3,7 +3,6 @@ import {
   type ChannelConnectorError,
   type ChannelPushCatalogItem,
   type Actor,
-  type PluginTxFn,
 } from "@porulle/core";
 import { createPluginTestApp, jsonHeaders, TEST_ORG_ID } from "@porulle/core/testing";
 import { eq } from "@porulle/core/drizzle";
@@ -86,7 +85,6 @@ describe("channel catalog write settings", () => {
         providerConnector("shopify"),
         providerConnector("woocommerce"),
       ] },
-      built.kernel.database.transaction as PluginTxFn,
     );
   }, 30_000);
 
@@ -640,7 +638,6 @@ describe("channel catalog write settings", () => {
       built.db,
       built.kernel.services,
       { connectors: [failingConnector] },
-      built.kernel.database.transaction as PluginTxFn,
     );
 
     const result = await pushService.pushCatalogToStore(TEST_ORG_ID, storeId, [firstEntityId, failedEntityId]);

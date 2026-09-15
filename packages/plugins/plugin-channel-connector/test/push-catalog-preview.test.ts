@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { type Actor, type ChannelPushCatalogItem, type PluginTxFn } from "@porulle/core";
+import { type Actor, type ChannelPushCatalogItem } from "@porulle/core";
 import { createPluginTestApp, jsonHeaders, TEST_ORG_ID } from "@porulle/core/testing";
 import { organization } from "@porulle/core/auth-schema";
 import { eq } from "@porulle/core/drizzle";
@@ -41,7 +41,6 @@ describe("push catalog preview", () => {
       built.db,
       built.kernel.services,
       { connectors: [connector] },
-      built.kernel.database.transaction as PluginTxFn,
     );
   }, 30_000);
 
