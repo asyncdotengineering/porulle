@@ -8,6 +8,7 @@ type HookEntry = {
 
 export class HookRegistry {
   private registry = new Map<string, HookEntry>();
+  private inTransactionHandlers = new WeakSet<HookHandler>();
   private logger?: { error: (obj: Record<string, unknown>, msg: string) => void };
 
   registerConfigHooks(hookName: string, handlers: HookHandler[]): void {
@@ -20,9 +21,23 @@ export class HookRegistry {
     this.registry.get(hookName)!.appended.push(handler);
   }
 
+  appendInTransaction(hookName: string, handler: HookHandler): void {
+    this.inTransactionHandlers.add(handler);
+    this.append(hookName, handler);
+  }
+
   prepend(hookName: string, handler: HookHandler): void {
     this.ensureEntry(hookName);
     this.registry.get(hookName)!.prepended.push(handler);
+  }
+
+  prependInTransaction(hookName: string, handler: HookHandler): void {
+    this.inTransactionHandlers.add(handler);
+    this.prepend(hookName, handler);
+  }
+
+  runsInTransaction(handler: HookHandler): boolean {
+    return this.inTransactionHandlers.has(handler);
   }
 
   resolve(hookName: string): HookHandler[] {

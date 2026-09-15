@@ -1,4 +1,5 @@
 import type { AfterHook, BeforeHook, HookContext, HookOperation } from "./types.js";
+import { deferAfterCommit } from "./deferred.js";
 
 export interface HookError {
   hookName: string;
@@ -84,30 +85,66 @@ export async function runAfterHooks<T>(
   committedResult: T,
   operation: HookOperation,
   context: HookContext,
+  runsInTransaction: (hook: AfterHook<T>) => boolean = () => false,
 ): Promise<HookReport> {
   const errors: HookError[] = [];
   for (const hook of hooks) {
     const hookName = hook.name || "(anonymous afterHook)";
-    try {
-      await withTimeout(
+    const runHook = () =>
+      withTimeout(
         hook({
           data: originalData,
           result: committedResult,
           operation,
-          context,
+          context: runsInTransaction(hook)
+            ? context
+            : { ...context, tx: null },
         }),
         HOOK_TIMEOUT_MS,
         hookName,
       );
-    } catch (error) {
-      errors.push({
-        hookName,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      context.logger.error(`After-hook "${hookName}" failed`, {
-        error,
-      });
+
+    if (runsInTransaction(hook)) {
+      try {
+        await runHook();
+      } catch (error) {
+        errors.push({
+          hookName,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        context.logger.error(`After-hook "${hookName}" failed`, {
+          error,
+        });
+      }
+      continue;
+    }
+
+    const deferred = deferAfterCommit(async () => {
+      try {
+        await runHook();
+      } catch (error) {
+        context.logger.error(`After-commit hook "${hookName}" failed`, {
+          error,
+        });
+      }
+    });
+
+    if (!deferred) {
+      try {
+        await runHook();
+      } catch (error) {
+        errors.push({
+          hookName,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        context.logger.error(`After-hook "${hookName}" failed`, {
+          error,
+        });
+      }
     }
   }
+  // After-commit hook failures are logged when the transaction drains; they
+  // cannot appear here because deferred hooks run after commit, once the
+  // service method has already returned its Result.
   return { errors, hasErrors: errors.length > 0 };
 }

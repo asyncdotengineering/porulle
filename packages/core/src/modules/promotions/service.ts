@@ -245,7 +245,7 @@ export class PromotionService {
     const hctx = hookContext(
       actor ?? ctx?.actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null,
     );
-    await runAfterHooks(afterHooks, null, promotion, "create", hctx);
+    await runAfterHooks(afterHooks, null, promotion, "create", hctx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
     return Ok(promotion);
   }
@@ -266,7 +266,7 @@ export class PromotionService {
     ) as AfterHook<Promotion>[];
     // Actor-less by design; resolves to the deployment's declared organization.
     const hctx = hookContext(null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null);
-    await runAfterHooks(afterHooks, promotion, updated, "update", hctx);
+    await runAfterHooks(afterHooks, promotion, updated, "update", hctx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
     return Ok(updated);
   }
@@ -345,7 +345,7 @@ export class PromotionService {
     const hctx = hookContext(
       actor ?? ctx?.actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null,
     );
-    await runAfterHooks(afterHooks, existing, updated, "update", hctx);
+    await runAfterHooks(afterHooks, existing, updated, "update", hctx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
     return Ok(updated);
   }

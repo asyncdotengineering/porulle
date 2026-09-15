@@ -1,3 +1,5 @@
+import { withDeferredHooks } from "../hooks/deferred.js";
+
 /**
  * Database adapter interface for the commerce engine.
  *
@@ -72,6 +74,24 @@ function normalizeExecuteShape<T extends object>(db: T): T {
           return result;
         };
       }
+      if (prop === "transaction") {
+        const orig = Reflect.get(target, prop, target);
+        if (typeof orig !== "function") return orig;
+        // The OTHER half of the after-commit drain, and the one the card this shipped for
+        // actually needs. `createDatabaseConnection().transaction` covers core services and REST
+        // routes, but a plugin does not get the adapter — it is handed this db HANDLE as
+        // `ctx.db` (TaskContext.db is a DrizzleDatabase) and calls `ctx.db.transaction(...)`.
+        // `plugin-channel-connector` constructs its service with no transaction argument in
+        // production and therefore imports every product through exactly this path, so without
+        // the wrapper here the fix would be green in every suite (they inject the adapter's
+        // transaction explicitly) and inert on the deployed import.
+        //
+        // Double-wrapping is safe: `withDeferredHooks` joins an existing store and drains only at
+        // the outermost boundary, so adapter.transaction -> db.transaction nests without draining
+        // twice.
+        return (fn: (tx: unknown) => Promise<unknown>) =>
+          withDeferredHooks(() => (orig as (f: typeof fn) => Promise<unknown>).call(target, fn));
+      }
       const value = Reflect.get(target, prop, target);
       // Bind methods to the real instance so drizzle's internals (incl. any
       // private fields) are never accessed through the proxy.
@@ -86,7 +106,10 @@ export function createDatabaseConnection(input: DatabaseConnectionFactoryInput):
     provider: adapter.provider,
     db: normalizeExecuteShape(adapter.db as object),
     transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
-      return adapter.transaction((tx) => fn(normalizeExecuteShape(tx as object)));
+      return withDeferredHooks(() =>
+        // adapter.transaction resolving IS the commit, so draining after it
+        // resolves is draining after commit.
+        adapter.transaction((tx) => fn(normalizeExecuteShape(tx as object))));
     },
   };
 }
