@@ -76,7 +76,7 @@ vi.mock("drizzle-orm/postgres-js", () => ({
   })),
 }));
 
-import { neonAdapter, normalizeExecuteShape } from "../src/index.js";
+import { neonAdapter, normalizeExecuteShape, withPooledTransactions } from "../src/index.js";
 
 beforeEach(() => {
   poolInstances.length = 0;
@@ -152,6 +152,100 @@ describe("@porulle/adapter-neon", () => {
     expect(out).toBe(true);
     expect(poolInstances).toHaveLength(1);
     expect(poolInstances[0]!.ended).toBe(true);
+  });
+
+  /**
+   * One import of 100 products on the deployed Worker opened and closed 63,355 Postgres.js clients
+   * — one per transaction — while a probe from inside that Worker priced a client at 4 ms on the
+   * medians and 7.7 ms on the means against a reused one, and 88 ms on the first. That is on the
+   * order of 250-500 seconds inside a 985-second import, paid for nothing: the connection is
+   * reusable within a single invocation, which is as far as a Worker may hold a socket at all.
+   *
+   * Plain queries deliberately do NOT move. The same probe measured Neon HTTP at 6.76 ms per query
+   * against the pooled client's 8.02 ms, so routing them through this client would be slower.
+   */
+  it("reuses ONE Hyperdrive client for every transaction inside a pooled scope", async () => {
+    const adapter = neonAdapter({
+      connectionString: "postgresql://user@x.neon.tech/db",
+      hyperdrive: { connectionString: "postgresql://hyperdrive-internal/db" },
+    });
+
+    await withPooledTransactions(async () => {
+      await adapter.transaction(async () => null);
+      await adapter.transaction(async () => null);
+      await adapter.transaction(async () => null);
+      expect(
+        postgresInstances,
+        "three transactions in one scope must share one client, not open three",
+      ).toHaveLength(1);
+      expect(
+        postgresInstances[0]!.ended,
+        "the shared client must stay OPEN while the scope is still running",
+      ).toBe(false);
+    });
+
+    expect(postgresInstances).toHaveLength(1);
+    expect(postgresInstances[0]!.ended, "the scope must end the client it opened").toBe(true);
+  });
+
+  it("ends the pooled client when the scope body throws", async () => {
+    const adapter = neonAdapter({
+      connectionString: "postgresql://user@x.neon.tech/db",
+      hyperdrive: { connectionString: "postgresql://hyperdrive-internal/db" },
+    });
+
+    await expect(
+      withPooledTransactions(async () => {
+        await adapter.transaction(async () => null);
+        throw new Error("invocation failed");
+      }),
+    ).rejects.toThrow("invocation failed");
+
+    expect(postgresInstances).toHaveLength(1);
+    expect(
+      postgresInstances[0]!.ended,
+      "a failed invocation must still close its connection, or the leak is the failure path",
+    ).toBe(true);
+  });
+
+  it("opens no client for a scope that takes no transaction", async () => {
+    neonAdapter({
+      connectionString: "postgresql://user@x.neon.tech/db",
+      hyperdrive: { connectionString: "postgresql://hyperdrive-internal/db" },
+    });
+    await withPooledTransactions(async () => "nothing to do");
+    expect(postgresInstances).toHaveLength(0);
+  });
+
+  it("joins an enclosing scope rather than opening a second client", async () => {
+    const adapter = neonAdapter({
+      connectionString: "postgresql://user@x.neon.tech/db",
+      hyperdrive: { connectionString: "postgresql://hyperdrive-internal/db" },
+    });
+
+    await withPooledTransactions(async () => {
+      await adapter.transaction(async () => null);
+      await withPooledTransactions(async () => {
+        await adapter.transaction(async () => null);
+      });
+      expect(
+        postgresInstances[0]!.ended,
+        "an inner scope must not close the outer scope's client out from under it",
+      ).toBe(false);
+    });
+    expect(postgresInstances).toHaveLength(1);
+    expect(postgresInstances[0]!.ended).toBe(true);
+  });
+
+  it("still opens a client per transaction with no scope, so nothing changes for a caller that does not opt in", async () => {
+    const adapter = neonAdapter({
+      connectionString: "postgresql://user@x.neon.tech/db",
+      hyperdrive: { connectionString: "postgresql://hyperdrive-internal/db" },
+    });
+    await adapter.transaction(async () => null);
+    await adapter.transaction(async () => null);
+    expect(postgresInstances).toHaveLength(2);
+    expect(postgresInstances.every((client) => client.ended)).toBe(true);
   });
 
   it("normalizeExecuteShape leaves array results untouched", async () => {

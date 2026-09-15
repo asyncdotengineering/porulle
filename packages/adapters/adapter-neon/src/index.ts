@@ -17,6 +17,7 @@
  * WebSocket client cannot speak to Hyperdrive's TCP endpoint. The HTTP driver
  * always speaks directly to Neon, so a direct `connectionString` is required.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Pool, neon, neonConfig } from "@neondatabase/serverless";
 import { drizzle as drizzleHttp, type NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { drizzle as drizzleWs, type NeonDatabase } from "drizzle-orm/neon-serverless";
@@ -45,6 +46,58 @@ export interface NeonAdapterOptions {
 }
 
 export type NeonDatabaseAdapter = DatabaseAdapter<HttpClient, unknown>;
+
+type PostgresClient = ReturnType<typeof postgres>;
+
+interface PooledScope {
+  client: PostgresClient | undefined;
+}
+
+const pooledScope = new AsyncLocalStorage<PooledScope>();
+
+/**
+ * Run `fn` with ONE Hyperdrive client shared by every transaction it takes, closed when `fn`
+ * settles either way.
+ *
+ * Why it exists. `runInHyperdriveClient` below used to open and end a Postgres.js client per
+ * `transaction()` call. Measured on a deployed Worker on 2026-09-15: one import of 100 products
+ * opened **63,355** of them, and a probe from inside that same Worker priced a client at 4 ms on
+ * the medians and 7.7 ms on the means against a reused one, 88 ms on the first — on the order of
+ * 250 to 500 seconds inside a 985-second import, paid for nothing.
+ *
+ * Why it is a scope and not a module-level client. A Worker may not reuse a socket across
+ * invocations; an I/O object created in one request context throws when touched from another. So
+ * the reuse is bounded by whatever the caller declares an invocation to be — a fetch, a queue
+ * batch, a Workflow step — and the caller opens the scope. Nothing here is assumed to survive
+ * past it.
+ *
+ * Why plain queries are NOT routed through it. The same probe measured Neon HTTP at 6.76 ms per
+ * query against this client's 8.02 ms, with identical 7 ms medians. Moving them here would be
+ * slower, and an HTTP query costs no connection at all.
+ *
+ * Hyperdrive's limits bound the scope: a query may run for at most 60 s and an idle connection is
+ * dropped after 10 minutes. The client below raises Postgres.js's own `idle_timeout` from 5 s to
+ * 30 s so a gap between two transactions in an import loop — about 2.6 s at the measured rate —
+ * does not silently close and reopen the connection this function exists to hold, while staying
+ * far inside Hyperdrive's own window.
+ *
+ * Nested calls join the enclosing scope rather than opening a second client, so a caller that
+ * wraps both its handler and an inner unit of work gets one connection, not two.
+ */
+export async function withPooledTransactions<T>(fn: () => Promise<T>): Promise<T> {
+  if (pooledScope.getStore()) return fn();
+
+  const scope: PooledScope = { client: undefined };
+  try {
+    return await pooledScope.run(scope, fn);
+  } finally {
+    const client = scope.client;
+    scope.client = undefined;
+    // Both paths, deliberately: a failed invocation that leaks its connection is worse than one
+    // that never pooled, because the leak is invisible until Hyperdrive runs out of them.
+    if (client) await client.end({ timeout: 1 }).catch(() => {});
+  }
+}
 
 /**
  * Normalizes `.execute()` to the postgres-js shape (array of rows). Core and
@@ -93,9 +146,32 @@ export function neonAdapter(options: NeonAdapterOptions): NeonDatabaseAdapter {
     }
   };
 
-  const runInFreshHyperdriveClient = async (
+  const runInHyperdriveClient = async (
     fn: (tx: unknown) => Promise<unknown>,
   ): Promise<unknown> => {
+    const runOn = async (client: PostgresClient) => {
+      const pgDb = normalizeExecuteShape(drizzlePg(client) as PgClient);
+      return await pgDb.transaction(async (tx) => fn(normalizeExecuteShape(tx as PgClient)));
+    };
+
+    // Inside a `withPooledTransactions` scope the client is created once and owned by the scope,
+    // which closes it on both the success and the failure path. Closing it here instead would
+    // defeat the reuse and pull the connection out from under the transactions still to come.
+    const scope = pooledScope.getStore();
+    if (scope) {
+      scope.client ??= postgres(options.hyperdrive!.connectionString, {
+        max: 1,
+        prepare: false,
+        connect_timeout: 10,
+        // 30 s rather than the 5 s below: the gap between two transactions in an import loop is
+        // about 2.6 s at the measured rate, close enough to 5 s that the connection this scope
+        // exists to hold would close and reopen anyway. Far inside Hyperdrive's own 10-minute
+        // idle timeout.
+        idle_timeout: 30,
+      });
+      return await runOn(scope.client);
+    }
+
     const client = postgres(options.hyperdrive!.connectionString, {
       max: 1,
       prepare: false,
@@ -103,15 +179,14 @@ export function neonAdapter(options: NeonAdapterOptions): NeonDatabaseAdapter {
       idle_timeout: 5,
     });
     try {
-      const pgDb = normalizeExecuteShape(drizzlePg(client) as PgClient);
-      return await pgDb.transaction(async (tx) => fn(normalizeExecuteShape(tx as PgClient)));
+      return await runOn(client);
     } finally {
       await client.end({ timeout: 1 }).catch(() => {});
     }
   };
 
   const runTransaction = options.hyperdrive
-    ? runInFreshHyperdriveClient
+    ? runInHyperdriveClient
     : runInFreshNeonPool;
 
   // Some core paths call `kernel.database.db.transaction(...)` directly —
