@@ -78,7 +78,7 @@ export const channelCatalogConflicts = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     organizationId: text("organization_id").notNull(),
     storeId: uuid("store_id").references(() => connectedStores.id, { onDelete: "cascade" }).notNull(),
-    entityId: uuid("entity_id").notNull(),
+    entityId: uuid("entity_id").references(() => sellableEntities.id, { onDelete: "cascade" }).notNull(),
     fieldPath: text("field_path").notNull(),
     platformValue: jsonb("platform_value").$type<unknown>().notNull(),
     storeValue: jsonb("store_value").$type<unknown>().notNull(),
@@ -151,7 +151,7 @@ export const channelCatalogPushes = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     organizationId: text("organization_id").notNull(),
     storeId: uuid("store_id").references(() => connectedStores.id, { onDelete: "cascade" }).notNull(),
-    entityId: uuid("entity_id").notNull(),
+    entityId: uuid("entity_id").references(() => sellableEntities.id, { onDelete: "cascade" }).notNull(),
     payloadSnapshot: jsonb("payload_snapshot").$type<ChannelPushCatalogItem | null>(),
     state: text("state", { enum: ["pending", "exported", "confirmed", "failed", "abandoned"] })
       .notNull()
