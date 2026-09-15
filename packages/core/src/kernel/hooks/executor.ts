@@ -1,4 +1,5 @@
 import type { AfterHook, BeforeHook, HookContext, HookOperation } from "./types.js";
+import type { PluginDb } from "../database/plugin-types.js";
 import { deferAfterCommit } from "./deferred.js";
 import { reportHookFailure } from "./failures.js";
 
@@ -17,6 +18,29 @@ export function mergeHookReports(a: HookReport, b: HookReport): HookReport {
     errors: [...a.errors, ...b.errors],
     hasErrors: a.hasErrors || b.hasErrors,
   };
+}
+
+/**
+ * The context a hook marked `inTransaction: true` receives.
+ *
+ * `inTransaction` buys ORDERING on its own — the hook runs inline, before the commit. It does not
+ * make the hook's WRITES part of the transaction: `context.db` is the plugin db handle, and on a
+ * two-connection driver (Neon over HTTP, where every plain query is its own request) a write on
+ * that handle is not in the transaction and survives its rollback. Measured on the deployed Worker
+ * on 2026-09-15: an aborted write left `entity_exists = 0` and `pending_for_aborted = 1` — a row
+ * that rolled back announcing itself in the outbox whose entire purpose is committing with it.
+ *
+ * So the kernel hands such a hook a context it cannot get this wrong from: `db` IS the transaction.
+ * A plugin author writing the obvious thing lands inside the transaction, with nothing to remember.
+ *
+ * `tx` can still be null here — a marked hook also fires for a write performed outside any
+ * transaction, and `catalogHookContext` passes `tx: null` for one. Such a hook keeps the outside
+ * connection, because that is the only connection there is; handing it nothing would silently stop
+ * every non-transactional write from announcing itself, which is worse than the defect above.
+ */
+function inTransactionHookContext(context: HookContext): HookContext {
+  if (context.tx == null) return context;
+  return { ...context, db: context.tx as PluginDb };
 }
 
 /** Default hook timeout: 20 seconds */
@@ -98,7 +122,7 @@ export async function runAfterHooks<T>(
           result: committedResult,
           operation,
           context: runsInTransaction(hook)
-            ? context
+            ? inTransactionHookContext(context)
             : { ...context, tx: null },
         }),
         HOOK_TIMEOUT_MS,
