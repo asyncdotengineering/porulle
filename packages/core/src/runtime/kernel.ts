@@ -1,5 +1,5 @@
 import type { CommerceConfig } from "../config/types.js";
-import { HookRegistry, type HookHandler } from "../kernel/hooks/registry.js";
+import { HookRegistry, isHookMarkedInTransaction, type HookHandler } from "../kernel/hooks/registry.js";
 import { createDatabaseConnection } from "../kernel/database/adapter.js";
 import type { DrizzleDatabase } from "../kernel/database/drizzle-db.js";
 import type { AppModule } from "../kernel/module/index.js";
@@ -162,7 +162,14 @@ export function createKernel(config: CommerceConfig): Kernel {
 
   for (const [key, handlers] of Object.entries(config.hooks ?? {})) {
     for (const handler of handlers) {
-      hooks.append(key, handler as HookHandler);
+      // A plugin that declared `inTransaction` gets appendInTransaction, so its hook runs inside
+      // the writing transaction rather than in the after-commit drain. Everything else defaults to
+      // after-commit, which is what 0.35.0 established.
+      if (isHookMarkedInTransaction(handler)) {
+        hooks.appendInTransaction(key, handler as HookHandler);
+      } else {
+        hooks.append(key, handler as HookHandler);
+      }
     }
   }
 

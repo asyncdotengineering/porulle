@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { markHookInTransaction } from "../hooks/registry.js";
 import type { OpenAPIHono, RouteConfig } from "@hono/zod-openapi";
 import type { PluginDb } from "../database/plugin-types.js";
 import type { DatabaseAdapter } from "../database/adapter.js";
@@ -43,6 +44,15 @@ export type PluginRouteRegistration =
 export interface PluginHookRegistration {
   key: string;
   handler: (...args: unknown[]) => unknown;
+  /**
+   * Run this hook INSIDE the writing transaction instead of after it commits.
+   *
+   * The default is after-commit and is correct for anything with an external effect — a webhook, a
+   * search-index write, an email — none of which may announce a write that can still roll back.
+   * Set this only for an OUTBOX WRITER: a hook whose own write must commit or roll back together
+   * with the row it records. `loom_projection_pending` is the case this exists for.
+   */
+  inTransaction?: boolean;
 }
 
 // ─── Plugin Context (available to routes at boot time) ───────
@@ -294,6 +304,9 @@ export function defineCommercePlugin(
         ...(result.hooks ?? {}),
       };
       for (const reg of registrations) {
+        // The marker rides on the function because this map is a bare key -> handler[] and cannot
+        // carry it; the kernel reads it back when it registers these at boot.
+        if (reg.inTransaction) markHookInTransaction(reg.handler);
         hookMap[reg.key] = [...(hookMap[reg.key] ?? []), reg.handler];
       }
       result = { ...result, hooks: hookMap };
