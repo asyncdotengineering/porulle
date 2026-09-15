@@ -31,6 +31,14 @@ export const mediaAssets = pgTable(
   },
   (table) => ({
     orgIdx: index("idx_media_assets_org").on(table.organizationId),
+    orgChannelImageUrlHashIdx: index("idx_media_assets_org_channel_image_url_hash").on(
+      table.organizationId,
+      sql`(${table.metadata}->>'channelImageUrlHash')`,
+    ),
+    orgChannelImageExternalIdIdx: index("idx_media_assets_org_channel_image_external_id").on(
+      table.organizationId,
+      sql`(${table.metadata}->>'channelImageExternalId')`,
+    ),
   }),
 );
 
