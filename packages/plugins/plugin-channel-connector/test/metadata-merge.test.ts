@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { createSystemActor, type Actor, type ChannelCatalogItem, type PluginTxFn } from "@porulle/core";
+import { createSystemActor, type Actor, type ChannelCatalogItem } from "@porulle/core";
 import { and, eq } from "@porulle/core/drizzle";
 import { sellableEntities } from "@porulle/core/schema";
 import { createPluginTestApp, jsonHeaders, TEST_ORG_ID, testAdminActor } from "@porulle/core/testing";
@@ -31,7 +31,6 @@ describe("channel connector catalog metadata convergence", () => {
       built.db,
       built.kernel.services,
       { connectors: [mock] },
-      built.kernel.database.transaction as PluginTxFn,
     );
     const response = await built.app.request("http://localhost/api/channels/stores", {
       method: "POST",

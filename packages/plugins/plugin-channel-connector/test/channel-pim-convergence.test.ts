@@ -4,7 +4,6 @@ import {
   noopStorageAdapter,
   type Actor,
   type ChannelCatalogItem,
-  type PluginTxFn,
   type StorageAdapter,
 } from "@porulle/core";
 import { and, eq, inArray } from "@porulle/core/drizzle";
@@ -127,7 +126,6 @@ describe("channel connector PIM convergence", () => {
       built.db,
       built.kernel.services,
       { connectors: [mock] },
-      built.kernel.database.transaction as PluginTxFn,
     );
     const response = await built.app.request("http://localhost/api/channels/stores", {
       method: "POST",
@@ -228,7 +226,6 @@ describe("channel connector PIM convergence", () => {
       noStorage.db,
       noStorage.kernel.services,
       { connectors: [mock] },
-      noStorage.kernel.database.transaction as PluginTxFn,
     );
     const response = await noStorage.app.request("http://localhost/api/channels/stores", {
       method: "POST",

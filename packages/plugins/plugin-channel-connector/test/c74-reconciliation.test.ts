@@ -1,7 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { createSystemActor, type Actor, type ChannelCatalogItem } from "@porulle/core";
 import { and, eq } from "@porulle/core/drizzle";
-import { type PluginTxFn } from "@porulle/core";
 import { commerceJobs, sellableEntities } from "@porulle/core/schema";
 import { createPluginTestApp, TEST_ORG_ID } from "@porulle/core/testing";
 import { channelConnectorPlugin, ChannelConnectorService, mockChannelConnector } from "../src/index.js";
@@ -38,7 +37,7 @@ describe("channel connector c74 reconciliation", () => {
 
   beforeAll(async () => {
     built = await createPluginTestApp(channelConnectorPlugin({ connectors: [mock], driftAlertThreshold: 0 }));
-    service = new ChannelConnectorService(built.db, built.kernel.services, { connectors: [mock], driftAlertThreshold: 0 }, built.kernel.database.transaction as PluginTxFn);
+    service = new ChannelConnectorService(built.db, built.kernel.services, { connectors: [mock], driftAlertThreshold: 0 });
     const response = await built.app.request("http://localhost/api/channels/stores", {
       method: "POST",
       headers: { "content-type": "application/json", "x-test-actor": JSON.stringify(actor) },

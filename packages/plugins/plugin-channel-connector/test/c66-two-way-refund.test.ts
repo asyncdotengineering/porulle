@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import type { Actor, PluginTxFn } from "@porulle/core";
+import type { Actor } from "@porulle/core";
 import { createPluginTestApp, TEST_ORG_ID } from "@porulle/core/testing";
 import { and, eq } from "@porulle/core/drizzle";
 import { inventoryLevels, orderLineItems, orderRefunds, orders, sellableEntities, variants } from "@porulle/core/schema";
@@ -24,7 +24,7 @@ describe("channel connector c66 two-way sync and refunds", () => {
 
   beforeAll(async () => {
     built = await createPluginTestApp(channelConnectorPlugin({ connectors: [mock], refundAutoMax: 1000, newStoreDays: 7 }));
-    service = new ChannelConnectorService(built.db, built.kernel.services, { connectors: [mock], refundAutoMax: 1000, newStoreDays: 7 }, built.kernel.database.transaction as PluginTxFn);
+    service = new ChannelConnectorService(built.db, built.kernel.services, { connectors: [mock], refundAutoMax: 1000, newStoreDays: 7 });
   }, 30_000);
 
   async function connect(name: string) {

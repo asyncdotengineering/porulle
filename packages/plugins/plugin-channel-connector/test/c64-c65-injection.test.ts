@@ -3,7 +3,6 @@ import {
   createSystemActor,
   runPendingJobs,
   type Actor,
-  type PluginTxFn,
 } from "@porulle/core";
 import { createPluginTestApp, TEST_ORG_ID } from "@porulle/core/testing";
 import { and, eq, inArray } from "@porulle/core/drizzle";
@@ -47,7 +46,6 @@ describe("channel connector c64/c65 order injection", () => {
       built.db,
       built.kernel.services,
       { connectors: [mock] },
-      built.kernel.database.transaction as PluginTxFn,
     );
   }, 30_000);
 

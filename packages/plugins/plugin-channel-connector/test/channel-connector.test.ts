@@ -3,7 +3,6 @@ import {
   createSystemActor,
   type Actor,
   type ChannelOrderSlice,
-  type PluginTxFn,
   requireUserId,
 } from "@porulle/core";
 import {
@@ -74,7 +73,6 @@ describe("plugin-channel-connector foundations", () => {
       built.db,
       built.kernel.services,
       { connectors: [mock] },
-      built.kernel.database.transaction as PluginTxFn,
     );
   }, 30_000);
 
@@ -114,7 +112,6 @@ describe("plugin-channel-connector foundations", () => {
       built.db,
       built.kernel.services,
       { connectors: [mock, mock] },
-      built.kernel.database.transaction as PluginTxFn,
     )).toThrow("Duplicate channel connector providerId");
   });
 

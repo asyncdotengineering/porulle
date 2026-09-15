@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSystemActor, type ChannelCatalogItem, type PluginTxFn } from "@porulle/core";
+import { createSystemActor, type ChannelCatalogItem } from "@porulle/core";
 import { and, eq } from "@porulle/core/drizzle";
 import { organization } from "@porulle/core/auth-schema";
 import { commerceJobs, sellableAttributes, sellableEntities } from "@porulle/core/schema";
@@ -26,7 +26,6 @@ async function createImportedScenario(connectorOptions: Record<string, unknown> 
     built.db,
     built.kernel.services,
     { connectors: [connector] },
-    built.kernel.database.transaction as PluginTxFn,
   );
   const storeResponse = await built.app.request("http://localhost/api/channels/stores", {
     method: "POST",
