@@ -104,13 +104,13 @@ export async function runBeforeHooks<T>(
   return current;
 }
 
-export async function runAfterHooks<T>(
-  hooks: AfterHook<T>[],
-  originalData: T | null,
-  committedResult: T,
+export async function runAfterHooks<TResult, TData = TResult>(
+  hooks: AfterHook<TResult, TData>[],
+  originalData: TData | null,
+  committedResult: TResult,
   operation: HookOperation,
   context: HookContext,
-  runsInTransaction: (hook: AfterHook<T>) => boolean = () => false,
+  runsInTransaction: (hook: AfterHook<TResult, TData>) => boolean = () => false,
 ): Promise<HookReport> {
   const errors: HookError[] = [];
   for (const hook of hooks) {

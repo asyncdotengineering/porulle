@@ -94,6 +94,9 @@ type ShopifyProduct = {
     option1?: string | null;
     option2?: string | null;
     option3?: string | null;
+    grams?: number | null;
+    weight?: number | null;
+    weight_unit?: string | null;
   }>;
 };
 
@@ -142,6 +145,46 @@ function pricesForVariant(
     amount,
     ...(compareAtAmount !== undefined && compareAtAmount !== amount ? { compareAtAmount } : {}),
   }];
+}
+
+/**
+ * Shopify carries a variant's weight twice: `grams`, which it normalises itself,
+ * and `weight` with a `weight_unit`. Prefer `grams`; fall back to converting
+ * `weight` only when `grams` is absent or zero.
+ *
+ * Returns `undefined` — never `0` — when no weight is known, so the caller omits
+ * the key entirely. A written `0` is indistinguishable from a genuinely
+ * weightless item and would defeat a downstream default-parcel substitution.
+ *
+ * An unrecognised `weight_unit` is refused rather than assumed to be grams:
+ * reading "lbs" (a spelling Shopify does not use, but a proxy might) as grams
+ * under-prices a parcel by a factor of 453.
+ */
+function weightGramsForVariant(
+  variant: NonNullable<ShopifyProduct["variants"]>[number],
+): number | undefined {
+  const { grams, weight, weight_unit: weightUnit } = variant;
+
+  if (typeof grams === "number" && Number.isFinite(grams) && grams > 0) {
+    return Math.round(grams);
+  }
+
+  if (typeof weight === "number" && Number.isFinite(weight) && weight > 0) {
+    switch (weightUnit ?? "g") {
+      case "g":
+        return Math.round(weight);
+      case "kg":
+        return Math.round(weight * 1000);
+      case "oz":
+        return Math.round(weight * 28.349523125);
+      case "lb":
+        return Math.round(weight * 453.59237);
+      default:
+        return undefined;
+    }
+  }
+
+  return undefined;
 }
 
 function catalogStatus(value: string | null | undefined): "draft" | "active" | "archived" | undefined {
@@ -345,12 +388,14 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
               return value != null && value !== "" ? [[option.name, value] as const] : [];
             }));
             const prices = pricesForVariant(variant, currency);
+            const weightGrams = weightGramsForVariant(variant);
             return {
               externalId: String(variant.id),
               ...(variant.sku ? { sku: variant.sku } : {}),
               ...(variant.barcode ? { barcode: variant.barcode } : {}),
               ...(Object.keys(optionValues).length > 0 ? { optionValues } : {}),
               ...(prices ? { prices } : {}),
+              ...(weightGrams !== undefined ? { metadata: { weightGrams } } : {}),
             };
           });
           const category = product.product_type ? slugify(product.product_type) : "";

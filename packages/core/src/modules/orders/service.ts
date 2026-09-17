@@ -134,7 +134,14 @@ type StatusChangeHookInput = {
   reason?: string;
 };
 type BeforeStatusChangeHook = BeforeHook<StatusChangeHookInput>;
-type AfterStatusChangeHook = AfterHook<HydratedOrder>;
+/**
+ * `result` is the committed, hydrated order; `data` is the transition that
+ * produced it. A subscriber that must act on *which* transition occurred — the
+ * channel connector pushes an order to its merchant only when it leaves
+ * `pending_payment` — cannot read that from the order alone, because the order
+ * carries only the status it now has.
+ */
+type AfterStatusChangeHook = AfterHook<HydratedOrder, StatusChangeHookInput>;
 
 function context(
   actor: Actor | null,
@@ -1254,7 +1261,7 @@ export class OrderService {
     const hydrated = await this.hydrateOrder(cas, ctx);
     const report = await runAfterHooks(
       afterHooks,
-      null,
+      statusHookInput,
       hydrated,
       "statusChange",
       hookCtx,

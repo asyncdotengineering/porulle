@@ -224,7 +224,23 @@ export interface ChannelConnectorPluginOptions {
   newStoreDays?: number;
   driftAlertThreshold?: number;
   reconcileJitterWindowMs?: number;
+  /**
+   * When the order push fires. Default `"payment"`.
+   *
+   * - `"payment"` — an order created in `pending_payment` is NOT pushed; it is
+   *   pushed when it leaves that state for anything but `cancelled`. An order
+   *   created in `pending` is pushed on creation, as before, because a store
+   *   with no payment step has no transition to hang the push on.
+   * - `"create"` — the pre-0.40.0 trigger: push as soon as the order row exists,
+   *   whatever its status.
+   * - `false` — never push automatically; the consumer enqueues
+   *   `channel/push-order` itself.
+   */
+  pushOrderOn?: ChannelPushTrigger;
 }
+
+/** When {@link ChannelConnectorPluginOptions.pushOrderOn} fires the order push. */
+export type ChannelPushTrigger = "create" | "payment" | false;
 
 export interface ChannelStockLine {
   entityId: string;
