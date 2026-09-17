@@ -50,9 +50,18 @@ export type BeforeHook<TData> = (args: {
   context: HookContext;
 }) => Promise<TData> | TData;
 
-export type AfterHook<TData> = (args: {
+/**
+ * `data` is what went in, `result` is what was committed. For most operations
+ * those are the same shape, so `TData` defaults to `TResult` and a single type
+ * argument keeps its old meaning.
+ *
+ * They differ where the committed entity is not the input: a status change
+ * commits a hydrated order but its input is the transition itself, and a hook
+ * that cannot see which transition occurred cannot act on one.
+ */
+export type AfterHook<TResult, TData = TResult> = (args: {
   data: TData | null;
-  result: TData;
+  result: TResult;
   operation: HookOperation;
   context: HookContext;
 }) => Promise<void> | void;
