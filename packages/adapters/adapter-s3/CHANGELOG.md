@@ -1,5 +1,12 @@
 # @porulle/adapter-s3
 
+## 0.40.0
+
+### Patch Changes
+
+- Updated dependencies [[`c16c3fa`](https://github.com/asyncdotengineering/porulle/commit/c16c3fa44a4bb662a75dd28362faea9f8697eecf)]:
+  - @porulle/core@0.40.0
+
 ## 0.39.0
 
 ### Patch Changes
