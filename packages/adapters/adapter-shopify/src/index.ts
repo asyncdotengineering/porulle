@@ -34,6 +34,25 @@ export interface ShopifyConnectorOptions {
   clientSecret?: string;
   appUrl?: string;
   scopes?: string[];
+  /**
+   * Origin override for every Shopify call — the Admin API and both OAuth endpoints.
+   *
+   * ABSENT IN PRODUCTION, where it resolves to `https://{store.storeDomain}` and the request is
+   * byte-identical to the one this adapter has always made. Present, it points the same code at a
+   * local stand-in built from Shopify's documentation, so that a missing app credential stops
+   * blocking development.
+   *
+   * It is an ORIGIN and not a base URL because Shopify's host is per-store: the shop still rides
+   * inside the path the adapter appends. A caller pointing at a mock passes
+   * `http://127.0.0.1:<port>/shopify`, the adapter appends `/admin/api/{version}/products.json`,
+   * and the stand-in serves Shopify's own address table unprefixed.
+   *
+   * There is deliberately NO `mock` flag and no URL rewriting inside `fetchImpl`. The shipped path
+   * must be the tested path; a branch inside the adapter means the code exercised by a test is not
+   * the code that runs, and reaching a stand-in by rewriting URLs inside an injected fetch is the
+   * same failure wearing a hook.
+   */
+  baseUrl?: string;
 }
 
 export const REQUIRED_SCOPES = [
@@ -138,8 +157,14 @@ async function fetchShopCurrency(fetchImpl: typeof fetch, url: string, accessTok
   return result.ok ? normalizeCurrency(result.value.data.shop?.currency) : undefined;
 }
 
-function apiBase(store: ChannelStore, version: string): string {
-  return `https://${store.storeDomain.replace(/^https?:\/\//, "").replace(/\/$/, "")}/admin/api/${version}`;
+/** `baseUrl` when given, else the store's own origin. The single place that choice is made. */
+function shopOrigin(storeDomain: string, baseUrl: string | undefined): string {
+  if (baseUrl !== undefined && baseUrl !== "") return baseUrl.replace(/\/$/, "");
+  return `https://${storeDomain.replace(/^https?:\/\//, "").replace(/\/$/, "")}`;
+}
+
+function apiBase(store: ChannelStore, version: string, baseUrl?: string): string {
+  return `${shopOrigin(store.storeDomain, baseUrl)}/admin/api/${version}`;
 }
 
 function shopifyOAuthStartUrl(appUrl: string, storeDomain: string): string | undefined {
@@ -239,7 +264,7 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
       const shopDomain = params.storeDomain.toLowerCase();
       if (!validShopDomain(shopDomain)) return oauthError("SHOPIFY_INVALID_STORE_DOMAIN", "Shopify storeDomain must be a *.myshopify.com domain.");
       const scopes = [...new Set([...REQUIRED_SCOPES, ...(options.scopes ?? []), ...params.scopes])];
-      const url = new URL(`https://${shopDomain}/admin/oauth/authorize`);
+      const url = new URL(`${shopOrigin(shopDomain, options.baseUrl)}/admin/oauth/authorize`);
       url.searchParams.set("client_id", options.clientId);
       url.searchParams.set("scope", scopes.join(","));
       url.searchParams.set("redirect_uri", params.redirectUri);
@@ -266,7 +291,7 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
       const code = url.searchParams.get("code");
       if (!code) return oauthError("SHOPIFY_OAUTH_CODE_REQUIRED", "Shopify OAuth callback code is required.");
       try {
-        const response = await fetchImpl(`https://${shopDomain}/admin/oauth/access_token`, {
+        const response = await fetchImpl(`${shopOrigin(shopDomain, options.baseUrl)}/admin/oauth/access_token`, {
           method: "POST",
           headers: { accept: "application/json", "content-type": "application/json" },
           body: JSON.stringify({ client_id: options.clientId, client_secret: options.clientSecret, code }),
@@ -285,19 +310,26 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
     async importCatalog(store, cursor): Promise<Result<ChannelCatalogPage>> {
       const token = credentials(store);
       if (!token) return Err({ code: "SHOPIFY_CREDENTIALS_REQUIRED", message: "Shopify accessToken is required." });
-      const currencyUrl = `${apiBase(store, version)}/shop.json`;
-      const currencyKey = apiBase(store, version);
+      const currencyUrl = `${apiBase(store, version, options.baseUrl)}/shop.json`;
+      const currencyKey = apiBase(store, version, options.baseUrl);
       let currencyPromise = currencyCache.get(currencyKey);
       if (!currencyPromise) {
         currencyPromise = fetchShopCurrency(fetchImpl, currencyUrl, token);
         currencyCache.set(currencyKey, currencyPromise);
       }
       const currency = await currencyPromise;
-      const url = cursor ?? `${apiBase(store, version)}/products.json?limit=250`;
+      const url = cursor ?? `${apiBase(store, version, options.baseUrl)}/products.json?limit=250`;
       const result = await request<{ products: ShopifyProduct[] }>(fetchImpl, url, token);
       if (!result.ok) return result;
       const link = result.value.response.headers.get("link") ?? "";
-      const next = link.match(/<([^>]+)>;\s*rel="next"/)?.[1] ?? null;
+      // RFC 8288 permits the relation as a quoted string OR a bare token, and this reads both.
+      //
+      // It read only `rel="next"` before, and the asymmetry is the argument rather than the
+      // likelihood: a reader that accepts only the quoted form and meets `rel=next` does not throw
+      // — it finds no next link, ends the walk, and reports a SUCCESSFUL import of a partial
+      // catalogue. Silent truncation. Accepting both cannot make a malformed header parse as a
+      // valid one, so the permissive direction has no matching cost.
+      const next = link.match(/<([^>]+)>;\s*rel=(?:"next"|next)(?:\s*(?:,|$))/)?.[1] ?? null;
       return Ok({
         items: result.value.data.products.map((product) => {
           const options = product.options?.map((option, index) => ({
@@ -354,7 +386,7 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
       if (!token) return Err({ code: "SHOPIFY_CREDENTIALS_REQUIRED", message: "Shopify accessToken is required." });
       const params = new URLSearchParams({ limit: "250" });
       if (ids?.length) params.set("inventory_item_ids", ids.join(","));
-      const result = await request<{ inventory_levels: Array<{ inventory_item_id: number | string; available: number | null }> }>(fetchImpl, `${apiBase(store, version)}/inventory_levels.json?${params}`, token);
+      const result = await request<{ inventory_levels: Array<{ inventory_item_id: number | string; available: number | null }> }>(fetchImpl, `${apiBase(store, version, options.baseUrl)}/inventory_levels.json?${params}`, token);
       if (!result.ok) return result;
       return Ok(result.value.data.inventory_levels.map((level) => ({ externalId: String(level.inventory_item_id), available: level.available ?? 0 })));
     },
@@ -373,7 +405,7 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
       const token = credentials(store);
       if (!token) return Err({ code: "SHOPIFY_CREDENTIALS_REQUIRED", message: "Shopify accessToken is required.", retriable: false });
       const [firstName, ...lastParts] = slice.customer.name.trim().split(/\s+/);
-      const result = await request<{ order: { id: number | string; admin_graphql_api_id?: string } }>(fetchImpl, `${apiBase(store, version)}/orders.json`, token, {
+      const result = await request<{ order: { id: number | string; admin_graphql_api_id?: string } }>(fetchImpl, `${apiBase(store, version, options.baseUrl)}/orders.json`, token, {
         method: "POST",
         headers: { "content-type": "application/json", "idempotency-key": `porulle:${slice.orderId}` },
         body: JSON.stringify({ order: {
@@ -386,12 +418,12 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
       });
       if (!result.ok) return result;
       const id = String(result.value.data.order.id);
-      return Ok({ remoteOrderId: id, remoteUrl: `${apiBase(store, version)}/orders/${id}.json` });
+      return Ok({ remoteOrderId: id, remoteUrl: `${apiBase(store, version, options.baseUrl)}/orders/${id}.json` });
     },
     async fetchOrderStatus(store, remoteId) {
       const token = credentials(store);
       if (!token) return Err({ code: "SHOPIFY_CREDENTIALS_REQUIRED", message: "Shopify accessToken is required.", retriable: false });
-      const result = await request<{ order: { financial_status?: string | null; fulfillment_status?: string | null; cancelled_at?: string | null } }>(fetchImpl, `${apiBase(store, version)}/orders/${encodeURIComponent(remoteId)}.json`, token);
+      const result = await request<{ order: { financial_status?: string | null; fulfillment_status?: string | null; cancelled_at?: string | null } }>(fetchImpl, `${apiBase(store, version, options.baseUrl)}/orders/${encodeURIComponent(remoteId)}.json`, token);
       return result.ok ? Ok(shopifyStatus(result.value.data.order)) : result;
     },
     async verifyWebhook(_store, request) {
@@ -437,7 +469,7 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
       const token = credentials(store);
       if (!token) return Err({ code: "SHOPIFY_CREDENTIALS_REQUIRED", message: "Shopify accessToken is required." });
       for (const topic of topics) {
-        const result = await request<{ webhook: unknown }>(fetchImpl, `${apiBase(store, version)}/webhooks.json`, token, {
+        const result = await request<{ webhook: unknown }>(fetchImpl, `${apiBase(store, version, options.baseUrl)}/webhooks.json`, token, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ webhook: { topic, address: callbackUrl, format: "json" } }),

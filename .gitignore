@@ -69,3 +69,9 @@ vapt/
 scripts/*vapt*
 **/seed-vapt.ts
 *redteam*
+
+# Stitch MCP scratch. Untracked design assets, never part of a release.
+# Fourteen of these rode into the 0.29.0 release commit under `git add -A ':!.agents'` --
+# the exclusion covered .agents and swept .stitch anyway. An ignore entry is a mechanism where
+# "never use add -A" was a convention, and a convention loses under release pressure.
+.stitch/
