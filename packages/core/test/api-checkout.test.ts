@@ -7,14 +7,19 @@ import {
   parseJsonResponse,
 } from "../src/test-utils/rest-api-test-utils.js";
 
+type CheckoutTestServer = Awaited<ReturnType<typeof createTestServer>>;
+
 describe("REST API: Checkout", () => {
   let server: any;
+  let kernel: CheckoutTestServer["kernel"];
   let cleanup: () => Promise<void>;
   let entityId: string;
+  const seededPrice = 1000;
 
   beforeAll(async () => {
     const result = await createTestServer();
     server = result.server;
+    kernel = result.kernel;
     cleanup = result.cleanup;
   });
 
@@ -32,12 +37,18 @@ describe("REST API: Checkout", () => {
       body: {
         type: "product",
         slug: `test-checkout-${Date.now()}`,
-        metadata: { title: "Test Checkout Product" },
+        metadata: { title: "Test Checkout Product", basePrice: seededPrice },
       },
       actor: testActor,
     });
     const created = await parseJsonResponse<{ data: { id: string } }>(createResponse);
     entityId = created.data.id;
+
+    await kernel.services.inventory.createWarehouse({ name: "Main", code: "MAIN" }, testActor);
+    await kernel.services.inventory.adjust(
+      { entityId, adjustment: 10, reason: "checkout test stock" },
+      testActor,
+    );
   });
 
   // Helper to create a cart with items
@@ -59,18 +70,6 @@ describe("REST API: Checkout", () => {
   }
 
   // ─── POST /api/checkout ───────────────────────────────────────────────────────
-  // NOTE: Checkout tests are currently skipped due to timeout issues.
-  // The checkout flow involves multiple hooks (validateCart, resolvePrices, checkInventory,
-  // applyPromotions, calculateTax, calculateShipping, authorizePayment, capturePayment,
-  // reserveInventory, initiateFulfillment, sendConfirmation, recordAnalytics).
-  //
-  // These tests timeout because:
-  // 1. The hooks may be waiting for external services (payment, tax, shipping)
-  // 2. The mock adapters may not properly simulate all required responses
-  // 3. There may be circular dependencies in the hook chain
-  //
-  // TODO: Fix checkout flow to handle test environment properly
-
   describe("POST /api/checkout", () => {
     it("creates order from cart with valid data", async () => {
       const cartId = await createCartWithItems();
@@ -80,7 +79,7 @@ describe("REST API: Checkout", () => {
         url: "http://localhost/api/checkout",
         body: {
           cartId,
-          paymentMethodId: "pm_test_123",
+          paymentMethodId: "test-payments",
           currency: "USD",
           shippingAddress: {
             country: "US",
@@ -93,14 +92,18 @@ describe("REST API: Checkout", () => {
         actor: testActor,
       });
 
-      // May return 201 (success) or 422 (validation/payment error)
-      expect([201, 422, 500]).toContain(response.status);
-
-      if (response.status === 201) {
-        const json = await parseJsonResponse<{ data: { id: string; status: string } }>(response);
-        expect(json.data.id).toBeDefined();
-        expect(json.data.status).toBeDefined();
-      }
+      expect(response.status).toBe(201);
+      const json = await parseJsonResponse<{
+        data: {
+          id: string;
+          status: string;
+          lineItems: Array<{ totalPrice: number }>;
+        };
+      }>(response);
+      expect(json.data.id).toBeDefined();
+      expect(json.data.status).toBe("pending");
+      expect(json.data.lineItems).toHaveLength(1);
+      expect(json.data.lineItems[0]).toMatchObject({ totalPrice: seededPrice });
     });
 
     it("validates required cartId", async () => {
@@ -108,7 +111,7 @@ describe("REST API: Checkout", () => {
         method: "POST",
         url: "http://localhost/api/checkout",
         body: {
-          paymentMethodId: "pm_test_123",
+          paymentMethodId: "test-payments",
           // Missing cartId
         },
         actor: testActor,
@@ -141,7 +144,7 @@ describe("REST API: Checkout", () => {
         url: "http://localhost/api/checkout",
         body: {
           cartId: "00000000-0000-0000-0000-000000000999",
-          paymentMethodId: "pm_test_123",
+          paymentMethodId: "test-payments",
         },
         actor: testActor,
       });
@@ -158,15 +161,25 @@ describe("REST API: Checkout", () => {
         url: "http://localhost/api/checkout",
         body: {
           cartId,
-          paymentMethodId: "pm_test_123",
+          paymentMethodId: "test-payments",
           customerId: undefined, // Explicitly undefined for guest
           currency: "USD",
         },
         actor: testActor,
       });
 
-      // May succeed or fail due to payment validation
-      expect([201, 422, 500]).toContain(response.status);
+      expect(response.status).toBe(201);
+      const json = await parseJsonResponse<{
+        data: {
+          id: string;
+          status: string;
+          lineItems: Array<{ totalPrice: number }>;
+        };
+      }>(response);
+      expect(json.data.id).toBeDefined();
+      expect(json.data.status).toBe("pending");
+      expect(json.data.lineItems).toHaveLength(1);
+      expect(json.data.lineItems[0]).toMatchObject({ totalPrice: seededPrice });
     });
 
     it("supports promotion codes", async () => {
@@ -177,15 +190,25 @@ describe("REST API: Checkout", () => {
         url: "http://localhost/api/checkout",
         body: {
           cartId,
-          paymentMethodId: "pm_test_123",
+          paymentMethodId: "test-payments",
           promotionCodes: ["SAVE10"],
           currency: "USD",
         },
         actor: testActor,
       });
 
-      // May succeed or fail (promotion may not exist)
-      expect([201, 422, 500]).toContain(response.status);
+      expect(response.status).toBe(201);
+      const json = await parseJsonResponse<{
+        data: {
+          id: string;
+          status: string;
+          lineItems: Array<{ totalPrice: number }>;
+        };
+      }>(response);
+      expect(json.data.id).toBeDefined();
+      expect(json.data.status).toBe("pending");
+      expect(json.data.lineItems).toHaveLength(1);
+      expect(json.data.lineItems[0]).toMatchObject({ totalPrice: seededPrice });
     });
 
     it("includes shipping address in order", async () => {
@@ -204,15 +227,25 @@ describe("REST API: Checkout", () => {
         url: "http://localhost/api/checkout",
         body: {
           cartId,
-          paymentMethodId: "pm_test_123",
+          paymentMethodId: "test-payments",
           shippingAddress,
           currency: "USD",
         },
         actor: testActor,
       });
 
-      // May succeed or fail due to payment validation
-      expect([201, 422, 500]).toContain(response.status);
+      expect(response.status).toBe(201);
+      const json = await parseJsonResponse<{
+        data: {
+          id: string;
+          status: string;
+          lineItems: Array<{ totalPrice: number }>;
+        };
+      }>(response);
+      expect(json.data.id).toBeDefined();
+      expect(json.data.status).toBe("pending");
+      expect(json.data.lineItems).toHaveLength(1);
+      expect(json.data.lineItems[0]).toMatchObject({ totalPrice: seededPrice });
     });
   });
 });
