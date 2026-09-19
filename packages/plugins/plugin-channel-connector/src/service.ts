@@ -214,8 +214,37 @@ export interface ChannelComplianceData {
   }>;
 }
 
+/**
+ * What a consumer is allowed to read, resolved per request.
+ *
+ * Returning `null` means "do not confine" and is the default — every existing consumer keeps the
+ * organization-wide behaviour. An array is the complete set of store ids this caller may see, and
+ * **`[]` means none**, not "no filter".
+ *
+ * It takes IDS rather than a tenant, deliberately. `vendor`, `seller`, `team` are models a consumer
+ * owns; this package is generic commerce and acquiring one of them here would push a marketplace
+ * concept into every deployment that has no such thing. The consumer resolves the meaning and hands
+ * back the answer.
+ */
+export type ConfineStoreReads = (context: StoreReadContext) => Promise<readonly string[] | null> | readonly string[] | null;
+
+/** What a consumer needs to resolve the caller. `raw` is core's documented request escape hatch. */
+export interface StoreReadContext {
+  orgId: string;
+  actor: { userId: string | null; [key: string]: unknown } | null;
+  raw: unknown;
+}
+
 export interface ChannelConnectorPluginOptions {
   connectors?: ChannelConnector[];
+  /**
+   * Confines store reads to a set the consumer chooses. See {@link ConfineStoreReads}.
+   *
+   * Absent by default, because narrowing an existing read for every deployment would be a breaking
+   * change to a published package. A consumer that needs confinement opts in; one that does not is
+   * unaffected.
+   */
+  confineStoreReads?: ConfineStoreReads;
   oauth?: { stateSecret: string; postConnectRedirect: string };
   inventoryTimeoutMs?: number;
   jobs?: JobsAdapter;
@@ -2266,11 +2295,24 @@ export class ChannelConnectorService {
     return Ok(redactStore(store));
   }
 
-  async listStores(orgId: string): Promise<PluginResult<PublicConnectedStore[]>> {
-    const rows = await this.db
-      .select()
-      .from(connectedStores)
-      .where(eq(connectedStores.organizationId, orgId));
+  async listStores(orgId: string, context?: StoreReadContext): Promise<PluginResult<PublicConnectedStore[]>> {
+    const allowed = this.options.confineStoreReads
+      ? await this.options.confineStoreReads(context ?? { orgId, actor: null, raw: undefined })
+      : null;
+    // An empty allow-list means the caller may read NOTHING, stated here rather than left to the
+    // query builder.
+    //
+    // MEASURED, because the first version of this comment claimed the guard was load-bearing and it
+    // is not: removing this line leaves every row in `confine-store-reads.test.ts` green, so drizzle
+    // already turns `inArray(id, [])` into a predicate that matches nothing. The guard is therefore
+    // the CONTRACT rather than the rescue — `[]` means none, whatever the builder does with an empty
+    // array on some future dialect or version. Worth keeping for that reason and not worth claiming
+    // more for: the row that covers this case is really watching drizzle, not this line.
+    if (allowed !== null && allowed.length === 0) return Ok([]);
+    const predicate = allowed === null
+      ? eq(connectedStores.organizationId, orgId)
+      : and(eq(connectedStores.organizationId, orgId), inArray(connectedStores.id, [...allowed]));
+    const rows = await this.db.select().from(connectedStores).where(predicate);
     return Ok((rows as ConnectedStore[]).map(redactStore));
   }
 
