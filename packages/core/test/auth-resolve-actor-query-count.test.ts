@@ -62,6 +62,25 @@ function actorCost(queries: string[]): string[] {
   return queries.filter((q) => !/\bjwks\b/i.test(q));
 }
 
+/**
+ * ⚠️ THIS SUITE IS LOAD-BEARING FOR A CARD IT WAS NOT WRITTEN FOR. Read this before changing a number.
+ *
+ * Card `1939c7c4` (delete `activeOrganizationRole`, shipped) asked for its own instrument: a test
+ * resolving an actor twice against a STUBBED adapter, asserting the `member` `findOne` count is
+ * unchanged by the deletion. That test was deliberately NOT written, because this one already proves
+ * the same property against a REAL adapter — one membership read per request — and a weaker duplicate
+ * whose only justification is that a card named it is the wrong thing to add.
+ *
+ * The consequence is that **the counts below now carry a second contract nobody editing this file
+ * would otherwise know about.** Specifically: the shopper's `3` is what says the deletion did not
+ * change what runs. Relaxing it, or "simplifying" the shopper case away, silently removes the only
+ * evidence that a shipped deletion was behaviour-preserving.
+ *
+ * Two different measurements of the same property, kept apart because they have been confused once:
+ * this suite counts SQL STATEMENTS WITHIN ONE REQUEST (3 for a shopper: session, user, one membership
+ * miss). The card speaks of ADAPTER CALLS ACROSS TWO REQUESTS (2). Both mean one membership read per
+ * request; they are consistent, and a reader comparing 3 against 2 is comparing denominators.
+ */
 describe("resolveActor query cost", () => {
   it("resolves a shopper with no organization membership without loading an organization", async () => {
     const { config, cleanup, queryLog } = await createPGliteTestConfig({
