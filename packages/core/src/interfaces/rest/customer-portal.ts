@@ -174,6 +174,7 @@ export function createCustomerPortalRoutes(kernel: Kernel) {
 
     const fulfillments = await kernel.services.fulfillment.getByOrderId(
       orderResult.value.id,
+      customerActor,
     );
     if (!fulfillments.ok) return c.json({ error: fulfillments.error }, 500);
 

@@ -1,4 +1,4 @@
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, exists } from "drizzle-orm";
 import type { TxContext } from "../../../kernel/database/tx-context.js";
 import type {
   DrizzleDatabase,
@@ -9,6 +9,7 @@ import {
   fulfillmentLineItems,
   fulfillmentEvents,
 } from "../schema.js";
+import { orders } from "../../orders/schema.js";
 
 // Infer types from Drizzle schema
 export type FulfillmentRecord = typeof fulfillmentRecords.$inferSelect;
@@ -38,29 +39,45 @@ export class FulfillmentRepository {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async findById(
+    orgId: string,
     id: string,
     ctx?: TxContext,
   ): Promise<FulfillmentRecord | undefined> {
     const db = this.getDb(ctx);
     const rows = await db
-      .select()
+      .select({ fulfillment: fulfillmentRecords })
       .from(fulfillmentRecords)
-      .where(eq(fulfillmentRecords.id, id));
-    return rows[0];
+      .innerJoin(orders, eq(fulfillmentRecords.orderId, orders.id))
+      .where(
+        and(
+          eq(fulfillmentRecords.id, id),
+          eq(orders.organizationId, orgId),
+        ),
+      );
+    return rows[0]?.fulfillment;
   }
 
   async findByOrderId(
+    orgId: string,
     orderId: string,
     ctx?: TxContext,
   ): Promise<FulfillmentRecord[]> {
     const db = this.getDb(ctx);
-    return db
-      .select()
+    const rows = await db
+      .select({ fulfillment: fulfillmentRecords })
       .from(fulfillmentRecords)
-      .where(eq(fulfillmentRecords.orderId, orderId))
+      .innerJoin(orders, eq(fulfillmentRecords.orderId, orders.id))
+      .where(
+        and(
+          eq(fulfillmentRecords.orderId, orderId),
+          eq(orders.organizationId, orgId),
+        ),
+      )
       .orderBy(desc(fulfillmentRecords.createdAt));
+    return rows.map((row) => row.fulfillment);
   }
 
+  // not tenant-scoped; do not use for tenant-facing access
   async findByCustomerId(
     customerId: string,
     ctx?: TxContext,
@@ -73,6 +90,7 @@ export class FulfillmentRepository {
       .orderBy(desc(fulfillmentRecords.createdAt));
   }
 
+  // not tenant-scoped; do not use for tenant-facing access
   async findByStatus(
     status: string,
     ctx?: TxContext,
@@ -85,6 +103,7 @@ export class FulfillmentRepository {
       .orderBy(desc(fulfillmentRecords.createdAt));
   }
 
+  // not tenant-scoped; do not use for tenant-facing access
   async findByType(
     type: string,
     ctx?: TxContext,
@@ -97,6 +116,7 @@ export class FulfillmentRepository {
       .orderBy(desc(fulfillmentRecords.createdAt));
   }
 
+  // not tenant-scoped; do not use for tenant-facing access
   async findByOrderIdAndStatus(
     orderId: string,
     status: string,
@@ -115,6 +135,7 @@ export class FulfillmentRepository {
       .orderBy(desc(fulfillmentRecords.createdAt));
   }
 
+  // not tenant-scoped; do not use for tenant-facing access
   async findActiveAccessGrants(
     customerId: string,
     ctx?: TxContext,
@@ -133,6 +154,7 @@ export class FulfillmentRepository {
       .orderBy(desc(fulfillmentRecords.grantedAt));
   }
 
+  // not tenant-scoped; do not use for tenant-facing access
   async findAll(
     options?: { limit?: number; offset?: number },
     ctx?: TxContext,
@@ -163,6 +185,7 @@ export class FulfillmentRepository {
   }
 
   async update(
+    orgId: string,
     id: string,
     data: Partial<Omit<FulfillmentRecordInsert, "id">>,
     ctx?: TxContext,
@@ -171,12 +194,28 @@ export class FulfillmentRepository {
     const rows = await db
       .update(fulfillmentRecords)
       .set({ ...data, updatedAt: new Date() })
-      .where(eq(fulfillmentRecords.id, id))
+      .where(
+        and(
+          eq(fulfillmentRecords.id, id),
+          exists(
+            db
+              .select({ id: orders.id })
+              .from(orders)
+              .where(
+                and(
+                  eq(orders.id, fulfillmentRecords.orderId),
+                  eq(orders.organizationId, orgId),
+                ),
+              ),
+          ),
+        ),
+      )
       .returning();
     return rows[0];
   }
 
   async updateStatus(
+    orgId: string,
     id: string,
     status: string,
     ctx?: TxContext,
@@ -190,9 +229,11 @@ export class FulfillmentRepository {
       data.deliveredAt = new Date();
     }
 
-    return this.update(id, data, ctx);
+    return this.update(orgId, id, data, ctx);
   }
 
+  // not tenant-scoped; do not use for tenant-facing access — this is an unscoped WRITE and
+  // has no caller today; it needs the same orgId predicate as `update` before it gains one
   async delete(id: string, ctx?: TxContext): Promise<boolean> {
     const db = this.getDb(ctx);
     const result = await db
@@ -207,6 +248,7 @@ export class FulfillmentRepository {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async incrementDownloadCount(
+    orgId: string,
     id: string,
     ctx?: TxContext,
   ): Promise<FulfillmentRecord | undefined> {
@@ -217,13 +259,32 @@ export class FulfillmentRepository {
         downloadCount: sql`${fulfillmentRecords.downloadCount} + 1`,
         updatedAt: new Date(),
       })
-      .where(eq(fulfillmentRecords.id, id))
+      .where(
+        and(
+          eq(fulfillmentRecords.id, id),
+          exists(
+            db
+              .select({ id: orders.id })
+              .from(orders)
+              .where(
+                and(
+                  eq(orders.id, fulfillmentRecords.orderId),
+                  eq(orders.organizationId, orgId),
+                ),
+              ),
+          ),
+        ),
+      )
       .returning();
     return rows[0];
   }
 
-  async isDownloadAllowed(id: string, ctx?: TxContext): Promise<boolean> {
-    const fulfillment = await this.findById(id, ctx);
+  async isDownloadAllowed(
+    orgId: string,
+    id: string,
+    ctx?: TxContext,
+  ): Promise<boolean> {
+    const fulfillment = await this.findById(orgId, id, ctx);
     if (!fulfillment || fulfillment.type !== "digital") return false;
 
     // Check expiration
@@ -250,21 +311,27 @@ export class FulfillmentRepository {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async deactivateAccessGrant(
+    orgId: string,
     id: string,
     ctx?: TxContext,
   ): Promise<FulfillmentRecord | undefined> {
-    return this.update(id, { isActive: false }, ctx);
+    return this.update(orgId, id, { isActive: false }, ctx);
   }
 
   async activateAccessGrant(
+    orgId: string,
     id: string,
     ctx?: TxContext,
   ): Promise<FulfillmentRecord | undefined> {
-    return this.update(id, { isActive: true, grantedAt: new Date() }, ctx);
+    return this.update(orgId, id, { isActive: true, grantedAt: new Date() }, ctx);
   }
 
-  async isAccessGrantActive(id: string, ctx?: TxContext): Promise<boolean> {
-    const fulfillment = await this.findById(id, ctx);
+  async isAccessGrantActive(
+    orgId: string,
+    id: string,
+    ctx?: TxContext,
+  ): Promise<boolean> {
+    const fulfillment = await this.findById(orgId, id, ctx);
     if (!fulfillment || fulfillment.type !== "access_grant") return false;
 
     if (!fulfillment.isActive) return false;
@@ -281,6 +348,7 @@ export class FulfillmentRepository {
   // Fulfillment Line Items
   // ─────────────────────────────────────────────────────────────────────────────
 
+  // not tenant-scoped; do not use for tenant-facing access
   async findLineItemsByFulfillmentId(
     fulfillmentId: string,
     ctx?: TxContext,
@@ -292,6 +360,7 @@ export class FulfillmentRepository {
       .where(eq(fulfillmentLineItems.fulfillmentId, fulfillmentId));
   }
 
+  // not tenant-scoped; do not use for tenant-facing access
   async findLineItemsByOrderLineItemId(
     orderLineItemId: string,
     ctx?: TxContext,
@@ -303,6 +372,7 @@ export class FulfillmentRepository {
       .where(eq(fulfillmentLineItems.orderLineItemId, orderLineItemId));
   }
 
+  // not tenant-scoped; do not use for tenant-facing access
   async createLineItem(
     data: FulfillmentLineItemInsert,
     ctx?: TxContext,
@@ -312,6 +382,7 @@ export class FulfillmentRepository {
     return rows[0]!;
   }
 
+  // not tenant-scoped; do not use for tenant-facing access
   async createLineItems(
     data: FulfillmentLineItemInsert[],
     ctx?: TxContext,
@@ -321,6 +392,7 @@ export class FulfillmentRepository {
     return db.insert(fulfillmentLineItems).values(data).returning();
   }
 
+  // not tenant-scoped; do not use for tenant-facing access
   async deleteLineItemsByFulfillmentId(
     fulfillmentId: string,
     ctx?: TxContext,
@@ -335,6 +407,7 @@ export class FulfillmentRepository {
   // Fulfillment Events
   // ─────────────────────────────────────────────────────────────────────────────
 
+  // not tenant-scoped; do not use for tenant-facing access
   async findEventsByFulfillmentId(
     fulfillmentId: string,
     ctx?: TxContext,
@@ -347,6 +420,7 @@ export class FulfillmentRepository {
       .orderBy(desc(fulfillmentEvents.occurredAt));
   }
 
+  // not tenant-scoped; do not use for tenant-facing access
   async createEvent(
     data: FulfillmentEventInsert,
     ctx?: TxContext,
@@ -356,6 +430,7 @@ export class FulfillmentRepository {
     return rows[0]!;
   }
 
+  // not tenant-scoped; do not use for tenant-facing access
   async recordStatusChange(
     fulfillmentId: string,
     fromStatus: string,
@@ -382,25 +457,27 @@ export class FulfillmentRepository {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async findWithLineItems(
+    orgId: string,
     id: string,
     ctx?: TxContext,
   ): Promise<
     | { fulfillment: FulfillmentRecord; lineItems: FulfillmentLineItem[] }
     | undefined
   > {
-    const fulfillment = await this.findById(id, ctx);
+    const fulfillment = await this.findById(orgId, id, ctx);
     if (!fulfillment) return undefined;
     const lineItems = await this.findLineItemsByFulfillmentId(id, ctx);
     return { fulfillment, lineItems };
   }
 
   async findWithEvents(
+    orgId: string,
     id: string,
     ctx?: TxContext,
   ): Promise<
     { fulfillment: FulfillmentRecord; events: FulfillmentEvent[] } | undefined
   > {
-    const fulfillment = await this.findById(id, ctx);
+    const fulfillment = await this.findById(orgId, id, ctx);
     if (!fulfillment) return undefined;
     const events = await this.findEventsByFulfillmentId(id, ctx);
     return { fulfillment, events };
@@ -410,6 +487,7 @@ export class FulfillmentRepository {
    * Get fulfilled quantity for an order line item.
    * Sums all fulfillment line items linked to the order line item.
    */
+  // not tenant-scoped; do not use for tenant-facing access
   async getFulfilledQuantity(
     orderLineItemId: string,
     ctx?: TxContext,

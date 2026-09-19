@@ -15,6 +15,7 @@ import { Err, Ok, type Result } from "../../kernel/result.js";
 import { createLogger } from "../../utils/logger.js";
 import type {
   FulfillmentRecord as FulfillmentDbRow,
+  FulfillmentRecordInsert,
   FulfillmentRepository,
 } from "./repository/index.js";
 import type { OrdersRepository } from "../orders/repository/index.js";
@@ -54,6 +55,11 @@ interface FulfillmentServiceDeps {
   services: Record<string, unknown>;
   database: DatabaseAdapter;
 }
+
+type FulfillmentTrackingPatch = Pick<
+  FulfillmentRecordInsert,
+  "carrier" | "trackingNumber" | "trackingUrl" | "status" | "shippedAt" | "deliveredAt"
+>;
 
 function toFulfillmentLineItem(lineItem: FulfillmentLineItem): {
   id: string;
@@ -497,9 +503,21 @@ export class FulfillmentService {
 
   async getByOrderId(
     orderId: string,
+    actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<FulfillmentRecord[]>> {
-    const dbRecords = await this.deps.repository.findByOrderId(orderId, ctx);
+    // Fail closed through the Result boundary, as updateTracking does. Strict org resolution
+    // THROWS, and this method did not resolve an org before this change — so leaving it
+    // unwrapped would add a throw to a Result-returning method whose REST callers branch on
+    // `!result.ok` and would never see it.
+    let orgId: string;
+    try {
+      orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+
+    const dbRecords = await this.deps.repository.findByOrderId(orgId, orderId, ctx);
 
     // Hydrate each record with its associated line items
     const records: FulfillmentRecord[] = [];
@@ -523,9 +541,18 @@ export class FulfillmentService {
       trackingUrl?: string;
       status?: string;
     },
+    actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<void>> {
+    let orgId: string;
+    try {
+      orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+
     const existing = await this.deps.repository.findById(
+      orgId,
       input.fulfillmentId,
       ctx,
     );
@@ -533,7 +560,7 @@ export class FulfillmentService {
       return Err(new CommerceNotFoundError("Fulfillment record not found."));
     }
 
-    const updateData: Record<string, unknown> = {};
+    const updateData: Partial<FulfillmentTrackingPatch> = {};
     if (input.carrier !== undefined) updateData.carrier = input.carrier;
     if (input.trackingNumber !== undefined)
       updateData.trackingNumber = input.trackingNumber;
@@ -543,7 +570,15 @@ export class FulfillmentService {
     if (input.status === "shipped") updateData.shippedAt = new Date();
     if (input.status === "delivered") updateData.deliveredAt = new Date();
 
-    await this.deps.repository.update(input.fulfillmentId, updateData, ctx);
+    const updated = await this.deps.repository.update(
+      orgId,
+      input.fulfillmentId,
+      updateData,
+      ctx,
+    );
+    if (!updated) {
+      return Err(new CommerceNotFoundError("Fulfillment record not found."));
+    }
     return Ok(undefined);
   }
 
@@ -554,7 +589,8 @@ export class FulfillmentService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<{ url: string; remaining: number; expiresAt: string }>> {
-    const dbRecords = await this.deps.repository.findByOrderId(orderId, ctx);
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
+    const dbRecords = await this.deps.repository.findByOrderId(orgId, orderId, ctx);
 
     let matchedRecord: (typeof dbRecords)[number] | undefined;
     for (const dbRecord of dbRecords) {
@@ -574,7 +610,6 @@ export class FulfillmentService {
       return Err(new CommerceNotFoundError("Digital download not found."));
     }
 
-    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
     const order = await this.deps.ordersRepository.findById(orgId, orderId, ctx);
     if (!order || order.customerId !== userId) {
       return Err(new CommerceNotFoundError("Order not found."));
@@ -589,6 +624,7 @@ export class FulfillmentService {
     }
 
     const updated = await this.deps.repository.incrementDownloadCount(
+      orgId,
       matchedRecord.id,
       ctx,
     );
