@@ -44,6 +44,13 @@ type ChannelRouteContext = {
   params: Record<string, string>;
   orgId: string;
   actor: { userId: string | null } | null;
+  /**
+   * Core's documented request escape hatch, already present on `RouteHandlerContext` and simply
+   * never declared here. Read by `confineStoreReads` so a consumer can resolve the caller from the
+   * request — core's `actor.vendorId` cannot serve that purpose: core sources it from a column on
+   * `user` that this deployment never writes, and sets it to `null` outright for API-key actors.
+   */
+  raw?: unknown;
 };
 
 export { mockChannelConnector } from "./mock-connector.js";
@@ -655,7 +662,8 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
       channels.get("/stores")
         .summary("List connected channel stores")
         .permission("channels:read")
-        .handler(async ({ orgId }: ChannelRouteContext) => unwrap(await service.listStores(orgId)));
+        .handler(async ({ orgId, actor, raw }: ChannelRouteContext) =>
+          unwrap(await service.listStores(orgId, { orgId, actor, raw })));
 
       channels.get("/stores/{id}")
         .summary("Get a connected channel store")
