@@ -140,12 +140,11 @@ describe("resolveActor query cost", () => {
       //
       // THREE, not two, and the difference is worth stating because the card
       // that ordered this work said two in its prose and three in its
-      // pseudocode. Three is right: a member's session does not carry
-      // `activeOrganizationRole` either, so there is no way to know a caller is
-      // a shopper without asking once. The miss IS the answer. Driving this to
-      // two would mean stamping the role into the session at creation — a
-      // different change, and one that puts a write back on a path this card
-      // exists to take writes off.
+      // pseudocode. Three is right: the session does not carry organization
+      // role, so there is no way to know a caller is a shopper without asking
+      // once. The miss IS the answer. Driving this to two would mean stamping
+      // the role into the session at creation — a different change, and one
+      // that puts a write back on a path this card exists to take writes off.
       const cost = actorCost(queries);
       expect(
         cost.length,

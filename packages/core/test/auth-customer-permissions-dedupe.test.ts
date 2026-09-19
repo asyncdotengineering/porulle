@@ -35,7 +35,6 @@ function createNoRoleSessionAuth(): AuthInstance {
         },
         session: {
           activeOrganizationId: null,
-          activeOrganizationRole: null,
         },
       }),
     },
