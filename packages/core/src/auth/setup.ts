@@ -7,6 +7,7 @@ import type { CommerceConfig } from "../config/types.js";
 import type { DatabaseAdapter } from "../kernel/database/adapter.js";
 import * as authSchema from "./auth-schema.js";
 import { AUTH_COOKIE_PREFIX } from "./actor.js";
+import { SUPPRESSED_AUTH_PATH_LIST } from "./suppressed-auth-paths.js";
 
 type BetterAuthDbProvider = "pg";
 
@@ -141,6 +142,11 @@ export function createAuth(
   try {
     const auth = betterAuth({
       ...(config.auth?.baseURL ? { baseURL: config.auth.baseURL } : {}),
+      // Endpoints whose only currency is a raw session bearer token. Read in
+      // the router's own onRequest, before rate limiting and before any plugin
+      // hook, so no mount point or config reaches them. See
+      // ./suppressed-auth-paths.ts for the per-path argument.
+      disabledPaths: [...SUPPRESSED_AUTH_PATH_LIST],
       database: drizzleAdapter(db.db as unknown as Record<string, unknown>, {
         provider: resolveAuthDbProvider(db.provider),
         schema: authSchema,

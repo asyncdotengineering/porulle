@@ -501,7 +501,6 @@ export interface AuthSessionLike {
   };
   session: {
     activeOrganizationId?: string | null;
-    activeOrganizationRole?: string | null;
     /** When the session was minted — the moment the human last authenticated. */
     createdAt?: Date | string | null;
   };

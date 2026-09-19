@@ -37,11 +37,7 @@ export function getCustomerPermissions(config: CommerceConfig): string[] {
   return config.auth?.customerPermissions ?? [...DEFAULT_CUSTOMER_PERMISSIONS];
 }
 
-function resolvePermissions(
-  session: AuthSessionLike,
-  config: CommerceConfig,
-): string[] {
-  const role = session.session.activeOrganizationRole;
+function resolvePermissions(role: string | null | undefined, config: CommerceConfig): string[] {
   if (!role) return getCustomerPermissions(config);
   const roleConfig = config.auth?.roles?.[role];
   return roleConfig ? roleConfig.permissions : [];
@@ -124,7 +120,7 @@ export async function resolveActor(
   if (!session) return null;
 
   const defaultOrgId = config.auth?.defaultOrganizationId ?? DEFAULT_ORG_ID;
-  let role = session.session.activeOrganizationRole as string | undefined;
+  let role: string | undefined;
   let orgId = session.session.activeOrganizationId as string | null;
 
   if (!role) {
@@ -141,10 +137,6 @@ export async function resolveActor(
     }
   }
 
-  const enrichedSession = {
-    ...session,
-    session: { ...session.session, activeOrganizationRole: role ?? null },
-  };
   return {
     type: "user",
     userId: session.user.id,
@@ -153,7 +145,7 @@ export async function resolveActor(
     vendorId: session.user.vendorId ?? null,
     organizationId: orgId ?? defaultOrgId,
     role: role ?? "customer",
-    permissions: resolvePermissions(enrichedSession, config),
+    permissions: resolvePermissions(role, config),
     sessionCreatedAt: toIsoString(session.session.createdAt),
   } satisfies Actor;
 }
