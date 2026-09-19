@@ -1,5 +1,80 @@
 # @porulle/core
 
+## 0.44.0
+
+### Minor Changes
+
+- [#130](https://github.com/asyncdotengineering/porulle/pull/130) [`05b4efc`](https://github.com/asyncdotengineering/porulle/commit/05b4efc72374f5787d91c85321c90a3f43fbc436) Thanks [@octalpixel](https://github.com/octalpixel)! - Stop serving the two auth routes whose only currency is a raw session token
+
+  `GET /api/auth/list-sessions` returned every one of the caller's live sessions
+  through `parseSessionOutput`, which filters by the session output schema — and
+  `token` carries no `returned: false`, so each row arrived with its **raw bearer
+  token**. Its guard is `freshSessionMiddleware`, whose `freshAge` defaults to a
+  day, so a session phished minutes ago was fresh enough to ask. One compromised
+  session therefore yielded durable capture of all of them, and the capture
+  survived the victim revoking the session they knew about. `parseAccountOutput`
+  strips its tokens by name one function above; the session path never did.
+
+  `POST /api/auth/revoke-session` takes `{ token }` as its only handle, so it was
+  the consumer of what `list-sessions` leaked and has no legitimate caller once
+  that path is gone.
+
+  Both are now in Better Auth's own `disabledPaths` and answer **404**, listed
+  with their reasons in the new `SUPPRESSED_AUTH_PATHS` (exported, alongside
+  `SUPPRESSED_AUTH_PATH_LIST` and the `SuppressedAuthPath` type). `disabledPaths`
+  is read inside the auth router's `onRequest`, before rate limiting and before
+  any plugin hook, so unlike a middleware in front of `auth.handler` there is no
+  mount point or consumer configuration that reaches the endpoint without passing
+  it.
+
+  **`POST /api/auth/revoke-sessions`, `POST /api/auth/revoke-other-sessions`,
+  `GET /api/auth/get-session` and `POST /api/auth/sign-out` are unchanged.** They
+  take no token that the caller does not already hold, and they remain the
+  supported way to end a session — including one the caller must not be able to
+  name. A consumer that needs per-session revocation exposes its own route taking
+  an opaque session id and resolving it server-side under the caller's user id.
+
+  The suite that holds this asserts the refusal, the absence of every live token
+  from the response body, that the refused revoke deleted nothing, and — because
+  a path list cannot say whether its entries name anything — that every suppressed
+  path is one the built auth instance actually defines, so a library rename
+  reddens the gate instead of leaving a live route behind a guard that matches
+  nothing.
+
+### Patch Changes
+
+- [#130](https://github.com/asyncdotengineering/porulle/pull/130) [`adf43da`](https://github.com/asyncdotengineering/porulle/commit/adf43da78b7d48baf8a2074a65b759a1bee6df2f) Thanks [@octalpixel](https://github.com/octalpixel)! - Delete `activeOrganizationRole`, a session field nothing ever writes
+
+  `createAuth` declares `user.additionalFields` and no `session.additionalFields`
+  at all, and Better Auth's organization plugin contributes `activeOrganizationId`
+  and `activeTeamId` — neither is a role. So the field was only ever a type: the
+  `if (!role)` guard below it always held and `findMembershipRole` always ran.
+
+  **Removed from the published type surface:** `Session["activeOrganizationRole"]`
+  and the internal `enrichedSession`, which existed only to carry the field into
+  `resolvePermissions`. `resolvePermissions` now takes the role directly and
+  returns the same three outcomes for a falsy, known and unknown role.
+
+  Deleting a guard that never holds cannot change behaviour, and the query-count
+  suite says so rather than asserting it: a shopper still costs three statements
+  (session, user, one membership miss) and an organization member still costs one
+  indexed membership read. No assertion number moved.
+
+- [#130](https://github.com/asyncdotengineering/porulle/pull/130) [`74a4a60`](https://github.com/asyncdotengineering/porulle/commit/74a4a6040cef90e420e780a3deb189857db7a15a) Thanks [@octalpixel](https://github.com/octalpixel)! - Say why the `resolveActor` query-count suite is load-bearing for a card it predates
+
+  `1939c7c4` (delete `activeOrganizationRole`) asked for its own stubbed-adapter
+  call count. It was deliberately not written, because
+  `auth-resolve-actor-query-count` already proves the same property against a real
+  adapter and a weaker duplicate justified only by a card naming it is the wrong
+  thing to add.
+
+  The cost of that choice is that these numbers now carry a contract nobody
+  editing the file would know about: the shopper's `3` is what says the deletion
+  did not change what runs, so relaxing it removes the only evidence that a
+  shipped deletion was behaviour-preserving. The file now says so, and keeps the
+  two measurements apart — SQL statements within one request (3) versus adapter
+  calls across two (2) — because they were once read as contradicting each other.
+
 ## 0.43.0
 
 ## 0.42.0
