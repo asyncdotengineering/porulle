@@ -4,6 +4,7 @@ import type { CompensationFailuresRepository } from "../kernel/compensation/repo
 import type { AfterHook, BeforeHook } from "../kernel/hooks/types.js";
 import type { ShippingAddress } from "../modules/shipping/calculator.js";
 import type { AppliedPromotion } from "../modules/promotions/service.js";
+import type { PriceResolutionContext } from "../modules/pricing/service.js";
 import { runCompensationChain } from "../kernel/compensation/executor.js";
 import type { CompensationContext } from "../kernel/compensation/types.js";
 import type { TxContext } from "../kernel/database/tx-context.js";
@@ -209,14 +210,7 @@ export const resolveCurrentPrices: BeforeHook<CheckoutData> = async ({
   context,
 }) => {
   const pricing = context.services.pricing as {
-    resolve(params: {
-      entityId: string;
-      variantId?: string;
-      currency: string;
-      quantity: number;
-      customerId?: string;
-      customerGroupIds?: string[];
-    }, actor?: unknown): Promise<
+    resolve(params: PriceResolutionContext, actor?: unknown): Promise<
       | {
           ok: true;
           value: {
@@ -239,7 +233,6 @@ export const resolveCurrentPrices: BeforeHook<CheckoutData> = async ({
       currency: data.currency,
       quantity: item.quantity,
       ...(item.variantId !== undefined ? { variantId: item.variantId } : {}),
-      ...(data.customerId !== undefined ? { customerId: data.customerId } : {}),
       ...(data.customerGroupIds !== undefined
         ? { customerGroupIds: data.customerGroupIds }
         : {}),
