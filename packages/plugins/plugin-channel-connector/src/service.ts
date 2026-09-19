@@ -4159,7 +4159,8 @@ export class ChannelConnectorService {
     if (!store || store.status !== "connected") return PluginErr("Connected store not found.", "NOT_FOUND");
     if (!store.catalogWriteEnabled) return Ok({ noop: true });
     const connector = this.connectors.get(store.provider);
-    if (!connector?.pushCatalog) return Ok({ noop: true });
+    if (!connector) return PluginErr(`No connector registered for provider "${store.provider}".`);
+    if (!connector.pushCatalog) return Ok({ noop: true });
     if (isCatalogPushBreakerOpen(store.breakerState)) {
       await runtime.jobs.enqueue("channel/push-catalog", {
         organizationId: orgId,

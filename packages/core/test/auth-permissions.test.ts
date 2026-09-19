@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { assertOwnership, assertPermission, requireUserId } from "../src/auth/permissions.js";
 import { defaultConfig } from "../src/config/defaults.js";
-import { CommerceForbiddenError } from "../src/kernel/errors.js";
+import { CommerceForbiddenError, CommerceUnauthorizedError } from "../src/kernel/errors.js";
 
 describe("permissions", () => {
   const actor = {
@@ -35,10 +35,21 @@ describe("permissions", () => {
     expect(() => assertPermission(actor, "inventory:adjust")).toThrow(CommerceForbiddenError);
   });
 
+  // Both directions in one case, deliberately. A blanket swap of every refusal to 401 would
+  // satisfy the anonymous row on its own; only the signed-in non-owner beside it can tell a
+  // decision about identity from one about ownership.
   it("enforces ownership", () => {
     expect(() => assertOwnership(actor, "u1")).not.toThrow();
+
+    // A signed-in caller who is simply not the owner. 403 holds whatever credential accompanies
+    // the request, which is what RFC 9110 reserves it for.
     expect(() => assertOwnership(actor, "u2")).toThrow(CommerceForbiddenError);
-    expect(() => assertOwnership({ ...actor, userId: null }, null)).toThrow(CommerceForbiddenError);
+
+    // No credential at all, in the two shapes that carry one: a null actor, and the user actor
+    // with no user id that `storeResolver` mints for an anonymous request. Signing in resolves
+    // both, so neither refusal holds against every credential and neither is a 403.
+    expect(() => assertOwnership(null, "u1")).toThrow(CommerceUnauthorizedError);
+    expect(() => assertOwnership({ ...actor, userId: null }, null)).toThrow(CommerceUnauthorizedError);
   });
 
   // An identity that is a placeholder rather than a person -- null, or the

@@ -62,7 +62,6 @@ export interface PriceResolutionContext {
   variantId?: string;
   currency: string;
   quantity: number;
-  customerId?: string;
   customerGroupIds?: string[];
   timestamp?: Date;
 }

@@ -3,7 +3,6 @@ import { HookRegistry, type HookHandler } from "../kernel/hooks/registry.js";
 import { deliverWebhooks } from "../modules/webhooks/hook.js";
 import { syncToSearchIndex } from "../modules/search/hooks.js";
 import { auditHooks } from "../modules/audit/hooks.js";
-import { sendOrderStatusEmail } from "../hooks/order-emails.js";
 
 export function registerConfiguredKernelHooks(
   config: CommerceConfig,
@@ -40,7 +39,6 @@ export function registerConfiguredKernelHooks(
 
   hooks.append("orders.afterCreate", deliverWebhooks);
   hooks.append("orders.afterStatusChange", deliverWebhooks);
-  hooks.append("orders.afterStatusChange", sendOrderStatusEmail as (...args: unknown[]) => unknown);
   hooks.append("catalog.afterCreate", deliverWebhooks);
   hooks.append("catalog.afterUpdate", deliverWebhooks);
   hooks.append("catalog.afterDelete", deliverWebhooks);
