@@ -1,7 +1,6 @@
 import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import {
   AUTHENTICATION_REQUIRED_MESSAGE,
-  assertOwnership,
   assertPermission,
   isUnauthenticatedActor,
 } from "../../auth/permissions.js";

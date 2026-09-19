@@ -41,15 +41,17 @@ export function assertPermission(actor: Actor | null, required: string): void {
   );
 }
 
-// NOT given the unauthenticated predicate, and the omission is deliberate.
-// `auth-permissions.test.ts` pins this refusal as 403 for a STAFF actor with a
-// null userId — a shape `resolveActor` cannot produce — so whether that means
-// "anonymous" or "a synthetic actor whose identity is broken" has to be decided
-// before the status can be. It is carded; no route reaches here with an
-// anonymous actor today.
 export function assertOwnership(actor: Actor | null, resourceOwnerId: string | null): void {
-  if (!actor) {
-    throw new CommerceForbiddenError("Authentication required.");
+  // Written exactly as `assertPermission` above, and for the same two reasons: `actor === null`
+  // is redundant at runtime because the predicate already covers it, and load-bearing at compile
+  // time because a boolean predicate narrows nothing and the lines below read off `actor`.
+  //
+  // Hoisting the predicate is what makes the rest of this function readable: an `api_key` actor
+  // presented a credential and a `userId: ""` actor is a credential with a blank identity, so
+  // neither satisfies the predicate and both fall through to the 403 below — telling either to
+  // authenticate would be advice it cannot act on.
+  if (actor === null || isUnauthenticatedActor(actor)) {
+    throw new CommerceUnauthorizedError(AUTHENTICATION_REQUIRED_MESSAGE);
   }
   if (actor.permissions.includes("*:*")) return;
   if (!actor.userId || !resourceOwnerId) {
