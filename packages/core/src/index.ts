@@ -43,6 +43,8 @@ export { OrganizationService } from "./modules/organization/service.js";
 export { createScopedDb } from "./kernel/database/scoped-db.js";
 export type { ScopedOrganizationId } from "./kernel/database/scoped-db.js";
 export { IDENTITY_FREE_ROUTES, isIdentityFreeRoute } from "./auth/identity-free-routes.js";
+export { SUPPRESSED_AUTH_PATHS, SUPPRESSED_AUTH_PATH_LIST } from "./auth/suppressed-auth-paths.js";
+export type { SuppressedAuthPath } from "./auth/suppressed-auth-paths.js";
 export type { IdentityFreeRoute } from "./auth/identity-free-routes.js";
 export {
   AUTHENTICATION_REQUIRED_MESSAGE,
