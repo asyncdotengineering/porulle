@@ -56,6 +56,9 @@ export const CustomerAddressSchema = createSelectSchema(customerAddresses).opena
 export const CatalogEntitySchema = createSelectSchema(sellableEntities, {
   // Override jsonb → narrow to object (drizzle-zod maps jsonb to a wide union)
   metadata: z.record(z.string(), z.unknown()).openapi({ example: { weight: 200, material: "cotton" } }),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  publishedAt: z.string().datetime().nullable(),
 }).openapi("CatalogEntity");
 
 // ─── Jobs ────────────────────────────────────────────────────────────────────
@@ -77,10 +80,13 @@ export function paginatedResponse<T extends z.ZodType>(schema: T, name: string) 
   return z.object({
     data: z.array(schema),
     meta: z.object({
-      page: z.number(),
-      limit: z.number(),
-      total: z.number().optional(),
-    }).optional(),
+      pagination: z.object({
+        page: z.number(),
+        limit: z.number(),
+        total: z.number(),
+        totalPages: z.number(),
+      }),
+    }),
   }).openapi(name);
 }
 

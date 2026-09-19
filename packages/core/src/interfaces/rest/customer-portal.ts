@@ -125,7 +125,7 @@ export function createCustomerPortalRoutes(kernel: Kernel) {
     const status = c.req.query("status");
     // Resolve customer profile UUID from Better Auth userId
     const customerResult = await kernel.services.customers.getByUserId(actor.userId, actor);
-    if (!customerResult.ok) return c.json({ data: [], meta: { total: 0, page: 1, limit: 20, totalPages: 0 } });
+    if (!customerResult.ok) return c.json({ data: [], meta: { pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } } });
     const result = await kernel.services.orders.listByCustomer(
       customerResult.value.id,
       {
