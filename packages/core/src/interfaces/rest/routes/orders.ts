@@ -325,7 +325,7 @@ export function orderRoutes(kernel: Kernel) {
 
     if (!orderResult.ok) return c.json(mapErrorToResponse(orderResult.error), mapErrorToStatus(orderResult.error));
 
-    const result = await kernel.services.fulfillment.getByOrderId(orderResult.value.id);
+    const result = await kernel.services.fulfillment.getByOrderId(orderResult.value.id, actor);
     if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
