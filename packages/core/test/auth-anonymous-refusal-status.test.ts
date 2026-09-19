@@ -95,12 +95,14 @@ describe("the refusal an unauthenticated caller is told", () => {
       ).toBe(401);
       expect(body.error?.code).toBe("UNAUTHORIZED");
 
-      // NOT asserted here, deliberately: RFC 9110 §15.5.2 also requires a 401 to
-      // carry a `WWW-Authenticate` challenge, and none of core's 401s does —
-      // including the ones that predate this change. Adding one means shaping a
-      // response header from five return sites inside the auth middleware, which
-      // is a larger and more dangerous diff than the status class this card is
-      // about. It is a separate card, not an omission.
+      // RFC 9110 §15.5.2: a 401 "MUST include a WWW-Authenticate header field
+      // containing at least one challenge". Without it the status names no scheme,
+      // so it is advice a generic client cannot act on. This is the PERMISSION-GUARD
+      // path — `requirePerm` returning `c.json(...)` directly.
+      expect(
+        response.headers.get("www-authenticate") ?? "",
+        `a 401 must name a scheme the caller can authenticate with — got ${JSON.stringify(response.headers.get("www-authenticate"))}`,
+      ).toMatch(/^Bearer/);
 
       // The absence is the point, not only the status: a 401 that still names
       // the permission has fixed the class and kept the disclosure.
@@ -133,6 +135,16 @@ describe("the refusal an unauthenticated caller is told", () => {
         body.error?.message ?? "",
         "an operator debugging a role must still be told which permission is missing",
       ).toMatch(/cart:manage/);
+
+      // THE GUARD AGAINST "ALWAYS SET IT". RFC 9110 §15.5.4 does not ask a 403 for a
+      // challenge, and offering one would tell a caller who IS authenticated to try
+      // authenticating again. A blanket header on every refusal would satisfy the two
+      // 401 rows in this file and be wrong here, so the absence is asserted rather
+      // than assumed.
+      expect(
+        response.headers.get("www-authenticate"),
+        "a 403 must NOT invite the caller to authenticate again",
+      ).toBeNull();
     } finally {
       await cleanup();
     }
@@ -176,6 +188,14 @@ describe("the refusal an unauthenticated caller is told", () => {
         `an anonymous read of someone's cart must be told to authenticate — got ${response.status} ${JSON.stringify(body)}`,
       ).toBe(401);
       expect(body.error?.code).toBe("UNAUTHORIZED");
+
+      // The THROWN path — `CommerceUnauthorizedError` shaped by `mapErrorToResponse`,
+      // a different mechanism from the guard path above. One of the two passing says
+      // nothing about the other, which is why both are asserted.
+      expect(
+        response.headers.get("www-authenticate") ?? "",
+        `a thrown 401 must carry a challenge too — got ${JSON.stringify(response.headers.get("www-authenticate"))}`,
+      ).toMatch(/^Bearer/);
     } finally {
       await cleanup();
     }

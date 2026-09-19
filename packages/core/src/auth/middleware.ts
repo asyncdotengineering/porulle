@@ -17,6 +17,33 @@ function emptyToNull(value: string | null | undefined): string | null {
 // `catalog:read` here would 401 every public storefront read.
 export { DEFAULT_CUSTOMER_PERMISSIONS } from "./actor.js";
 
+/**
+ * The challenge RFC 9110 §15.5.2 requires on a 401: it "MUST include a WWW-Authenticate header
+ * field containing at least one challenge applicable to the target resource". Without it a 401
+ * names no scheme, so it is advice a generic HTTP client cannot act on.
+ *
+ * `Bearer` and nothing else. Both credentials this API accepts — the session cookie the mobile
+ * client holds and the `x-api-key` a machine holds — are presented as bearer-style tokens, and a
+ * `Basic` challenge would make a browser render a native credential prompt over a JSON API.
+ *
+ * The realm is a constant. It must never carry the organization or vendor, which would disclose
+ * tenancy to a caller that has not authenticated.
+ */
+export const AUTHENTICATE_CHALLENGE = 'Bearer realm="api"';
+
+/**
+ * Attach the challenge to a 401, and to nothing else.
+ *
+ * NOT unconditional: §15.5.4 asks no challenge of a 403, and offering one there tells a caller who
+ * IS authenticated to try authenticating again. An existing header is left alone so a plugin or a
+ * route can answer with a more specific challenge than this default.
+ */
+export function applyAuthenticateChallenge(response: Response): void {
+  if (response.status !== 401) return;
+  if (response.headers.has("www-authenticate")) return;
+  response.headers.set("www-authenticate", AUTHENTICATE_CHALLENGE);
+}
+
 const LEGACY_STORE_RESOLVER_WARN_COOLDOWN_MS = 60_000;
 let lastLegacyStoreResolverWarnAt = 0;
 
@@ -24,7 +51,15 @@ export function authMiddleware(
   auth: AuthInstance,
   config: CommerceConfig,
 ): MiddlewareHandler {
-  return async (c, next) => {
+  /**
+   * The resolution body. It has FIVE `next()` call sites and four of them `return` immediately
+   * after — a signed-in caller leaves at the `if (actor)` branch, an API-key caller at its own,
+   * and only an anonymous caller reaches the last one. Anything that must run for EVERY request
+   * therefore cannot live at the bottom of this function: it would fire for one caller class and
+   * silently skip the rest. Measured, not assumed — a header set at the bottom reached an
+   * anonymous 401 and never reached a signed-in 403.
+   */
+  const resolve: MiddlewareHandler = async (c, next) => {
     if (isIdentityFreeRoute(c.req.method, c.req.path, config)) {
       c.set("actor", null);
       await next();
@@ -237,5 +272,29 @@ export function authMiddleware(
       }
     }
     await next();
+  };
+
+  // ONE boundary around all five of the body's exits. A 401 leaves this server by five routes —
+  // `requirePerm` and `requireAnyPerm` in interfaces/rest/utils.ts, the plugin router's inline
+  // refusal, the customer portal's own, and a thrown `CommerceUnauthorizedError` shaped by
+  // `mapErrorToResponse` — and every one of them unwinds through here whichever way the body
+  // returned. So one line covers all five, and any sixth refusal added later, which five copies of
+  // the rule could not.
+  //
+  // The only 401 that does NOT reach this point is one produced by `app.onError`: by then every
+  // `await next()` in the chain has already rejected. runtime/server.ts calls the same helper there.
+  return async (c, next) => {
+    // The body RETURNS a Response on one path — the strict-org-resolution 503 — and Hono assigns
+    // that return value over `c.res` after this handler finishes. Dropping it on the floor turned
+    // two `ORG_RESOLUTION_FAILED` rows red, and challenging `c.res` instead of the returned object
+    // would have mutated a response that was about to be replaced. Both cases are handled by
+    // challenging whichever object is actually going to be sent.
+    const returned = await resolve(c, next);
+    if (returned instanceof Response) {
+      applyAuthenticateChallenge(returned);
+      return returned;
+    }
+    applyAuthenticateChallenge(c.res);
+    return;
   };
 }

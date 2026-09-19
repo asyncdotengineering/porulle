@@ -10,7 +10,7 @@ import { createClientIpResolver } from "./client-ip.js";
 import type { Actor } from "../auth/types.js";
 import type { AuthInstance } from "../auth/setup.js";
 import type { CommerceConfig } from "../config/types.js";
-import { authMiddleware } from "../auth/middleware.js";
+import { applyAuthenticateChallenge, authMiddleware } from "../auth/middleware.js";
 import { resolveOrgIdForCommerce } from "../auth/org.js";
 import { organizationGuard } from "../auth/organization-guard.js";
 import type { DrizzleDatabase } from "../kernel/database/drizzle-db.js";
@@ -371,7 +371,12 @@ export async function createServer(config: CommerceConfig) {
   const isProd = process.env.NODE_ENV === "production";
   app.onError((err, c) => {
     const { body, status } = mapErrorToResponse(err, isProd, logger);
-    return c.json(body, status);
+    const response = c.json(body, status);
+    // The one 401 the auth middleware cannot reach: by the time onError runs, every `await next()`
+    // in the chain has already rejected, so its post-next step never executes. Same helper, so the
+    // rule lives in one place even though it is applied in two.
+    applyAuthenticateChallenge(response);
+    return response;
   });
 
   // ─── Routes ──────────────────────────────────────────────────────────
