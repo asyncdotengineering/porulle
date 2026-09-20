@@ -538,6 +538,37 @@ export class EntityService {
     return Ok(undefined);
   }
 
+  /**
+   * Fire `catalog.afterUpdate` for an entity whose RELATED rows changed while the entity row did
+   * not. Same before/after pair as `setAttributes` above, for the same reason: every consumer of
+   * this hook keys on the entity, not on the row that actually moved.
+   *
+   * It exists because `CatalogService.reviewCustomField` wrote an approved custom field straight
+   * through the repository and ran no hooks at all. `create`, `update` and `setAttributes` each
+   * resolve and run their after-hooks; that one method did not, so approving a proposal notified
+   * nothing. Anything downstream that keeps a derived copy of an entity's custom fields — a search
+   * projection, a feed, a cache — had no way to learn that a value a person had just approved was
+   * now the live one, and went on serving the old one until something else happened to touch the
+   * entity.
+   *
+   * Callers pass the paths they changed so a handler can narrow. A missing entity is not an error:
+   * the caller has already established it, and racing a delete is not this method's problem.
+   */
+  async notifyEntityUpdated(
+    entityId: string,
+    changedFieldPaths: readonly string[],
+    actor: Actor | null,
+    ctx?: CatalogWriteContext,
+  ): Promise<void> {
+    const txCtx = isWriteContextTransactional(ctx) ? ctx : undefined;
+    const entity = await this.repo.findEntityById(entityId, txCtx);
+    if (!entity) return;
+    const afterHooks = this.deps.hooks.resolve("catalog.afterUpdate") as CatalogUpdateAfterHook[];
+    const context = catalogHookContext(this.deps, actor, ctx, "update");
+    context.context.changedFieldPaths = [...changedFieldPaths];
+    await runAfterHooks(afterHooks, entity, entity, "update", context, (hook) => this.deps.hooks.runsInTransaction(hook));
+  }
+
   async getAttributes(entityId: string, locale: string, actor: Actor | null, ctx?: TxContext): Promise<Result<SellableAttribute>> {
     try {
       assertPermission(actor, "catalog:read");
