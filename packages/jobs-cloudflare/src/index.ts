@@ -49,6 +49,18 @@ export interface WorkflowInstanceHandle {
   sendEvent(event: { type: string; payload?: unknown }): Promise<void>;
 }
 
+/**
+ * No `createBatch`, on purpose. Cloudflare's binding can create up to 100 instances
+ * per call, and it is the primitive every comparable runtime reaches for — Inngest's
+ * `batchEvents`, Trigger.dev's `batchTrigger` — because they are fixing per-RECORD
+ * enqueueing. The answer here is to stop enqueueing per record: one instance per page
+ * of work, whose payload carries the ids. That needs one `create`, so adding
+ * `createBatch` would buy a fan-out shape we are deliberately not building. Add it the
+ * day something genuinely needs N instances at once, not before.
+ *
+ * Keep the payload to identifiers. Params ride with the instance, so a page of ids is
+ * kilobytes and a page of product bodies is a size limit waiting to be hit.
+ */
 export interface WorkflowBinding {
   create(options: {
     id?: string;
