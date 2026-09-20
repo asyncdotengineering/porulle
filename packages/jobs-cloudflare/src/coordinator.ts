@@ -388,7 +388,17 @@ export interface DurableObjectConcurrencyCoordinatorOptions {
 /** `CloudflareConcurrencyCoordinator` backed by a `PorulleJobCoordinator` Durable
  * Object: supersede terminates pending instances at enqueue, and `run` serialises
  * same-key instances through the DO's `acquire`/`release`, waiting with
- * `step.waitForEvent` when another instance already holds the key. */
+ * `step.waitForEvent` when another instance already holds the key.
+ *
+ * CHOOSE THE CONCURRENCY KEY FOR WHAT MAY SUPERSEDE WHAT. `supersedes` terminates
+ * EVERY other pending instance under the key (`commitEnqueue`), which is what you
+ * want when the key identifies the thing being worked — a second enqueue for one
+ * entity should replace the first. It is destructive when the key groups work that
+ * is meant to run in full: a page-per-job walk keyed on the store would have each
+ * page terminate the one before it, and the symptom is missing output, not an error.
+ * If the unit of work is a page rather than a record, either drop `supersedes` or
+ * key on the page. An uncoordinated enqueue is a bare `workflow.create()` and skips
+ * this object entirely. */
 export class DurableObjectConcurrencyCoordinator
   implements CloudflareConcurrencyCoordinator
 {
@@ -405,6 +415,15 @@ export class DurableObjectConcurrencyCoordinator
       .stub(key)
       .enqueue(key, payload.supersedes, payload.jobId, inputHash);
     if (coalescedInto) return { id: coalescedInto };
+    // The swallow is deliberate, not a silenced error. `commitEnqueue` dropped these
+    // ids from the DO's pending set before we got here, and the commonest reason a
+    // terminate fails is that the instance had already finished — the same lag
+    // `#isStale` exists for. Distinguishing "already done" from "still alive and we
+    // failed to kill it" costs a status call per id on the enqueue path, to catch a
+    // case whose worst outcome is a superseded instance running once more. Every
+    // superseding task today is an idempotent sweep, so that costs duplicate work
+    // rather than wrong state. Revisit if a task ever supersedes work that is not
+    // safe to run twice.
     await Promise.all(
       terminated.map((id) =>
         this.options.workflow
