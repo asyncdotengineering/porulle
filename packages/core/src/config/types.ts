@@ -1,3 +1,4 @@
+import type { betterAuth } from "better-auth";
 import type { Hono, MiddlewareHandler } from "hono";
 import type { Actor } from "../auth/types.js";
 import type { BeforeHook, AfterHook } from "../kernel/hooks/types.js";
@@ -13,6 +14,9 @@ import type {
   JobProcessingOrder,
   TaskDefinition,
 } from "../kernel/jobs/types.js";
+
+/** Better Auth's own options type, read off the function so no named export is required. */
+type BetterAuthOptions = Parameters<typeof betterAuth>[0];
 
 export interface RoleDefinition {
   permissions: string[];
@@ -259,6 +263,63 @@ export interface AuthConfig {
    * a trusted actor for integration tests. Default false.
    */
   allowTestActor?: boolean;
+  /**
+   * Password policy and reset behaviour, forwarded into Better Auth's
+   * `emailAndPassword` block.
+   *
+   * These are surfaced deliberately rather than left to `extend`, because core
+   * OWNS `emailAndPassword` (it injects `sendResetPassword` and
+   * `sendVerificationEmail` from `config.email`), so a consumer cannot supply
+   * that block wholesale without losing the transactional email wiring.
+   *
+   * Every field here is one Better Auth honours and core previously dropped on
+   * the floor: setting them in a consumer config typechecked and did nothing.
+   */
+  password?: {
+    /** Minimum password length. Better Auth's own default is 8. */
+    minLength?: number;
+    /** Maximum password length. Better Auth's own default is 128. */
+    maxLength?: number;
+    /** Block new email+password registrations. */
+    disableSignUp?: boolean;
+    /** Sign the user in immediately after sign-up. */
+    autoSignIn?: boolean;
+    /**
+     * End every other session when a password is reset. Better Auth defaults
+     * this to FALSE, which leaves an attacker's session live through the one
+     * action a compromised user takes to evict them. Set it to true unless you
+     * have a specific reason not to.
+     */
+    revokeSessionsOnPasswordReset?: boolean;
+    /** Seconds a reset token stays valid. Better Auth's own default is 3600. */
+    resetTokenExpiresIn?: number;
+    /** Audit hook fired after a password is successfully changed. */
+    onPasswordReset?: (
+      data: { user: { id: string; email: string; name: string } },
+      request?: Request,
+    ) => Promise<void>;
+  };
+  /**
+   * Upstream Better Auth options core does not own, passed straight through.
+   *
+   * This is the escape hatch that stops the next upstream option from being
+   * silently dropped. The keys core builds itself are `Omit`ted, so setting one
+   * here is a COMPILE ERROR naming the key rather than a value that is accepted
+   * and ignored — the failure mode this option exists to remove.
+   *
+   * Spread FIRST in `createAuth`, so a core-owned key can never be clobbered.
+   */
+  extend?: Omit<
+    BetterAuthOptions,
+    | "database"
+    | "trustedOrigins"
+    | "emailAndPassword"
+    | "socialProviders"
+    | "session"
+    | "advanced"
+    | "user"
+    | "plugins"
+  >;
 }
 
 export interface CartConfig {
