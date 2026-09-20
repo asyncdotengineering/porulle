@@ -141,6 +141,10 @@ export function createAuth(
 
   try {
     const auth = betterAuth({
+      // Upstream options core does not own, FIRST so every core-owned key below
+      // wins. `AuthConfig["extend"]` Omits the keys core builds, so a consumer
+      // cannot reach one from here — it is a compile error, not a silent drop.
+      ...(config.auth?.extend ?? {}),
       ...(config.auth?.baseURL ? { baseURL: config.auth.baseURL } : {}),
       // Endpoints whose only currency is a raw session bearer token. Read in
       // the router's own onRequest, before rate limiting and before any plugin
@@ -158,6 +162,33 @@ export function createAuth(
       emailAndPassword: {
         enabled: true,
         requireEmailVerification: config.auth?.requireEmailVerification ?? true,
+        // Forwarded from `config.auth.password`. Every one of these was dropped
+        // on the floor until 2026-09-20: Better Auth honours them, core never
+        // passed them, so setting them in a consumer config did nothing.
+        // `revokeSessionsOnPasswordReset` defaults to TRUE here, against Better
+        // Auth's own `false`. A password reset is the canonical "I think I am
+        // compromised" action, and leaving the attacker's session live through
+        // it is the wrong default for a commerce platform. Opt out explicitly.
+        revokeSessionsOnPasswordReset:
+          config.auth?.password?.revokeSessionsOnPasswordReset ?? true,
+        ...(config.auth?.password?.minLength !== undefined
+          ? { minPasswordLength: config.auth.password.minLength }
+          : {}),
+        ...(config.auth?.password?.maxLength !== undefined
+          ? { maxPasswordLength: config.auth.password.maxLength }
+          : {}),
+        ...(config.auth?.password?.disableSignUp !== undefined
+          ? { disableSignUp: config.auth.password.disableSignUp }
+          : {}),
+        ...(config.auth?.password?.autoSignIn !== undefined
+          ? { autoSignIn: config.auth.password.autoSignIn }
+          : {}),
+        ...(config.auth?.password?.resetTokenExpiresIn !== undefined
+          ? { resetPasswordTokenExpiresIn: config.auth.password.resetTokenExpiresIn }
+          : {}),
+        ...(config.auth?.password?.onPasswordReset !== undefined
+          ? { onPasswordReset: config.auth.password.onPasswordReset }
+          : {}),
         sendResetPassword: async ({ user, url }: AuthEmailPayload) => {
           if (!config.email) return;
           await config.email.send({
