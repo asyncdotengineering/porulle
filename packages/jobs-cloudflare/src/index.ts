@@ -50,13 +50,24 @@ export interface WorkflowInstanceHandle {
 }
 
 /**
- * No `createBatch`, on purpose. Cloudflare's binding can create up to 100 instances
- * per call, and it is the primitive every comparable runtime reaches for — Inngest's
- * `batchEvents`, Trigger.dev's `batchTrigger` — because they are fixing per-RECORD
- * enqueueing. The answer here is to stop enqueueing per record: one instance per page
- * of work, whose payload carries the ids. That needs one `create`, so adding
- * `createBatch` would buy a fan-out shape we are deliberately not building. Add it the
- * day something genuinely needs N instances at once, not before.
+ * No `createBatch` YET, and the reason is a measurement nobody has taken rather than
+ * an absent use case. Cloudflare's binding creates up to 100 instances per call and it
+ * is what Inngest's `batchEvents` and Trigger.dev's `batchTrigger` exist for: fixing
+ * per-RECORD enqueueing.
+ *
+ * On the import path there is nothing to batch — one instance per page of work, ids in
+ * the payload, one `create`. But `enrichment-reenqueue` in the consuming app fires up
+ * to 500 enqueues by default and 5,000 capped, one per entity, and already hand-rolls
+ * bounded concurrency at six to stay under the subrequest budget. That is the case this
+ * would serve, and it survives the page-major rewrite because it is an operator route,
+ * not part of the import.
+ *
+ * What stops it being obviously worth it: those enqueues are coordinated, so each is a
+ * Durable Object round trip PLUS a `create`, and `createBatch` replaces only the second.
+ * The DO half cannot batch at all — N entity ids are N keys are N objects. So the payoff
+ * is whatever share of the measured ~0.9 s per enqueue is creation rather than
+ * coordination, and `do:enqueue` currently lumps the two. Split that class first, then
+ * decide.
  *
  * Keep the payload to identifiers. Params ride with the instance, so a page of ids is
  * kilobytes and a page of product bodies is a size limit waiting to be hit.
