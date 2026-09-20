@@ -1,15 +1,16 @@
 ---
 type: worker
 probe: command -v cursor-agent
-command: cursor-agent -p --force --trust --model composer-2.5 --sandbox disabled --approve-mcps --workspace {repo_path} --output-format text < {prompt_file}
+command: cursor-agent -p --force --trust --model composer-2.5-fast --sandbox disabled --approve-mcps --workspace {repo_path} --output-format text < {prompt_file}
 ---
 
 # cursor
 
-Alternative implementation worker. stdin IS the prompt — do not add
-`< /dev/null`.
+Implementation worker. Which worker is the default IC is routing data, not a
+worker-file fact — see [../routing.md](../routing.md). stdin IS the prompt —
+do not add `< /dev/null`.
 
-**Model: `composer-2.5`, locked.** Never dispatch Cursor on any other model, and
+**Model: `composer-2.5-fast`, locked.** Never dispatch Cursor on any other model, and
 never use `--model auto`. Pinned here so every dispatch uses the same one and it
 does not drift with whatever was last selected interactively. Change it in this
 file, not in a brief — a model chosen per dispatch is a model nobody can audit
