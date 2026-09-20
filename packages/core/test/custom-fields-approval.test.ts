@@ -240,6 +240,49 @@ describe("catalog custom-field review", () => {
       }),
     ]);
   });
+
+  // `reviewCustomField` used to write through the repository and run no hooks at all, while
+  // `create`, `update` and `setAttributes` each ran theirs. An approval therefore notified
+  // nothing, and every consumer holding a derived copy of an entity's custom fields went on
+  // serving the value the approval had just replaced.
+  it("fires catalog.afterUpdate on approval, naming the field that changed", async () => {
+    const fired: Array<{ entityId: string; changedFieldPaths: unknown }> = [];
+    kernel.hooks.append("catalog.afterUpdate", async (args: {
+      result: { id: string };
+      context: { context: Record<string, unknown> };
+    }) => {
+      fired.push({ entityId: args.result.id, changedFieldPaths: args.context.context.changedFieldPaths });
+    });
+
+    const entityId = await createEntity(reviewerA, "review-approve-fires-hook");
+    await createProposal(entityId, "3y");
+    const before = fired.length;
+
+    const result = await kernel.services.catalog.approveCustomField(entityId, "warranty", "en", reviewerA);
+    expect(result.ok).toBe(true);
+
+    const afterApproval = fired.slice(before);
+    expect(afterApproval).toHaveLength(1);
+    expect(afterApproval[0]).toEqual({
+      entityId,
+      changedFieldPaths: ["customFields.en.warranty"],
+    });
+  });
+
+  // A rejection leaves the live row alone, so there is nothing for a consumer to re-read.
+  it("fires no catalog.afterUpdate on rejection", async () => {
+    let fired = 0;
+    kernel.hooks.append("catalog.afterUpdate", async () => { fired += 1; });
+
+    const entityId = await createEntity(reviewerA, "review-reject-no-hook");
+    await createProposal(entityId, "4y");
+    const before = fired;
+
+    const result = await kernel.services.catalog.rejectCustomField(entityId, "warranty", "en", reviewerA);
+    expect(result.ok).toBe(true);
+    expect(fired).toBe(before);
+  });
+
 });
 
 describe("custom-field review REST", () => {

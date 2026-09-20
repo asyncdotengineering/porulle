@@ -200,6 +200,7 @@ export type {
   CatalogPushPreviewUnavailable,
   PushCatalogToStoreResult,
   CatalogPushJobResult,
+  CatalogConvergenceFailure,
   CatalogFieldConflict,
   CatalogFieldSkip,
   CatalogPushFieldSkip,

@@ -293,6 +293,15 @@ export interface BackfillCatalogReport extends BackfillCounts, Record<string, un
   warnings?: string[];
 }
 
+/**
+ * One item the converge loop could not finish. `externalId` is the merchant's id, because the
+ * entity may not exist yet and a caller reporting the failure has nothing else to name it by.
+ */
+export interface CatalogConvergenceFailure {
+  externalId: string;
+  error: string;
+}
+
 interface CatalogConvergenceStats {
   imported: number;
   converged: number;
@@ -304,6 +313,17 @@ interface CatalogConvergenceStats {
   skipped: CatalogFieldSkip[];
   conflicts: CatalogFieldConflict[];
   warnings: string[];
+  /**
+   * Items that failed. The batch CONTINUES past each one and counts it in `consumed`, so the
+   * store cursor advances and a later page is still reached.
+   *
+   * It used to `return PluginErr` on the first failure, which returned before the cursor write in
+   * `importCatalog` while the items already converged stayed committed. The retry then re-fetched
+   * the same page, re-converged the same prefix and failed on the same item: one malformed product
+   * halted the rest of a merchant's catalogue permanently. Saleor calls this choice
+   * REJECT_FAILED_ROWS as against REJECT_EVERYTHING; this is the former.
+   */
+  failures: CatalogConvergenceFailure[];
 }
 
 type ImportResumePosition = { pageCursor: string | null; offset: number };
@@ -2399,6 +2419,7 @@ export class ChannelConnectorService {
     skipped?: CatalogFieldSkip[];
     conflicts?: CatalogFieldConflict[];
     warnings?: string[];
+    failures?: CatalogConvergenceFailure[];
   }>>;
   async importCatalog(
     orgId: string,
@@ -2411,6 +2432,7 @@ export class ChannelConnectorService {
     skipped?: CatalogFieldSkip[];
     conflicts?: CatalogFieldConflict[];
     warnings?: string[];
+    failures?: CatalogConvergenceFailure[];
   }>>;
   async importCatalog(
     orgId: string,
@@ -2424,6 +2446,7 @@ export class ChannelConnectorService {
     skipped?: CatalogFieldSkip[];
     conflicts?: CatalogFieldConflict[];
     warnings?: string[];
+    failures?: CatalogConvergenceFailure[];
   }>> {
     const store = await this.getStoreRecord(orgId, storeId);
     if (!store || store.status !== "connected") {
@@ -2459,6 +2482,7 @@ export class ChannelConnectorService {
         ...(result.value.skipped.length > 0 ? { skipped: uniqueSkipped(result.value.skipped) } : {}),
         ...(result.value.conflicts.length > 0 ? { conflicts: result.value.conflicts } : {}),
         ...(result.value.warnings.length > 0 ? { warnings: result.value.warnings } : {}),
+        ...(result.value.failures.length > 0 ? { failures: result.value.failures } : {}),
       });
     }
 
@@ -2469,6 +2493,7 @@ export class ChannelConnectorService {
     const skipped: CatalogFieldSkip[] = [];
     const conflicts: CatalogFieldConflict[] = [];
     const warnings: string[] = [];
+    const failures: CatalogConvergenceFailure[] = [];
 
     while (remaining > 0) {
       const page = await connector.importCatalog(store as ChannelStore, pageCursor ?? undefined);
@@ -2497,6 +2522,7 @@ export class ChannelConnectorService {
       skipped.push(...result.value.skipped);
       conflicts.push(...result.value.conflicts);
       warnings.push(...result.value.warnings);
+      failures.push(...result.value.failures);
       offset += result.value.consumed;
 
       if (offset >= pageItems.length) {
@@ -2529,6 +2555,9 @@ export class ChannelConnectorService {
       ...(skipped.length > 0 ? { skipped: uniqueSkipped(skipped) } : {}),
       ...(conflicts.length > 0 ? { conflicts } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
+      // Always surfaced when non-empty. A silently dropped product is worse than the halt this
+      // replaced: the caller must be able to see which externalIds did not land.
+      ...(failures.length > 0 ? { failures } : {}),
     });
   }
 
@@ -2716,6 +2745,7 @@ export class ChannelConnectorService {
       skipped: [],
       conflicts: [],
       warnings: [],
+      failures: [],   // a dry run converges nothing, so it can fail nothing
     };
     const assets = await this.db.select().from(mediaAssets).where(eq(mediaAssets.organizationId, orgId));
     for (const item of items) {
@@ -2863,8 +2893,10 @@ export class ChannelConnectorService {
     const skipped: CatalogFieldSkip[] = [];
     const conflicts: CatalogFieldConflict[] = [];
     const warnings: string[] = [];
+    const failures: CatalogConvergenceFailure[] = [];
     for (const item of items) {
       consumed += 1;
+      try {
       const remoteHash = hash(item);
       const existing = await this.db
         .select()
@@ -2934,7 +2966,8 @@ export class ChannelConnectorService {
               return created.value.id;
             });
           } catch (error) {
-            return PluginErr(error instanceof Error ? error.message : "Failed to create catalog entity.");
+            failures.push({ externalId: item.externalId, error: error instanceof Error ? error.message : "Failed to create catalog entity." });
+            continue;
           }
           isNew = true;
           imported += 1;
@@ -2945,7 +2978,7 @@ export class ChannelConnectorService {
       const ownershipBeforeSeed = await this.catalog.resolveFieldOwners(entityId, storeId);
       const seedPaths = importedFieldPaths(item).filter((path) => !ownershipBeforeSeed.has(path));
       const seeded = await this.catalog.seedImportedFieldOwnership(entityId, storeId, seedPaths);
-      if (!seeded.ok) return PluginErr(seeded.error.message);
+      if (!seeded.ok) { failures.push({ externalId: item.externalId, error: seeded.error.message }); continue; }
       for (const path of seedPaths) ownershipBeforeSeed.set(path, "store");
       const owners = ownershipBeforeSeed;
       const outboundEcho = entityMapping ? this.isOutboundEcho(entityMapping, item) : false;
@@ -3008,7 +3041,7 @@ export class ChannelConnectorService {
           converged += 1;
           if (Object.keys(updateInput).length > 0) {
             const updated = await this.catalog.update(entityMapping.entityId, updateInput, actor, CHANNEL_CONVERGENCE_CTX);
-            if (!updated.ok) return PluginErr(updated.error.message);
+            if (!updated.ok) { failures.push({ externalId: item.externalId, error: updated.error.message }); continue; }
             entityTouched = true;
           }
         }
@@ -3043,7 +3076,7 @@ export class ChannelConnectorService {
 
       if (entityTouched) {
         const revision = await this.catalog.recordEntityRevision(entityId, actor, "import");
-        if (!revision.ok) return PluginErr(revision.error.message);
+        if (!revision.ok) { failures.push({ externalId: item.externalId, error: revision.error.message }); continue; }
       }
 
       const revisionMarkers = await this.catalog.repository.findRevisionMarkers(entityId);
@@ -3089,6 +3122,12 @@ export class ChannelConnectorService {
         eq(channelEntityMap.entityId, entityId),
         eq(channelEntityMap.kind, "variant"),
       ));
+      } catch (error) {
+        // Anything the stages throw rather than returning. Same disposition: record it against the
+        // item and carry on, so an unforeseen throw costs one product and not the remaining page.
+        failures.push({ externalId: item.externalId, error: error instanceof Error ? error.message : String(error) });
+        continue;
+      }
     }
     return Ok({
       imported,
@@ -3101,6 +3140,7 @@ export class ChannelConnectorService {
       skipped,
       conflicts,
       warnings,
+      failures,
     });
   }
 

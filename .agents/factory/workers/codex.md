@@ -1,7 +1,7 @@
 ---
 type: worker
 probe: command -v codex
-command: codex exec -C {repo_path} --model gpt-5.6-luna -c model_reasoning_effort="high" --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust --skip-git-repo-check "$(cat {prompt_file})" < /dev/null
+command: codex exec -C {repo_path} --model gpt-5.6-luna -c model_reasoning_effort="xhigh" -c service_tier="priority" --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust --skip-git-repo-check "$(cat {prompt_file})" < /dev/null
 ---
 
 # codex
@@ -20,7 +20,9 @@ third-party code). Verify flags against your installed version
 additional input from stdin…" and hangs when backgrounded. Prompt is passed as
 `"$(cat {prompt_file})"`, not stdin.
 
-**Model: `gpt-5.6-luna` at `high` reasoning.** Pinned here so every dispatch
+**Model: `gpt-5.6-luna` at `xhigh` reasoning, `priority` service tier.** The
+tier buys queue priority on long reasoning turns; `~/.codex/config.toml` sets
+`service_tier = "default"`, so the override belongs here. Pinned here so every dispatch
 uses the same one and it does not drift with whatever was last selected
 interactively. Change it in this file, not in a brief — a model chosen per
 dispatch is a model nobody can audit afterwards.

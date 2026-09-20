@@ -1050,6 +1050,13 @@ export class CatalogServiceImpl implements CatalogService {
         await this.repository.rejectOtherProposedCustomFields(entityId, fieldName, locale, updated.id, txCtx);
       }
       await this.captureRevision(entityId, reviewer, "update", txCtx);
+      // An approval REPLACES the live value: the approved row was deleted above and this proposal
+      // takes its place. That is an entity change to every consumer of `catalog.afterUpdate`, and
+      // until now it fired none, so an approved fact reached nothing downstream. A rejection is
+      // not: the live row is untouched and there is nothing for a consumer to re-read.
+      if (status === "approved") {
+        await this.entities.notifyEntityUpdated(entityId, [`customFields.${locale}.${fieldName}`], reviewer, txCtx);
+      }
       return Ok(updated);
     });
   }
