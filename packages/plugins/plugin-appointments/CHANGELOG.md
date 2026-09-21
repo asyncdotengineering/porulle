@@ -1,5 +1,12 @@
 # @porulle/plugin-appointments
 
+## 0.47.0
+
+### Patch Changes
+
+- Updated dependencies [[`71ace6a`](https://github.com/asyncdotengineering/porulle/commit/71ace6a67d7dcae1602f2bbf6d91c97435a06ec8)]:
+  - @porulle/core@0.47.0
+
 ## 0.46.0
 
 ### Patch Changes
