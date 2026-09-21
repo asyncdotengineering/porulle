@@ -46,6 +46,38 @@ function inTransactionHookContext(context: HookContext): HookContext {
 /** Default hook timeout: 20 seconds */
 const HOOK_TIMEOUT_MS = 20_000;
 
+/**
+ * Warn above this. The timeout is the wrong instrument for the common case: a hook does not have
+ * to reach 20 s to be a problem, and by the time it does the damage is already spent.
+ *
+ * An in-transaction hook holds a pooled Postgres transaction for its whole duration. An
+ * after-commit one extends the invocation that wrote — on Workers a promise the invocation does
+ * not outlive, so the writer waits for it. `failures.ts` records what that costs unobserved: four
+ * connector suites took 578.23 s instead of 27.29 s and logged 51 `deliverWebhooks timed out after
+ * 20000ms`, exit 0, 22 of 22 passing. The only thing that disagreed was the wall clock.
+ *
+ * 100 ms matches Vendure's blocking-handler warning, and the remedy is the same one it names:
+ * move non-trivial work to the job queue and let the hook enqueue it.
+ */
+const HOOK_SLOW_MS = 100;
+
+function warnIfSlow(context: HookContext, hookName: string, startedAt: number, inTransaction: boolean): void {
+  const elapsed = Date.now() - startedAt;
+  if (elapsed <= HOOK_SLOW_MS) return;
+  context.logger.warn(
+    `After-hook "${hookName}" took ${elapsed}ms`,
+    {
+      hookName,
+      elapsedMs: elapsed,
+      inTransaction,
+      requestId: context.requestId,
+      hint: inTransaction
+        ? "Runs inside the writing transaction and holds its connection for this long. Enqueue the work instead."
+        : "Runs after commit but inside the same invocation, so the writer waits for it. Enqueue the work instead.",
+    },
+  );
+}
+
 function withTimeout<T>(promiseOrValue: Promise<T> | T, timeoutMs: number, hookName: string): Promise<T> {
   const promise = Promise.resolve(promiseOrValue);
   return new Promise<T>((resolve, reject) => {
@@ -130,8 +162,10 @@ export async function runAfterHooks<TResult, TData = TResult>(
       );
 
     if (runsInTransaction(hook)) {
+      const startedAt = Date.now();
       try {
         await runHook();
+        warnIfSlow(context, hookName, startedAt, true);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         errors.push({ hookName, message });
@@ -144,8 +178,10 @@ export async function runAfterHooks<TResult, TData = TResult>(
     }
 
     const deferred = deferAfterCommit(async () => {
+      const startedAt = Date.now();
       try {
         await runHook();
+        warnIfSlow(context, hookName, startedAt, false);
       } catch (error) {
         // Reported rather than collected: this runs after the commit, so the HookReport below has
         // already been returned to the caller and there is nowhere else for this failure to go.
@@ -161,8 +197,10 @@ export async function runAfterHooks<TResult, TData = TResult>(
     });
 
     if (!deferred) {
+      const startedAt = Date.now();
       try {
         await runHook();
+        warnIfSlow(context, hookName, startedAt, false);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         errors.push({ hookName, message });
