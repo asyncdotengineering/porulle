@@ -1,5 +1,13 @@
 # @porulle/plugin-pos-restaurant
 
+## 0.48.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.48.1
+  - @porulle/plugin-pos@0.48.1
+
 ## 0.48.0
 
 ### Patch Changes
