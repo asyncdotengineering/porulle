@@ -324,6 +324,26 @@ interface CatalogConvergenceStats {
    * REJECT_FAILED_ROWS as against REJECT_EVERYTHING; this is the former.
    */
   failures: CatalogConvergenceFailure[];
+  /**
+   * The entities this batch actually COMMITTED, in input order, with failures excluded.
+   *
+   * It exists so a caller can name the page it just converged — one queue message carrying these
+   * ids instead of one enqueue per product. Everything about that use makes the exact membership
+   * load-bearing, so the ways it can be wrong are worth stating rather than discovering:
+   *
+   *  - **A failed item must not appear.** Every failure path above `continue`s before the push, so
+   *    an id is added only after the item's last write. An id here that was never committed makes
+   *    the consumer pay a model call for a row that does not exist.
+   *  - **Order is input order.** The page message is rebuilt from this array, so a stable order is
+   *    what makes the same page produce the same message on a Workflow retry.
+   *  - **No duplicates.** A connector that returns one `externalId` twice in a page would otherwise
+   *    put the same entity in the message twice, and the consumer would pay for it twice. The push
+   *    is de-duplicated on first occurrence.
+   *  - **It must stay JSON.** This crosses a durable step boundary as part of `BatchOutcome`.
+   *  - **It is per BATCH, never accumulated across a walk.** `walkBatches` keeps only `last`, so a
+   *    3,000-product store never builds a 3,000-element array against the 1 MiB step-result limit.
+   */
+  entityIds: string[];
 }
 
 type ImportResumePosition = { pageCursor: string | null; offset: number };
@@ -2494,6 +2514,7 @@ export class ChannelConnectorService {
     const conflicts: CatalogFieldConflict[] = [];
     const warnings: string[] = [];
     const failures: CatalogConvergenceFailure[] = [];
+    const entityIds: string[] = [];
 
     while (remaining > 0) {
       const page = await connector.importCatalog(store as ChannelStore, pageCursor ?? undefined);
@@ -2523,6 +2544,7 @@ export class ChannelConnectorService {
       conflicts.push(...result.value.conflicts);
       warnings.push(...result.value.warnings);
       failures.push(...result.value.failures);
+      entityIds.push(...result.value.entityIds);
       offset += result.value.consumed;
 
       if (offset >= pageItems.length) {
@@ -2558,6 +2580,13 @@ export class ChannelConnectorService {
       // Always surfaced when non-empty. A silently dropped product is worse than the halt this
       // replaced: the caller must be able to see which externalIds did not land.
       ...(failures.length > 0 ? { failures } : {}),
+      // UNCONDITIONAL, unlike every optional field above it, and the asymmetry is deliberate.
+      // The caller turns this into one queue message naming the page it just converged. If the key
+      // were omitted when empty, a caller reading `outcome.entityIds` could not tell "this batch
+      // committed nothing" from "this plugin version does not report entities" — both read as
+      // `undefined`, and the second one silently produces an import that enqueues nothing. An
+      // empty array says the first; a missing key says the second. They deserve different answers.
+      entityIds,
     });
   }
 
@@ -2746,6 +2775,7 @@ export class ChannelConnectorService {
       conflicts: [],
       warnings: [],
       failures: [],   // a dry run converges nothing, so it can fail nothing
+      entityIds: [],  // ...and commits nothing, so it names nothing
     };
     const assets = await this.db.select().from(mediaAssets).where(eq(mediaAssets.organizationId, orgId));
     for (const item of items) {
@@ -2894,6 +2924,8 @@ export class ChannelConnectorService {
     const conflicts: CatalogFieldConflict[] = [];
     const warnings: string[] = [];
     const failures: CatalogConvergenceFailure[] = [];
+    const entityIds: string[] = [];
+    const committed = new Set<string>();
     for (const item of items) {
       consumed += 1;
       try {
@@ -3122,6 +3154,14 @@ export class ChannelConnectorService {
         eq(channelEntityMap.entityId, entityId),
         eq(channelEntityMap.kind, "variant"),
       ));
+      // LAST statement of the try, and that position is the whole guarantee: every failure path
+      // above reaches `continue` before here, so an id is recorded only once the item's writes are
+      // done. De-duplicated because a connector returning one externalId twice in a page would
+      // otherwise have the consumer pay for the same entity twice.
+      if (!committed.has(entityId)) {
+        committed.add(entityId);
+        entityIds.push(entityId);
+      }
       } catch (error) {
         // Anything the stages throw rather than returning. Same disposition: record it against the
         // item and carry on, so an unforeseen throw costs one product and not the remaining page.
@@ -3141,6 +3181,7 @@ export class ChannelConnectorService {
       conflicts,
       warnings,
       failures,
+      entityIds,
     });
   }
 

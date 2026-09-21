@@ -104,11 +104,25 @@ export const CHANNEL_MAX_BATCHES_PER_SWEEP = 5_000;
 
 /** What one bounded batch reports back: whether the store is drained, how much work it did, and
  *  where it stopped. Everything here crosses a durable-step boundary, so it must stay JSON. */
+import type { CatalogConvergenceFailure } from "./service.js";
+
 interface BatchOutcome {
   exhausted: boolean;
   counted: number;
   cursor: unknown;
   warnings?: string[];
+  /**
+   * The entities this batch committed, in input order, failures excluded — so the caller can emit
+   * ONE message naming the page instead of one enqueue per product.
+   *
+   * Optional in the type and unconditional in the value the service returns. `undefined` means no
+   * batch produced an outcome (the initial `last` below, or a plugin build that predates this
+   * field); `[]` means a batch ran and committed nothing. A caller that collapses those two enqueues
+   * nothing and reports success.
+   */
+  entityIds?: string[];
+  /** The items that did not land, so the caller can record them against the run rather than drop them. */
+  failures?: CatalogConvergenceFailure[];
 }
 
 /**
