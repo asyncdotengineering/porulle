@@ -335,6 +335,15 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
               counted: page.value.imported,
               cursor: page.value.cursor ?? null,
               ...(page.value.warnings ? { warnings: page.value.warnings } : {}),
+              // UNCONDITIONAL, unlike `warnings` and `failures` beside it. The step's return value is
+              // the only per-batch seam a host application has — `walkBatches` keeps just `last` — so
+              // this is where a page gets its identity. Omitting it when empty would make "this batch
+              // committed nothing" and "this plugin build does not report entities" the same
+              // `undefined` at the seam, and a caller that collapses those enqueues nothing and
+              // reports success. The service's own return declares it unconditional for the same
+              // reason; dropping it here would have undone that one line later.
+              entityIds: page.value.entityIds,
+              ...(page.value.failures ? { failures: page.value.failures } : {}),
             };
           },
         );
