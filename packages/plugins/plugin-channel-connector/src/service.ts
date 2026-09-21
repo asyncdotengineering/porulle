@@ -2440,6 +2440,18 @@ export class ChannelConnectorService {
     conflicts?: CatalogFieldConflict[];
     warnings?: string[];
     failures?: CatalogConvergenceFailure[];
+    /**
+     * The entities this batch committed — see `CatalogConvergenceStats.entityIds`.
+     *
+     * Declared on the BOUNDED overload only. This is the one a per-batch step wrapper calls, so it
+     * is the one with a page to name. The unbounded overload walks a whole catalogue and would hand
+     * back thousands of ids across a durable step boundary, which is the opposite of the point.
+     *
+     * Required rather than optional here, unlike its siblings, for the reason the implementation
+     * states: a caller must be able to tell "this batch committed nothing" from "this build does
+     * not report entities", and one of those is `[]` while the other is `undefined`.
+     */
+    entityIds: string[];
   }>>;
   async importCatalog(
     orgId: string,
@@ -2467,6 +2479,7 @@ export class ChannelConnectorService {
     conflicts?: CatalogFieldConflict[];
     warnings?: string[];
     failures?: CatalogConvergenceFailure[];
+    entityIds?: string[];
   }>> {
     const store = await this.getStoreRecord(orgId, storeId);
     if (!store || store.status !== "connected") {
