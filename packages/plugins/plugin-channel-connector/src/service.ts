@@ -1329,20 +1329,31 @@ export class ChannelConnectorService {
       if (!optionType) {
         const created = await this.catalog.createOptionType({ entityId, name: sourceType.name, values: [] }, actor);
         if (!created.ok) return PluginErr(created.error.message);
-        // The created row is CONSTRUCTED rather than read back. `createOptionType` returns the id and
-        // the name is what we just sent; `displayName`/`sortOrder` are null-by-default on a fresh row
-        // and are written by the update immediately below, which the null forces to run.
+        // The created row is CONSTRUCTED rather than read back: `createOptionType` returns the id and
+        // the name is what we just sent.
+        //
+        // The two nulls are DELIBERATE PLACEHOLDERS, not a claim about the database. `createOptionType`
+        // actually persists `displayName: input.name, sortOrder: 0` (core entity-service.ts:595) and
+        // `display_name` is NOT NULL (core catalog/schema.ts:307) — so a fresh row never holds null.
+        // Constructing nulls here makes the comparison below unequal on any input, which is what forces
+        // the update that writes the caller's real `displayName`/`sortOrder` over those defaults.
         optionType = { id: created.value.id, name: sourceType.name, displayName: null, sortOrder: null };
         existingTypes.push(optionType);
         changed = true;
       }
       const desiredTypeSort = sourceType.sortOrder ?? typeIndex;
-      if (optionType.displayName !== sourceType.displayName || optionType.sortOrder !== desiredTypeSort) {
+      // `?? null` NORMALISES, and it is load-bearing rather than tidy. The stored value is `null` or a
+      // string; a connector that omits `displayName` sends `undefined`, and `null !== undefined` is
+      // true — so without this every such connector issued one UPDATE per option type on every sync
+      // and the conditional bought it nothing. Latent on today's corpus, whose connector always sends
+      // both fields.
+      const desiredTypeDisplay = sourceType.displayName ?? null;
+      if (optionType.displayName !== desiredTypeDisplay || optionType.sortOrder !== desiredTypeSort) {
         await this.db.update(optionTypes).set({
           displayName: sourceType.displayName,
           sortOrder: desiredTypeSort,
         }).where(eq(optionTypes.id, optionType.id));
-        optionType.displayName = sourceType.displayName ?? null;
+        optionType.displayName = desiredTypeDisplay;
         optionType.sortOrder = desiredTypeSort;
       }
 
@@ -1357,17 +1368,20 @@ export class ChannelConnectorService {
         if (!optionValue) {
           const created = await this.catalog.createOptionValue({ optionTypeId: optionType.id, value: sourceValue.value }, actor);
           if (!created.ok) return PluginErr(created.error.message);
+          // Same placeholder reasoning as the option type above: core persists `displayValue: input.value,
+          // sortOrder: 0` (entity-service.ts:615), and the nulls force the update that overwrites them.
           optionValue = { id: created.value.id, value: sourceValue.value, displayValue: null, sortOrder: null };
           existingValues.push(optionValue);
           changed = true;
         }
         const desiredValueSort = sourceValue.sortOrder ?? valueIndex;
-        if (optionValue.displayValue !== sourceValue.displayValue || optionValue.sortOrder !== desiredValueSort) {
+        const desiredValueDisplay = sourceValue.displayValue ?? null;
+        if (optionValue.displayValue !== desiredValueDisplay || optionValue.sortOrder !== desiredValueSort) {
           await this.db.update(optionValues).set({
             displayValue: sourceValue.displayValue,
             sortOrder: desiredValueSort,
           }).where(eq(optionValues.id, optionValue.id));
-          optionValue.displayValue = sourceValue.displayValue ?? null;
+          optionValue.displayValue = desiredValueDisplay;
           optionValue.sortOrder = desiredValueSort;
         }
         valueIds.set(sourceValue.value, optionValue.id);
@@ -1420,6 +1434,29 @@ export class ChannelConnectorService {
       const fullSourceVariant = fullItem.variants.find((variant) => variant.externalId === sourceVariant.externalId) ?? sourceVariant;
       let mapping = mappings.find((row) => row.externalId === sourceVariant.externalId);
       let variantId = mapping?.variantId;
+      // ADOPT BEFORE CREATE. A variant-kind mapping row whose `variantId` is null has lost its link
+      // — the key survived, the target did not. Creating a replacement is what the loop used to do,
+      // and it cannot work: the orphaned variant still holds the sku, so `variants_native_org_sku_unique`
+      // refuses the insert and the item fails on this and every later sync. The row can never heal.
+      //
+      // `sku` is the store's own natural key for a variant, so re-resolving by it is what restores
+      // the link the null destroyed. Scoped to this entity because a sku is unique per organization
+      // and adopting another entity's variant would be worse than failing.
+      if (mapping && !variantId && sourceVariant.sku) {
+        const [adopted] = await this.db
+          .select({ id: variants.id })
+          .from(variants)
+          .where(and(eq(variants.entityId, entityId), eq(variants.sku, sourceVariant.sku)))
+          .limit(1);
+        if (adopted) {
+          variantId = adopted.id;
+          // Write the link back, or the row stays broken and every later sync pays this lookup again.
+          await this.db.update(channelEntityMap)
+            .set({ variantId })
+            .where(eq(channelEntityMap.id, mapping.id));
+          mapping.variantId = variantId;
+        }
+      }
       const createdVariant = !variantId;
       if (!variantId) {
         const options: Record<string, string> = {};
@@ -1439,17 +1476,36 @@ export class ChannelConnectorService {
         }, actor);
         if (!created.ok) return PluginErr(created.error.message);
         variantId = created.value.id;
-        const [createdMapping] = await this.db.insert(channelEntityMap).values({
-          organizationId: orgId,
-          storeId,
-          kind: "variant",
-          externalId: sourceVariant.externalId,
-          entityId,
-          variantId,
-          syncHash: hash(fullSourceVariant),
-        }).returning();
-        mapping = createdMapping;
-        if (mapping) mappings.push(mapping);
+        if (mapping) {
+          // REPAIR IN PLACE. `variantId` is nullable because this table also holds `kind: "entity"`
+          // rows, which legitimately have none — but a VARIANT row with a null `variantId` is a
+          // broken invariant, not a state to work around. The row already occupies
+          // `channel_entity_map_store_kind_external_unique` on (store, kind, externalId), so the
+          // insert below would raise a unique violation and fail the whole item. Updating the row
+          // we already hold is the only shape that converges.
+          await this.db.update(channelEntityMap).set({
+            entityId,
+            variantId,
+            syncHash: hash(fullSourceVariant),
+          }).where(eq(channelEntityMap.id, mapping.id));
+          mapping.entityId = entityId;
+          mapping.variantId = variantId;
+          mapping.syncHash = hash(fullSourceVariant);
+        } else {
+          const [createdMapping] = await this.db.insert(channelEntityMap).values({
+            organizationId: orgId,
+            storeId,
+            kind: "variant",
+            externalId: sourceVariant.externalId,
+            entityId,
+            variantId,
+            syncHash: hash(fullSourceVariant),
+          }).returning();
+          mapping = createdMapping;
+          // Pushed so a payload repeating this externalId resolves the row it just created rather
+          // than creating a second variant for it.
+          if (mapping) mappings.push(mapping);
+        }
       }
       if (!variantId) {
         warnings.push(`Skipped variant "${sourceVariant.externalId}": no local variant mapping exists.`);
