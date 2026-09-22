@@ -1,5 +1,62 @@
 # @porulle/plugin-channel-connector
 
+## 0.49.0
+
+### Minor Changes
+
+- [`bd48f59`](https://github.com/asyncdotengineering/porulle/commit/bd48f595b827e64920bb7243c2310f31d1f2b97c) Thanks [@octalpixel](https://github.com/octalpixel)! - Add the catalog import fast path: a page of new products lands in one transaction.
+
+  `catalog.importProducts(page, { sourceStoreId, errorPolicy }, actor)` is the importer
+  path the editor path never was. Measured on the PGlite query log, one 12-variant
+  product cost 564 statements through `create` + `createVariant` + `setAttributes` +
+  taxonomy links, because every call re-read the entity, recorded a revision and wrote
+  one row per statement. The fast path reads the page's taken slugs and shared
+  vocabulary once (creating what is missing with `ON CONFLICT DO NOTHING`, so two
+  consumers landing pages that share a brand both succeed), writes each item multi-row
+  inside its own savepoint, records one revision per item and fires one
+  `catalog.afterImport` hook per page — which the audit module records as one row.
+  Twenty such products cost 262 statements, 13.1 per item. `errorPolicy` is Saleor's:
+  `reject-failed-rows` (the default) isolates a bad item behind its savepoint and
+  reports it by ref and code; `reject-everything` rolls the page back. It creates and
+  never updates; a caller that finds an item already present routes it through the
+  editor path.
+
+  The channel connector gains the page-shaped half: `fetchCatalogPage` returns one
+  connector page and writes nothing; `convergeCatalogPage` sends never-mapped items
+  down the fast path, skips mapped-and-unchanged items for free, and routes changed or
+  orphaned items through the existing converge. Only each new item's hero image is
+  fetched, streamed under `HERO_IMAGE_BYTE_CAP` (1 MiB — a larger one is reported, not
+  stored, and the product still lands), and linked at entity level as `primary` plus to
+  the variants it shows; `selectImportImages` returns that hero and the first photo of
+  each other variant, which come back as `deferredMedia` for the host to land later.
+
+  `@porulle/core/testing` now exports `createPGliteTestAdapter`, whose query log is the
+  only statement counter that sees what core issues.
+
+### Patch Changes
+
+- [`850382f`](https://github.com/asyncdotengineering/porulle/commit/850382f61970a6e31ecd0bb5a594fb84b46bf971) Thanks [@octalpixel](https://github.com/octalpixel)! - Stop the catalog import re-reading and re-writing what has not changed.
+
+  Measured on a deployed Worker: ~379 I/O operations per product with at most one in
+  flight at a time outside media. Three sources, all removable without changing what
+  the import produces:
+
+  - `applyTaxonomy` read the organization's whole categories, brands and tags tables
+    once per PRODUCT. They are now read once per converge run and shared.
+  - `upsertOptionAxes` read back every option type and option value it had just
+    created, and issued an UPDATE for each one whether or not `displayName` or
+    `sortOrder` had moved. The row is constructed from what was sent, and the update
+    is conditional.
+  - `upsertVariants` read `variant_option_values` once per variant, and wrote the
+    variant's `syncHash` on every pass regardless of whether the variant changed.
+    The read is one query for the whole entity; the write is conditional.
+
+  A repeat sync of an unchanged product drops from 41 to 23 service-issued statements
+  on the new `import-statement-budget` test's fixture, a ratio of 0.80 to 0.52.
+
+- Updated dependencies [[`bd48f59`](https://github.com/asyncdotengineering/porulle/commit/bd48f595b827e64920bb7243c2310f31d1f2b97c)]:
+  - @porulle/core@0.49.0
+
 ## 0.48.1
 
 ### Patch Changes
