@@ -1313,41 +1313,63 @@ export class ChannelConnectorService {
     actor: Actor,
   ): Promise<PluginResult<{ value: Map<string, Map<string, string>>; changed: boolean }>> {
     const optionValueIds = new Map<string, Map<string, string>>();
-    const existingTypes = await this.db.select().from(optionTypes).where(eq(optionTypes.entityId, entityId));
+    // PROJECTED, not `select()`. Three reasons, and the third is the one that saves statements:
+    // the row's other columns are never read; a projection types the locally-constructed row below
+    // without a cast; and carrying `displayName`/`sortOrder` is what lets the update be SKIPPED when
+    // they already hold. A re-import that changes nothing is the common case for a sync, and it used
+    // to issue one UPDATE per option type and one per option value regardless.
+    const existingTypes: { id: string; name: string; displayName: string | null; sortOrder: number | null }[] =
+      await this.db
+        .select({ id: optionTypes.id, name: optionTypes.name, displayName: optionTypes.displayName, sortOrder: optionTypes.sortOrder })
+        .from(optionTypes)
+        .where(eq(optionTypes.entityId, entityId));
     let changed = false;
     for (const [typeIndex, sourceType] of (item.options ?? []).entries()) {
       let optionType = existingTypes.find((row) => row.name === sourceType.name);
       if (!optionType) {
         const created = await this.catalog.createOptionType({ entityId, name: sourceType.name, values: [] }, actor);
         if (!created.ok) return PluginErr(created.error.message);
-        const [createdType] = await this.db.select().from(optionTypes).where(eq(optionTypes.id, created.value.id));
-        if (!createdType) return PluginErr(`Option type "${sourceType.name}" was not persisted.`);
-        optionType = createdType;
+        // The created row is CONSTRUCTED rather than read back. `createOptionType` returns the id and
+        // the name is what we just sent; `displayName`/`sortOrder` are null-by-default on a fresh row
+        // and are written by the update immediately below, which the null forces to run.
+        optionType = { id: created.value.id, name: sourceType.name, displayName: null, sortOrder: null };
         existingTypes.push(optionType);
         changed = true;
       }
-      await this.db.update(optionTypes).set({
-        displayName: sourceType.displayName,
-        sortOrder: sourceType.sortOrder ?? typeIndex,
-      }).where(eq(optionTypes.id, optionType.id));
+      const desiredTypeSort = sourceType.sortOrder ?? typeIndex;
+      if (optionType.displayName !== sourceType.displayName || optionType.sortOrder !== desiredTypeSort) {
+        await this.db.update(optionTypes).set({
+          displayName: sourceType.displayName,
+          sortOrder: desiredTypeSort,
+        }).where(eq(optionTypes.id, optionType.id));
+        optionType.displayName = sourceType.displayName ?? null;
+        optionType.sortOrder = desiredTypeSort;
+      }
 
-      const existingValues = await this.db.select().from(optionValues).where(eq(optionValues.optionTypeId, optionType.id));
+      const existingValues: { id: string; value: string; displayValue: string | null; sortOrder: number | null }[] =
+        await this.db
+          .select({ id: optionValues.id, value: optionValues.value, displayValue: optionValues.displayValue, sortOrder: optionValues.sortOrder })
+          .from(optionValues)
+          .where(eq(optionValues.optionTypeId, optionType.id));
       const valueIds = new Map<string, string>();
       for (const [valueIndex, sourceValue] of sourceType.values.entries()) {
         let optionValue = existingValues.find((row) => row.value === sourceValue.value);
         if (!optionValue) {
           const created = await this.catalog.createOptionValue({ optionTypeId: optionType.id, value: sourceValue.value }, actor);
           if (!created.ok) return PluginErr(created.error.message);
-          const [createdValue] = await this.db.select().from(optionValues).where(eq(optionValues.id, created.value.id));
-          if (!createdValue) return PluginErr(`Option value "${sourceValue.value}" was not persisted.`);
-          optionValue = createdValue;
+          optionValue = { id: created.value.id, value: sourceValue.value, displayValue: null, sortOrder: null };
           existingValues.push(optionValue);
           changed = true;
         }
-        await this.db.update(optionValues).set({
-          displayValue: sourceValue.displayValue,
-          sortOrder: sourceValue.sortOrder ?? valueIndex,
-        }).where(eq(optionValues.id, optionValue.id));
+        const desiredValueSort = sourceValue.sortOrder ?? valueIndex;
+        if (optionValue.displayValue !== sourceValue.displayValue || optionValue.sortOrder !== desiredValueSort) {
+          await this.db.update(optionValues).set({
+            displayValue: sourceValue.displayValue,
+            sortOrder: desiredValueSort,
+          }).where(eq(optionValues.id, optionValue.id));
+          optionValue.displayValue = sourceValue.displayValue ?? null;
+          optionValue.sortOrder = desiredValueSort;
+        }
         valueIds.set(sourceValue.value, optionValue.id);
       }
       optionValueIds.set(sourceType.name, valueIds);
@@ -1375,6 +1397,25 @@ export class ChannelConnectorService {
       eq(channelEntityMap.kind, "variant"),
       eq(channelEntityMap.entityId, entityId),
     ));
+    // ONE read of the existing option-value rows for every already-mapped variant, instead of one
+    // per variant inside the loop. Measured on the deployed Worker at 17.0 calls per product, which
+    // is one per offer on a catalogue averaging 13 offers per product. A variant CREATED below is
+    // absent from this map and correctly reads as empty: its rows are written in this same pass.
+    const mappedVariantIds = mappings
+      .map((row) => row.variantId)
+      .filter((variantId): variantId is string => variantId !== null);
+    const existingOptionValues = new Map<string, string[]>();
+    if (mappedVariantIds.length > 0) {
+      const rows = await this.db
+        .select({ variantId: variantOptionValues.variantId, optionValueId: variantOptionValues.optionValueId })
+        .from(variantOptionValues)
+        .where(inArray(variantOptionValues.variantId, mappedVariantIds));
+      for (const row of rows) {
+        const list = existingOptionValues.get(row.variantId) ?? [];
+        list.push(row.optionValueId);
+        existingOptionValues.set(row.variantId, list);
+      }
+    }
     for (const sourceVariant of item.variants) {
       const fullSourceVariant = fullItem.variants.find((variant) => variant.externalId === sourceVariant.externalId) ?? sourceVariant;
       let mapping = mappings.find((row) => row.externalId === sourceVariant.externalId);
@@ -1419,8 +1460,7 @@ export class ChannelConnectorService {
         const desiredOptionValueIds = Object.entries(sourceVariant.optionValues ?? {})
           .map(([name, value]) => optionValueIds.get(name)?.get(value))
           .filter((optionValueId): optionValueId is string => optionValueId !== undefined);
-        const currentOptionValues = await this.db.select().from(variantOptionValues).where(eq(variantOptionValues.variantId, variantId));
-        const currentIds = currentOptionValues.map((row) => row.optionValueId).sort();
+        const currentIds = [...(existingOptionValues.get(variantId) ?? [])].sort();
         const desiredIds = [...new Set(desiredOptionValueIds)].sort();
         if (currentIds.length !== desiredIds.length || currentIds.some((id, index) => id !== desiredIds[index])) {
           await this.db.delete(variantOptionValues).where(eq(variantOptionValues.variantId, variantId));
@@ -1428,6 +1468,9 @@ export class ChannelConnectorService {
             await this.db.insert(variantOptionValues).values(desiredIds.map((optionValueId) => ({ variantId, optionValueId }))).onConflictDoNothing();
             repaired += 1;
           }
+          // The map is the read model for this pass; a payload repeating an externalId must not see
+          // the pre-fetched state after this write.
+          existingOptionValues.set(variantId, [...desiredIds]);
           changed = true;
         }
         if (createdVariant && desiredIds.length > 0) {
@@ -1445,13 +1488,63 @@ export class ChannelConnectorService {
         }, actor);
         if (!priced.ok) return PluginErr(priced.error.message);
       }
-      if (mapping) {
+      // Was UNCONDITIONAL: one UPDATE per variant on every import, including a re-sync where the
+      // variant is byte-identical. `mapping.syncHash` is already in hand from the select above, so
+      // the comparison is free and the write disappears on an unchanged variant — which is the
+      // ordinary case for a store that syncs repeatedly.
+      const nextSyncHash = hash(fullSourceVariant);
+      if (mapping && mapping.syncHash !== nextSyncHash) {
         await this.db.update(channelEntityMap).set({
-          syncHash: hash(fullSourceVariant),
+          syncHash: nextSyncHash,
         }).where(eq(channelEntityMap.id, mapping.id));
+        mapping.syncHash = nextSyncHash;
       }
     }
     return Ok({ value: variantIds, repaired, changed });
+  }
+
+  /**
+   * The organization's categories, brands and tags, read ONCE per converge run instead of once per
+   * product.
+   *
+   * `applyTaxonomy` takes an `entityId` and is called unconditionally for every item, and each of
+   * its three lookups was a whole-table read filtered by `organization_id`. Measured on the deployed
+   * Worker: 1.0 call per product per class, three classes, every product — an organization's whole
+   * category list re-read for each of twenty products in a batch that cannot have changed it.
+   *
+   * Rows created DURING the run are appended by the callers below, exactly as they were appended to
+   * the per-product arrays before, so an item that introduces a category is still seen by the next
+   * item. The cache is cleared at the top of `convergeCatalogItems`, so its lifetime is one converge
+   * rather than the lifetime of the service.
+   *
+   * The staleness window widens from one product to one batch: a category created by ANOTHER process
+   * mid-batch is not seen here. That was already true within a product — these lists were always a
+   * snapshot — and the create paths below go through `this.catalog`, which refuses a duplicate slug
+   * rather than writing one. So the failure mode is unchanged in kind and wider in window, which is
+   * the trade this comment exists to state rather than hide.
+   */
+  private taxonomyCache: {
+    orgId: string;
+    categories: (typeof categories.$inferSelect)[];
+    brands: (typeof brands.$inferSelect)[];
+    tags: (typeof tags.$inferSelect)[];
+  } | null = null;
+
+  private async taxonomyFor(orgId: string): Promise<{
+    categories: (typeof categories.$inferSelect)[];
+    brands: (typeof brands.$inferSelect)[];
+    tags: (typeof tags.$inferSelect)[];
+  }> {
+    // Keyed on orgId as well as presence: one service instance serving two organizations must not
+    // hand the second one the first one's taxonomy.
+    if (this.taxonomyCache?.orgId === orgId) return this.taxonomyCache;
+    const [categoryRows, brandRows, tagRows] = await Promise.all([
+      this.db.select().from(categories).where(eq(categories.organizationId, orgId)),
+      this.db.select().from(brands).where(eq(brands.organizationId, orgId)),
+      this.db.select().from(tags).where(eq(tags.organizationId, orgId)),
+    ]);
+    this.taxonomyCache = { orgId, categories: categoryRows, brands: brandRows, tags: tagRows };
+    return this.taxonomyCache;
   }
 
   private async applyTaxonomy(
@@ -1461,7 +1554,8 @@ export class ChannelConnectorService {
     actor: Actor,
     warnings: string[],
   ): Promise<PluginResult<void>> {
-    const categoryRows = await this.db.select().from(categories).where(eq(categories.organizationId, orgId));
+    const taxonomy = await this.taxonomyFor(orgId);
+    const categoryRows = taxonomy.categories;
     for (const slug of new Set(item.categories ?? [])) {
       let category = categoryRows.find((row) => row.slug === slug);
       if (category?.status === "archived") {
@@ -1480,7 +1574,7 @@ export class ChannelConnectorService {
       if (!linked.ok) return PluginErr(linked.error.message);
     }
 
-    const brandRows = await this.db.select().from(brands).where(eq(brands.organizationId, orgId));
+    const brandRows = taxonomy.brands;
     if (item.brand) {
       let brand = brandRows.find((row) => row.slug === item.brand);
       if (!brand) {
@@ -1495,7 +1589,7 @@ export class ChannelConnectorService {
       if (!linked.ok) return PluginErr(linked.error.message);
     }
 
-    const tagRows = await this.db.select().from(tags).where(eq(tags.organizationId, orgId));
+    const tagRows = taxonomy.tags;
     for (const slug of new Set(item.tags ?? [])) {
       let tag = tagRows.find((row) => row.slug === slug);
       if (!tag) {
@@ -2926,6 +3020,10 @@ export class ChannelConnectorService {
     dryRun = false,
   ): Promise<PluginResult<CatalogConvergenceStats>> {
     if (dryRun) return this.estimateCatalogItems(orgId, storeId, items);
+    // One converge, one taxonomy snapshot. Cleared HERE rather than left to the service's lifetime:
+    // the instance can outlive a batch on a warm isolate, and a taxonomy cached across batches would
+    // go stale in a way nothing reports.
+    this.taxonomyCache = null;
     let imported = 0;
     let converged = 0;
     let entitiesTouched = 0;
