@@ -59,6 +59,7 @@ import type {
 import { EntityService } from "./entity-service.js";
 import { CategoryService } from "./category-service.js";
 import { BrandService } from "./brand-service.js";
+import { CatalogImportService, type ImportProduct, type ImportProductsOptions, type ImportProductsReport } from "./import-service.js";
 
 // ─── Hand-written types (not derivable from a single z.infer) ───────────────
 
@@ -232,6 +233,16 @@ export interface CatalogService {
     actor: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<CatalogEntityHydrated>>;
+  /**
+   * The import fast path: a page of NEW products in one transaction, per-item savepoints, one
+   * revision per item, one `catalog.afterImport` hook per page. See `import-service.ts`.
+   */
+  importProducts(
+    page: ImportProduct[],
+    options: ImportProductsOptions,
+    actor: Actor | null,
+    ctx?: CatalogWriteContext,
+  ): Promise<Result<ImportProductsReport>>;
   discontinue(
     id: string,
     actor: Actor | null,
@@ -445,6 +456,7 @@ export class CatalogServiceImpl implements CatalogService {
   private readonly entities: EntityService;
   private readonly categories: CategoryService;
   private readonly brands: BrandService;
+  private readonly importer: CatalogImportService;
 
   constructor(deps: CatalogServiceDeps) {
     this.repository = deps.repository;
@@ -453,6 +465,7 @@ export class CatalogServiceImpl implements CatalogService {
     this.entities = new EntityService(deps, this.resolveEntityFieldDefinitions.bind(this));
     this.categories = new CategoryService(deps);
     this.brands = new BrandService(deps);
+    this.importer = new CatalogImportService(deps);
   }
 
   private codeFieldDefinition(entityType: string, name: string): EntityFieldDefinition | undefined {
@@ -988,6 +1001,15 @@ export class CatalogServiceImpl implements CatalogService {
       if (result.ok) await this.captureRevision(id, actor, "update", txCtx);
       return result;
     });
+  }
+
+  importProducts(
+    page: ImportProduct[],
+    options: ImportProductsOptions,
+    actor: Actor | null,
+    ctx?: CatalogWriteContext,
+  ): Promise<Result<ImportProductsReport>> {
+    return this.importer.importProducts(page, options, actor, ctx);
   }
 
   archive(id: string, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {

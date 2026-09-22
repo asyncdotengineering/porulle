@@ -23,8 +23,12 @@ import type {
   PluginResult,
   PluginTxFn,
   CatalogWriteContext,
+  ImportProduct,
+  ImportProductsOptions,
+  ImportProductsReport,
   TxContext,
 } from "@porulle/core";
+import type { ChannelCatalogImage } from "@porulle/core";
 import { isValidFieldPath, requireUserId } from "@porulle/core";
 import type { FieldOwner, FieldPath } from "@porulle/core";
 import type { JobsAdapter } from "@porulle/core";
@@ -523,6 +527,11 @@ interface CatalogService {
     actor: Actor | null,
   ): Promise<{ ok: true; value: undefined } | { ok: false; error: { message: string } }>;
   seedImportedFieldOwnership(entityId: string, storeId: string, fieldPaths: FieldPath[]): Promise<{ ok: true; value: undefined } | { ok: false; error: { message: string } }>;
+  importProducts(
+    page: ImportProduct[],
+    options: ImportProductsOptions,
+    actor: Actor,
+  ): Promise<ServiceResult<ImportProductsReport>>;
   createOptionType(
     input: { entityId: string; name: string; values?: string[] },
     actor: Actor,
@@ -888,6 +897,167 @@ function redactStore(store: ConnectedStore): PublicConnectedStore {
     breakerState: store.breakerState,
     createdAt: store.createdAt,
     updatedAt: store.updatedAt,
+  };
+}
+
+/**
+ * A hero is streamed inside the page's own invocation, so it is bounded: a 30 MB TIFF a merchant
+ * uploaded by mistake must not buffer into a 128 MiB isolate. Anything larger is reported, not
+ * stored, and the product still lands — the index reads text first and media later.
+ */
+export const HERO_IMAGE_BYTE_CAP = 1024 * 1024;
+
+export type CatalogMediaFailureReason = "too-large" | "download-failed" | "unsupported" | "storage";
+
+export interface CatalogMediaFailure {
+  externalId: string;
+  imageExternalId?: string;
+  url: string;
+  reason: CatalogMediaFailureReason;
+  detail: string;
+}
+
+/** Media the page did NOT fetch: the first photo of each variant the hero does not show. */
+export interface CatalogDeferredMedia {
+  externalId: string;
+  entityId: string;
+  images: ChannelCatalogImage[];
+}
+
+export interface CatalogPageConvergence extends Record<string, unknown> {
+  created: number;
+  unchanged: number;
+  updated: number;
+  /** Input order, failures excluded, no duplicates — the page message is rebuilt from this. */
+  entityIds: string[];
+  failures: CatalogConvergenceFailure[];
+  heroesImported: number;
+  mediaFailures: CatalogMediaFailure[];
+  deferredMedia: CatalogDeferredMedia[];
+  warnings: string[];
+}
+
+export interface ImportImageSelection {
+  hero: ChannelCatalogImage | null;
+  /** In variant order; one image per variant the hero does not cover; no url twice. */
+  perVariant: ChannelCatalogImage[];
+}
+
+function imageOrder(a: ChannelCatalogImage, b: ChannelCatalogImage): number {
+  return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+}
+
+/**
+ * Ruling 2026-09-22: import the hero plus the FIRST photo of each other variant, nothing more.
+ * A "blue long dress" query must be able to show the blue variant, and a fourth photo of the red
+ * one adds nothing the index can use. Variants are read off the images' own variant references,
+ * so a connector that lists images against variants it does not enumerate still gets one each.
+ */
+export function selectImportImages(item: ChannelCatalogItem): ImportImageSelection {
+  const images = [...(item.images ?? [])].sort(imageOrder);
+  const hero = images.find((image) => image.role === "primary") ?? images[0] ?? null;
+  if (!hero) return { hero: null, perVariant: [] };
+  const covered = new Set(hero.variantExternalIds ?? []);
+  const usedUrls = new Set([hero.url]);
+  const perVariant: ChannelCatalogImage[] = [];
+  const variantRefs = [...new Set(images.flatMap((image) => image.variantExternalIds ?? []))];
+  for (const ref of variantRefs) {
+    if (covered.has(ref)) continue;
+    const image = images.find((candidate) => candidate.variantExternalIds?.includes(ref) && !usedUrls.has(candidate.url));
+    for (const shown of image?.variantExternalIds ?? []) covered.add(shown);
+    covered.add(ref);
+    if (!image) continue;
+    usedUrls.add(image.url);
+    perVariant.push(image);
+  }
+  return { hero, perVariant };
+}
+
+type BoundedFetch =
+  | { ok: true; bytes: Uint8Array<ArrayBuffer>; contentType: string }
+  | { ok: false; reason: CatalogMediaFailureReason; detail: string };
+
+/** Streams a response and refuses mid-stream past `cap`; a lying `content-length` cannot get around it. */
+async function fetchBounded(url: string, cap: number): Promise<BoundedFetch> {
+  let response: Response;
+  try {
+    response = await fetch(url);
+  } catch (error) {
+    return { ok: false, reason: "download-failed", detail: error instanceof Error ? error.message : "download failed" };
+  }
+  if (!response.ok) return { ok: false, reason: "download-failed", detail: `download returned ${response.status}` };
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > cap) return { ok: false, reason: "too-large", detail: `content-length ${declared} exceeds ${cap}` };
+  const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim() || "image/jpeg";
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const buffer = await response.arrayBuffer();
+    if (buffer.byteLength > cap) return { ok: false, reason: "too-large", detail: `${buffer.byteLength} bytes exceeds ${cap}` };
+    return { ok: true, bytes: new Uint8Array(buffer), contentType };
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > cap) {
+      await reader.cancel();
+      return { ok: false, reason: "too-large", detail: `stream exceeded ${cap} bytes` };
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { ok: true, bytes, contentType };
+}
+
+function toImportProduct(item: ChannelCatalogItem): ImportProduct {
+  const attributes = item.attributes?.length
+    ? item.attributes
+    : [{ locale: "en", title: item.title, ...(item.description !== undefined ? { description: item.description } : {}) }];
+  return {
+    ref: item.externalId,
+    slug: item.slug,
+    ...(item.status !== undefined ? { status: item.status, isVisible: item.status === "active" } : {}),
+    metadata: mergeMetadata(undefined, item.metadata ?? {}),
+    attributes: attributes.map((attribute) => ({
+      locale: attribute.locale,
+      title: attribute.title,
+      ...(attribute.subtitle !== undefined ? { subtitle: attribute.subtitle } : {}),
+      ...(attribute.description !== undefined ? { description: attribute.description } : {}),
+      ...(attribute.richDescription !== undefined ? { richDescription: attribute.richDescription } : {}),
+      ...(attribute.seoTitle !== undefined ? { seoTitle: attribute.seoTitle } : {}),
+      ...(attribute.seoDescription !== undefined ? { seoDescription: attribute.seoDescription } : {}),
+    })),
+    ...(item.options !== undefined ? {
+      options: item.options.map((option) => ({
+        name: option.name,
+        displayName: option.displayName,
+        ...(option.sortOrder !== undefined ? { sortOrder: option.sortOrder } : {}),
+        values: option.values.map((value) => ({
+          value: value.value,
+          displayValue: value.displayValue,
+          ...(value.sortOrder !== undefined ? { sortOrder: value.sortOrder } : {}),
+        })),
+      })),
+    } : {}),
+    variants: item.variants.map((variant) => ({
+      ref: variant.externalId,
+      ...(variant.sku !== undefined ? { sku: variant.sku } : {}),
+      ...(variant.barcode !== undefined ? { barcode: variant.barcode } : {}),
+      ...(variant.optionValues !== undefined ? { options: variant.optionValues } : {}),
+      ...(variant.prices !== undefined ? { prices: variant.prices } : {}),
+      ...(variant.metadata !== undefined ? { metadata: variant.metadata } : {}),
+    })),
+    ...(item.tags !== undefined ? { tags: item.tags } : {}),
+    ...(item.brand !== undefined ? { brand: item.brand } : {}),
+    ...(item.categories !== undefined ? { categories: item.categories } : {}),
+    ownedFieldPaths: importedFieldPaths(item),
   };
 }
 
@@ -2575,6 +2745,229 @@ export class ChannelConnectorService {
         }
       }
     }));
+  }
+
+  /**
+   * One page from the connector, nothing written. The host lands the page durably (R2 + its
+   * ledger) and hands it to `convergeCatalogPage` from a queue consumer; the two halves are
+   * separate so a consumer retry never re-fetches the merchant's API.
+   */
+  async fetchCatalogPage(
+    orgId: string,
+    storeId: string,
+    cursor: string | null,
+  ): Promise<PluginResult<{ items: ChannelCatalogItem[]; nextCursor: string | null }>> {
+    const store = await this.getStoreRecord(orgId, storeId);
+    if (!store || store.status !== "connected") return PluginErr("Connected store not found.", "NOT_FOUND");
+    const connector = this.connectors.get(store.provider);
+    if (!connector) return PluginErr(`No connector registered for provider "${store.provider}".`);
+    const page = await connector.importCatalog(store as ChannelStore, cursor ?? undefined);
+    if (!page.ok) return PluginErr(page.error.message);
+    return Ok({ items: page.value.items, nextCursor: page.value.nextCursor ?? null });
+  }
+
+  /**
+   * Converges a page: items this store has never mapped take the import fast path
+   * (`catalog.importProducts`, one transaction, multi-row writes); items already mapped and
+   * unchanged cost nothing; items mapped-but-changed, and orphans (an entity of this store with
+   * the item's slug but no map row), take the editor path, which owns ownership and conflicts.
+   *
+   * Media: only each new item's hero is fetched here, streamed under `HERO_IMAGE_BYTE_CAP`, and
+   * linked at entity level as `primary` plus to the variants it shows. The first photo of every
+   * other variant comes back in `deferredMedia` for the host to land later.
+   */
+  async convergeCatalogPage(
+    orgId: string,
+    storeId: string,
+    items: ChannelCatalogItem[],
+    actor: Actor,
+  ): Promise<PluginResult<CatalogPageConvergence>> {
+    const failures: CatalogConvergenceFailure[] = [];
+    const warnings: string[] = [];
+    const entityByExternalId = new Map<string, string>();
+    let unchanged = 0;
+    let updated = 0;
+
+    const externalIds = [...new Set(items.map((item) => item.externalId))];
+    const mappings = externalIds.length === 0 ? [] : await this.db.select().from(channelEntityMap).where(and(
+      eq(channelEntityMap.organizationId, orgId),
+      eq(channelEntityMap.storeId, storeId),
+      eq(channelEntityMap.kind, "entity"),
+      inArray(channelEntityMap.externalId, externalIds),
+    ));
+    const mappingByExternalId = new Map(mappings.map((row) => [row.externalId, row]));
+    const slugs = [...new Set(items.map((item) => item.slug))];
+    const orphans = slugs.length === 0 ? [] : await this.db.select({ slug: sellableEntities.slug }).from(sellableEntities).where(and(
+      eq(sellableEntities.organizationId, orgId),
+      eq(sellableEntities.sourceStoreId, storeId),
+      inArray(sellableEntities.slug, slugs),
+    ));
+    const orphanSlugs = new Set(orphans.map((row) => row.slug));
+
+    const fresh: ChannelCatalogItem[] = [];
+    const editor: ChannelCatalogItem[] = [];
+    const seen = new Set<string>();
+    for (const item of items) {
+      if (seen.has(item.externalId)) {
+        failures.push({ externalId: item.externalId, error: "duplicate-in-page: this externalId appears twice in the page." });
+        continue;
+      }
+      seen.add(item.externalId);
+      const mapping = mappingByExternalId.get(item.externalId);
+      if (mapping && mapping.syncHash === hash(item)) {
+        entityByExternalId.set(item.externalId, mapping.entityId);
+        unchanged += 1;
+      } else if (mapping || orphanSlugs.has(item.slug)) {
+        editor.push(item);
+      } else {
+        fresh.push(item);
+      }
+    }
+
+    if (editor.length > 0) {
+      const result = await this.convergeCatalogItems(orgId, storeId, editor, actor);
+      if (!result.ok) return result;
+      failures.push(...result.value.failures);
+      warnings.push(...result.value.warnings);
+      const failedIds = new Set(result.value.failures.map((failure) => failure.externalId));
+      const survivors = editor.filter((item) => !failedIds.has(item.externalId));
+      survivors.forEach((item, index) => {
+        const entityId = result.value.entityIds[index];
+        if (entityId !== undefined) entityByExternalId.set(item.externalId, entityId);
+      });
+      updated += survivors.length;
+    }
+
+    const createdItems: Array<{ item: ChannelCatalogItem; entityId: string; variantIds: Record<string, string> }> = [];
+    if (fresh.length > 0) {
+      const report = await this.catalog.importProducts(fresh.map(toImportProduct), { sourceStoreId: storeId, errorPolicy: "reject-failed-rows" }, actor);
+      if (!report.ok) return PluginErr(report.error.message, report.error.code);
+      for (const [index, row] of report.value.rows.entries()) {
+        const item = fresh[index];
+        if (!item) continue;
+        if (row.status === "failed") {
+          failures.push({ externalId: row.ref, error: `${row.code}: ${row.error}` });
+          continue;
+        }
+        warnings.push(...row.warnings);
+        entityByExternalId.set(item.externalId, row.entityId);
+        createdItems.push({ item, entityId: row.entityId, variantIds: row.variantIds });
+      }
+      if (createdItems.length > 0) {
+        const now = new Date();
+        await this.db.insert(channelEntityMap).values(createdItems.flatMap(({ item, entityId, variantIds }) => [
+          { organizationId: orgId, storeId, kind: "entity" as const, externalId: item.externalId, entityId, syncHash: hash(item), lastSyncedAt: now },
+          ...item.variants.flatMap((variant) => {
+            const variantId = variantIds[variant.externalId];
+            return variantId === undefined ? [] : [{ organizationId: orgId, storeId, kind: "variant" as const, externalId: variant.externalId, entityId, variantId, syncHash: hash(variant), lastSyncedAt: now }];
+          }),
+        ])).onConflictDoNothing();
+      }
+    }
+
+    const media = await this.importHeroes(orgId, createdItems, actor);
+    const entityIds: string[] = [];
+    const emitted = new Set<string>();
+    for (const item of items) {
+      const entityId = entityByExternalId.get(item.externalId);
+      if (entityId === undefined || emitted.has(entityId)) continue;
+      emitted.add(entityId);
+      entityIds.push(entityId);
+    }
+    return Ok({
+      created: createdItems.length,
+      unchanged,
+      updated,
+      entityIds,
+      failures,
+      heroesImported: media.heroesImported,
+      mediaFailures: media.mediaFailures,
+      deferredMedia: media.deferredMedia,
+      warnings,
+    });
+  }
+
+  private async importHeroes(
+    orgId: string,
+    createdItems: Array<{ item: ChannelCatalogItem; entityId: string; variantIds: Record<string, string> }>,
+    actor: Actor,
+  ): Promise<Pick<CatalogPageConvergence, "heroesImported" | "mediaFailures" | "deferredMedia">> {
+    const mediaFailures: CatalogMediaFailure[] = [];
+    const deferredMedia: CatalogDeferredMedia[] = [];
+    const selections = createdItems.flatMap(({ item, entityId, variantIds }) => {
+      const selection = selectImportImages(item);
+      if (selection.perVariant.length > 0) deferredMedia.push({ externalId: item.externalId, entityId, images: selection.perVariant });
+      return selection.hero ? [{ item, entityId, variantIds, hero: selection.hero }] : [];
+    });
+    if (selections.length === 0) return { heroesImported: 0, mediaFailures, deferredMedia };
+
+    // One read for every hero the page might already hold (a re-import after the map was lost).
+    const urlHashes = [...new Set(selections.map(({ hero }) => hash(hero.url)))];
+    const existingAssets = await this.db.select({ id: mediaAssets.id, metadata: mediaAssets.metadata }).from(mediaAssets).where(and(
+      eq(mediaAssets.organizationId, orgId),
+      inArray(sql`${mediaAssets.metadata}->>'channelImageUrlHash'`, urlHashes),
+    ));
+    const assetByUrlHash = new Map<string, string>();
+    for (const asset of existingAssets) {
+      const urlHash = asset.metadata?.channelImageUrlHash;
+      if (typeof urlHash === "string") assetByUrlHash.set(urlHash, asset.id);
+    }
+
+    type HeroOutcome = { entityId: string; mediaAssetId: string; hero: ChannelCatalogImage; variantIds: Record<string, string>; imported: boolean };
+    const outcomes: HeroOutcome[] = [];
+    const resolveHero = async ({ item, entityId, variantIds, hero }: (typeof selections)[number]): Promise<void> => {
+      const urlHash = hash(hero.url);
+      const existing = assetByUrlHash.get(urlHash);
+      if (existing !== undefined) {
+        outcomes.push({ entityId, mediaAssetId: existing, hero, variantIds, imported: false });
+        return;
+      }
+      const fetched = await fetchBounded(hero.url, HERO_IMAGE_BYTE_CAP);
+      const failure = (reason: CatalogMediaFailureReason, detail: string): void => {
+        mediaFailures.push({ externalId: item.externalId, ...(hero.externalId !== undefined ? { imageExternalId: hero.externalId } : {}), url: hero.url, reason, detail });
+      };
+      if (!fetched.ok) {
+        failure(fetched.reason, fetched.detail);
+        return;
+      }
+      const extension = fetched.contentType.split("/", 2)[1] ?? "jpg";
+      const uploaded = await this.media.upload({
+        filename: `${hero.externalId ?? urlHash}.${extension}`,
+        contentType: fetched.contentType,
+        data: fetched.bytes.buffer,
+        ...(hero.alt !== undefined ? { alt: hero.alt } : {}),
+        metadata: { channelImageUrlHash: urlHash, ...(hero.externalId !== undefined ? { channelImageExternalId: hero.externalId } : {}) },
+        origin: "imported",
+      }, actor);
+      if (!uploaded.ok) {
+        failure(uploaded.error.code === "VALIDATION_FAILED" ? "unsupported" : "storage", uploaded.error.message);
+        return;
+      }
+      assetByUrlHash.set(urlHash, uploaded.value.id);
+      outcomes.push({ entityId, mediaAssetId: uploaded.value.id, hero, variantIds, imported: true });
+    };
+    // Six outbound connections per Worker invocation, two per image (download + storage put).
+    const MAX_IN_FLIGHT = 3;
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(MAX_IN_FLIGHT, selections.length) }, async () => {
+      for (;;) {
+        const selection = selections[next];
+        next += 1;
+        if (selection === undefined) return;
+        await resolveHero(selection);
+      }
+    }));
+
+    if (outcomes.length > 0) {
+      await this.db.insert(entityMedia).values(outcomes.flatMap(({ entityId, mediaAssetId, hero, variantIds }) => [
+        { entityId, mediaAssetId, role: "primary" as const, sortOrder: hero.sortOrder ?? 0 },
+        ...(hero.variantExternalIds ?? []).flatMap((externalId) => {
+          const variantId = variantIds[externalId];
+          return variantId === undefined ? [] : [{ entityId, variantId, mediaAssetId, role: hero.role, sortOrder: hero.sortOrder ?? 0 }];
+        }),
+      ])).onConflictDoNothing();
+    }
+    return { heroesImported: outcomes.filter((outcome) => outcome.imported).length, mediaFailures, deferredMedia };
   }
 
   async importCatalog(

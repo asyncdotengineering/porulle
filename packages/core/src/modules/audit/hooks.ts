@@ -1,6 +1,7 @@
 import type { AfterHook } from "../../kernel/hooks/types.js";
 import type { HookHandler } from "../../kernel/hooks/registry.js";
 import type { AuditService } from "./service.js";
+import type { ImportProductsReport } from "../catalog/import-service.js";
 
 /**
  * Creates an after-hook that records an audit entry for the operation.
@@ -52,10 +53,27 @@ function safePayload(result: unknown): Record<string, unknown> {
  * All audit hooks, keyed by hook registration key.
  * Registered in kernel boot via hooks.append().
  */
+/**
+ * One audit row per imported PAGE. The fast path fires no `catalog.afterCreate`, so the per-entity
+ * "created" rows do not exist for imported products; the page row names the store and the counts.
+ */
+const catalogImportAuditHook: AfterHook<ImportProductsReport> = async ({ result, context }) => {
+  const audit = context.services.audit as AuditService | undefined;
+  if (!audit?.record) return;
+  await audit.record({
+    entityType: "catalog_import",
+    entityId: result.sourceStoreId,
+    event: "imported",
+    payload: { created: result.created, failed: result.failed },
+    ctx: context,
+  });
+};
+
 export const auditHooks: Record<string, HookHandler> = {
   // Catalog
   "catalog.afterCreate": createAuditAfterHook("catalog_entity", "created") as HookHandler,
   "catalog.afterUpdate": createAuditAfterHook("catalog_entity", "updated") as HookHandler,
+  "catalog.afterImport": catalogImportAuditHook as HookHandler,
 
   // Orders
   "orders.afterCreate": createAuditAfterHook("order", "created") as HookHandler,

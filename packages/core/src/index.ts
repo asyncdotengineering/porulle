@@ -207,6 +207,18 @@ export type { DatabaseAdapter } from "./kernel/database/adapter.js";
 export { isValidFieldPath, validateFieldPath } from "./modules/catalog/ownership.js";
 export type { FieldPath, FieldOwner } from "./modules/catalog/ownership.js";
 export type {
+  ImportErrorPolicy,
+  ImportProduct,
+  ImportProductAttributes,
+  ImportProductOption,
+  ImportProductPrice,
+  ImportProductRowResult,
+  ImportProductVariant,
+  ImportProductsOptions,
+  ImportProductsReport,
+  ImportRowFailureCode,
+} from "./modules/catalog/import-service.js";
+export type {
   TxContext,
   WithTransactionOptions,
   CatalogWriteContext,

@@ -7,6 +7,9 @@
  */
 
 export { createTestKernel } from "./test-utils/create-test-kernel.js";
+// The query log is the only honest statement counter: the PGlite logger sees every statement core
+// issues, which a proxy around a plugin's own handle cannot.
+export { createPGliteTestAdapter, type PGliteTestAdapter, type QueryLog } from "./test-utils/create-pglite-adapter.js";
 export { createTestPluginContext } from "./test-utils/create-test-plugin-context.js";
 export { createRepositoryTestHarness } from "./test-utils/create-repository-test-harness.js";
 export { createPluginTestApp, type PluginTestApp, type TestAppEnv } from "./test-utils/create-plugin-test-app.js";

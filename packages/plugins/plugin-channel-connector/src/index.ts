@@ -57,6 +57,8 @@ export { mockChannelConnector } from "./mock-connector.js";
 export type { MockChannelConnectorOptions } from "./mock-connector.js";
 export {
   ChannelConnectorService,
+  HERO_IMAGE_BYTE_CAP,
+  selectImportImages,
   CATALOG_OUTBOUND_SUPPRESSION_WINDOW_MS,
   CATALOG_PUSH_BATCH_SIZES,
   CATALOG_PUSH_MAX_ATTEMPTS,
@@ -77,6 +79,13 @@ export {
   selectCatalogFieldMapping,
   validateCatalogMappingRow,
 } from "./catalog-field-mapping.js";
+export type {
+  CatalogDeferredMedia,
+  CatalogMediaFailure,
+  CatalogMediaFailureReason,
+  CatalogPageConvergence,
+  ImportImageSelection,
+} from "./service.js";
 export type {
   CatalogFieldMapping,
   CatalogFieldMappingInput,

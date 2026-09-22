@@ -58,7 +58,7 @@ function hookDatabaseArg(database: CatalogServiceDeps["database"]): { database: 
 
 const attributeFields = ["title", "subtitle", "description", "richDescription", "seoTitle", "seoDescription"] as const;
 
-function catalogHookContext(
+export function catalogHookContext(
   deps: CatalogServiceDeps,
   actor: Actor | null,
   ctx: CatalogWriteContext | undefined,
