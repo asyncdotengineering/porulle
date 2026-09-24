@@ -83,13 +83,17 @@ describe("channel connector c74 reconciliation", () => {
     expect((await built.db.select().from(channelEntityMap).where(and(eq(channelEntityMap.entityId, removedEntityId), eq(channelEntityMap.kind, "entity"))))).toHaveLength(1);
   });
 
-  it("enqueues one jittered reconcile per connected store", async () => {
+  it("enqueues one jittered reconcile per connected store a registered connector can reach", async () => {
     const other = await built.db.insert(connectedStores).values({ organizationId: TEST_ORG_ID, provider: "mock", credentials: {}, storeDomain: "other.c74.test" }).returning({ id: connectedStores.id });
+    // The seed's point-of-sale store: connected, but no connector serves "manual", so a reconcile
+    // for it can only fail with "No connector registered" (seen on the sim, 2026-09-24).
+    const [manual] = await built.db.insert(connectedStores).values({ organizationId: TEST_ORG_ID, provider: "manual", credentials: {}, storeDomain: "pos.c74.test" }).returning({ id: connectedStores.id });
     const sweep = (built.kernel.config.jobs?.tasks ?? []).find((job) => job.slug === "channel/reconcile-sweep")!;
     const context = { db: built.db, services: built.kernel.services, logger: built.kernel.logger } as unknown as Parameters<typeof sweep.handler>[0]["ctx"];
     await sweep.handler({ input: { orgId: TEST_ORG_ID }, ctx: context });
     const rows = await built.db.select().from(commerceJobs).where(and(eq(commerceJobs.organizationId, TEST_ORG_ID), eq(commerceJobs.taskSlug, "channel/reconcile")));
     expect(rows.filter((row) => row.input && [storeId, other[0]!.id].includes(String((row.input as Record<string, unknown>).storeId)))).toHaveLength(2);
     expect(rows.every((row) => row.concurrencyKey === String((row.input as Record<string, unknown>).storeId))).toBe(true);
+    expect(rows.filter((row) => String((row.input as Record<string, unknown>).storeId) === manual?.id)).toHaveLength(0);
   });
 });

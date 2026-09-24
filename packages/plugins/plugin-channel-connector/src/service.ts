@@ -167,6 +167,9 @@ export interface ReconcileReport extends Record<string, unknown> {
   skipped?: CatalogFieldSkip[];
   conflicts?: CatalogFieldConflict[];
   warnings?: string[];
+  /** Items this reconcile could not converge, each with its error. A reconcile that dropped an
+   *  item is never reported as a clean one. */
+  failures?: CatalogConvergenceFailure[];
 }
 
 export interface CatalogFieldConflict {
@@ -1828,6 +1831,33 @@ export class ChannelConnectorService {
     return this.taxonomyCache;
   }
 
+  /**
+   * Create a category or brand, or adopt the one another writer created first. The taxonomy
+   * snapshot is per converge, so two stores converging at once can both see a slug missing and both
+   * create it; the loser's conflict — returned or thrown — means the row it wanted now exists.
+   */
+  private async createTaxonomyOrAdopt<Row>(
+    create: () => Promise<{ ok: true; value: { id: string } } | { ok: false; error: { message: string } }>,
+    byId: (id: string) => Promise<Row | undefined>,
+    bySlug: () => Promise<Row | undefined>,
+    label: string,
+  ): Promise<PluginResult<Row>> {
+    let failure: unknown = `${label} was not persisted.`;
+    try {
+      const created = await create();
+      if (created.ok) {
+        const row = await byId(created.value.id);
+        if (row !== undefined) return Ok(row);
+      } else {
+        failure = created.error;
+      }
+    } catch (error) {
+      failure = error;
+    }
+    const existing = await bySlug();
+    return existing !== undefined ? Ok(existing) : PluginErr(`${label}: ${errorMessage(failure)}`);
+  }
+
   private async applyTaxonomy(
     orgId: string,
     entityId: string,
@@ -1851,11 +1881,14 @@ export class ChannelConnectorService {
         continue;
       }
       if (!category) {
-        const created = await this.catalog.createCategory({ slug }, actor);
-        if (!created.ok) return PluginErr(created.error.message);
-        const [createdCategory] = await this.db.select().from(categories).where(eq(categories.id, created.value.id));
-        if (!createdCategory) return PluginErr(`Category "${slug}" was not persisted.`);
-        category = createdCategory;
+        const created = await this.createTaxonomyOrAdopt(
+          () => this.catalog.createCategory({ slug }, actor),
+          async (id) => (await this.db.select().from(categories).where(eq(categories.id, id)))[0],
+          async () => (await this.db.select().from(categories).where(and(eq(categories.organizationId, orgId), eq(categories.slug, slug))))[0],
+          `Category "${slug}"`,
+        );
+        if (!created.ok) return created;
+        category = created.value;
         categoryRows.push(category);
       }
       if (linkedCategories.has(category.id)) continue;
@@ -1868,11 +1901,15 @@ export class ChannelConnectorService {
     if (item.brand) {
       let brand = brandRows.find((row) => row.slug === item.brand);
       if (!brand) {
-        const created = await this.catalog.createBrand({ slug: item.brand, displayName: item.brand }, actor);
-        if (!created.ok) return PluginErr(created.error.message);
-        const [createdBrand] = await this.db.select().from(brands).where(eq(brands.id, created.value.id));
-        if (!createdBrand) return PluginErr(`Brand "${item.brand}" was not persisted.`);
-        brand = createdBrand;
+        const brandSlug = item.brand;
+        const created = await this.createTaxonomyOrAdopt(
+          () => this.catalog.createBrand({ slug: brandSlug, displayName: brandSlug }, actor),
+          async (id) => (await this.db.select().from(brands).where(eq(brands.id, id)))[0],
+          async () => (await this.db.select().from(brands).where(and(eq(brands.organizationId, orgId), eq(brands.slug, brandSlug))))[0],
+          `Brand "${brandSlug}"`,
+        );
+        if (!created.ok) return created;
+        brand = created.value;
         brandRows.push(brand);
       }
       if (!linkedBrands.has(brand.id)) {
@@ -3850,7 +3887,7 @@ export class ChannelConnectorService {
       // that item's failure, reported with its error — not a page error the caller would retry.
       if (!variantIds.ok) { failures.push({ externalId: item.externalId, error: variantIds.error }); continue; }
       const taxonomy = await this.applyTaxonomy(orgId, entityId, writable, actor, warnings);
-      if (!taxonomy.ok) return taxonomy;
+      if (!taxonomy.ok) { failures.push({ externalId: item.externalId, error: taxonomy.error }); continue; }
       const media = await this.applyMedia(orgId, entityId, writable, variantIds.value.value, actor, warnings, owners);
       if (!media.ok) return media;
       attributesCreated += attributes.value.created;
@@ -4025,6 +4062,7 @@ export class ChannelConnectorService {
       ...(skipped.length > 0 ? { skipped: uniqueSkipped(skipped) } : {}),
       ...(converged.value.conflicts.length > 0 ? { conflicts: converged.value.conflicts } : {}),
       ...(converged.value.warnings.length > 0 ? { warnings: converged.value.warnings } : {}),
+      ...(converged.value.failures.length > 0 ? { failures: converged.value.failures } : {}),
     };
     await this.db.update(connectedStores).set({
       lastReconcileAt: new Date(),
