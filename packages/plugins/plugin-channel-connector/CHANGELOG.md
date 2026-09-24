@@ -1,5 +1,16 @@
 # @porulle/plugin-channel-connector
 
+## 0.57.1
+
+### Patch Changes
+
+- [#152](https://github.com/asyncdotengineering/porulle/pull/152) [`f2189b2`](https://github.com/asyncdotengineering/porulle/commit/f2189b27ad8072d4e78dcc23c0b14b720e4f186a) Thanks [@octalpixel](https://github.com/octalpixel)! - The editor converge now attaches the same images as the page fast path: the hero plus the first photo of each other variant (`selectImportImages`, one selection for both paths).
+
+  It used to attach every image the item listed. So the first converge of a product that changed upstream, a price say, uploaded and linked its whole gallery, photos the import ruling deliberately leaves out, at the cost of an upload, an embed and an entity bump per photo. Links that already exist are left as they are.
+
+- Updated dependencies []:
+  - @porulle/core@0.57.1
+
 ## 0.57.0
 
 ### Minor Changes
