@@ -1,5 +1,6 @@
 import { eq, and, desc } from "drizzle-orm";
 import type { TxContext } from "../../../kernel/database/tx-context.js";
+import { user } from "../../../auth/auth-schema.js";
 import type {
   DrizzleDatabase,
   DbOrTx,
@@ -49,6 +50,27 @@ export class CustomersRepository {
       .from(customers)
       .where(and(eq(customers.organizationId, orgId), eq(customers.id, id)));
     return rows[0];
+  }
+
+  /**
+   * The auth user's email, when no OTHER customer profile in this organization already holds it
+   * (`customers` is unique on organization + email). Undefined otherwise — the caller then leaves the
+   * profile's email as it is rather than fail the whole profile read on the unique index.
+   */
+  async claimableUserEmail(
+    orgId: string,
+    userId: string,
+    ctx?: TxContext,
+  ): Promise<string | undefined> {
+    const db = this.getDb(ctx);
+    const [account] = await db.select({ email: user.email }).from(user).where(eq(user.id, userId));
+    if (!account?.email) return undefined;
+    const [holder] = await db
+      .select({ userId: customers.userId })
+      .from(customers)
+      .where(and(eq(customers.organizationId, orgId), eq(customers.email, account.email)))
+      .limit(1);
+    return holder === undefined || holder.userId === userId ? account.email : undefined;
   }
 
   async findByUserId(
