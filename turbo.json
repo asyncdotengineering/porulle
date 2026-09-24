@@ -15,7 +15,7 @@
     },
     "test": {
       "dependsOn": ["^build"],
-      "env": ["IMPORT_PAGE_E2E_OUT"],
+      "env": ["IMPORT_PAGE_E2E_OUT", "PORULLE_TEST_PG_URL"],
       "outputs": []
     },
     "dev": {
