@@ -79,11 +79,12 @@ describe("channel connector OAuth routes", () => {
     const stores = await built.db.select().from(connectedStores).where(eq(connectedStores.storeDomain, "acme.myshopify.com"));
     expect(stores).toHaveLength(1);
     expect(stores[0]?.credentials).toEqual({ accessToken: "oauth-token" });
+    // The OAuth connect starts no import either; the host's operator route does.
     const jobsRaw = await built.db.execute(sql`
-      SELECT organization_id FROM commerce_jobs WHERE task_slug = 'channel/import-catalog'
+      SELECT task_slug FROM commerce_jobs WHERE concurrency_key = ${stores[0]?.id ?? ""}
     `);
     const jobs = Array.isArray(jobsRaw) ? jobsRaw : ((jobsRaw as { rows?: unknown[] }).rows ?? []);
-    expect(jobs).toHaveLength(1);
+    expect(jobs).toEqual([]);
   });
 
   it("rejects OAuth state replay and expiry", async () => {

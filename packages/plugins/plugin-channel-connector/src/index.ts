@@ -92,8 +92,6 @@ export type {
   CatalogFieldMappingRow,
   CatalogFieldTarget,
 } from "./catalog-field-mapping.js";
-/** ~320 Neon HTTP subrequests per product against a 10,000 per-invocation cap → hard ceiling near 31; 20 leaves margin for heavier products. */
-export const CHANNEL_IMPORT_MAX_ITEMS_PER_INVOCATION = 20;
 
 /**
  * How many bounded batches one sweep may walk before it refuses rather than loops.
@@ -324,71 +322,6 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           });
         }
         return { output: { enqueued: stores.length } };
-      },
-    },
-    {
-      slug: "channel/import-catalog",
-      concurrency: { key: (input: Record<string, unknown>) => String(input.storeId), supersedes: true },
-      durableSteps: true,
-      handler: async ({ input, ctx }: { input: Record<string, unknown>; ctx: import("@porulle/core").TaskContext }) => {
-        const service = new ChannelConnectorService(ctx.db, ctx.services, options);
-        const orgId = String(input.orgId);
-        const storeId = String(input.storeId);
-        const result = await walkBatches(
-          ctx,
-          "import-catalog",
-          storeId,
-          async () => {
-            const page = await service.importCatalog(orgId, storeId, createSystemActor(orgId), {
-              maxItems: CHANNEL_IMPORT_MAX_ITEMS_PER_INVOCATION,
-            });
-            if (!page.ok) throw new Error(page.error);
-            return {
-              exhausted: page.value.exhausted,
-              counted: page.value.imported,
-              cursor: page.value.cursor ?? null,
-              ...(page.value.warnings ? { warnings: page.value.warnings } : {}),
-              // UNCONDITIONAL, unlike `warnings` and `failures` beside it. The step's return value is
-              // the only per-batch seam a host application has — `walkBatches` keeps just `last` — so
-              // this is where a page gets its identity. Omitting it when empty would make "this batch
-              // committed nothing" and "this plugin build does not report entities" the same
-              // `undefined` at the seam, and a caller that collapses those enqueues nothing and
-              // reports success. The service's own return declares it unconditional for the same
-              // reason; dropping it here would have undone that one line later.
-              entityIds: page.value.entityIds,
-              ...(page.value.failures ? { failures: page.value.failures } : {}),
-            };
-          },
-        );
-        const jobs = ctx.services.jobs as JobsAdapter;
-        // The catalog is always exhausted by the time the walk above returns, so this hand-off is
-        // unconditional. It is the ONE enqueue this task is allowed: it starts a DIFFERENT task
-        // once, spending a single level of the request chain's 32, rather than one per page the
-        // way the continuation it replaced did.
-        //
-        // A finished catalog is not a usable one. `importCatalog` writes entities, variants and
-          // prices and never touches `inventory_levels`, so a store whose sweep ends here has a
-          // catalog in which every variant rolls up as out of stock — which is what a consumer
-          // projection publishes and what a shopper is shown.
-          //
-          // Inventory used to arrive from `reconcile`, reachable only through the
-          // `channel/reconcile-sweep` cron. A deployment that removes its crons therefore loses a
-          // data-plane write silently, with every suite still green. Levelling inventory here keeps
-          // it inside the one operator action — "import this store" — instead of behind a second
-          // one somebody has to remember.
-          await jobs.enqueue("channel/sync-inventory", { orgId, storeId }, {
-            organizationId: orgId,
-          concurrencyKey: storeId,
-        });
-        return {
-          output: {
-            imported: result.counted,
-            cursor: result.last.cursor ?? null,
-            exhausted: true,
-            batches: result.batches,
-            ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
-          },
-        };
       },
     },
     {

@@ -348,15 +348,15 @@ describe("plugin-channel-connector foundations", () => {
     ]);
   });
 
-  it("enqueues import on connect and level-sets mapped external inventory", async () => {
+  it("enqueues nothing on connect, and level-sets mapped external inventory", async () => {
+    // Connecting a store starts no import: the host's operator route starts one. Connect used to
+    // enqueue a legacy 20-per-invocation walk that ran beside the host's own page-major import.
     const store = await connect();
     const queuedRaw = await built.db.execute(sql`
-      SELECT organization_id, concurrency_key FROM commerce_jobs WHERE task_slug = 'channel/import-catalog'
+      SELECT task_slug FROM commerce_jobs WHERE concurrency_key = ${store.id}
     `);
-    const queued = Array.isArray(queuedRaw)
-      ? queuedRaw as Array<{ organization_id: string; concurrency_key: string | null }>
-      : ((queuedRaw as { rows?: Array<{ organization_id: string; concurrency_key: string | null }> }).rows ?? []);
-    expect(queued.some((job) => job.organization_id === TEST_ORG_ID && job.concurrency_key === store.id)).toBe(true);
+    const queued = Array.isArray(queuedRaw) ? queuedRaw : ((queuedRaw as { rows?: unknown[] }).rows ?? []);
+    expect(queued).toEqual([]);
 
     const mapped = await built.db.select().from(channelEntityMap).where(and(
       eq(channelEntityMap.organizationId, TEST_ORG_ID),

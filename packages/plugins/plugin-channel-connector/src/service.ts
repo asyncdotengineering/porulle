@@ -2963,19 +2963,9 @@ export class ChannelConnectorService {
         return PluginErr(registration.error.message, "CONNECTOR_REGISTRATION_FAILED");
       }
     }
-    const jobs = this.optionsJobs;
-    if (jobs) {
-      await jobs.enqueue("channel/import-catalog", { orgId, storeId: (rows[0] as ConnectedStore).id }, {
-        organizationId: orgId,
-        concurrencyKey: (rows[0] as ConnectedStore).id,
-        supersedes: true,
-      });
-    }
+    // Connecting starts no import. The host's operator route starts one (and levels inventory after
+    // it); connect used to enqueue a second, sequential walk that ran beside the host's own.
     return Ok(redactStore(store));
-  }
-
-  private get optionsJobs(): JobsAdapter | undefined {
-    return this.jobs;
   }
 
   async disconnectStore(orgId: string, id: string): Promise<PluginResult<PublicConnectedStore>> {

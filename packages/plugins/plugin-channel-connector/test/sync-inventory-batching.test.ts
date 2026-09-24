@@ -112,12 +112,13 @@ async function runTask(built: Built, slug: string, storeId: string) {
 }
 
 /** Import the whole catalog first: inventory can only be levelled for variants that exist. */
-async function importWholeCatalog(built: Built, storeId: string) {
+async function importWholeCatalog(service: Service, storeId: string) {
   for (let guard = 0; guard < 50; guard += 1) {
-    const result = await runTask(built, "channel/import-catalog", storeId);
-    if ((result as { output: { exhausted: boolean } }).output.exhausted) return;
+    const page = await service.importCatalog(TEST_ORG_ID, storeId, actor(), { maxItems: 20 });
+    if (!page.ok) throw new Error(page.error);
+    if (page.value.exhausted) return;
   }
-  throw new Error("the catalog did not exhaust within 50 bounded invocations");
+  throw new Error("the catalog did not exhaust within 50 bounded batches");
 }
 
 const levelCount = async (db: PluginDb) =>
@@ -142,7 +143,7 @@ describe("one inventory sync finishes a store's stock", () => {
   it("bounds each invocation, resumes without re-walking, and stops when the store is drained", async () => {
     const total = CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION + 1;
     const { built, storeId, service } = await scenario(catalogOf(total, "invdrain"), "invdrain.sync.test");
-    await importWholeCatalog(built, storeId);
+    await importWholeCatalog(service, storeId);
 
     // These stages drive `service.syncInventory` DIRECTLY, and that is a deliberate change from
     // when they drove the task. The task no longer returns after one batch — it walks the store to
@@ -211,8 +212,8 @@ describe("one inventory sync finishes a store's stock", () => {
 
   /** The other branch, and cheap: a store small enough to fit one bound must not chain at all. */
   it("does not chain a continuation for a store that fits in one invocation", async () => {
-    const { built, storeId } = await scenario(catalogOf(2, "invsmall"), "invsmall.sync.test");
-    await importWholeCatalog(built, storeId);
+    const { built, storeId, service } = await scenario(catalogOf(2, "invsmall"), "invsmall.sync.test");
+    await importWholeCatalog(service, storeId);
     const continuationsBefore = (await jobsFor(built, "channel/sync-inventory", storeId)).length;
 
     const result = await runTask(built, "channel/sync-inventory", storeId);
