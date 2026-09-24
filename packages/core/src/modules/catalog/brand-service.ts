@@ -70,7 +70,7 @@ export class BrandService {
     return Ok(undefined);
   }
 
-  async addToBrand(entityId: string, brandId: string, actor: Actor | null, ctx?: TxContext): Promise<Result<void>> {
+  async addToBrand(entityId: string, brandId: string, actor: Actor | null, ctx?: TxContext): Promise<Result<boolean>> {
     try { assertPermission(actor, "catalog:update"); } catch (error) { return Err(toCommerceError(error)); }
     const entity = await this.deps.repository.findEntityById(entityId, ctx);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
@@ -82,11 +82,11 @@ export class BrandService {
     if (!brand) {
       brand = await this.repo.createBrand({ organizationId: addBrandOrgId, slug: brandId, displayName: brandId, metadata: {} }, ctx);
     }
-    await this.repo.addEntityToBrand(entityId, brand.id, 0, ctx);
-    return Ok(undefined);
+    const added = await this.repo.addEntityToBrand(entityId, brand.id, 0, ctx);
+    return Ok(added);
   }
 
-  async removeFromBrand(entityId: string, brandId: string, actor: Actor | null, ctx?: TxContext): Promise<Result<void>> {
+  async removeFromBrand(entityId: string, brandId: string, actor: Actor | null, ctx?: TxContext): Promise<Result<boolean>> {
     try { assertPermission(actor, "catalog:update"); } catch (error) { return Err(toCommerceError(error)); }
     const entity = await this.deps.repository.findEntityById(entityId, ctx);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
@@ -96,6 +96,6 @@ export class BrandService {
     if (!brand) brand = await this.repo.findBrandBySlug(resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config), brandId, ctx);
     const removed = await this.repo.removeEntityFromBrand(entityId, brand?.id ?? brandId, ctx);
     if (!removed) return Err(new CommerceNotFoundError("Brand assignment not found."));
-    return Ok(undefined);
+    return Ok(true);
   }
 }

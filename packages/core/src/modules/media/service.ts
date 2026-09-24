@@ -287,6 +287,7 @@ export class MediaService {
           throw new Error("Catalog service is required for media revision capture.");
         }
         const catalogService = catalog as {
+          notifyEntityChanged: (entityId: string, changedFieldPaths: readonly string[], actor: Actor | null, ctx?: TxContext) => Promise<void>;
           recordEntityRevision: (
             entityId: string,
             actor: Actor | null,
@@ -294,6 +295,9 @@ export class MediaService {
             ctx?: TxContext,
           ) => Promise<Result<unknown>>;
         };
+        // A new attachment versions the entity: the hero drives the image embedding, so a consumer
+        // that versions on `updated_at` must see it.
+        await catalogService.notifyEntityChanged(input.entityId, [`media.${input.role}`], actor ?? txCtx.actor, txCtx);
         const revision = await catalogService.recordEntityRevision(input.entityId, actor ?? txCtx.actor, "update", txCtx);
         if (!revision.ok) throw revision.error;
         return Ok(undefined);

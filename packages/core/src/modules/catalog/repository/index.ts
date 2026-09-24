@@ -923,17 +923,20 @@ export class CatalogRepository {
     return rows.map((r) => r.entityId);
   }
 
+  /** True when the link was inserted; false when it already existed. */
   async addEntityToCategory(
     entityId: string,
     categoryId: string,
     sortOrder = 0,
     ctx?: TxContext,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const db = this.getDb(ctx);
-    await db
+    const inserted = await db
       .insert(entityCategories)
       .values({ entityId, categoryId, sortOrder })
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ entityId: entityCategories.entityId });
+    return inserted.length > 0;
   }
 
   async removeEntityFromCategory(
@@ -1079,17 +1082,20 @@ export class CatalogRepository {
     await db.delete(entityTags).where(eq(entityTags.entityId, entityId));
   }
 
+  /** True when the link was inserted; false when it already existed. */
   async addEntityToBrand(
     entityId: string,
     brandId: string,
     sortOrder = 0,
     ctx?: TxContext,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const db = this.getDb(ctx);
-    await db
+    const inserted = await db
       .insert(entityBrands)
       .values({ entityId, brandId, sortOrder })
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ entityId: entityBrands.entityId });
+    return inserted.length > 0;
   }
 
   async removeEntityFromBrand(

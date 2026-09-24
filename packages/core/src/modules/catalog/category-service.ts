@@ -93,7 +93,7 @@ export class CategoryService {
     return Ok(undefined);
   }
 
-  async addToCategory(entityId: string, categoryId: string, actor: Actor | null, ctx?: TxContext): Promise<Result<void>> {
+  async addToCategory(entityId: string, categoryId: string, actor: Actor | null, ctx?: TxContext): Promise<Result<boolean>> {
     try { assertPermission(actor, "catalog:update"); } catch (error) { return Err(toCommerceError(error)); }
     const entity = await this.deps.repository.findEntityById(entityId, ctx);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
@@ -105,11 +105,11 @@ export class CategoryService {
     if (!category) {
       category = await this.repo.createCategory({ organizationId: addCatOrgId, slug: categoryId, sortOrder: 0, metadata: {} }, ctx);
     }
-    await this.repo.addEntityToCategory(entityId, category.id, 0, ctx);
-    return Ok(undefined);
+    const added = await this.repo.addEntityToCategory(entityId, category.id, 0, ctx);
+    return Ok(added);
   }
 
-  async removeFromCategory(entityId: string, categoryId: string, actor: Actor | null, ctx?: TxContext): Promise<Result<void>> {
+  async removeFromCategory(entityId: string, categoryId: string, actor: Actor | null, ctx?: TxContext): Promise<Result<boolean>> {
     try { assertPermission(actor, "catalog:update"); } catch (error) { return Err(toCommerceError(error)); }
     const entity = await this.deps.repository.findEntityById(entityId, ctx);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
@@ -119,6 +119,6 @@ export class CategoryService {
     if (!category) category = await this.repo.findCategoryBySlug(resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config), categoryId, ctx);
     const removed = await this.repo.removeEntityFromCategory(entityId, category?.id ?? categoryId, ctx);
     if (!removed) return Err(new CommerceNotFoundError("Category assignment not found."));
-    return Ok(undefined);
+    return Ok(true);
   }
 }

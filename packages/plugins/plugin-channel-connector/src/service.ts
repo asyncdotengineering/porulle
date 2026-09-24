@@ -517,6 +517,8 @@ interface CatalogService {
     actor: Actor,
     ctx?: CatalogWriteContext,
   ): Promise<{ ok: true; value: undefined } | { ok: false; error: { message: string } }>;
+  /** Moves the entity's updated_at and fires catalog.afterUpdate for a change to related rows. */
+  notifyEntityChanged(entityId: string, changedFieldPaths: readonly string[], actor: Actor | null): Promise<void>;
   recordEntityRevision(
     entityId: string,
     actor: Actor,
@@ -2059,6 +2061,7 @@ export class ChannelConnectorService {
     const linkedBrands = new Set(!item.brand ? [] : (await this.db
       .select({ id: entityBrands.brandId }).from(entityBrands).where(eq(entityBrands.entityId, entityId))).map((row) => row.id));
     let changed = false;
+    let tagsAdded = false;
     const categoryRows = taxonomy.categories;
     for (const slug of new Set(item.categories ?? [])) {
       let category = categoryRows.find((row) => row.slug === slug);
@@ -2118,7 +2121,14 @@ export class ChannelConnectorService {
         tagRows.push(tag);
       }
       const added = await this.db.insert(entityTags).values({ entityId, tagId: tag.id }).onConflictDoNothing().returning({ tagId: entityTags.tagId });
-      if (added.length > 0) changed = true;
+      if (added.length > 0) tagsAdded = true;
+    }
+    // Category and brand links version the entity inside the catalog service. Tag links are written
+    // here, so a new tag versions it here: tags are an indexed facet, and a consumer versioning on
+    // `updated_at` would otherwise keep the old ones.
+    if (tagsAdded) {
+      await this.catalog.notifyEntityChanged(entityId, ["tags"], actor);
+      changed = true;
     }
     return Ok({ changed });
   }

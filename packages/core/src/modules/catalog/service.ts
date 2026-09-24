@@ -379,6 +379,16 @@ export interface CatalogService {
     actor: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<{ created: Variant[]; skipped: number }>>;
+  /**
+   * Move the entity's `updated_at` and fire `catalog.afterUpdate` for a change to rows RELATED to
+   * it (links, media) — the versioning contract consumers rely on to re-read a product.
+   */
+  notifyEntityChanged(
+    entityId: string,
+    changedFieldPaths: readonly string[],
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<void>;
   recordEntityRevision(
     entityId: string,
     actor: Actor | null,
@@ -676,6 +686,15 @@ export class CatalogServiceImpl implements CatalogService {
       actorType: revisionActor?.type ?? null,
       requestId: ctx.requestId,
     }, ctx);
+  }
+
+  notifyEntityChanged(
+    entityId: string,
+    changedFieldPaths: readonly string[],
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<void> {
+    return this.entities.notifyEntityUpdated(entityId, changedFieldPaths, actor, ctx);
   }
 
   async recordEntityRevision(
@@ -1134,16 +1153,24 @@ export class CatalogServiceImpl implements CatalogService {
   addToCategory(entityId: string, categoryId: string, actor: Actor | null, ctx?: TxContext): Promise<Result<void>> {
     return this.withMutationResult(actor, ctx, async (txCtx) => {
       const result = await this.categories.addToCategory(entityId, categoryId, actor, txCtx);
-      if (result.ok) await this.captureRevision(entityId, actor, "update", txCtx);
-      return result;
+      if (!result.ok) return result;
+      // A link that actually changed versions the entity (an indexed facet moved); re-linking what
+      // is already linked moves nothing.
+      if (result.value) await this.entities.notifyEntityUpdated(entityId, ["categories"], actor, txCtx);
+      await this.captureRevision(entityId, actor, "update", txCtx);
+      return Ok(undefined);
     });
   }
 
   removeFromCategory(entityId: string, categoryId: string, actor: Actor | null, ctx?: TxContext): Promise<Result<void>> {
     return this.withMutationResult(actor, ctx, async (txCtx) => {
       const result = await this.categories.removeFromCategory(entityId, categoryId, actor, txCtx);
-      if (result.ok) await this.captureRevision(entityId, actor, "update", txCtx);
-      return result;
+      if (!result.ok) return result;
+      // A link that actually changed versions the entity (an indexed facet moved); re-linking what
+      // is already linked moves nothing.
+      if (result.value) await this.entities.notifyEntityUpdated(entityId, ["categories"], actor, txCtx);
+      await this.captureRevision(entityId, actor, "update", txCtx);
+      return Ok(undefined);
     });
   }
 
@@ -1166,16 +1193,24 @@ export class CatalogServiceImpl implements CatalogService {
   addToBrand(entityId: string, brandId: string, actor: Actor | null, ctx?: TxContext): Promise<Result<void>> {
     return this.withMutationResult(actor, ctx, async (txCtx) => {
       const result = await this.brands.addToBrand(entityId, brandId, actor, txCtx);
-      if (result.ok) await this.captureRevision(entityId, actor, "update", txCtx);
-      return result;
+      if (!result.ok) return result;
+      // A link that actually changed versions the entity (an indexed facet moved); re-linking what
+      // is already linked moves nothing.
+      if (result.value) await this.entities.notifyEntityUpdated(entityId, ["brand"], actor, txCtx);
+      await this.captureRevision(entityId, actor, "update", txCtx);
+      return Ok(undefined);
     });
   }
 
   removeFromBrand(entityId: string, brandId: string, actor: Actor | null, ctx?: TxContext): Promise<Result<void>> {
     return this.withMutationResult(actor, ctx, async (txCtx) => {
       const result = await this.brands.removeFromBrand(entityId, brandId, actor, txCtx);
-      if (result.ok) await this.captureRevision(entityId, actor, "update", txCtx);
-      return result;
+      if (!result.ok) return result;
+      // A link that actually changed versions the entity (an indexed facet moved); re-linking what
+      // is already linked moves nothing.
+      if (result.value) await this.entities.notifyEntityUpdated(entityId, ["brand"], actor, txCtx);
+      await this.captureRevision(entityId, actor, "update", txCtx);
+      return Ok(undefined);
     });
   }
 
