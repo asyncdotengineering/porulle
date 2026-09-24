@@ -24,7 +24,7 @@ import { paginate } from "../../utils/pagination.js";
 import type { JobsAdapter } from "../../kernel/jobs/adapter.js";
 import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import type { CatalogWriteContext, TxContext } from "../../kernel/database/tx-context.js";
-import { isWriteContextTransactional } from "../../kernel/database/tx-context.js";
+import { createTxContext, isWriteContextTransactional } from "../../kernel/database/tx-context.js";
 import { canReadUnpublishedCatalog, isCatalogEntityVisible } from "./read-policy.js";
 import { isValidFieldPath } from "./ownership.js";
 import type {
@@ -519,21 +519,36 @@ export class EntityService {
     try { this.assertSameOrg(entity, actor); } catch (error) { return Err(toCommerceError(error)); }
     const beforeAttr = await this.repo.findAttributeByLocale(entityId, locale, txCtx);
     const changedFieldPaths: string[] = [];
+    let changed = false;
     for (const field of attributeFields) {
       if (attrs[field] === undefined) continue;
       const before = beforeAttr?.[field] ?? null;
       const after = attrs[field] ?? null;
       if (before !== after) {
+        changed = true;
         const path = `attributes.${locale}.${field}`;
         if (isValidFieldPath(path)) changedFieldPaths.push(path);
       }
     }
-    await this.repo.upsertAttribute(entityId, locale, { title: attrs.title, subtitle: attrs.subtitle, description: attrs.description, richDescription: attrs.richDescription, seoTitle: attrs.seoTitle, seoDescription: attrs.seoDescription }, txCtx);
+    // An identical re-set writes nothing and moves nothing: an idempotent save must not look like an
+    // edit to anything that versions the product.
+    if (!changed && beforeAttr) return Ok(undefined);
+
+    // The attribute write and the entity's `updated_at` bump commit together. Consumers version a
+    // product from `sellable_entities.updated_at`; an attribute change that left it unmoved was
+    // invisible to them — a changed title never re-indexed (sim, 2026-09-24).
+    const write = async (writeCtx: TxContext): Promise<SellableEntity | undefined> => {
+      await this.repo.upsertAttribute(entityId, locale, { title: attrs.title, subtitle: attrs.subtitle, description: attrs.description, richDescription: attrs.richDescription, seoTitle: attrs.seoTitle, seoDescription: attrs.seoDescription }, writeCtx);
+      return changed ? this.repo.updateEntity(entityId, {}, writeCtx) : undefined;
+    };
+    const updated = txCtx
+      ? await write(txCtx)
+      : await this.deps.database.transaction((tx) => write(createTxContext(tx, { actor })));
     if (changedFieldPaths.length > 0) {
       const afterHooks = this.deps.hooks.resolve("catalog.afterUpdate") as CatalogUpdateAfterHook[];
       const context = catalogHookContext(this.deps, actor, ctx, "update");
       context.context.changedFieldPaths = changedFieldPaths;
-      await runAfterHooks(afterHooks, entity, entity, "update", context, (hook) => this.deps.hooks.runsInTransaction(hook));
+      await runAfterHooks(afterHooks, entity, updated ?? entity, "update", context, (hook) => this.deps.hooks.runsInTransaction(hook));
     }
     return Ok(undefined);
   }
@@ -563,10 +578,13 @@ export class EntityService {
     const txCtx = isWriteContextTransactional(ctx) ? ctx : undefined;
     const entity = await this.repo.findEntityById(entityId, txCtx);
     if (!entity) return;
+    // The related rows changed, so the entity's `updated_at` moves with them (in the caller's
+    // transaction when it has one) — the same versioning contract as `setAttributes`.
+    const updated = await this.repo.updateEntity(entityId, {}, txCtx);
     const afterHooks = this.deps.hooks.resolve("catalog.afterUpdate") as CatalogUpdateAfterHook[];
     const context = catalogHookContext(this.deps, actor, ctx, "update");
     context.context.changedFieldPaths = [...changedFieldPaths];
-    await runAfterHooks(afterHooks, entity, entity, "update", context, (hook) => this.deps.hooks.runsInTransaction(hook));
+    await runAfterHooks(afterHooks, entity, updated ?? entity, "update", context, (hook) => this.deps.hooks.runsInTransaction(hook));
   }
 
   async getAttributes(entityId: string, locale: string, actor: Actor | null, ctx?: TxContext): Promise<Result<SellableAttribute>> {
