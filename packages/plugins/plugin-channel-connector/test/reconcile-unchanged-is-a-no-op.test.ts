@@ -179,4 +179,49 @@ describe("reconcile over an unchanged catalogue", () => {
     expect(result.ok && result.value.inventoryUpdated).toBe(0);
     expect(adjusts).toBe(0);
   }, 120_000);
+
+  it("blank entity AND variant map hashes over unchanged prices still converge nothing", async () => {
+    const { built, service, storeId } = await importedStore();
+    await built.db.update(channelEntityMap).set({ syncHash: "" }).where(eq(channelEntityMap.storeId, storeId));
+    let adjusts = 0;
+    built.kernel.hooks.append("inventory.afterAdjust", async () => { adjusts += 1; });
+
+    const result = await service.reconcile(TEST_ORG_ID, storeId, actor());
+
+    expect(result.ok && { converged: result.value.converged, inventoryUpdated: result.value.inventoryUpdated, driftAlert: result.value.driftAlert })
+      .toEqual({ converged: 0, inventoryUpdated: 0, driftAlert: false });
+    expect(adjusts).toBe(0);
+  }, 120_000);
+
+  // 0.50.0 counted `converged` from what was written, but price and taxonomy writes raised no
+  // change flag, so an upstream price-only or tag-only change reported converged 0: real drift
+  // read as none. Found by the consumer's channel journey on the 0.50.0 pin.
+  it.each([
+    ["a price", (item: ChannelCatalogItem): ChannelCatalogItem => ({ ...item, variants: item.variants.map((variant, index) => index === 0 ? { ...variant, prices: [{ amount: 1500, currency: "LKR" }] } : variant) })],
+    ["a tag", (item: ChannelCatalogItem): ChannelCatalogItem => ({ ...item, tags: ["new-season"] })],
+    ["a category", (item: ChannelCatalogItem): ChannelCatalogItem => ({ ...item, categories: ["dresses"] })],
+  ])("counts a product converged when only %s changed upstream", async (_label, change) => {
+    const remote = defaultRemote();
+    const { service, storeId } = await importedStore(remote);
+    const [first] = remote.catalog;
+    if (!first) throw new Error("fixture has no product");
+    remote.catalog[0] = change(first);
+
+    const result = await service.reconcile(TEST_ORG_ID, storeId, actor());
+
+    expect(result.ok && result.value.converged).toBe(1);
+  }, 120_000);
+
+  it("control: a second reconcile after a price change converges nothing", async () => {
+    const remote = defaultRemote();
+    const { service, storeId } = await importedStore(remote);
+    const [first] = remote.catalog;
+    if (!first) throw new Error("fixture has no product");
+    remote.catalog[0] = { ...first, variants: first.variants.map((variant, index) => index === 0 ? { ...variant, prices: [{ amount: 1500, currency: "LKR" }] } : variant) };
+    await service.reconcile(TEST_ORG_ID, storeId, actor());
+
+    const again = await service.reconcile(TEST_ORG_ID, storeId, actor());
+
+    expect(again.ok && { converged: again.value.converged, driftAlert: again.value.driftAlert }).toEqual({ converged: 0, driftAlert: false });
+  }, 120_000);
 });
