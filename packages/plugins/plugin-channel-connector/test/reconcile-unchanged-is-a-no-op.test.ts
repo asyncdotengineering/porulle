@@ -11,8 +11,7 @@
  * re-projection. `driftAlert` is derived from `imported + converged + archived`, so a reconcile
  * that miscounts unchanged products as converged also raises a false drift alarm.
  *
- * The rows drive the import exactly as the deployed chain does (the registered task, page by page,
- * then the inventory sync) and then reconcile the same catalogue.
+ * The rows import page by page, level the inventory, and then reconcile the same catalogue.
  */
 import { describe, expect, it } from "vitest";
 import { createSystemActor, type ChannelCatalogItem } from "@porulle/core";
@@ -69,13 +68,11 @@ async function importedStore(remote: Remote = defaultRemote()) {
   const storeId = (await response.json()).data.id as string;
   const service = new ChannelConnectorService(built.db, built.kernel.services, { connectors: [connector] });
 
-  const task = (built.kernel.config.jobs?.tasks ?? []).find((job) => job.slug === "channel/import-catalog");
-  if (!task) throw new Error("channel/import-catalog is not registered");
-  const ctx = { db: built.db, services: built.kernel.services, logger: built.kernel.logger } as unknown as Parameters<typeof task.handler>[0]["ctx"];
   for (let guard = 0; ; guard += 1) {
     if (guard === 20) throw new Error("the catalog import did not exhaust");
-    const result = await task.handler({ input: { orgId: TEST_ORG_ID, storeId }, ctx }) as { output: { exhausted: boolean } };
-    if (result.output.exhausted) break;
+    const page = await service.importCatalog(TEST_ORG_ID, storeId, actor(), { maxItems: 2 });
+    if (!page.ok) throw new Error(page.error);
+    if (page.value.exhausted) break;
   }
   for (let guard = 0; ; guard += 1) {
     if (guard === 20) throw new Error("the inventory sync did not exhaust");
