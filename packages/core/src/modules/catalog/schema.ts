@@ -337,6 +337,10 @@ export const variants = pgTable(
       .default("active"),
     sortOrder: integer("sort_order").notNull().default(0),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+    // Bumped on EVERY write to the variant or its option values, so a variant-only change is
+    // visible to anything that versions a product from its timestamps (the entity row is not
+    // touched by a variant write).
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({
     barcodeIdx: index("idx_variants_barcode").on(table.barcode),

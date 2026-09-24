@@ -1743,11 +1743,18 @@ export class ChannelConnectorService {
         const currentIds = [...(existingOptionValues.get(variantId) ?? [])].sort();
         const desiredIds = [...new Set(desiredOptionValueIds)].sort();
         if (currentIds.length !== desiredIds.length || currentIds.some((id, index) => id !== desiredIds[index])) {
-          await this.db.delete(variantOptionValues).where(eq(variantOptionValues.variantId, variantId));
-          if (desiredIds.length > 0) {
-            await this.db.insert(variantOptionValues).values(desiredIds.map((optionValueId) => ({ variantId, optionValueId }))).onConflictDoNothing();
-            repaired += 1;
-          }
+          // Rewrite and bump in ONE transaction: an option-value change is a variant-only change
+          // (the entity row is not touched), and `variants.updated_at` is the only trace a consumer
+          // can version it from. Neither may commit without the other.
+          const optionVariantId = variantId;
+          await this.transact(async (tx) => {
+            await tx.delete(variantOptionValues).where(eq(variantOptionValues.variantId, optionVariantId));
+            if (desiredIds.length > 0) {
+              await tx.insert(variantOptionValues).values(desiredIds.map((optionValueId) => ({ variantId: optionVariantId, optionValueId }))).onConflictDoNothing();
+            }
+            await tx.update(variants).set({ updatedAt: sql`now()` }).where(eq(variants.id, optionVariantId));
+          });
+          if (desiredIds.length > 0) repaired += 1;
           // The map is the read model for this pass; a payload repeating an externalId must not see
           // the pre-fetched state after this write.
           existingOptionValues.set(variantId, [...desiredIds]);

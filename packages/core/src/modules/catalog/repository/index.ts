@@ -1,4 +1,4 @@
-import { eq, and, asc, count, desc, gt, inArray, isNull, lt, max, ne, or, type SQL } from "drizzle-orm";
+import { eq, and, asc, count, desc, gt, inArray, isNull, lt, max, ne, or, sql, type SQL } from "drizzle-orm";
 import type { TxContext } from "../../../kernel/database/tx-context.js";
 import { CommerceNotFoundError } from "../../../kernel/errors.js";
 import type {
@@ -1290,10 +1290,27 @@ export class CatalogRepository {
     const db = this.getDb(ctx);
     const rows = await db
       .update(variants)
-      .set(data)
+      .set({ ...data, updatedAt: sql`now()` })
       .where(eq(variants.id, id))
       .returning();
     return rows[0];
+  }
+
+  /**
+   * Run a write to variants' option values and bump those variants' `updated_at` in ONE
+   * transaction (a savepoint when the caller already holds one). A bump that could commit without
+   * its write, or a write without its bump, is exactly the version drift the column exists to end.
+   */
+  private async touchingVariants(
+    variantIds: readonly string[],
+    ctx: TxContext | undefined,
+    write: (db: DbOrTx) => Promise<void>,
+  ): Promise<void> {
+    if (variantIds.length === 0) return;
+    await this.getDb(ctx).transaction(async (tx) => {
+      await write(tx);
+      await tx.update(variants).set({ updatedAt: sql`now()` }).where(inArray(variants.id, [...new Set(variantIds)]));
+    });
   }
 
   async deleteVariantsByEntityId(
@@ -1324,32 +1341,33 @@ export class CatalogRepository {
     ctx?: TxContext,
   ): Promise<void> {
     if (data.length === 0) return;
-    const db = this.getDb(ctx);
-    await db.insert(variantOptionValues).values(data).onConflictDoNothing();
+    await this.touchingVariants(data.map((row) => row.variantId), ctx, async (db) => {
+      await db.insert(variantOptionValues).values(data).onConflictDoNothing();
+    });
   }
 
   async deleteVariantOptionValuesByVariantId(
     variantId: string,
     ctx?: TxContext,
   ): Promise<void> {
-    const db = this.getDb(ctx);
-    await db
-      .delete(variantOptionValues)
-      .where(eq(variantOptionValues.variantId, variantId));
+    await this.touchingVariants([variantId], ctx, async (db) => {
+      await db
+        .delete(variantOptionValues)
+        .where(eq(variantOptionValues.variantId, variantId));
+    });
   }
 
   async deleteVariantOptionValuesByEntityId(
     entityId: string,
     ctx?: TxContext,
   ): Promise<void> {
-    const db = this.getDb(ctx);
     // Get all variant IDs for this entity first
     const entityVariants = await this.findVariantsByEntityId(entityId, ctx);
     const variantIds = entityVariants.map((v) => v.id);
-    if (variantIds.length > 0) {
+    await this.touchingVariants(variantIds, ctx, async (db) => {
       await db
         .delete(variantOptionValues)
         .where(inArray(variantOptionValues.variantId, variantIds));
-    }
+    });
   }
 }
