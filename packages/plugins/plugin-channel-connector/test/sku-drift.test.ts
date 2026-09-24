@@ -12,10 +12,10 @@
 import { describe, expect, it } from "vitest";
 import { createSystemActor, type ChannelCatalogItem, type ChannelCatalogVariant } from "@porulle/core";
 import { and, eq } from "@porulle/core/drizzle";
-import { sellableAttributes, variants } from "@porulle/core/schema";
+import { sellableAttributes, sellableEntities, sellableEntityRevisions, variants } from "@porulle/core/schema";
 import { createPluginTestApp, jsonHeaders, TEST_ORG_ID, testAdminActor } from "@porulle/core/testing";
 import { channelConnectorPlugin, ChannelConnectorService, mockChannelConnector } from "../src/index.js";
-import { channelCatalogConflicts, channelEntityMap } from "../src/schema.js";
+import { channelCatalogConflictEvents, channelCatalogConflicts, channelEntityMap } from "../src/schema.js";
 
 const actor = () => createSystemActor(TEST_ORG_ID);
 
@@ -172,6 +172,36 @@ describe("upstream sku and barcode changes on already-mapped variants", () => {
     expect(healed.ok && healed.value.openConflicts).toBe(0);
     const stillOpen = await built.db.select().from(channelCatalogConflicts).where(and(eq(channelCatalogConflicts.storeId, storeId), eq(channelCatalogConflicts.state, "open")));
     expect(stillOpen).toEqual([]);
+  }, 120_000);
+
+  it("(i) a permanent duplicate stays quiet: later reconciles write nothing, reuse the one open conflict, and converge 0", async () => {
+    const { built, remote, storeId, local, reconcile } = await importedStore();
+    remote.catalog[1] = { ...product("p2", [variant("p2-a", "B1", "s", "0004")]), title: "Renamed p2", attributes: [{ locale: "en", title: "Renamed p2" }] };
+    const first = await reconcile();
+    expect(first.ok && first.value.openConflicts).toBe(1);
+    const entityId = (await local("p2-a")).entityId;
+    const snapshot = async () => ({
+      variantUpdatedAt: (await built.db.select({ id: variants.id, at: variants.updatedAt }).from(variants).where(eq(variants.sourceStoreId, storeId)))
+        .map((row) => `${row.id}@${row.at.toISOString()}`).sort(),
+      entityUpdatedAt: (await built.db.select({ at: sellableEntities.updatedAt }).from(sellableEntities).where(eq(sellableEntities.id, entityId)))[0]?.at.toISOString(),
+      revisions: (await built.db.select({ id: sellableEntityRevisions.id }).from(sellableEntityRevisions).where(eq(sellableEntityRevisions.entityId, entityId))).length,
+      conflicts: (await built.db.select({ id: channelCatalogConflicts.id }).from(channelCatalogConflicts).where(eq(channelCatalogConflicts.storeId, storeId))).length,
+      events: (await built.db.select({ id: channelCatalogConflictEvents.id }).from(channelCatalogConflictEvents)).length,
+    });
+    const settled = await snapshot();
+    let catalogUpdates = 0;
+    built.kernel.hooks.append("catalog.afterUpdate", async () => { catalogUpdates += 1; });
+
+    for (const pass of [2, 3]) {
+      await pause();
+      const result = await reconcile();
+      expect(result.ok && { pass, converged: result.value.converged, openConflicts: result.value.openConflicts, failures: result.value.failures })
+        .toEqual({ pass, converged: 0, openConflicts: 1, failures: undefined });
+    }
+
+    expect(await snapshot()).toEqual(settled);
+    expect(catalogUpdates).toBe(0);
+    expect((await local("p2-a")).sku).toBe("C1");
   }, 120_000);
 
   it("(f) does not overwrite a platform-owned SKU", async () => {
