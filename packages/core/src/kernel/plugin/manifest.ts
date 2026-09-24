@@ -1,3 +1,4 @@
+import { assertBulkHookPairs } from "../hooks/bulk-pairs.js";
 import type { Hono } from "hono";
 import { markHookInTransaction } from "../hooks/registry.js";
 import type { OpenAPIHono, RouteConfig } from "@hono/zod-openapi";
@@ -300,6 +301,7 @@ export function defineCommercePlugin(
     // 2. Hooks — merge into flat hooks map (kernel registers at boot)
     if (manifest.hooks) {
       const registrations = manifest.hooks();
+      assertBulkHookPairs(registrations.map((reg) => reg.key), `Plugin "${manifest.id}"`);
       const hookMap: Record<string, Array<(...args: unknown[]) => unknown>> = {
         ...(result.hooks ?? {}),
       };

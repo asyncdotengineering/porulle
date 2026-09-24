@@ -120,4 +120,27 @@ describe("fetchInventory", () => {
     expect((await connector.fetchInventory(store)).ok).toBe(false);
     expect((await connector.fetchInventory(store, ["50000"])).ok).toBe(false);
   });
+
+  it("fetchInventoryPage: one request per page, levels keyed by variant id, and a cursor to the next page", async () => {
+    const shop = fakeShopify(510);
+    const connector = shopifyConnector({ fetchImpl: shop.fetchImpl });
+    if (!connector.fetchInventoryPage) throw new Error("the Shopify adapter pages its inventory");
+
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const page = await connector.fetchInventoryPage(store, cursor);
+      expect(page.ok).toBe(true);
+      if (!page.ok) return;
+      seen.push(...page.value.levels.map((level) => level.externalId));
+      cursor = page.value.nextCursor;
+      pages += 1;
+    } while (cursor !== null && pages < 10);
+
+    expect(pages).toBe(3);
+    expect(shop.requests).toHaveLength(3);
+    expect(new Set(seen)).toEqual(new Set(shop.variants.map((variant) => String(variant.id))));
+    expect(seen).toHaveLength(510);
+  });
 });

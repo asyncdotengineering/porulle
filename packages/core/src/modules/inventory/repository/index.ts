@@ -623,6 +623,63 @@ export class InventoryRepository {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // Set-based writes for one page of absolute levels (`setAbsoluteMany`)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /** Every level of these entities in one warehouse, row-locked — one statement for a page. */
+  async findLevelsForUpdate(
+    organizationId: string,
+    warehouseId: string,
+    entityIds: readonly string[],
+    ctx: TxContext,
+  ): Promise<InventoryLevel[]> {
+    if (entityIds.length === 0) return [];
+    return this.getDb(ctx)
+      .select()
+      .from(inventoryLevels)
+      .where(and(
+        eq(inventoryLevels.organizationId, organizationId),
+        eq(inventoryLevels.warehouseId, warehouseId),
+        inArray(inventoryLevels.entityId, [...entityIds]),
+      ))
+      .for("update");
+  }
+
+  /** Set each level to its absolute quantity (clamped at 0), one UPDATE for the page; bumps `version`. */
+  async setLevelQuantities(
+    organizationId: string,
+    rows: ReadonlyArray<{ id: string; quantity: number }>,
+    ctx: TxContext,
+  ): Promise<InventoryLevel[]> {
+    if (rows.length === 0) return [];
+    const byId = sql.join(rows.map((row) => sql`WHEN ${row.id}::uuid THEN ${Math.max(0, row.quantity)}::integer`), sql` `);
+    return this.getDb(ctx)
+      .update(inventoryLevels)
+      .set({
+        quantityOnHand: sql`CASE ${inventoryLevels.id} ${byId} END`,
+        updatedAt: new Date(),
+        version: sql`${inventoryLevels.version} + 1`,
+      })
+      .where(and(
+        eq(inventoryLevels.organizationId, organizationId),
+        inArray(inventoryLevels.id, rows.map((row) => row.id)),
+      ))
+      .returning();
+  }
+
+  /** New levels, one INSERT for the page; a row another writer created meanwhile is skipped. */
+  async createLevels(rows: readonly InventoryLevelInsert[], ctx: TxContext): Promise<InventoryLevel[]> {
+    if (rows.length === 0) return [];
+    return this.getDb(ctx).insert(inventoryLevels).values([...rows]).onConflictDoNothing().returning();
+  }
+
+  /** Movements, one INSERT for the page. */
+  async createMovements(rows: readonly InventoryMovementInsert[], ctx: TxContext): Promise<void> {
+    if (rows.length === 0) return;
+    await this.getDb(ctx).insert(inventoryMovements).values([...rows]);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // Aggregate Queries
   // ─────────────────────────────────────────────────────────────────────────────
 

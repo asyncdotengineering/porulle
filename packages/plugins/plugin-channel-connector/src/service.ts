@@ -385,7 +385,7 @@ function encodeImportResumePosition(position: ImportResumePosition): string {
   return JSON.stringify(position);
 }
 
-type InventoryResumePosition = { offset: number };
+type InventoryResumePosition = { offset: number; pageCursor?: string | null };
 
 /** Resume position for bounded `syncInventory` — stored on `connected_stores.inventory_cursor`.
  *  Last-sync time lives on `connected_stores.lastSyncAt` (set when a run exhausts). */
@@ -393,6 +393,9 @@ function parseInventoryResumePosition(raw: string | null | undefined): Inventory
   if (!raw) return { offset: 0 };
   try {
     const parsed = JSON.parse(raw) as Partial<InventoryResumePosition>;
+    if (typeof parsed === "object" && parsed !== null && "pageCursor" in parsed) {
+      return { offset: 0, pageCursor: typeof parsed.pageCursor === "string" ? parsed.pageCursor : null };
+    }
     if (typeof parsed === "object" && parsed !== null && "offset" in parsed) {
       return {
         offset: typeof parsed.offset === "number" && parsed.offset >= 0 ? parsed.offset : 0,
@@ -4598,6 +4601,7 @@ export class ChannelConnectorService {
     if (!store || store.status !== "connected") return PluginErr("Connected store not found.", "NOT_FOUND");
     const connector = this.connectors.get(store.provider);
     if (!connector) return PluginErr(`No connector registered for provider "${store.provider}".`);
+    if (connector.fetchInventoryPage) return this.syncInventoryPage(orgId, storeId, store, connector.fetchInventoryPage.bind(connector), actor);
     const inventory = await connector.fetchInventory(store as ChannelStore);
     if (!inventory.ok) return PluginErr(inventory.error.message);
     const mappings = await this.db.select().from(channelEntityMap).where(and(
@@ -4663,6 +4667,65 @@ export class ChannelConnectorService {
       updatedAt: new Date(),
     }).where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.id, storeId)));
 
+    return Ok({ synced, exhausted });
+  }
+
+  /**
+   * One step of a store's inventory sync for a connector that pages its inventory: ONE page fetch,
+   * ONE mapping read for that page's variants, and ONE `inventory.setAbsoluteMany` (a constant
+   * number of statements, one `inventory.afterAdjustMany` for the page). The next page's cursor is
+   * stored on the store, so no step re-reads what an earlier one levelled — the old path re-read
+   * the whole inventory and every map row on every 20-level step.
+   */
+  private async syncInventoryPage(
+    orgId: string,
+    storeId: string,
+    store: typeof connectedStores.$inferSelect,
+    fetchPage: NonNullable<ChannelConnector["fetchInventoryPage"]>,
+    actor: Actor,
+  ): Promise<PluginResult<{ synced: number; exhausted?: boolean }>> {
+    const { pageCursor } = parseInventoryResumePosition(store.inventoryCursor);
+    const page = await fetchPage(store as ChannelStore, pageCursor ?? null);
+    if (!page.ok) return PluginErr(page.error.message);
+    const externalIds = [...new Set(page.value.levels.map((level) => level.externalId))];
+    const mappings = externalIds.length === 0 ? [] : await this.db.select({
+      externalId: channelEntityMap.externalId, kind: channelEntityMap.kind, entityId: channelEntityMap.entityId, variantId: channelEntityMap.variantId,
+    }).from(channelEntityMap).where(and(
+      eq(channelEntityMap.organizationId, orgId),
+      eq(channelEntityMap.storeId, storeId),
+      inArray(channelEntityMap.externalId, externalIds),
+    ));
+    // A variant's own mapping wins over a product's mapping of the same external id.
+    const byExternalId = new Map<string, (typeof mappings)[number]>();
+    for (const mapping of mappings) {
+      if (!byExternalId.has(mapping.externalId) || mapping.kind === "variant") byExternalId.set(mapping.externalId, mapping);
+    }
+    const rows = page.value.levels.flatMap((level) => {
+      const mapping = byExternalId.get(level.externalId);
+      return mapping === undefined ? [] : [{
+        entityId: mapping.entityId,
+        ...(mapping.variantId ? { variantId: mapping.variantId } : {}),
+        quantity: Math.max(0, level.available),
+      }];
+    });
+    const inventoryService = this.services.inventory as {
+      setAbsoluteMany(
+        rows: ReadonlyArray<{ entityId: string; variantId?: string; quantity: number }>,
+        actor: Actor,
+        ctx?: undefined,
+        options?: { reason?: string },
+      ): Promise<{ ok: true; value: { entities: Array<{ levels: unknown[] }> } } | { ok: false; error: { message: string } }>;
+    };
+    const written = await inventoryService.setAbsoluteMany(rows, actor, undefined, { reason: `Inventory sync from ${store.provider}` });
+    if (!written.ok) return PluginErr(written.error.message);
+    const synced = written.value.entities.reduce((total, entity) => total + entity.levels.length, 0);
+
+    const exhausted = page.value.nextCursor === null;
+    await this.db.update(connectedStores).set({
+      inventoryCursor: exhausted ? null : JSON.stringify({ pageCursor: page.value.nextCursor }),
+      ...(exhausted ? { lastSyncAt: new Date() } : {}),
+      updatedAt: new Date(),
+    }).where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.id, storeId)));
     return Ok({ synced, exhausted });
   }
 

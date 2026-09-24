@@ -22,7 +22,16 @@ import {
   InventoryRepository,
   type Warehouse,
   type InventoryLevel,
+  type InventoryLevelInsert,
 } from "./repository/index.js";
+
+type InventoryLevelInsertRow = InventoryLevelInsert;
+
+/** What `inventory.afterAdjustMany` announces: the page's CHANGED levels, grouped by product. */
+export interface InventoryAdjustManyResult {
+  organizationId: string;
+  entities: Array<{ entityId: string; levels: InventoryLevel[] }>;
+}
 
 export type { InventoryAdjustInput, InventoryReserveInput, InventoryReleaseInput } from "./schemas.js";
 import type { InventoryAdjustInput, InventoryReserveInput, InventoryReleaseInput } from "./schemas.js";
@@ -531,6 +540,113 @@ export class InventoryService {
       actor,
       ctx,
     );
+  }
+
+  /**
+   * `setAbsolute` for a whole page of levels, set-based — the inventory sync's write.
+   *
+   * setAbsolute per level is a permission check, a row lock, a clamped write, a movement row and an
+   * `inventory.afterAdjust` each: a 27k-variant store synced at ~20 levels per Workflow step and
+   * every changed variant re-marked its product. This keeps the same invariants in a CONSTANT
+   * number of statements per call:
+   *  - `inventory:adjust` is asserted once for the page (refused → nothing is written);
+   *  - the default warehouse (`pickWarehouse`) and the actor's org, once;
+   *  - an unchanged level writes nothing and is not announced; a missing level is created;
+   *  - quantities clamp at 0 (as `GREATEST(0, …)` does) and `version` is bumped;
+   *  - one `adjustment` movement per changed level, carrying its delta.
+   * It announces the page ONCE through `inventory.afterAdjustMany`, grouped by product — NOT
+   * `inventory.afterAdjust` per level. Core's audit and webhook subscribers handle the bulk hook,
+   * so every change is still audited and delivered; a plugin that subscribes to `afterAdjust` must
+   * also subscribe to `afterAdjustMany` (the kernel refuses to boot otherwise).
+   */
+  async setAbsoluteMany(
+    rows: ReadonlyArray<{ entityId: string; variantId?: string | undefined; quantity: number }>,
+    actor?: Actor | null,
+    ctx?: TxContext,
+    options: { reason?: string } = {},
+  ): Promise<Result<InventoryAdjustManyResult>> {
+    try {
+      assertPermission(actor ?? null, "inventory:adjust");
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
+    if (rows.length === 0) return Ok({ organizationId: orgId, entities: [] });
+    const warehouseId = await this.pickWarehouse(actor, ctx);
+    const reason = options.reason ?? "External store absolute inventory sync";
+    const performedBy = actor?.userId ?? "system";
+    const keyOf = (entityId: string, variantId: string | null) => `${entityId}\u0000${variantId ?? ""}`;
+
+    const write = async (txCtx: TxContext): Promise<InventoryAdjustManyResult> => {
+      const entityIds = [...new Set(rows.map((row) => row.entityId))];
+      const existing = new Map((await this.repo.findLevelsForUpdate(orgId, warehouseId, entityIds, txCtx))
+        .map((level) => [keyOf(level.entityId, level.variantId), level]));
+      const updates: Array<{ id: string; quantity: number; before: number }> = [];
+      const inserts: InventoryLevelInsertRow[] = [];
+      const seen = new Set<string>();
+      for (const row of rows) {
+        const key = keyOf(row.entityId, row.variantId ?? null);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const quantity = Math.max(0, row.quantity);
+        const level = existing.get(key);
+        if (level === undefined) {
+          inserts.push({
+            organizationId: orgId, entityId: row.entityId, warehouseId, quantityOnHand: quantity,
+            quantityReserved: 0, quantityIncoming: 0, ...(row.variantId !== undefined ? { variantId: row.variantId } : {}),
+          });
+        } else if (level.quantityOnHand !== quantity) {
+          updates.push({ id: level.id, quantity, before: level.quantityOnHand });
+        }
+      }
+      if (updates.length === 0 && inserts.length === 0) return { organizationId: orgId, entities: [] };
+
+      const beforeById = new Map(updates.map((update) => [update.id, update.before]));
+      const updated = await this.repo.setLevelQuantities(orgId, updates, txCtx);
+      const created = await this.repo.createLevels(inserts, txCtx);
+      const changed = [...updated, ...created];
+      await this.repo.createMovements(changed.map((level) => ({
+        organizationId: orgId,
+        entityId: level.entityId,
+        warehouseId,
+        type: "adjustment" as const,
+        quantity: level.quantityOnHand - (beforeById.get(level.id) ?? 0),
+        reason,
+        performedBy,
+        ...(level.variantId !== null ? { variantId: level.variantId } : {}),
+      })), txCtx);
+
+      const byEntity = new Map<string, InventoryLevel[]>();
+      for (const level of changed) byEntity.set(level.entityId, [...(byEntity.get(level.entityId) ?? []), level]);
+      const result: InventoryAdjustManyResult = {
+        organizationId: orgId,
+        entities: [...byEntity].map(([entityId, levels]) => ({ entityId, levels })),
+      };
+      const hookCtx: HookContext = createHookContext({
+        actor: actor ?? null,
+        tx: txCtx.tx,
+        logger: createLogger("inventory.adjustMany"),
+        services: this.deps.services,
+        context: { moduleName: "inventory" },
+        database: { db: this.deps.database.db as PluginDb },
+        commerceConfig: this.deps.config,
+      });
+      await runAfterHooks(
+        this.deps.hooks.resolve("inventory.afterAdjustMany") as Parameters<typeof runAfterHooks>[0],
+        null,
+        result,
+        "update",
+        hookCtx,
+        (hook) => this.deps.hooks.runsInTransaction(hook),
+      );
+      return result;
+    };
+
+    try {
+      return Ok(await this.withTransaction(ctx, async (tx) => write(ctx?.tx ? ctx : createTxContext(tx, { actor: actor ?? null }))));
+    } catch (error) {
+      return Err(toCommerceError(error));
+    }
   }
 
   /**
