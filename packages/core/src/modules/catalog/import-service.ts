@@ -139,6 +139,9 @@ export interface ImportProductsReport extends Record<string, unknown> {
 
 type Writer = Pick<PluginDb, "insert" | "select">;
 
+/** The drizzle handle a transaction context carries (typed `unknown` on the context). */
+const writerOf = (txCtx: TxContext): PluginDb => txCtx.tx as PluginDb;
+
 type Failure = { code: ImportRowFailureCode; error: string };
 
 function failed(ref: string, code: ImportRowFailureCode, error: string): ImportProductRowResult {
@@ -473,9 +476,18 @@ export class CatalogImportService {
     if (errorPolicy === "reject-everything" && memoryFailures.size > 0) return Ok(rejectAll());
 
     try {
+      const candidates = page.map((item, index) => ({ item, index })).filter(({ index }) => !memoryFailures.has(index));
+      // The shared vocabulary is resolved in its OWN short transaction, never in the page's, and
+      // never in a caller's (no ctx is passed on purpose). Inside the page transaction a newly
+      // inserted tag's unique key stayed uncommitted for the whole page, so every other page naming
+      // it — another store's, or this store's next one — waited on that index until this page
+      // committed: 36.6 s behind one 89 s page on the sim, 2026-09-24. The cost is that a page
+      // rejected afterwards can leave new vocabulary behind; it is organization-wide and reusable.
+      const taxonomy = await this.withTransaction(actor, undefined, (txCtx) =>
+        resolveTaxonomy(writerOf(txCtx), orgId, candidates.map(({ item }) => item)));
+
       const report = await this.withTransaction(actor, ctx, async (txCtx): Promise<ImportProductsReport> => {
-        const tx = txCtx.tx as PluginDb;
-        const candidates = page.map((item, index) => ({ item, index })).filter(({ index }) => !memoryFailures.has(index));
+        const tx = writerOf(txCtx);
 
         // Page-level reads: the slugs already taken, then the shared vocabulary.
         const slugs = candidates.map(({ item }) => item.slug);
@@ -495,7 +507,6 @@ export class CatalogImportService {
         if (errorPolicy === "reject-everything" && writable.length < candidates.length) {
           throw new RejectEverything();
         }
-        const taxonomy = await resolveTaxonomy(tx, orgId, writable.map(({ item }) => item));
 
         const written: Array<{ index: number; write: ItemWrite }> = [];
         for (const { item, index } of writable) {
