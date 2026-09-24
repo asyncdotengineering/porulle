@@ -181,9 +181,9 @@ describe("shopify connector", () => {
     expect(requests.filter((url) => url.endsWith("/shop.json"))).toHaveLength(1);
   });
 
-  it("maps inventory and returns API errors", async () => {
-    const connector = shopifyConnector({ fetchImpl: async () => new Response(JSON.stringify({ inventory_levels: [{ inventory_item_id: 11, available: 4 }] })) });
-    expect(await connector.fetchInventory(store, ["11"])).toEqual({ ok: true, value: [{ externalId: "11", available: 4 }] });
+  // Inventory's contract (per VARIANT id, every page) lives in fetch-inventory.test.ts: this row
+  // asserted the old read of inventory_levels.json, keyed by inventory item id, which was the defect.
+  it("returns API errors", async () => {
     const failed = shopifyConnector({ fetchImpl: async () => new Response("", { status: 500 }) });
     const result = await failed.importCatalog(store);
     expect(result.ok).toBe(false);
