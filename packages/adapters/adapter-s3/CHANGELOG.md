@@ -1,5 +1,12 @@
 # @porulle/adapter-s3
 
+## 0.57.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.57.0
+
 ## 0.56.0
 
 ### Patch Changes
