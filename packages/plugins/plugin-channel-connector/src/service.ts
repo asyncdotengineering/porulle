@@ -668,6 +668,34 @@ export function isSlugConflict(error: unknown): boolean {
   return false;
 }
 
+/** Postgres 23505 anywhere in a driver error's `cause` chain. */
+function isUniqueViolation(error: unknown): boolean {
+  let cursor: unknown = error;
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (typeof cursor !== "object" || cursor === null) return false;
+    if ("code" in cursor && cursor.code === "23505") return true;
+    cursor = "cause" in cursor ? cursor.cause : undefined;
+  }
+  return false;
+}
+
+/** An upstream variant SKU the store could not take because another of its variants holds it. */
+interface VariantSkuClash {
+  variantExternalId: string;
+  fromSku: string | null;
+  toSku: string;
+  heldByVariantId: string | null;
+}
+
+interface VariantIdentityOutcome {
+  /** Items (by externalId) at least one of whose variants had its sku or barcode written. */
+  written: Set<string>;
+  /** Items (by externalId) with an upstream SKU that could not be taken, per variant. */
+  clashes: Map<string, VariantSkuClash[]>;
+  /** Entities that had an OPEN `variants.sku` conflict before this batch. */
+  openSkuConflicts: Set<string>;
+}
+
 function errorMessage(error: unknown): string {
   if (typeof error === "string") return error;
   if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") return error.message;
@@ -1406,10 +1434,161 @@ export class ChannelConnectorService {
     return { paths: changed, conflicts };
   }
 
+  /**
+   * Apply upstream SKU and barcode changes to variants this store already maps, for a whole batch.
+   *
+   * SKU is unique per source store, so variants EXCHANGING SKUs cannot be updated one at a time.
+   * One transaction first releases every SKU that is changing (NULL is outside the unique index),
+   * then sets the new values, so any swap inside the batch lands atomically. If that fails on a
+   * unique violation — a new SKU is held by a variant whose upstream did not change, or by a
+   * variant in a batch not converged yet — each entity is retried alone, then each variant alone,
+   * and the SKU that still cannot be taken is returned as a clash. A clash is the caller's to
+   * record as a conflict; it never fails the item, which still converges every other field.
+   */
+  private async applyUpstreamVariantIdentity(
+    orgId: string,
+    storeId: string,
+    items: readonly ChannelCatalogItem[],
+  ): Promise<VariantIdentityOutcome> {
+    const outcome: VariantIdentityOutcome = { written: new Set(), clashes: new Map(), openSkuConflicts: new Set() };
+    const externalIds = [...new Set(items.flatMap((item) => item.variants.map((variant) => variant.externalId)))];
+    if (externalIds.length === 0) return outcome;
+    const mapped = await this.db.select({
+      externalId: channelEntityMap.externalId,
+      variantId: variants.id,
+      entityId: variants.entityId,
+      sku: variants.sku,
+      barcode: variants.barcode,
+    }).from(channelEntityMap)
+      .innerJoin(variants, eq(variants.id, channelEntityMap.variantId))
+      .where(and(
+        eq(channelEntityMap.organizationId, orgId),
+        eq(channelEntityMap.storeId, storeId),
+        eq(channelEntityMap.kind, "variant"),
+        inArray(channelEntityMap.externalId, externalIds),
+      ));
+    if (mapped.length === 0) return outcome;
+    const byExternalId = new Map(mapped.map((row) => [row.externalId, row]));
+    const entityIds = [...new Set(mapped.map((row) => row.entityId))];
+    const openRows = await this.db.select({ entityId: channelCatalogConflicts.entityId }).from(channelCatalogConflicts).where(and(
+      eq(channelCatalogConflicts.storeId, storeId),
+      eq(channelCatalogConflicts.fieldPath, "variants.sku"),
+      eq(channelCatalogConflicts.state, "open"),
+      inArray(channelCatalogConflicts.entityId, entityIds),
+    ));
+    for (const row of openRows) outcome.openSkuConflicts.add(row.entityId);
+
+    type Write = { itemExternalId: string; entityId: string; variantId: string; variantExternalId: string; fromSku: string | null; toSku?: string; toBarcode?: string };
+    const candidates: Write[] = [];
+    for (const item of items) {
+      for (const variant of item.variants) {
+        const row = byExternalId.get(variant.externalId);
+        if (!row) continue;
+        const toSku = variant.sku !== undefined && variant.sku !== row.sku ? variant.sku : undefined;
+        const toBarcode = variant.barcode !== undefined && variant.barcode !== row.barcode ? variant.barcode : undefined;
+        if (toSku === undefined && toBarcode === undefined) continue;
+        candidates.push({
+          itemExternalId: item.externalId, entityId: row.entityId, variantId: row.variantId, variantExternalId: variant.externalId, fromSku: row.sku,
+          ...(toSku !== undefined ? { toSku } : {}), ...(toBarcode !== undefined ? { toBarcode } : {}),
+        });
+      }
+    }
+    if (candidates.length === 0) return outcome;
+
+    // Ownership, per entity that has a change: a platform-owned or held path stays local.
+    const candidateEntities = [...new Set(candidates.map((write) => write.entityId))];
+    const held = new Map((await this.db.select({ entityId: channelEntityMap.entityId, held: channelEntityMap.heldFieldPaths }).from(channelEntityMap).where(and(
+      eq(channelEntityMap.storeId, storeId),
+      eq(channelEntityMap.kind, "entity"),
+      inArray(channelEntityMap.entityId, candidateEntities),
+    ))).map((row) => [row.entityId, new Set(row.held ?? [])]));
+    const allowed = new Map<string, { sku: boolean; barcode: boolean }>();
+    for (const entityId of candidateEntities) {
+      const owners = await this.catalog.resolveFieldOwners(entityId, storeId);
+      const entityHeld = held.get(entityId) ?? new Set<string>();
+      allowed.set(entityId, {
+        sku: ownerAllows(owners, "variants.sku") && !entityHeld.has("variants.sku"),
+        barcode: ownerAllows(owners, "variants.barcode") && !entityHeld.has("variants.barcode"),
+      });
+    }
+    const writes: Write[] = candidates.flatMap((write) => {
+      const permitted = allowed.get(write.entityId) ?? { sku: false, barcode: false };
+      const next: Write = {
+        itemExternalId: write.itemExternalId, entityId: write.entityId, variantId: write.variantId, variantExternalId: write.variantExternalId, fromSku: write.fromSku,
+        ...(permitted.sku && write.toSku !== undefined ? { toSku: write.toSku } : {}),
+        ...(permitted.barcode && write.toBarcode !== undefined ? { toBarcode: write.toBarcode } : {}),
+      };
+      return next.toSku === undefined && next.toBarcode === undefined ? [] : [next];
+    });
+    if (writes.length === 0) return outcome;
+
+    const apply = (group: readonly Write[]) => this.transact(async (tx) => {
+      const releasing = group.filter((write) => write.toSku !== undefined).map((write) => write.variantId);
+      if (releasing.length > 0) await tx.update(variants).set({ sku: null }).where(inArray(variants.id, releasing));
+      for (const write of group) {
+        await tx.update(variants).set({
+          ...(write.toSku !== undefined ? { sku: write.toSku } : {}),
+          ...(write.toBarcode !== undefined ? { barcode: write.toBarcode } : {}),
+          updatedAt: sql`now()`,
+        }).where(eq(variants.id, write.variantId));
+      }
+    });
+    const landed = (group: readonly Write[]) => { for (const write of group) outcome.written.add(write.itemExternalId); };
+    const attempt = async (group: readonly Write[]): Promise<boolean> => {
+      try {
+        await apply(group);
+        landed(group);
+        return true;
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+        return false;
+      }
+    };
+
+    if (await attempt(writes)) return outcome;
+    for (const entityId of [...new Set(writes.map((write) => write.entityId))]) {
+      const group = writes.filter((write) => write.entityId === entityId);
+      if (await attempt(group)) continue;
+      for (const write of group) {
+        if (await attempt([write])) continue;
+        // The SKU cannot be taken this batch. The barcode, which nothing else can hold, still lands.
+        if (write.toBarcode !== undefined) {
+          await attempt([{ itemExternalId: write.itemExternalId, entityId: write.entityId, variantId: write.variantId, variantExternalId: write.variantExternalId, fromSku: write.fromSku, toBarcode: write.toBarcode }]);
+        }
+        if (write.toSku === undefined) continue;
+        const [holder] = await this.db.select({ id: variants.id }).from(variants).where(and(eq(variants.sourceStoreId, storeId), eq(variants.sku, write.toSku)));
+        const clashes = outcome.clashes.get(write.itemExternalId) ?? [];
+        clashes.push({ variantExternalId: write.variantExternalId, fromSku: write.fromSku, toSku: write.toSku, heldByVariantId: holder?.id ?? null });
+        outcome.clashes.set(write.itemExternalId, clashes);
+      }
+    }
+    return outcome;
+  }
+
+  /** Close this entity's open `variants.sku` conflict: the SKUs it was waiting on have now landed. */
+  private async resolveSkuConflict(orgId: string, storeId: string, entityId: string, changedBy: string): Promise<void> {
+    const resolved = await this.db.update(channelCatalogConflicts).set({ state: "resolved", resolvedBy: changedBy, updatedAt: new Date() }).where(and(
+      eq(channelCatalogConflicts.storeId, storeId),
+      eq(channelCatalogConflicts.entityId, entityId),
+      eq(channelCatalogConflicts.fieldPath, "variants.sku"),
+      eq(channelCatalogConflicts.state, "open"),
+    )).returning({ id: channelCatalogConflicts.id });
+    if (resolved.length === 0) return;
+    await this.db.insert(channelCatalogConflictEvents).values(resolved.map((row) => ({
+      organizationId: orgId,
+      conflictId: row.id,
+      fromState: "open",
+      toState: "resolved",
+      reason: "The upstream SKUs this product was waiting on have converged.",
+      changedBy,
+    })));
+  }
+
   private async persistCatalogConflicts(
     orgId: string,
     conflicts: DetectedCatalogFieldConflict[],
     changedBy: string,
+    reason = "Shared catalog field changed on both sides.",
   ): Promise<PluginResult<void>> {
     for (const conflict of conflicts) {
       const [inserted] = await this.db.insert(channelCatalogConflicts).values({
@@ -1448,7 +1627,7 @@ export class ChannelConnectorService {
         conflictId: inserted.id,
         fromState: null,
         toState: "open",
-        reason: "Shared catalog field changed on both sides.",
+        reason,
         changedBy,
       });
     }
@@ -3688,6 +3867,9 @@ export class ChannelConnectorService {
     const committed = new Set<string>();
     // One resolution for the whole batch, not two round trips per changed product.
     const slugFor = await this.resolveStoreSlugs(orgId, storeId, items.map((item) => item.slug));
+    // Upstream SKU/barcode changes on already-mapped variants, for the whole batch at once, so that
+    // variants exchanging SKUs across products in this batch land together.
+    const identity = await this.applyUpstreamVariantIdentity(orgId, storeId, items);
     for (const item of items) {
       consumed += 1;
       try {
@@ -3798,7 +3980,11 @@ export class ChannelConnectorService {
       // An unchanged remote item writes nothing and advances no baseline:
       // converging a stale replay would revert local edits to shared and
       // unowned fields that the store never actually changed.
-      if (!force && !remoteChanged && existingEntity && existingEntity.status !== "archived") {
+      // ...unless its SKUs moved this batch, clashed, or were waiting on an open conflict: a swap that
+      // spanned two import pages leaves both map hashes current, and only this pass can close it.
+      const identityPending = identity.written.has(item.externalId) || identity.clashes.has(item.externalId)
+        || identity.openSkuConflicts.has(entityId);
+      if (!force && !remoteChanged && !identityPending && existingEntity && existingEntity.status !== "archived") {
         continue;
       }
       const shared = existingEntity
@@ -3901,7 +4087,29 @@ export class ChannelConnectorService {
       mediaImported += media.value.imported;
       variantsGivenOptionValues += variantIds.value.repaired;
       skipped.push(...media.value.skipped.map((fieldPath) => ({ entityId, fieldPath })));
-      entityTouched = entityTouched || optionAxes.value.changed || variantIds.value.changed || taxonomy.value.changed || media.value.changed || attributes.value.changed;
+      entityTouched = entityTouched || optionAxes.value.changed || variantIds.value.changed || taxonomy.value.changed || media.value.changed || attributes.value.changed
+        || identity.written.has(item.externalId);
+      const skuClashes = identity.clashes.get(item.externalId);
+      if (skuClashes) {
+        // Loud, not fatal: the product converges everything else, its SKU keeps the old value, and
+        // the next reconcile — which sees the whole catalogue in one batch — resolves a swap that
+        // spanned two import pages and closes this conflict.
+        const conflict: DetectedCatalogFieldConflict = {
+          entityId,
+          storeId,
+          fieldPath: "variants.sku",
+          localValueSummary: skuClashes.map((clash) => `${clash.variantExternalId}=${clash.fromSku ?? "(none)"}`).join(", "),
+          remoteValueSummary: skuClashes.map((clash) => `${clash.variantExternalId}=${clash.toSku} (held by ${clash.heldByVariantId ?? "unknown"})`).join(", "),
+          platformValue: Object.fromEntries(skuClashes.map((clash) => [clash.variantExternalId, { sku: clash.fromSku, heldByVariantId: clash.heldByVariantId }])),
+          storeValue: Object.fromEntries(skuClashes.map((clash) => [clash.variantExternalId, clash.toSku])),
+        };
+        const recorded = await this.persistCatalogConflicts(orgId, [conflict], requireUserId(actor), "Upstream SKU is held by another variant of this store.");
+        if (!recorded.ok) { failures.push({ externalId: item.externalId, error: recorded.error }); continue; }
+        conflicts.push({ entityId, storeId, fieldPath: "variants.sku", localValueSummary: conflict.localValueSummary, remoteValueSummary: conflict.remoteValueSummary });
+        warnings.push(`Kept the local SKU for entity "${entityId}": ${conflict.remoteValueSummary}.`);
+      } else if (identity.openSkuConflicts.has(entityId)) {
+        await this.resolveSkuConflict(orgId, storeId, entityId, requireUserId(actor));
+      }
       if (entityTouched) entitiesTouched += 1;
       // Counted from what was written, not from the stored hash: a hash that moved while the
       // product did not (a blanked map row, a change in how an item serialises) is not drift.
