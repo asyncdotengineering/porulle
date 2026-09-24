@@ -1,5 +1,7 @@
 # @porulle/adapter-resend
 
+## 0.51.0
+
 ## 0.50.3
 
 ## 0.50.2

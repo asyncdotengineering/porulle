@@ -1,6 +1,6 @@
 {
   "name": "@porulle/cli",
-  "version": "0.50.3",
+  "version": "0.51.0",
   "license": "MIT",
   "type": "module",
   "bin": {
