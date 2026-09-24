@@ -3630,7 +3630,6 @@ export class ChannelConnectorService {
           ? Object.keys(updateInput).length > 0
           : remoteChanged || existingEntity.status === "archived";
         if (shouldUpdate) {
-          converged += 1;
           if (Object.keys(updateInput).length > 0) {
             const updated = await this.catalog.update(entityMapping.entityId, updateInput, actor, CHANNEL_CONVERGENCE_CTX);
             if (!updated.ok) { failures.push({ externalId: item.externalId, error: updated.error.message }); continue; }
@@ -3665,6 +3664,9 @@ export class ChannelConnectorService {
       skipped.push(...media.value.skipped.map((fieldPath) => ({ entityId, fieldPath })));
       entityTouched = entityTouched || optionAxes.value.changed || variantIds.value.changed || media.value.changed || attributes.value.changed;
       if (entityTouched) entitiesTouched += 1;
+      // Counted from what was written, not from the stored hash: a hash that moved while the
+      // product did not (a blanked map row, a change in how an item serialises) is not drift.
+      if (entityTouched && entityMapping && !isNew) converged += 1;
 
       if (entityTouched) {
         const revision = await this.catalog.recordEntityRevision(entityId, actor, "import");
@@ -3800,11 +3802,13 @@ export class ChannelConnectorService {
       const mapping = mappings.find((entry) => entry.externalId === level.externalId);
       if (!mapping) continue;
       const current = existingLevels.find((entry) => entry.entityId === mapping.entityId && entry.variantId === (mapping.variantId ?? null));
-      if (current?.quantityOnHand === level.available) continue;
+      // Stock cannot sit below zero here, so negative remote stock compares as the zero it is stored as.
+      const quantity = Math.max(0, level.available);
+      if (current?.quantityOnHand === quantity) continue;
       const result = await inventoryService.setAbsolute({
         entityId: mapping.entityId,
         ...(mapping.variantId ? { variantId: mapping.variantId } : {}),
-        quantity: level.available,
+        quantity,
         reason: `Inventory reconciliation from ${store.provider}`,
       }, actor);
       if (!result.ok) return PluginErr(result.error?.message ?? "Inventory reconciliation failed.");
@@ -4043,11 +4047,13 @@ export class ChannelConnectorService {
       const mapping = mappings.find((entry) => entry.externalId === level.externalId);
       if (!mapping) continue;
       const current = existingLevels.find((entry) => entry.entityId === mapping.entityId && entry.variantId === (mapping.variantId ?? null));
-      if (current?.quantityOnHand === level.available) continue;
+      // Stock cannot sit below zero here, so negative remote stock compares as the zero it is stored as.
+      const quantity = Math.max(0, level.available);
+      if (current?.quantityOnHand === quantity) continue;
       const result = await inventoryService.setAbsolute({
         entityId: mapping.entityId,
         ...(mapping.variantId ? { variantId: mapping.variantId } : {}),
-        quantity: level.available,
+        quantity,
         reason: `Inventory sync from ${store.provider}`,
       }, actor);
       if (!result.ok) return PluginErr(result.error?.message ?? "Inventory sync failed.");

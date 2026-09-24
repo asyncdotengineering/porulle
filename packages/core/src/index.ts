@@ -162,6 +162,15 @@ export type {
   CreatePaymentIntentParams,
 } from "./modules/payments/adapter.js";
 export { defineChannelConnector } from "./modules/channels/adapter.js";
+export {
+  channelCatalogImageSchema,
+  channelCatalogItemSchema,
+  channelCatalogLocalizedAttributesSchema,
+  channelCatalogOptionTypeSchema,
+  channelCatalogPriceSchema,
+  channelCatalogVariantSchema,
+  channelInventoryLevelSchema,
+} from "./modules/channels/catalog-schema.js";
 export type {
   ChannelCatalogImage,
   ChannelCatalogItem,
