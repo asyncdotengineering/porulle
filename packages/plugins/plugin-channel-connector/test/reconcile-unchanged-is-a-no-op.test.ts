@@ -200,6 +200,7 @@ describe("reconcile over an unchanged catalogue", () => {
     ["a price", (item: ChannelCatalogItem): ChannelCatalogItem => ({ ...item, variants: item.variants.map((variant, index) => index === 0 ? { ...variant, prices: [{ amount: 1500, currency: "LKR" }] } : variant) })],
     ["a tag", (item: ChannelCatalogItem): ChannelCatalogItem => ({ ...item, tags: ["new-season"] })],
     ["a category", (item: ChannelCatalogItem): ChannelCatalogItem => ({ ...item, categories: ["dresses"] })],
+    ["a brand", (item: ChannelCatalogItem): ChannelCatalogItem => ({ ...item, brand: "Atelier" })],
   ])("counts a product converged when only %s changed upstream", async (_label, change) => {
     const remote = defaultRemote();
     const { service, storeId } = await importedStore(remote);
