@@ -65,7 +65,10 @@ const item: ChannelCatalogItem = {
 
 function countingDb<T extends object>(db: T): { db: T; counts: () => number; reset: () => void } {
   let count = 0;
-  const proxy = new Proxy(db, {
+  // Statements the service issues INSIDE its own transactions count too: `transaction(fn)` hands
+  // `fn` a handle wrapped in the same counter. Without this, moving a write into a transaction made
+  // it vanish from the count, and the ratio below moved for a reason unrelated to its claim.
+  const wrap = <H extends object>(handle: H): H => new Proxy(handle, {
     get(target, prop, receiver) {
       const value = Reflect.get(target, prop, receiver);
       if (typeof value === "function" && (prop === "select" || prop === "insert" || prop === "update" || prop === "delete")) {
@@ -74,10 +77,14 @@ function countingDb<T extends object>(db: T): { db: T; counts: () => number; res
           return (value as (...a: unknown[]) => unknown).apply(target, args);
         };
       }
+      if (typeof value === "function" && prop === "transaction") {
+        return (fn: (tx: object) => unknown, ...rest: unknown[]) =>
+          (value as (...a: unknown[]) => unknown).apply(target, [(tx: object) => fn(wrap(tx)), ...rest]);
+      }
       return value;
     },
-  }) as T;
-  return { db: proxy, counts: () => count, reset: () => { count = 0; } };
+  });
+  return { db: wrap(db), counts: () => count, reset: () => { count = 0; } };
 }
 
 describe("import statement budget", () => {
