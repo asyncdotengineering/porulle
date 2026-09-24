@@ -32,12 +32,13 @@
  * `service.syncInventory` directly. The split matters: the bound did not move, the wrapper did.
  */
 import { describe, expect, it } from "vitest";
-import type { ChannelCatalogItem } from "@porulle/core";
+import { createSystemActor, type ChannelCatalogItem } from "@porulle/core";
 import { and, eq } from "@porulle/core/drizzle";
 import { commerceJobs, inventoryLevels } from "@porulle/core/schema";
 import { createPluginTestApp, jsonHeaders, TEST_ORG_ID, testAdminActor } from "@porulle/core/testing";
 import {
   channelConnectorPlugin,
+  ChannelConnectorService,
   mockChannelConnector,
   CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION,
 } from "../src/index.js";
@@ -75,7 +76,8 @@ async function scenario(catalog: ChannelCatalogItem[], domain: string) {
   });
   expect(response.status).toBe(201);
   const storeId = (await response.json()).data.id as string;
-  return { built, storeId };
+  const service = new ChannelConnectorService(built.db, built.kernel.services, { connectors: [connector] });
+  return { built, storeId, service };
 }
 
 type Built = Awaited<ReturnType<typeof scenario>>["built"];
@@ -113,12 +115,14 @@ async function runTask(built: Built, slug: string, storeId: string) {
   return { output: result.output as Record<string, unknown>, stepNames: recorder.names, task };
 }
 
-async function importWholeCatalog(built: Built, storeId: string) {
+/** Import the whole catalog through the service (the host's lander does this in production). */
+async function importWholeCatalog(service: ChannelConnectorService, storeId: string) {
   for (let guard = 0; guard < 80; guard += 1) {
-    const { output } = await runTask(built, "channel/import-catalog", storeId);
-    if (output.exhausted === true) return;
+    const page = await service.importCatalog(TEST_ORG_ID, storeId, createSystemActor(TEST_ORG_ID), { maxItems: 20 });
+    if (!page.ok) throw new Error(page.error);
+    if (page.value.exhausted) return;
   }
-  throw new Error("the catalog did not exhaust within 80 invocations");
+  throw new Error("the catalog did not exhaust within 80 batches");
 }
 
 const levelCount = async (built: Built) =>
@@ -142,8 +146,8 @@ describe("a batched task finishes inside one instance and chains nothing", () =>
     // `deliverWebhooks` runs inside the plugin transaction on PGlite.
     const bound = CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION;
     const total = bound + 1;
-    const { built, storeId } = await scenario(catalogOf(total, "nochain"), "nochain.sync.test");
-    await importWholeCatalog(built, storeId);
+    const { built, storeId, service } = await scenario(catalogOf(total, "nochain"), "nochain.sync.test");
+    await importWholeCatalog(service, storeId);
     const before = (await jobsFor(built, "channel/sync-inventory", storeId)).length;
 
     const { output, stepNames } = await runTask(built, "channel/sync-inventory", storeId);
@@ -187,49 +191,6 @@ describe("a batched task finishes inside one instance and chains nothing", () =>
     expect(
       new Set(stepNames).size,
       `step names must be unique per batch — the engine keys a step by name and replays a repeat: ${JSON.stringify(stepNames)}`,
-    ).toBe(stepNames.length);
-  }, 1_800_000);
-
-  it("hands off to the inventory sweep once, and names its import steps uniquely", async () => {
-    // READ WHAT THIS ROW DOES AND DOES NOT DISCRIMINATE. Five products fit one bound, so the old
-    // chaining implementation ALSO exhausted them in one invocation and ALSO enqueued no
-    // continuation — this row passes against the defect and is not evidence the chain is gone.
-    // It pins two cheap things: the hand-off to inventory happens exactly once, and the import
-    // path names its steps uniquely.
-    //
-    // The row that actually discriminates the import chain is in
-    // `import-chains-inventory.test.ts` — "hands off to inventory once per sweep, not once per
-    // batch, and chains nothing" — which gives the import MORE products than its bound and asserts
-    // `batches > 1` with zero continuations. Against the old shape that row cannot pass:
-    // `exhausted` came back false after one invocation, a continuation was enqueued, and `batches`
-    // did not exist in the output at all.
-    //
-    // It was left at five products rather than raised above the bound because the discriminating
-    // version already exists in that file, and each extra product costs ~20 s here.
-    const { built, storeId } = await scenario(catalogOf(5, "nochaincat"), "nochaincat.import.test");
-    // Measured as a DELTA. Connecting a store already enqueues one `channel/import-catalog` —
-    // that is how an import starts — so an absolute count here asserts the connect-time job
-    // rather than the continuation, and goes red against a correct implementation. The first
-    // version of this row did exactly that.
-    const importsBefore = (await jobsFor(built, "channel/import-catalog", storeId)).length;
-
-    const { output, stepNames } = await runTask(built, "channel/import-catalog", storeId);
-
-    expect(
-      output.exhausted,
-      "one import invocation must exhaust the catalog rather than enqueue its own continuation",
-    ).toBe(true);
-    expect(
-      (await jobsFor(built, "channel/import-catalog", storeId)).length - importsBefore,
-      "the import must enqueue NO continuation of itself",
-    ).toBe(0);
-    expect(
-      (await jobsFor(built, "channel/sync-inventory", storeId)).length,
-      "an exhausted catalog must hand off to inventory exactly once — a catalog with no stock reads as out of stock everywhere",
-    ).toBe(1);
-    expect(
-      new Set(stepNames).size,
-      `import step names must be unique per page: ${JSON.stringify(stepNames)}`,
     ).toBe(stepNames.length);
   }, 1_800_000);
 });
