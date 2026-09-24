@@ -161,12 +161,18 @@ describe("entity link changes on converge", () => {
     const { remote, service, storeId, versions, updates } = await importedStore();
     const before = await versions();
     await pause();
+    // The added photo is a second colourway's: the import ruling (both paths, since 0.57.1) keeps
+    // the hero plus each other variant's first photo, and leaves a plain extra gallery angle out.
     remote.catalog[0] = product("p-1", {
       tags: ["linen", "summer"],
       categories: ["trousers", "wide-leg"],
+      variants: [
+        { externalId: "p-1-v1", sku: "p-1-SKU", prices: [{ amount: 1000, currency: "LKR" }] },
+        { externalId: "p-1-v2", sku: "p-1-SKU-2", prices: [{ amount: 1000, currency: "LKR" }] },
+      ],
       images: [
         { externalId: "p-1-hero", url: "https://cdn.test/p-1-hero.png", role: "primary", sortOrder: 0 },
-        { externalId: "p-1-side", url: "https://cdn.test/p-1-side.png", role: "gallery", sortOrder: 1 },
+        { externalId: "p-1-side", url: "https://cdn.test/p-1-side.png", role: "gallery", sortOrder: 1, variantExternalIds: ["p-1-v2"] },
       ],
     });
     const firedBefore = updates.length;

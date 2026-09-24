@@ -79,7 +79,10 @@ async function importOneProductWithImages(imageCount: number, delayMs: number, d
     title: "Six angles of the same dress",
     status: "active",
     attributes: [{ locale: "en", title: "Six angles of the same dress" }],
-    variants: [],
+    // One variant per image, each image its variant's first photo: the import ruling
+    // (`selectImportImages`, used by this path since 0.57.1) keeps the hero plus the first photo of
+    // each other variant, so this is a product whose every image is imported — six colourways.
+    variants: Array.from({ length: imageCount }, (_, index) => ({ externalId: `${externalId}-v${index}`, sku: `${externalId}-sku-${index}` })),
     images: Array.from({ length: imageCount }, (_, index) => {
       // `duplicateOfIndex` makes the LAST image a second reference to an earlier one — the same
       // url and the same externalId. A product whose feed lists one photo twice is ordinary.
@@ -89,6 +92,7 @@ async function importOneProductWithImages(imageCount: number, delayMs: number, d
         externalId: `${externalId}-image-${source}`,
         role: index === 0 ? ("primary" as const) : ("gallery" as const),
         sortOrder: index,
+        variantExternalIds: [`${externalId}-v${index}`],
       };
     }),
   };
@@ -135,9 +139,10 @@ describe("applyMedia downloads the images of one product concurrently, within th
     // imported nothing. Concurrently the two must share ONE in-flight upload — and sharing it must
     // not mean sharing its tally. A deduped image that returns the first one's result object
     // reports `imported` twice for one stored object, which is a count the caller acts on.
-    // Three images with the LAST a second reference to index 1, and a bound of three, so all three
-    // start in the same tick and the duplicate necessarily meets its twin IN FLIGHT rather than
-    // already in `assets`. Without that the race decides which branch runs and the row is flaky.
+    // Three images with the LAST a second reference to index 1. Since 0.57.1 the import ruling
+    // (`selectImportImages`) drops a repeated url before anything is downloaded, so the in-flight
+    // sharing is no longer what saves this case — but the claim is the same and still checked: one
+    // stored object is fetched once and counted once.
     const { built, calls, result } = await importOneProductWithImages(3, 40, 1);
 
     expect(calls).toBe(2);
