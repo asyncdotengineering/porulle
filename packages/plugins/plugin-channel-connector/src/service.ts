@@ -40,6 +40,8 @@ import {
   customerAddresses,
   customers,
   entityMedia,
+  entityBrands,
+  entityCategories,
   entityTags,
   inventoryLevels,
   mediaAssets,
@@ -1633,6 +1635,22 @@ export class ChannelConnectorService {
         existingOptionValues.set(row.variantId, list);
       }
     }
+    // The product's plain base prices, read once. `setBasePrice` upserts and fires its hook even at
+    // the same amount, so an unchanged price is skipped here — and a price that IS written is what
+    // makes the variant "changed", which is what `converged` counts.
+    const storedPrices = item.variants.some((variant) => (variant.prices ?? []).length > 0)
+      ? await this.db.select({ variantId: prices.variantId, currency: prices.currency, amount: prices.amount, compareAtAmount: prices.compareAtAmount })
+        .from(prices)
+        .where(and(
+          eq(prices.organizationId, orgId),
+          eq(prices.entityId, entityId),
+          isNull(prices.customerGroupId),
+          isNull(prices.minQuantity),
+          isNull(prices.maxQuantity),
+          isNull(prices.validFrom),
+          isNull(prices.validUntil),
+        ))
+      : [];
     for (const sourceVariant of item.variants) {
       const fullSourceVariant = fullItem.variants.find((variant) => variant.externalId === sourceVariant.externalId) ?? sourceVariant;
       let mapping = mappings.find((row) => row.externalId === sourceVariant.externalId);
@@ -1738,6 +1756,9 @@ export class ChannelConnectorService {
         }
       }
       for (const price of sourceVariant.prices ?? []) {
+        const currency = price.currency.trim().toUpperCase();
+        const stored = storedPrices.find((row) => row.variantId === variantId && row.currency === currency);
+        if (stored && stored.amount === price.amount && stored.compareAtAmount === (price.compareAtAmount ?? null)) continue;
         const priced = await this.pricing.setBasePrice({
           entityId,
           variantId,
@@ -1746,6 +1767,7 @@ export class ChannelConnectorService {
           compareAtAmount: price.compareAtAmount ?? null,
         }, actor);
         if (!priced.ok) return PluginErr(priced.error.message);
+        changed = true;
       }
       // Was UNCONDITIONAL: one UPDATE per variant on every import, including a re-sync where the
       // variant is byte-identical. `mapping.syncHash` is already in hand from the select above, so
@@ -1812,8 +1834,15 @@ export class ChannelConnectorService {
     item: ChannelCatalogItem,
     actor: Actor,
     warnings: string[],
-  ): Promise<PluginResult<void>> {
+  ): Promise<PluginResult<{ changed: boolean }>> {
     const taxonomy = await this.taxonomyFor(orgId);
+    // The links this entity already has, read only for the classes the item names. A link already
+    // there is not re-written, and a link that is added is what reports the taxonomy as changed.
+    const linkedCategories = new Set((item.categories ?? []).length === 0 ? [] : (await this.db
+      .select({ id: entityCategories.categoryId }).from(entityCategories).where(eq(entityCategories.entityId, entityId))).map((row) => row.id));
+    const linkedBrands = new Set(!item.brand ? [] : (await this.db
+      .select({ id: entityBrands.brandId }).from(entityBrands).where(eq(entityBrands.entityId, entityId))).map((row) => row.id));
+    let changed = false;
     const categoryRows = taxonomy.categories;
     for (const slug of new Set(item.categories ?? [])) {
       let category = categoryRows.find((row) => row.slug === slug);
@@ -1829,8 +1858,10 @@ export class ChannelConnectorService {
         category = createdCategory;
         categoryRows.push(category);
       }
+      if (linkedCategories.has(category.id)) continue;
       const linked = await this.catalog.addToCategory(entityId, category.id, actor);
       if (!linked.ok) return PluginErr(linked.error.message);
+      changed = true;
     }
 
     const brandRows = taxonomy.brands;
@@ -1844,8 +1875,11 @@ export class ChannelConnectorService {
         brand = createdBrand;
         brandRows.push(brand);
       }
-      const linked = await this.catalog.addToBrand(entityId, brand.id, actor);
-      if (!linked.ok) return PluginErr(linked.error.message);
+      if (!linkedBrands.has(brand.id)) {
+        const linked = await this.catalog.addToBrand(entityId, brand.id, actor);
+        if (!linked.ok) return PluginErr(linked.error.message);
+        changed = true;
+      }
     }
 
     const tagRows = taxonomy.tags;
@@ -1860,9 +1894,10 @@ export class ChannelConnectorService {
         if (!tag) return PluginErr(`Tag "${slug}" was not persisted.`);
         tagRows.push(tag);
       }
-      await this.db.insert(entityTags).values({ entityId, tagId: tag.id }).onConflictDoNothing();
+      const added = await this.db.insert(entityTags).values({ entityId, tagId: tag.id }).onConflictDoNothing().returning({ tagId: entityTags.tagId });
+      if (added.length > 0) changed = true;
     }
-    return Ok(undefined);
+    return Ok({ changed });
   }
 
   private async applyMedia(
@@ -3822,7 +3857,7 @@ export class ChannelConnectorService {
       mediaImported += media.value.imported;
       variantsGivenOptionValues += variantIds.value.repaired;
       skipped.push(...media.value.skipped.map((fieldPath) => ({ entityId, fieldPath })));
-      entityTouched = entityTouched || optionAxes.value.changed || variantIds.value.changed || media.value.changed || attributes.value.changed;
+      entityTouched = entityTouched || optionAxes.value.changed || variantIds.value.changed || taxonomy.value.changed || media.value.changed || attributes.value.changed;
       if (entityTouched) entitiesTouched += 1;
       // Counted from what was written, not from the stored hash: a hash that moved while the
       // product did not (a blanked map row, a change in how an item serialises) is not drift.
