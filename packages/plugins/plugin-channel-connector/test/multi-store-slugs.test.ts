@@ -165,4 +165,48 @@ describe("one platform organization, many stores", () => {
       expect(resolved.ok && resolved.value.sourceStoreId).toBe(row.store);
     }
   }, 120_000);
+
+  // Two merchants onboarding concurrently: both resolve the handle as free, then both create it.
+  // The loser's collision is transient, so it must end at the qualified slug, never failed_terminal.
+  it("page fast path: two stores converging the same handle at once both land, one at the qualified slug", async () => {
+    const { built, service, connect } = await platform();
+    const first = await connect("atelier.myshopify.com");
+    const second = await connect("kelly-felder.myshopify.com");
+
+    const results = await Promise.all([first, second].map((store, index) =>
+      service.convergeCatalogPage(TEST_ORG_ID, store, [product(`r${index}-1`, "boxy-tee", "BT-1")], actor())));
+
+    for (const result of results) expect(result.ok && result.value.failures).toEqual([]);
+    const slugs = (await built.db.select({ slug: sellableEntities.slug }).from(sellableEntities)
+      .where(eq(sellableEntities.organizationId, TEST_ORG_ID))).map((row) => row.slug).sort();
+    expect(slugs.length).toBe(2);
+    expect(slugs[0]).toBe("boxy-tee");
+    expect(slugs[1]).toMatch(/^boxy-tee-(atelier|kelly-felder)$/);
+  }, 120_000);
+
+  it("editor path: two stores reconciling the same handle at once both land, one at the qualified slug", async () => {
+    const connector = mockChannelConnector({ catalog: [product("r-1", "boxy-tee", "BT-1")] });
+    const built = await createPluginTestApp(channelConnectorPlugin({ connectors: [connector] }));
+    const connect = async (storeDomain: string): Promise<string> => {
+      const response = await built.app.request("http://localhost/api/channels/stores", {
+        method: "POST",
+        headers: jsonHeaders(testAdminActor),
+        body: JSON.stringify({ provider: "mock", credentials: {}, storeDomain }),
+      });
+      return (await response.json()).data.id as string;
+    };
+    const service = new ChannelConnectorService(built.db, built.kernel.services, { connectors: [connector] });
+    const stores = [await connect("atelier.myshopify.com"), await connect("kelly-felder.myshopify.com")];
+
+    const results = await Promise.all(stores.map((store) => service.reconcile(TEST_ORG_ID, store, actor())));
+
+    for (const result of results) {
+      expect(result.ok, result.ok ? "" : result.error).toBe(true);
+      expect(result.ok && result.value.imported).toBe(1);
+    }
+    const slugs = (await built.db.select({ slug: sellableEntities.slug }).from(sellableEntities)
+      .where(eq(sellableEntities.organizationId, TEST_ORG_ID))).map((row) => row.slug).sort();
+    expect(slugs[0]).toBe("boxy-tee");
+    expect(slugs[1]).toMatch(/^boxy-tee-(atelier|kelly-felder)$/);
+  }, 120_000);
 });

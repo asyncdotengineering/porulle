@@ -645,6 +645,30 @@ export function storeSlugSuffix(storeDomain: string): string {
   return label.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+const SLUG_CONFLICT = /sellable_entities_org_slug_unique|Entity with slug .+ already exists|Slug ".+" already exists/;
+
+/**
+ * Whether a create or update lost a slug to another writer — core's pre-check message, or the
+ * unique index itself, which a driver error can carry several `cause`s deep.
+ */
+export function isSlugConflict(error: unknown): boolean {
+  let cursor: unknown = error;
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (typeof cursor === "string") return SLUG_CONFLICT.test(cursor);
+    if (typeof cursor !== "object" || cursor === null) return false;
+    if ("constraint" in cursor && cursor.constraint === "sellable_entities_org_slug_unique") return true;
+    if ("message" in cursor && typeof cursor.message === "string" && SLUG_CONFLICT.test(cursor.message)) return true;
+    cursor = "cause" in cursor ? cursor.cause : undefined;
+  }
+  return false;
+}
+
+function errorMessage(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") return error.message;
+  return String(error);
+}
+
 /** Mid-import map rows carry this until convergence finishes; must not equal any real remote hash. */
 const PENDING_ENTITY_MAP_SYNC_HASH = "";
 
@@ -2078,8 +2102,7 @@ export class ChannelConnectorService {
     const wanted = [...new Set(handles)];
     const resolved = new Map<string, { slug: string; family: string[] }>();
     if (wanted.length === 0) return resolved;
-    const store = await this.getStoreRecord(orgId, storeId);
-    const suffix = storeSlugSuffix(store?.storeDomain ?? "");
+    const suffix = await this.storeSlugSuffixFor(orgId, storeId);
     const idPart = storeId.replace(/[^a-z0-9]/gi, "").slice(0, 8).toLowerCase();
     const familyOf = (handle: string): string[] => suffix
       ? [handle, `${handle}-${suffix}`, `${handle}-${suffix}-${idPart}`]
@@ -2098,6 +2121,19 @@ export class ChannelConnectorService {
       resolved.set(handle, { slug, family });
     }
     return resolved;
+  }
+
+  // ponytail: cached for the service instance's lifetime (one task invocation), so a batched import
+  // reads the store once. A store whose domain changes mid-invocation keeps the old suffix until the
+  // next one — a new slug family only, never a rename of a slug already assigned.
+  private readonly slugSuffixByStore = new Map<string, string>();
+
+  private async storeSlugSuffixFor(orgId: string, storeId: string): Promise<string> {
+    const cached = this.slugSuffixByStore.get(storeId);
+    if (cached !== undefined) return cached;
+    const suffix = storeSlugSuffix((await this.getStoreRecord(orgId, storeId))?.storeDomain ?? "");
+    this.slugSuffixByStore.set(storeId, suffix);
+    return suffix;
   }
 
   /** The slug an existing product converges to: its current one while that is still in the family
@@ -2897,36 +2933,57 @@ export class ChannelConnectorService {
     }
 
     const createdItems: Array<{ item: ChannelCatalogItem; entityId: string; variantIds: Record<string, string> }> = [];
-    if (fresh.length > 0) {
+    // Two stores onboarding at once can both resolve a handle as free and then both create it. The
+    // loser's collision is transient: re-resolve those items once (the winner is now visible, so they
+    // take the store-qualified slug) and try again. A second collision is reported as the item's.
+    let pending = fresh;
+    for (let attempt = 0; pending.length > 0; attempt += 1) {
       // The slug is resolved on the import row only: the map row's hash stays the hash of the item
       // as the store sent it, so the next page still reads it as unchanged.
       const report = await this.catalog.importProducts(
-        fresh.map((item) => toImportProduct({ ...item, slug: slugFor.get(item.slug)?.slug ?? item.slug })),
+        pending.map((item) => toImportProduct({ ...item, slug: slugFor.get(item.slug)?.slug ?? item.slug })),
         { sourceStoreId: storeId, errorPolicy: "reject-failed-rows" },
         actor,
       );
       if (!report.ok) return PluginErr(report.error.message, report.error.code);
+      const collided: Array<{ item: ChannelCatalogItem; failure: CatalogConvergenceFailure }> = [];
       for (const [index, row] of report.value.rows.entries()) {
-        const item = fresh[index];
+        const item = pending[index];
         if (!item) continue;
         if (row.status === "failed") {
-          failures.push({ externalId: row.ref, error: `${row.code}: ${row.error}` });
+          const failure = { externalId: row.ref, error: `${row.code}: ${row.error}` };
+          const lostSlug = row.code === "slug-conflict" || (row.code === "conflict" && isSlugConflict(row.error));
+          if (attempt === 0 && lostSlug) collided.push({ item, failure });
+          else failures.push(failure);
           continue;
         }
         warnings.push(...row.warnings);
         entityByExternalId.set(item.externalId, row.entityId);
         createdItems.push({ item, entityId: row.entityId, variantIds: row.variantIds });
       }
-      if (createdItems.length > 0) {
-        const now = new Date();
-        await this.db.insert(channelEntityMap).values(createdItems.flatMap(({ item, entityId, variantIds }) => [
-          { organizationId: orgId, storeId, kind: "entity" as const, externalId: item.externalId, entityId, syncHash: hash(item), lastSyncedAt: now },
-          ...item.variants.flatMap((variant) => {
-            const variantId = variantIds[variant.externalId];
-            return variantId === undefined ? [] : [{ organizationId: orgId, storeId, kind: "variant" as const, externalId: variant.externalId, entityId, variantId, syncHash: hash(variant), lastSyncedAt: now }];
-          }),
-        ])).onConflictDoNothing();
+      pending = [];
+      if (collided.length > 0) {
+        const again = await this.resolveStoreSlugs(orgId, storeId, collided.map(({ item }) => item.slug));
+        for (const { item, failure } of collided) {
+          const before = slugFor.get(item.slug)?.slug ?? item.slug;
+          const after = again.get(item.slug);
+          // Retry only when another STORE took the handle: a slug held by a product made in
+          // Merchant Center resolves to the same slug again, and stays the loud conflict it was.
+          if (after === undefined || after.slug === before) { failures.push(failure); continue; }
+          slugFor.set(item.slug, after);
+          pending.push(item);
+        }
       }
+    }
+    if (createdItems.length > 0) {
+      const now = new Date();
+      await this.db.insert(channelEntityMap).values(createdItems.flatMap(({ item, entityId, variantIds }) => [
+        { organizationId: orgId, storeId, kind: "entity" as const, externalId: item.externalId, entityId, syncHash: hash(item), lastSyncedAt: now },
+        ...item.variants.flatMap((variant) => {
+          const variantId = variantIds[variant.externalId];
+          return variantId === undefined ? [] : [{ organizationId: orgId, storeId, kind: "variant" as const, externalId: variant.externalId, entityId, variantId, syncHash: hash(variant), lastSyncedAt: now }];
+        }),
+      ])).onConflictDoNothing();
     }
 
     const media = await this.importHeroes(orgId, createdItems, actor);
@@ -3550,6 +3607,8 @@ export class ChannelConnectorService {
     const failures: CatalogConvergenceFailure[] = [];
     const entityIds: string[] = [];
     const committed = new Set<string>();
+    // One resolution for the whole batch, not two round trips per changed product.
+    const slugFor = await this.resolveStoreSlugs(orgId, storeId, items.map((item) => item.slug));
     for (const item of items) {
       consumed += 1;
       try {
@@ -3586,8 +3645,13 @@ export class ChannelConnectorService {
           existingEntity = entity;
         }
       }
-      const resolvedSlug = (await this.resolveStoreSlugs(orgId, storeId, [item.slug])).get(item.slug) ?? { slug: item.slug, family: [item.slug] };
-      const slug = resolvedSlug.slug;
+      let resolvedSlug = slugFor.get(item.slug) ?? { slug: item.slug, family: [item.slug] };
+      // A slug lost to a concurrent writer (another store onboarding the same handle) is transient:
+      // re-resolve once, and the winner being visible now moves this item to its qualified slug.
+      const reresolveSlug = async (): Promise<void> => {
+        resolvedSlug = (await this.resolveStoreSlugs(orgId, storeId, [item.slug])).get(item.slug) ?? resolvedSlug;
+        slugFor.set(item.slug, resolvedSlug);
+      };
       if (entityId === undefined) {
         const [orphan] = await this.db.select().from(sellableEntities).where(and(
           eq(sellableEntities.organizationId, orgId),
@@ -3600,31 +3664,42 @@ export class ChannelConnectorService {
           adoptedOrphan = true;
         } else {
           const status = item.status;
-          try {
-            entityId = await this.transact(async (tx) => {
-              const txContext = createTxContext(tx, { actor });
-              const created = await this.catalog.create({
-                type: "product",
-                slug,
-                sourceStoreId: storeId,
-                metadata: mergeMetadata(undefined, item.metadata ?? {}),
-                ...(status !== undefined ? { status, isVisible: status === "active" } : {}),
-              }, actor, txContext);
-              if (!created.ok) throw new Error(created.error.message);
-              await tx.insert(channelEntityMap).values({
-                organizationId: orgId,
-                storeId,
-                kind: "entity",
-                externalId: item.externalId,
-                entityId: created.value.id,
-                syncHash: PENDING_ENTITY_MAP_SYNC_HASH,
-                heldFieldPaths: [],
-                forcedPushFieldPaths: [],
-              });
-              return created.value.id;
+          const createEntity = (slug: string): Promise<string> => this.transact(async (tx) => {
+            const txContext = createTxContext(tx, { actor });
+            const created = await this.catalog.create({
+              type: "product",
+              slug,
+              sourceStoreId: storeId,
+              metadata: mergeMetadata(undefined, item.metadata ?? {}),
+              ...(status !== undefined ? { status, isVisible: status === "active" } : {}),
+            }, actor, txContext);
+            if (!created.ok) throw new Error(created.error.message);
+            await tx.insert(channelEntityMap).values({
+              organizationId: orgId,
+              storeId,
+              kind: "entity",
+              externalId: item.externalId,
+              entityId: created.value.id,
+              syncHash: PENDING_ENTITY_MAP_SYNC_HASH,
+              heldFieldPaths: [],
+              forcedPushFieldPaths: [],
             });
-          } catch (error) {
-            failures.push({ externalId: item.externalId, error: error instanceof Error ? error.message : "Failed to create catalog entity." });
+            return created.value.id;
+          });
+          let createError: unknown;
+          for (let attempt = 0; attempt < 2 && entityId === undefined; attempt += 1) {
+            try {
+              entityId = await createEntity(resolvedSlug.slug);
+            } catch (error) {
+              createError = error;
+              if (attempt > 0 || !isSlugConflict(error)) break;
+              const before = resolvedSlug.slug;
+              await reresolveSlug();
+              if (resolvedSlug.slug === before) break;
+            }
+          }
+          if (entityId === undefined) {
+            failures.push({ externalId: item.externalId, error: createError instanceof Error ? createError.message : "Failed to create catalog entity." });
             continue;
           }
           isNew = true;
@@ -3698,8 +3773,24 @@ export class ChannelConnectorService {
           : remoteChanged || existingEntity.status === "archived";
         if (shouldUpdate) {
           if (Object.keys(updateInput).length > 0) {
-            const updated = await this.catalog.update(entityMapping.entityId, updateInput, actor, CHANNEL_CONVERGENCE_CTX);
-            if (!updated.ok) { failures.push({ externalId: item.externalId, error: updated.error.message }); continue; }
+            const mappedEntityId = entityMapping.entityId;
+            const update = async (): Promise<unknown> => {
+              try {
+                const updated = await this.catalog.update(mappedEntityId, updateInput, actor, CHANNEL_CONVERGENCE_CTX);
+                return updated.ok ? undefined : updated.error;
+              } catch (error) {
+                return error;
+              }
+            };
+            let updateError = await update();
+            if (updateError !== undefined && updateInput.slug !== undefined && isSlugConflict(updateError)) {
+              await reresolveSlug();
+              const retrySlug = this.slugToKeep(existingEntity.slug, resolvedSlug);
+              if (retrySlug === existingEntity.slug) delete updateInput.slug;
+              else updateInput.slug = retrySlug;
+              updateError = Object.keys(updateInput).length > 0 ? await update() : undefined;
+            }
+            if (updateError !== undefined) { failures.push({ externalId: item.externalId, error: errorMessage(updateError) }); continue; }
             entityTouched = true;
           }
         }
