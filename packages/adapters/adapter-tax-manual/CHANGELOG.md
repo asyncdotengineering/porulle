@@ -1,5 +1,12 @@
 # @porulle/adapter-tax-manual
 
+## 0.53.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.53.0
+
 ## 0.52.0
 
 ### Patch Changes
