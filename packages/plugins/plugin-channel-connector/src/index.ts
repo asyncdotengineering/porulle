@@ -20,6 +20,7 @@ import {
   channelCatalogPushes,
   channelCatalogConflicts,
   channelCatalogConflictEvents,
+  channelEntityLinks,
   channelEntityMap,
   channelExportEvents,
   channelOrderExports,
@@ -453,6 +454,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
     schema: () => ({
       connectedStores,
       channelEntityMap,
+      channelEntityLinks,
       channelCatalogPushes,
       channelCatalogPushEvents,
       channelCatalogConflicts,

@@ -7,6 +7,7 @@ import {
   createTxContext,
   createSystemActor,
   linkFieldPaths,
+  removeEntityLinks,
   writeEntityLinks,
 } from "@porulle/core";
 import type {
@@ -36,13 +37,16 @@ import { isValidFieldPath, requireUserId } from "@porulle/core";
 import type { FieldOwner, FieldPath } from "@porulle/core";
 import type { JobsAdapter } from "@porulle/core";
 import { CHANNEL_CONVERGENCE_CTX } from "./catalog-push-trigger.js";
-import { and, desc, eq, inArray, isNull, lte, or, sql } from "@porulle/core/drizzle";
+import { and, desc, eq, inArray, isNull, lte, or, sql, type SQL } from "@porulle/core/drizzle";
 import {
   brands,
   categories,
   customerAddresses,
   customers,
+  entityBrands,
+  entityCategories,
   entityMedia,
+  entityTags,
   inventoryLevels,
   mediaAssets,
   optionTypes,
@@ -66,6 +70,7 @@ import {
   channelCatalogPushes,
   channelCatalogConflicts,
   channelCatalogConflictEvents,
+  channelEntityLinks,
   channelEntityMap,
   channelExportEvents,
   channelOrderExports,
@@ -2048,16 +2053,20 @@ export class ChannelConnectorService {
     item: ChannelCatalogItem,
     actor: Actor,
     warnings: string[],
-  ): Promise<PluginResult<Pick<PlannedLinks, "categories" | "brands" | "tags">>> {
+  ): Promise<PluginResult<Pick<PlannedLinks, "categories" | "brands" | "tags"> & { listed: Set<string> }>> {
     // Resolves (creating where missing) the category, brand and tag rows the item names, and PLANS
     // the entity's links to them. The links are written by `commitEntityLinks`, in one transaction
     // with the entity's version bump; a link that already exists writes nothing there.
     const taxonomy = await this.taxonomyFor(orgId);
     const links: Pick<PlannedLinks, "categories" | "brands" | "tags"> = { categories: [], brands: [], tags: [] };
+    // Every link the item names, as `${kind}:${id}` — including an archived category it names but
+    // is not linked to again, so a link the store still lists is never read as dropped.
+    const listed = new Set<string>();
     const categoryRows = taxonomy.categories;
     for (const slug of new Set(item.categories ?? [])) {
       let category = categoryRows.find((row) => row.slug === slug);
       if (category?.status === "archived") {
+        listed.add(`category:${category.id}`);
         warnings.push(`Skipped archived category "${slug}".`);
         continue;
       }
@@ -2073,6 +2082,7 @@ export class ChannelConnectorService {
         categoryRows.push(category);
       }
       links.categories.push({ entityId, categoryId: category.id, sortOrder: 0 });
+      listed.add(`category:${category.id}`);
     }
 
     const brandRows = taxonomy.brands;
@@ -2091,6 +2101,7 @@ export class ChannelConnectorService {
         brandRows.push(brand);
       }
       links.brands.push({ entityId, brandId: brand.id, sortOrder: 0 });
+      listed.add(`brand:${brand.id}`);
     }
 
     const tagRows = taxonomy.tags;
@@ -2106,8 +2117,9 @@ export class ChannelConnectorService {
         tagRows.push(tag);
       }
       links.tags.push({ entityId, tagId: tag.id });
+      listed.add(`tag:${tag.id}`);
     }
-    return Ok(links);
+    return Ok({ ...links, listed });
   }
 
   /**
@@ -2119,11 +2131,18 @@ export class ChannelConnectorService {
    * An entity CREATED by this converge is not versioned for its links: its creation already put it
    * in front of every consumer, so a bump here would re-project a product in the same breath as its
    * first projection — the cold-import cost this rule exists to avoid.
+   *
+   * It also REMOVES the category, brand and tag links the store no longer lists — only those on
+   * record in `channel_entity_links` as this store's, so a link the merchant added survives. Rows
+   * this converge inserts go on record; a product imported before provenance existed is claimed by
+   * `claimUnrecordedLinks` at the top of the converge.
    */
   private async commitEntityLinks(
     orgId: string,
+    storeId: string,
     entityId: string,
     planned: PlannedLinks,
+    listed: Set<string>,
     previousRoles: Map<string, string>,
     isNew: boolean,
     actor: Actor,
@@ -2131,7 +2150,30 @@ export class ChannelConnectorService {
     try {
       return Ok(await this.transact(async (tx) => {
         const written = await writeEntityLinks(tx, orgId, planned);
-        const paths = new Set(linkFieldPaths(written).get(entityId));
+        const owned = isNew ? [] : await tx.select({ kind: channelEntityLinks.kind, targetId: channelEntityLinks.targetId }).from(channelEntityLinks)
+          .where(and(eq(channelEntityLinks.storeId, storeId), eq(channelEntityLinks.entityId, entityId)));
+        const dropped = owned.filter((row) => !listed.has(`${row.kind}:${row.targetId}`));
+        const removed = await removeEntityLinks(tx, orgId, {
+          categories: dropped.filter((row) => row.kind === "category").map((row) => ({ entityId, categoryId: row.targetId })),
+          brands: dropped.filter((row) => row.kind === "brand").map((row) => ({ entityId, brandId: row.targetId })),
+          tags: dropped.filter((row) => row.kind === "tag").map((row) => ({ entityId, tagId: row.targetId })),
+        });
+        if (dropped.length > 0) {
+          await tx.delete(channelEntityLinks).where(and(
+            eq(channelEntityLinks.storeId, storeId),
+            eq(channelEntityLinks.entityId, entityId),
+            or(...dropped.map((row) => and(eq(channelEntityLinks.kind, row.kind), eq(channelEntityLinks.targetId, row.targetId)))),
+          ));
+        }
+        const record = [
+          ...written.categories.map((row) => ({ kind: "category" as const, targetId: row.categoryId })),
+          ...written.brands.map((row) => ({ kind: "brand" as const, targetId: row.brandId })),
+          ...written.tags.map((row) => ({ kind: "tag" as const, targetId: row.tagId })),
+        ];
+        if (record.length > 0) {
+          await tx.insert(channelEntityLinks).values(record.map((row) => ({ organizationId: orgId, storeId, entityId, ...row }))).onConflictDoNothing();
+        }
+        const paths = new Set([...(linkFieldPaths(written).get(entityId) ?? []), ...(linkFieldPaths(removed).get(entityId) ?? [])]);
         for (const row of written.placed) {
           const previous = previousRoles.get(`${row.mediaAssetId}:${row.variantId}`);
           if (previous !== undefined) paths.add(`media.${previous}`);
@@ -3254,6 +3296,15 @@ export class ChannelConnectorService {
           return variantId === undefined ? [] : [{ organizationId: orgId, storeId, kind: "variant" as const, externalId: variant.externalId, entityId, variantId, syncHash: hash(variant), lastSyncedAt: now }];
         }),
       ])).onConflictDoNothing();
+      // Every category / brand / tag link on an entity this page just created was written by this
+      // import, so all of it is this store's on record (`channel_entity_links`) — one statement.
+      const created = sql.join(createdItems.map(({ entityId }) => sql`${entityId}::uuid`), sql`, `);
+      await this.db.execute(sql`
+        insert into ${channelEntityLinks} (organization_id, store_id, entity_id, kind, target_id)
+        select ${orgId}, ${storeId}::uuid, entity_id, 'category', category_id from ${entityCategories} where entity_id in (${created})
+        union all select ${orgId}, ${storeId}::uuid, entity_id, 'brand', brand_id from ${entityBrands} where entity_id in (${created})
+        union all select ${orgId}, ${storeId}::uuid, entity_id, 'tag', tag_id from ${entityTags} where entity_id in (${created})
+        on conflict do nothing`);
     }
 
     const media = await this.importHeroes(orgId, createdItems, actor);
@@ -3851,6 +3902,52 @@ export class ChannelConnectorService {
     return Ok(stats);
   }
 
+  /**
+   * Link provenance for products imported before `channel_entity_links` existed: a mapped product
+   * of this batch with NOTHING on record for this store claims, once, the category / brand / tag
+   * links it has that the store lists NOW. Runs for unchanged items too — an unchanged item skips
+   * its converge, and the converge that follows may already be the drop, too late to claim.
+   *
+   * Its limit, stated rather than hidden: a link upstream had dropped BEFORE this claim was never
+   * the store's on record, so it stays (the stale set the old add-only converge left; repaired by a
+   * re-import, not by a heuristic delete). One select per batch; the claims only while unclaimed
+   * products remain.
+   */
+  private async claimUnrecordedLinks(orgId: string, storeId: string, items: ChannelCatalogItem[]): Promise<void> {
+    if (items.length === 0) return;
+    const unclaimed = await this.db.select({ externalId: channelEntityMap.externalId, entityId: channelEntityMap.entityId }).from(channelEntityMap).where(and(
+      eq(channelEntityMap.organizationId, orgId),
+      eq(channelEntityMap.storeId, storeId),
+      eq(channelEntityMap.kind, "entity"),
+      inArray(channelEntityMap.externalId, items.map((item) => item.externalId)),
+      sql`not exists (select 1 from ${channelEntityLinks} where ${channelEntityLinks.storeId} = ${channelEntityMap.storeId} and ${channelEntityLinks.entityId} = ${channelEntityMap.entityId})`,
+    ));
+    if (unclaimed.length === 0) return;
+    const entityOf = new Map(unclaimed.map((row) => [row.externalId, row.entityId]));
+    const listed = (pick: (item: ChannelCatalogItem) => readonly string[]) => items.flatMap((item) => {
+      const entityId = entityOf.get(item.externalId);
+      return entityId === undefined ? [] : [...new Set(pick(item))].map((slug) => sql`(${entityId}::uuid, ${slug}::text)`);
+    });
+    const claim = async (kind: "category" | "brand" | "tag", pairs: SQL[], link: SQL) => {
+      if (pairs.length === 0) return;
+      await this.db.execute(sql`
+        insert into ${channelEntityLinks} (organization_id, store_id, entity_id, kind, target_id)
+        select ${orgId}, ${storeId}::uuid, v.entity_id, ${kind}, t.id
+        from (values ${sql.join(pairs, sql`, `)}) as v(entity_id, slug)
+        ${link}
+        on conflict do nothing`);
+    };
+    await claim("category", listed((item) => item.categories ?? []),
+      sql`join ${categories} t on t.slug = v.slug and t.organization_id = ${orgId}
+        join ${entityCategories} l on l.entity_id = v.entity_id and l.category_id = t.id`);
+    await claim("brand", listed((item) => (item.brand ? [item.brand] : [])),
+      sql`join ${brands} t on t.slug = v.slug and t.organization_id = ${orgId}
+        join ${entityBrands} l on l.entity_id = v.entity_id and l.brand_id = t.id`);
+    await claim("tag", listed((item) => item.tags ?? []),
+      sql`join ${tags} t on t.slug = v.slug and t.organization_id = ${orgId}
+        join ${entityTags} l on l.entity_id = v.entity_id and l.tag_id = t.id`);
+  }
+
   private async convergeCatalogItems(
     orgId: string,
     storeId: string,
@@ -3882,6 +3979,7 @@ export class ChannelConnectorService {
     // Upstream SKU/barcode changes on already-mapped variants, for the whole batch at once, so that
     // variants exchanging SKUs across products in this batch land together.
     const identity = await this.applyUpstreamVariantIdentity(orgId, storeId, items);
+    await this.claimUnrecordedLinks(orgId, storeId, items);
     for (const item of items) {
       consumed += 1;
       try {
@@ -4095,7 +4193,8 @@ export class ChannelConnectorService {
       if (!taxonomy.ok) { failures.push({ externalId: item.externalId, error: taxonomy.error }); continue; }
       const media = await this.applyMedia(orgId, entityId, writable, variantIds.value.value, actor, warnings, owners);
       if (!media.ok) return media;
-      const links = await this.commitEntityLinks(orgId, entityId, { ...taxonomy.value, ...media.value.links }, media.value.previousRoles, isNew, actor);
+      const { listed, ...taxonomyLinks } = taxonomy.value;
+      const links = await this.commitEntityLinks(orgId, storeId, entityId, { ...taxonomyLinks, ...media.value.links }, listed, media.value.previousRoles, isNew, actor);
       if (!links.ok) { failures.push({ externalId: item.externalId, error: links.error }); continue; }
       attributesCreated += attributes.value.created;
       mediaImported += media.value.imported;

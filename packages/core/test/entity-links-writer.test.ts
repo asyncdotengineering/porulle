@@ -8,9 +8,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { organization } from "../src/auth/auth-schema.js";
 import { DEFAULT_ORG_ID } from "../src/auth/org.js";
-import { brands, categories, entityCategories, sellableEntities, tags } from "../src/modules/catalog/schema.js";
+import { brands, categories, entityBrands, entityCategories, entityTags, sellableEntities, tags } from "../src/modules/catalog/schema.js";
 import { entityMedia, mediaAssets } from "../src/modules/media/schema.js";
-import { linkFieldPaths, writeEntityLinks } from "../src/modules/catalog/entity-links.js";
+import { linkFieldPaths, removeEntityLinks, writeEntityLinks } from "../src/modules/catalog/entity-links.js";
 import type { DrizzleDatabase } from "../src/kernel/database/drizzle-db.js";
 import { createPGliteTestAdapter } from "../src/test-utils/create-pglite-adapter.js";
 
@@ -93,5 +93,38 @@ describe("writeEntityLinks", () => {
     expect(linkFieldPaths(written).size).toBe(0);
     expect(await db.select().from(entityCategories).where(eq(entityCategories.entityId, foreign.entity.id))).toEqual([]);
     expect((await db.select().from(entityMedia).where(eq(entityMedia.entityId, foreign.entity.id))).map((row) => row.role)).toEqual(["primary"]);
+  });
+
+  it("removeEntityLinks deletes exactly the named links, returns them, and names the same paths", async () => {
+    const own = await fixtures(DEFAULT_ORG_ID, "remove");
+    const keep = await fixtures(DEFAULT_ORG_ID, "keep");
+    await writeEntityLinks(db, DEFAULT_ORG_ID, {
+      categories: [{ entityId: own.entity.id, categoryId: own.category.id, sortOrder: 0 }, { entityId: own.entity.id, categoryId: keep.category.id, sortOrder: 1 }],
+      brands: [{ entityId: own.entity.id, brandId: own.brand.id, sortOrder: 0 }],
+      tags: [{ entityId: own.entity.id, tagId: own.tag.id }],
+    });
+
+    const removed = await removeEntityLinks(db, DEFAULT_ORG_ID, {
+      categories: [{ entityId: own.entity.id, categoryId: own.category.id }],
+      brands: [{ entityId: own.entity.id, brandId: own.brand.id }],
+      tags: [{ entityId: own.entity.id, tagId: own.tag.id }],
+    });
+
+    expect(linkFieldPaths(removed).get(own.entity.id)).toEqual(["brand", "categories", "tags"]);
+    expect((await db.select().from(entityCategories).where(eq(entityCategories.entityId, own.entity.id))).map((row) => row.categoryId)).toEqual([keep.category.id]);
+    expect(await db.select().from(entityBrands).where(eq(entityBrands.entityId, own.entity.id))).toEqual([]);
+    expect(await db.select().from(entityTags).where(eq(entityTags.entityId, own.entity.id))).toEqual([]);
+    // Removing what is already gone removes nothing and names nothing.
+    expect(linkFieldPaths(await removeEntityLinks(db, DEFAULT_ORG_ID, { tags: [{ entityId: own.entity.id, tagId: own.tag.id }] })).size).toBe(0);
+  });
+
+  it("removeEntityLinks refuses another organization's entity: nothing is deleted", async () => {
+    const foreign = await fixtures(OTHER_ORG, "their-links");
+    await writeEntityLinks(db, OTHER_ORG, { tags: [{ entityId: foreign.entity.id, tagId: foreign.tag.id }] });
+
+    const removed = await removeEntityLinks(db, DEFAULT_ORG_ID, { tags: [{ entityId: foreign.entity.id, tagId: foreign.tag.id }] });
+
+    expect(linkFieldPaths(removed).size).toBe(0);
+    expect((await db.select().from(entityTags).where(eq(entityTags.entityId, foreign.entity.id))).length).toBe(1);
   });
 });
