@@ -529,6 +529,9 @@ importers:
       '@porulle/eslint-config':
         specifier: workspace:*
         version: link:../../eslint-config
+      '@porulle/plugin-channel-connector':
+        specifier: workspace:*
+        version: link:../../plugins/plugin-channel-connector
       '@porulle/typescript-config':
         specifier: workspace:*
         version: link:../../typescript-config
