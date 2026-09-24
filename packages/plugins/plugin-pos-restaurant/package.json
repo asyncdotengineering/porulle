@@ -1,6 +1,6 @@
 {
   "name": "@porulle/plugin-pos-restaurant",
-  "version": "0.50.2",
+  "version": "0.50.3",
   "license": "MIT",
   "type": "module",
   "exports": {
