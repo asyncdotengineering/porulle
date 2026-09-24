@@ -1,4 +1,5 @@
 import { and, eq, isNull, ne, or, sql, type SQL } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import { mediaAssets, entityMedia } from "../media/schema.js";
 import { brands, categories, entityBrands, entityCategories, entityTags, sellableEntities, tags } from "./schema.js";
@@ -92,6 +93,49 @@ export async function writeEntityLinks(
     )).returning());
   }
   return written;
+}
+
+export interface EntityLinkRemovals {
+  categories?: ReadonlyArray<{ entityId: string; categoryId: string }>;
+  brands?: ReadonlyArray<{ entityId: string; brandId: string }>;
+  tags?: ReadonlyArray<{ entityId: string; tagId: string }>;
+}
+
+const entityOfOrg = (entityId: AnyPgColumn, orgId: string): SQL =>
+  sql`exists (select 1 from ${sellableEntities} where ${sellableEntities.id} = ${entityId} and ${sellableEntities.organizationId} = ${orgId})`;
+
+/**
+ * `writeEntityLinks`' sibling: deletes exactly the named category / brand / tag links, one
+ * statement per class, and returns the rows it deleted (in `WrittenEntityLinks` shape, so
+ * `linkFieldPaths` names them). A row naming another organization's entity deletes nothing;
+ * a link already gone is not returned.
+ */
+export async function removeEntityLinks(
+  db: Pick<PluginDb, "delete">,
+  orgId: string,
+  rows: EntityLinkRemovals,
+): Promise<WrittenEntityLinks> {
+  const removed: WrittenEntityLinks = { categories: [], brands: [], tags: [], media: [], placed: [] };
+  const pairs = (list: ReadonlyArray<readonly [string, string]>): SQL => valuesOf(list.map(([a, b]) => [sql`${a}::uuid`, sql`${b}::uuid`]));
+  if (rows.categories?.length) {
+    removed.categories = await db.delete(entityCategories).where(and(
+      sql`(${entityCategories.entityId}, ${entityCategories.categoryId}) in (${pairs(rows.categories.map((row) => [row.entityId, row.categoryId] as const))})`,
+      entityOfOrg(entityCategories.entityId, orgId),
+    )).returning();
+  }
+  if (rows.brands?.length) {
+    removed.brands = await db.delete(entityBrands).where(and(
+      sql`(${entityBrands.entityId}, ${entityBrands.brandId}) in (${pairs(rows.brands.map((row) => [row.entityId, row.brandId] as const))})`,
+      entityOfOrg(entityBrands.entityId, orgId),
+    )).returning();
+  }
+  if (rows.tags?.length) {
+    removed.tags = await db.delete(entityTags).where(and(
+      sql`(${entityTags.entityId}, ${entityTags.tagId}) in (${pairs(rows.tags.map((row) => [row.entityId, row.tagId] as const))})`,
+      entityOfOrg(entityTags.entityId, orgId),
+    )).returning();
+  }
+  return removed;
 }
 
 /**

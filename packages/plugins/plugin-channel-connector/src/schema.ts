@@ -72,6 +72,26 @@ export const channelEntityMap = pgTable(
   }),
 );
 
+/**
+ * The category, brand and tag links a store's converge CREATED on an entity — link provenance, per
+ * store, the way `channel_entity_map` records the variants a store owns. A converge removes a link
+ * the store dropped only when the link is on record here: a link the merchant added (or another
+ * store did) has no row for this store and is never this store's to take away.
+ */
+export const channelEntityLinks = pgTable(
+  "channel_entity_links",
+  {
+    organizationId: text("organization_id").notNull(),
+    storeId: uuid("store_id").references(() => connectedStores.id, { onDelete: "cascade" }).notNull(),
+    entityId: uuid("entity_id").references(() => sellableEntities.id, { onDelete: "cascade" }).notNull(),
+    kind: text("kind", { enum: ["category", "brand", "tag"] }).notNull(),
+    targetId: uuid("target_id").notNull(),
+  },
+  (table) => ({
+    linkUnique: uniqueIndex("channel_entity_links_store_entity_kind_target_unique").on(table.storeId, table.entityId, table.kind, table.targetId),
+  }),
+);
+
 export const channelCatalogConflicts = pgTable(
   "channel_catalog_conflicts",
   {

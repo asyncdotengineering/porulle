@@ -227,8 +227,8 @@ export type {
   ImportProductsReport,
   ImportRowFailureCode,
 } from "./modules/catalog/import-service.js";
-export { writeEntityLinks, linkFieldPaths } from "./modules/catalog/entity-links.js";
-export type { EntityLinkRows, EntityMediaRole, WrittenEntityLinks } from "./modules/catalog/entity-links.js";
+export { writeEntityLinks, removeEntityLinks, linkFieldPaths } from "./modules/catalog/entity-links.js";
+export type { EntityLinkRemovals, EntityLinkRows, EntityMediaRole, WrittenEntityLinks } from "./modules/catalog/entity-links.js";
 export type {
   TxContext,
   WithTransactionOptions,
