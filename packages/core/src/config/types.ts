@@ -380,6 +380,8 @@ export interface OrdersConfig {
 export interface InventoryConfig {
   hooks?: {
     afterAdjust?: AfterHook<unknown>[];
+    /** One page of changed levels grouped by product (`inventory.setAbsoluteMany`). Required alongside `afterAdjust`. */
+    afterAdjustMany?: AfterHook<unknown>[];
   };
 }
 

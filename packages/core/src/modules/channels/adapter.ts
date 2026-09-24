@@ -215,6 +215,13 @@ export interface ChannelConnector {
   ): Promise<Result<{ credentials: Record<string, unknown>; storeDomain: string }, ChannelConnectorError>>;
   importCatalog(store: ChannelStore, cursor?: string): Promise<Result<ChannelCatalogPage>>;
   fetchInventory(store: ChannelStore, ids?: string[]): Promise<Result<ChannelInventoryLevel[]>>;
+  /**
+   * One page of the store's inventory, starting at `cursor` (null for the first page), with the
+   * cursor of the next page or null on the last. The store's inventory sync takes one page per
+   * step through this; a connector without it is synced by re-reading `fetchInventory` whole on
+   * every step, which is O(levels²) per sync.
+   */
+  fetchInventoryPage?(store: ChannelStore, cursor: string | null): Promise<Result<{ levels: ChannelInventoryLevel[]; nextCursor: string | null }>>;
   pushOrder(store: ChannelStore, slice: ChannelOrderSlice): Promise<Result<ChannelPushOrderResult, ChannelConnectorError>>;
   pushCatalog?(
     store: ChannelStore,

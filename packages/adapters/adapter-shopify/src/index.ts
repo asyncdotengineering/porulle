@@ -326,6 +326,17 @@ export function shopifyReauthorizeUrl(
 
 export function shopifyConnector(options: ShopifyConnectorOptions = {}): ChannelConnector {
   const fetchImpl = options.fetchImpl ?? fetch;
+  /** One `products.json` page of variant stock (`inventory_quantity`, all locations summed), keyed by variant id. */
+  const inventoryPage = async (store: ChannelStore, cursor: string | null): Promise<Result<{ levels: ChannelInventoryLevel[]; nextCursor: string | null }>> => {
+    const token = credentials(store);
+    if (!token) return Err({ code: "SHOPIFY_CREDENTIALS_REQUIRED", message: "Shopify accessToken is required." });
+    const url = cursor ?? `${apiBase(store, version, options.baseUrl)}/products.json?limit=250&fields=id,variants`;
+    const result = await request<{ products: ShopifyProduct[] }>(fetchImpl, url, token);
+    if (!result.ok) return result;
+    const levels = result.value.data.products.flatMap((product) => (product.variants ?? [])
+      .map((variant): ChannelInventoryLevel => ({ externalId: String(variant.id), available: Math.max(0, variant.inventory_quantity ?? 0) })));
+    return Ok({ levels, nextCursor: nextPageUrl(result.value.response) });
+  };
   const version = options.apiVersion ?? "2024-10";
   const currencyCache = new Map<string, Promise<string | undefined>>();
   return defineChannelConnector({
@@ -496,22 +507,20 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
 
       const wanted = ids === undefined ? undefined : new Set(ids);
       const levels: ChannelInventoryLevel[] = [];
-      let url: string | null = `${base}/products.json?limit=250&fields=id,variants`;
+      let cursor: string | null = null;
       const seen = new Set<string>();
-      while (url !== null) {
-        if (seen.has(url)) return Err({ code: "SHOPIFY_API_FAILED", message: "Shopify pagination repeated a page." });
-        seen.add(url);
-        const result = await request<{ products: ShopifyProduct[] }>(fetchImpl, url, token);
-        if (!result.ok) return result;
-        for (const product of result.value.data.products) {
-          for (const variant of product.variants ?? []) {
-            if (wanted === undefined || wanted.has(String(variant.id))) levels.push(level(variant));
-          }
-        }
-        url = nextPageUrl(result.value.response);
-      }
+      do {
+        const page = await inventoryPage(store, cursor);
+        if (!page.ok) return page;
+        levels.push(...page.value.levels.filter((entry) => wanted === undefined || wanted.has(entry.externalId)));
+        cursor = page.value.nextCursor;
+        if (cursor !== null && seen.has(cursor)) return Err({ code: "SHOPIFY_API_FAILED", message: "Shopify pagination repeated a page." });
+        if (cursor !== null) seen.add(cursor);
+      } while (cursor !== null);
       return Ok(levels);
     },
+    /** One `products.json` page (250 products) of variant stock; the cursor is Shopify's next-page URL. */
+    fetchInventoryPage: (store, cursor) => inventoryPage(store, cursor),
     async pushCatalog(store: ChannelStore, items: ChannelPushCatalogItem[], opts?: { dryRun?: boolean }): Promise<Result<ChannelPushCatalogResult, ChannelConnectorError>> {
       const oauthStartUrl = options.appUrl ? shopifyOAuthStartUrl(options.appUrl, store.storeDomain) : undefined;
       return executePushCatalog({

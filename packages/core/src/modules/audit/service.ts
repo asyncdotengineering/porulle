@@ -37,6 +37,8 @@ export interface ListArgs {
 
 export interface AuditService {
   record(args: RecordArgs): Promise<void>;
+  /** Many entries sharing one context, in ONE insert — for bulk operations (`inventory.afterAdjustMany`). */
+  recordMany(entries: ReadonlyArray<Omit<RecordArgs, "ctx">>, ctx: RecordArgs["ctx"]): Promise<void>;
   listForEntity(args: ListForEntityArgs): Promise<AuditEntry[]>;
   list(args: ListArgs): Promise<AuditEntry[]>;
 }
@@ -57,6 +59,9 @@ export function createNullAuditService(): AuditService {
         requestId: args.ctx.requestId,
         createdAt: new Date(),
       });
+    },
+    async recordMany(many, ctx) {
+      for (const entry of many) await this.record({ ...entry, ctx });
     },
     async listForEntity(args) {
       return entries
@@ -103,6 +108,22 @@ export function createAuditService(db: DrizzleDatabase): AuditService {
         actorType: ctx.actor != null ? "user" : null,
         requestId: ctx.requestId,
       });
+    },
+
+    async recordMany(many, ctx) {
+      if (many.length === 0) return;
+      const dbOrTx = ctx.tx != null ? (ctx.tx as typeof db) : db;
+      const organizationId = resolveOrgIdForCommerce(ctx.actor, ctx.commerceConfig);
+      await dbOrTx.insert(auditLog).values(many.map((entry) => ({
+        organizationId,
+        entityType: entry.entityType,
+        entityId: entry.entityId,
+        event: entry.event,
+        payload: entry.payload ?? {},
+        actorId: ctx.actor?.userId ?? null,
+        actorType: ctx.actor != null ? "user" : null,
+        requestId: ctx.requestId,
+      })));
     },
 
     async listForEntity(args) {

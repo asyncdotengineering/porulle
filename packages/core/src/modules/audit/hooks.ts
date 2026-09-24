@@ -2,6 +2,7 @@ import type { AfterHook } from "../../kernel/hooks/types.js";
 import type { HookHandler } from "../../kernel/hooks/registry.js";
 import type { AuditService } from "./service.js";
 import type { ImportProductsReport } from "../catalog/import-service.js";
+import type { InventoryAdjustManyResult } from "../inventory/service.js";
 
 /**
  * Creates an after-hook that records an audit entry for the operation.
@@ -69,6 +70,21 @@ const catalogImportAuditHook: AfterHook<ImportProductsReport> = async ({ result,
   });
 };
 
+/**
+ * `inventory.afterAdjustMany` — one page of absolute levels. Each changed level is still its own
+ * audit entry (as `inventory.afterAdjust` records one per adjust), written in ONE insert.
+ */
+const inventoryAdjustManyAuditHook: AfterHook<InventoryAdjustManyResult> = async ({ result, context }) => {
+  const audit = context.services.audit as AuditService | undefined;
+  if (!audit?.recordMany) return;
+  await audit.recordMany(result.entities.flatMap((entity) => entity.levels.map((level) => ({
+    entityType: "inventory",
+    entityId: level.id,
+    event: "adjusted",
+    payload: safePayload(level),
+  }))), context);
+};
+
 export const auditHooks: Record<string, HookHandler> = {
   // Catalog
   "catalog.afterCreate": createAuditAfterHook("catalog_entity", "created") as HookHandler,
@@ -81,6 +97,7 @@ export const auditHooks: Record<string, HookHandler> = {
 
   // Inventory
   "inventory.afterAdjust": createAuditAfterHook("inventory", "adjusted") as HookHandler,
+  "inventory.afterAdjustMany": inventoryAdjustManyAuditHook as HookHandler,
 
   // Customers
   "customers.afterCreate": createAuditAfterHook("customer", "created") as HookHandler,
