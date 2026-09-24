@@ -9,13 +9,11 @@ import { createTxContext, isWriteContextTransactional, resolveWriteContextHookCo
 import { runAfterHooks } from "../../kernel/hooks/executor.js";
 import type { AfterHook } from "../../kernel/hooks/types.js";
 import { isValidFieldPath, type FieldPath } from "./ownership.js";
+import { writeEntityLinks } from "./entity-links.js";
 import {
   brands,
   categories,
   catalogFieldOwnership,
-  entityBrands,
-  entityCategories,
-  entityTags,
   optionTypes,
   optionValues,
   sellableAttributes,
@@ -137,7 +135,7 @@ export interface ImportProductsReport extends Record<string, unknown> {
   rows: ImportProductRowResult[];
 }
 
-type Writer = Pick<PluginDb, "insert" | "select">;
+type Writer = Pick<PluginDb, "insert" | "select" | "update">;
 
 /** The drizzle handle a transaction context carries (typed `unknown` on the context). */
 const writerOf = (txCtx: TxContext): PluginDb => txCtx.tx as PluginDb;
@@ -391,7 +389,6 @@ async function writeItem(
     if (priceRows.length > 0) await sp.insert(prices).values(priceRows);
   }
 
-  const categoryLinks: Row[] = [];
   const categoryInputs = [...new Set(item.categories ?? [])].flatMap((slug, index) => {
     const category = taxonomy.categories.get(slug);
     if (!category) throw new Error(`Category "${slug}" was not resolved for the page.`);
@@ -401,20 +398,18 @@ async function writeItem(
     }
     return [{ entityId, categoryId: category.id, sortOrder: index }];
   });
-  if (categoryInputs.length > 0) categoryLinks.push(...asRows(await sp.insert(entityCategories).values(categoryInputs).returning()));
-  const brandLinks: Row[] = [];
-  if (item.brand) {
-    const brandId = taxonomy.brands.get(item.brand);
-    if (brandId === undefined) throw new Error(`Brand "${item.brand}" was not resolved for the page.`);
-    brandLinks.push(...asRows(await sp.insert(entityBrands).values([{ entityId, brandId, sortOrder: 0 }]).returning()));
-  }
-  const tagLinks: Row[] = [];
+  const brandId = item.brand ? taxonomy.brands.get(item.brand) : undefined;
+  if (item.brand && brandId === undefined) throw new Error(`Brand "${item.brand}" was not resolved for the page.`);
   const tagInputs = [...new Set(item.tags ?? [])].map((slug) => {
     const tagId = taxonomy.tags.get(slug);
     if (tagId === undefined) throw new Error(`Tag "${slug}" was not resolved for the page.`);
     return { entityId, tagId };
   });
-  if (tagInputs.length > 0) tagLinks.push(...asRows(await sp.insert(entityTags).values(tagInputs).returning()));
+  const links = await writeEntityLinks(sp, orgId, {
+    categories: categoryInputs,
+    brands: brandId === undefined ? [] : [{ entityId, brandId, sortOrder: 0 }],
+    tags: tagInputs,
+  });
 
   const ownedPaths = [...new Set(item.ownedFieldPaths ?? [])] as FieldPath[];
   if (ownedPaths.length > 0) {
@@ -434,9 +429,9 @@ async function writeItem(
     attributes: asRows(attributeRows).sort((a, b) => String(a.locale).localeCompare(String(b.locale)) || String(a.id).localeCompare(String(b.id))),
     customFields: [],
     media: [],
-    categories: categoryLinks.sort(byKey("categoryId")),
-    brands: brandLinks.sort(byKey("brandId")),
-    tags: tagLinks.sort(byKey("tagId")),
+    categories: asRows(links.categories).sort(byKey("categoryId")),
+    brands: asRows(links.brands).sort(byKey("brandId")),
+    tags: asRows(links.tags).sort(byKey("tagId")),
   };
   return { entityId, variantIds, warnings, snapshot };
 }

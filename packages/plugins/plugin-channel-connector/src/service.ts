@@ -6,9 +6,12 @@ import {
   PluginErr,
   createTxContext,
   createSystemActor,
+  linkFieldPaths,
+  writeEntityLinks,
 } from "@porulle/core";
 import type {
   Actor,
+  EntityLinkRows,
   ChannelCatalogItem,
   ChannelConnector,
   ChannelOrderSlice,
@@ -40,9 +43,6 @@ import {
   customerAddresses,
   customers,
   entityMedia,
-  entityBrands,
-  entityCategories,
-  entityTags,
   inventoryLevels,
   mediaAssets,
   optionTypes,
@@ -517,6 +517,8 @@ interface CatalogService {
     actor: Actor,
     ctx?: CatalogWriteContext,
   ): Promise<{ ok: true; value: undefined } | { ok: false; error: { message: string } }>;
+  /** Moves the entity's updated_at and fires catalog.afterUpdate for a change to related rows. */
+  notifyEntityChanged(entityId: string, changedFieldPaths: readonly string[], actor: Actor | null, ctx?: TxContext<PluginDb>): Promise<void>;
   recordEntityRevision(
     entityId: string,
     actor: Actor,
@@ -581,16 +583,6 @@ interface MediaService {
     },
     actor: Actor,
   ): Promise<ServiceResult<{ id: string; url: string }>>;
-  attachToEntity(
-    input: {
-      entityId: string;
-      mediaAssetId: string;
-      role: "primary" | "gallery" | "thumbnail" | "video" | "document";
-      variantId?: string;
-      sortOrder?: number;
-    },
-    actor: Actor,
-  ): Promise<ServiceResult<undefined>>;
   listEntityMedia(
     entityId: string,
     opts?: { variantId?: string; orgId?: string },
@@ -1126,6 +1118,9 @@ function toImportProduct(item: ChannelCatalogItem): ImportProduct {
     ownedFieldPaths: importedFieldPaths(item),
   };
 }
+
+/** One item's link writes, planned before the transaction that commits them (`commitEntityLinks`). */
+type PlannedLinks = { [K in keyof EntityLinkRows]-?: Array<NonNullable<EntityLinkRows[K]>[number]> };
 
 export class ChannelConnectorService {
   private readonly connectors = new Map<string, ChannelConnector>();
@@ -2050,15 +2045,12 @@ export class ChannelConnectorService {
     item: ChannelCatalogItem,
     actor: Actor,
     warnings: string[],
-  ): Promise<PluginResult<{ changed: boolean }>> {
+  ): Promise<PluginResult<Pick<PlannedLinks, "categories" | "brands" | "tags">>> {
+    // Resolves (creating where missing) the category, brand and tag rows the item names, and PLANS
+    // the entity's links to them. The links are written by `commitEntityLinks`, in one transaction
+    // with the entity's version bump; a link that already exists writes nothing there.
     const taxonomy = await this.taxonomyFor(orgId);
-    // The links this entity already has, read only for the classes the item names. A link already
-    // there is not re-written, and a link that is added is what reports the taxonomy as changed.
-    const linkedCategories = new Set((item.categories ?? []).length === 0 ? [] : (await this.db
-      .select({ id: entityCategories.categoryId }).from(entityCategories).where(eq(entityCategories.entityId, entityId))).map((row) => row.id));
-    const linkedBrands = new Set(!item.brand ? [] : (await this.db
-      .select({ id: entityBrands.brandId }).from(entityBrands).where(eq(entityBrands.entityId, entityId))).map((row) => row.id));
-    let changed = false;
+    const links: Pick<PlannedLinks, "categories" | "brands" | "tags"> = { categories: [], brands: [], tags: [] };
     const categoryRows = taxonomy.categories;
     for (const slug of new Set(item.categories ?? [])) {
       let category = categoryRows.find((row) => row.slug === slug);
@@ -2077,10 +2069,7 @@ export class ChannelConnectorService {
         category = created.value;
         categoryRows.push(category);
       }
-      if (linkedCategories.has(category.id)) continue;
-      const linked = await this.catalog.addToCategory(entityId, category.id, actor);
-      if (!linked.ok) return PluginErr(linked.error.message);
-      changed = true;
+      links.categories.push({ entityId, categoryId: category.id, sortOrder: 0 });
     }
 
     const brandRows = taxonomy.brands;
@@ -2098,11 +2087,7 @@ export class ChannelConnectorService {
         brand = created.value;
         brandRows.push(brand);
       }
-      if (!linkedBrands.has(brand.id)) {
-        const linked = await this.catalog.addToBrand(entityId, brand.id, actor);
-        if (!linked.ok) return PluginErr(linked.error.message);
-        changed = true;
-      }
+      links.brands.push({ entityId, brandId: brand.id, sortOrder: 0 });
     }
 
     const tagRows = taxonomy.tags;
@@ -2117,10 +2102,46 @@ export class ChannelConnectorService {
         if (!tag) return PluginErr(`Tag "${slug}" was not persisted.`);
         tagRows.push(tag);
       }
-      const added = await this.db.insert(entityTags).values({ entityId, tagId: tag.id }).onConflictDoNothing().returning({ tagId: entityTags.tagId });
-      if (added.length > 0) changed = true;
+      links.tags.push({ entityId, tagId: tag.id });
     }
-    return Ok({ changed });
+    return Ok(links);
+  }
+
+  /**
+   * Writes one item's planned links and versions the entity for them, in ONE transaction: the
+   * entity's `updated_at` moves with the links or not at all, and `catalog.afterUpdate` fires once
+   * for the item with every link path that really changed (`["categories","tags"]`), not once per
+   * link. Returns those paths; empty means nothing changed.
+   *
+   * An entity CREATED by this converge is not versioned for its links: its creation already put it
+   * in front of every consumer, so a bump here would re-project a product in the same breath as its
+   * first projection — the cold-import cost this rule exists to avoid.
+   */
+  private async commitEntityLinks(
+    orgId: string,
+    entityId: string,
+    planned: PlannedLinks,
+    previousRoles: Map<string, string>,
+    isNew: boolean,
+    actor: Actor,
+  ): Promise<PluginResult<string[]>> {
+    try {
+      return Ok(await this.transact(async (tx) => {
+        const written = await writeEntityLinks(tx, orgId, planned);
+        const paths = new Set(linkFieldPaths(written).get(entityId));
+        for (const row of written.placed) {
+          const previous = previousRoles.get(`${row.mediaAssetId}:${row.variantId}`);
+          if (previous !== undefined) paths.add(`media.${previous}`);
+        }
+        const changed = [...paths].sort();
+        if (changed.length > 0 && !isNew) {
+          await this.catalog.notifyEntityChanged(entityId, changed, actor, createTxContext(tx, { actor }));
+        }
+        return changed;
+      }));
+    } catch (error) {
+      return PluginErr(error instanceof Error ? error.message : "Failed to write the entity's links.");
+    }
   }
 
   private async applyMedia(
@@ -2131,7 +2152,15 @@ export class ChannelConnectorService {
     actor: Actor,
     warnings: string[],
     owners: Map<FieldPath, FieldOwner>,
-  ): Promise<PluginResult<{ imported: number; changed: boolean; skipped: FieldPath[] }>> {
+  ): Promise<PluginResult<{
+    imported: number;
+    uploaded: boolean;
+    skipped: FieldPath[];
+    links: Pick<PlannedLinks, "media" | "mediaPlacements">;
+    /** The role a re-placed link held before, keyed `${mediaAssetId}:${variantId}` — its path changes too. */
+    previousRoles: Map<string, string>;
+  }>> {
+    // Uploads what is missing and PLANS the entity's media links; `commitEntityLinks` writes them.
     const images = item.images ?? [];
     const externalIds = [...new Set(images.map((image) => image.externalId).filter((id): id is string => id != null))];
     const urlHashes = [...new Set(images.map((image) => hash(image.url)))];
@@ -2150,8 +2179,10 @@ export class ChannelConnectorService {
       ));
     const links = await this.db.select().from(entityMedia).where(eq(entityMedia.entityId, entityId));
     let imported = 0;
-    let changed = false;
+    let uploaded = false;
     const skipped: FieldPath[] = [];
+    const planned: Pick<PlannedLinks, "media" | "mediaPlacements"> = { media: [], mediaPlacements: [] };
+    const previousRoles = new Map<string, string>();
 
     // A Cloudflare Worker may hold at most six simultaneous outbound connections per
     // invocation, and one image costs two of them — the download and the storage put — so
@@ -2273,7 +2304,7 @@ export class ChannelConnectorService {
     for (const resolved of resolvedImages) {
       warnings.push(...resolved.imageWarnings);
       imported += resolved.imported;
-      if (resolved.imageChanged) changed = true;
+      if (resolved.imageChanged) uploaded = true;
     }
 
     for (const [imageIndex, image] of images.entries()) {
@@ -2302,24 +2333,12 @@ export class ChannelConnectorService {
             if (skipped.includes(currentRolePath) || skipped.includes(incomingRolePath)) continue;
           }
           if (existingLink.role !== image.role || existingLink.sortOrder !== (image.sortOrder ?? 0)) {
-            await this.db.update(entityMedia).set({ role: image.role, sortOrder: image.sortOrder ?? 0 }).where(and(
-              eq(entityMedia.entityId, entityId),
-              eq(entityMedia.mediaAssetId, mediaAssetId),
-              target.variantId === undefined ? isNull(entityMedia.variantId) : eq(entityMedia.variantId, target.variantId),
-            ));
-            changed = true;
+            planned.mediaPlacements.push({ entityId, variantId: target.variantId ?? null, mediaAssetId, role: image.role, sortOrder: image.sortOrder ?? 0 });
+            previousRoles.set(`${mediaAssetId}:${target.variantId ?? null}`, existingLink.role);
           }
           continue;
         }
-        const attached = await this.media.attachToEntity({
-          entityId,
-          mediaAssetId,
-          role: image.role,
-          sortOrder: image.sortOrder ?? 0,
-          ...(target.variantId !== undefined ? { variantId: target.variantId } : {}),
-        }, actor);
-        if (!attached.ok) return PluginErr(attached.error.message);
-        changed = true;
+        planned.media.push({ entityId, variantId: target.variantId ?? null, mediaAssetId, role: image.role, sortOrder: image.sortOrder ?? 0 });
         links.push({
           entityId,
           mediaAssetId,
@@ -2330,7 +2349,7 @@ export class ChannelConnectorService {
         });
       }
     }
-    return Ok({ imported, changed, skipped });
+    return Ok({ imported, uploaded, skipped, links: planned, previousRoles });
   }
 
   private async getStoreRecord(orgId: string, id: string): Promise<ConnectedStore | undefined> {
@@ -3328,13 +3347,13 @@ export class ChannelConnectorService {
     }));
 
     if (outcomes.length > 0) {
-      await this.db.insert(entityMedia).values(outcomes.flatMap(({ entityId, mediaAssetId, hero, variantIds }) => [
-        { entityId, mediaAssetId, role: "primary" as const, sortOrder: hero.sortOrder ?? 0 },
+      await writeEntityLinks(this.db, orgId, { media: outcomes.flatMap(({ entityId, mediaAssetId, hero, variantIds }) => [
+        { entityId, variantId: null, mediaAssetId, role: "primary" as const, sortOrder: hero.sortOrder ?? 0 },
         ...(hero.variantExternalIds ?? []).flatMap((externalId) => {
           const variantId = variantIds[externalId];
           return variantId === undefined ? [] : [{ entityId, variantId, mediaAssetId, role: hero.role, sortOrder: hero.sortOrder ?? 0 }];
         }),
-      ])).onConflictDoNothing();
+      ]) });
     }
     return { heroesImported: outcomes.filter((outcome) => outcome.imported).length, mediaFailures, deferredMedia };
   }
@@ -4073,11 +4092,13 @@ export class ChannelConnectorService {
       if (!taxonomy.ok) { failures.push({ externalId: item.externalId, error: taxonomy.error }); continue; }
       const media = await this.applyMedia(orgId, entityId, writable, variantIds.value.value, actor, warnings, owners);
       if (!media.ok) return media;
+      const links = await this.commitEntityLinks(orgId, entityId, { ...taxonomy.value, ...media.value.links }, media.value.previousRoles, isNew, actor);
+      if (!links.ok) { failures.push({ externalId: item.externalId, error: links.error }); continue; }
       attributesCreated += attributes.value.created;
       mediaImported += media.value.imported;
       variantsGivenOptionValues += variantIds.value.repaired;
       skipped.push(...media.value.skipped.map((fieldPath) => ({ entityId, fieldPath })));
-      entityTouched = entityTouched || optionAxes.value.changed || variantIds.value.changed || taxonomy.value.changed || media.value.changed || attributes.value.changed
+      entityTouched = entityTouched || optionAxes.value.changed || variantIds.value.changed || links.value.length > 0 || media.value.uploaded || attributes.value.changed
         || identity.written.has(item.externalId);
       const skuClashes = identity.clashes.get(item.externalId);
       if (skuClashes) {
