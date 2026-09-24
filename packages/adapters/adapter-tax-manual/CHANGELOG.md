@@ -1,5 +1,12 @@
 # @porulle/adapter-tax-manual
 
+## 0.50.0
+
+### Patch Changes
+
+- Updated dependencies [[`269e445`](https://github.com/asyncdotengineering/porulle/commit/269e445300d6afe05039fd9d0d56eda7067f8816)]:
+  - @porulle/core@0.50.0
+
 ## 0.49.0
 
 ### Patch Changes
