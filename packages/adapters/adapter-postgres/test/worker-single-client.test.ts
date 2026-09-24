@@ -117,11 +117,11 @@ describe.skipIf(!serverUrl)("channel converge under the Worker's one-client-per-
   }, 120_000);
 
   afterAll(async () => {
+    if (!SCRATCH.test(database)) throw new Error(`refusing to drop a database named ${database}`);
     try {
       await txClient?.end({ timeout: 5 });
       await plain?.db.$client.end({ timeout: 5 });
     } finally {
-      if (!SCRATCH.test(database)) throw new Error(`refusing to drop a database named ${database}`);
       await admin.unsafe(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`);
       await admin.end({ timeout: 5 });
     }
