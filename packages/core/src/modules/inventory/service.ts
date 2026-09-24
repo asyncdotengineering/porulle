@@ -503,6 +503,19 @@ export class InventoryService {
       ctx,
     );
 
+    // Already at the quantity: nothing to record. A zero-delta adjust would still write a movement
+    // and fire `inventory.afterAdjust`, and a periodic reconcile then re-announces every level it
+    // walked — 1,243 of them on one sim reconcile, each one a downstream re-projection.
+    // The permission still gates it, so a caller without `inventory:adjust` is refused either way.
+    if (existingLevel && existingLevel.quantityOnHand === input.quantity) {
+      try {
+        assertPermission(actor ?? null, "inventory:adjust");
+      } catch (error) {
+        return Err(toCommerceError(error));
+      }
+      return Ok(existingLevel);
+    }
+
     const currentOnHand = existingLevel?.quantityOnHand ?? 0;
     const delta = input.quantity - currentOnHand;
 
