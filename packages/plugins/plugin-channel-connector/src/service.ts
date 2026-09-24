@@ -636,6 +636,15 @@ function hash(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+/**
+ * The suffix a store's product takes when its handle is already another store's slug: the first
+ * label of the store domain (`kelly-felder.myshopify.com` → `kelly-felder`), slugified.
+ */
+export function storeSlugSuffix(storeDomain: string): string {
+  const label = storeDomain.trim().toLowerCase().split(".")[0] ?? "";
+  return label.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
 /** Mid-import map rows carry this until convergence finishes; must not equal any real remote hash. */
 const PENDING_ENTITY_MAP_SYNC_HASH = "";
 
@@ -2050,6 +2059,53 @@ export class ChannelConnectorService {
     return rows[0] as ConnectedStore | undefined;
   }
 
+  /**
+   * The slug each wanted handle takes for THIS store. Slugs stay unique across the organization —
+   * the storefront resolves `/:idOrSlug` org-wide — but one platform organization holds many
+   * merchants, and two of them may sell the same handle.
+   *
+   * A handle's FAMILY for a store is, in order: the bare handle, `<handle>-<store suffix>`, and
+   * `<handle>-<store suffix>-<store id prefix>`. The last is unique per store, so a third store with
+   * the same domain label still gets a slug of its own. A new product takes the first member no
+   * other store holds. An existing product whose slug is already in its handle's family KEEPS it
+   * (see `slugToKeep`): a slug, once assigned, is a shared link and is never recomputed.
+   */
+  private async resolveStoreSlugs(
+    orgId: string,
+    storeId: string,
+    handles: readonly string[],
+  ): Promise<Map<string, { slug: string; family: string[] }>> {
+    const wanted = [...new Set(handles)];
+    const resolved = new Map<string, { slug: string; family: string[] }>();
+    if (wanted.length === 0) return resolved;
+    const store = await this.getStoreRecord(orgId, storeId);
+    const suffix = storeSlugSuffix(store?.storeDomain ?? "");
+    const idPart = storeId.replace(/[^a-z0-9]/gi, "").slice(0, 8).toLowerCase();
+    const familyOf = (handle: string): string[] => suffix
+      ? [handle, `${handle}-${suffix}`, `${handle}-${suffix}-${idPart}`]
+      : [handle, `${handle}-${idPart}`];
+    const families = new Map(wanted.map((handle) => [handle, familyOf(handle)]));
+    const owners = await this.db.select({ slug: sellableEntities.slug, sourceStoreId: sellableEntities.sourceStoreId })
+      .from(sellableEntities)
+      .where(and(eq(sellableEntities.organizationId, orgId), inArray(sellableEntities.slug, [...families.values()].flat())));
+    // Only ANOTHER STORE's product moves this one to a qualified slug. A product a person made in
+    // Merchant Center (no source store) holding the handle stays a loud slug conflict, as before.
+    const heldElsewhere = new Set(owners.filter((row) => row.sourceStoreId !== null && row.sourceStoreId !== storeId).map((row) => row.slug));
+    for (const [handle, family] of families) {
+      // Every member held by another store is only reachable through a hand-made slug; the last
+      // member is then used anyway and the create fails loudly on the unique index.
+      const slug = family.find((candidate) => !heldElsewhere.has(candidate)) ?? family[family.length - 1] ?? handle;
+      resolved.set(handle, { slug, family });
+    }
+    return resolved;
+  }
+
+  /** The slug an existing product converges to: its current one while that is still in the family
+   *  of the handle the store sends, so a slug is never recomputed out from under a shared link. */
+  private slugToKeep(currentSlug: string, resolved: { slug: string; family: string[] }): string {
+    return resolved.family.includes(currentSlug) ? currentSlug : resolved.slug;
+  }
+
   async getStoreByDomain(shopDomain: string): Promise<ConnectedStore | undefined> {
     const rows = await this.db
       .select()
@@ -2796,13 +2852,15 @@ export class ChannelConnectorService {
       inArray(channelEntityMap.externalId, externalIds),
     ));
     const mappingByExternalId = new Map(mappings.map((row) => [row.externalId, row]));
-    const slugs = [...new Set(items.map((item) => item.slug))];
+    const slugFor = await this.resolveStoreSlugs(orgId, storeId, items.map((item) => item.slug));
+    const slugs = [...new Set([...slugFor.values()].flatMap((resolved) => resolved.family))];
     const orphans = slugs.length === 0 ? [] : await this.db.select({ slug: sellableEntities.slug }).from(sellableEntities).where(and(
       eq(sellableEntities.organizationId, orgId),
       eq(sellableEntities.sourceStoreId, storeId),
       inArray(sellableEntities.slug, slugs),
     ));
     const orphanSlugs = new Set(orphans.map((row) => row.slug));
+    const isOrphan = (handle: string): boolean => (slugFor.get(handle)?.family ?? [handle]).some((slug) => orphanSlugs.has(slug));
 
     const fresh: ChannelCatalogItem[] = [];
     const editor: ChannelCatalogItem[] = [];
@@ -2817,7 +2875,7 @@ export class ChannelConnectorService {
       if (mapping && mapping.syncHash === hash(item)) {
         entityByExternalId.set(item.externalId, mapping.entityId);
         unchanged += 1;
-      } else if (mapping || orphanSlugs.has(item.slug)) {
+      } else if (mapping || isOrphan(item.slug)) {
         editor.push(item);
       } else {
         fresh.push(item);
@@ -2840,7 +2898,13 @@ export class ChannelConnectorService {
 
     const createdItems: Array<{ item: ChannelCatalogItem; entityId: string; variantIds: Record<string, string> }> = [];
     if (fresh.length > 0) {
-      const report = await this.catalog.importProducts(fresh.map(toImportProduct), { sourceStoreId: storeId, errorPolicy: "reject-failed-rows" }, actor);
+      // The slug is resolved on the import row only: the map row's hash stays the hash of the item
+      // as the store sent it, so the next page still reads it as unchanged.
+      const report = await this.catalog.importProducts(
+        fresh.map((item) => toImportProduct({ ...item, slug: slugFor.get(item.slug)?.slug ?? item.slug })),
+        { sourceStoreId: storeId, errorPolicy: "reject-failed-rows" },
+        actor,
+      );
       if (!report.ok) return PluginErr(report.error.message, report.error.code);
       for (const [index, row] of report.value.rows.entries()) {
         const item = fresh[index];
@@ -3522,12 +3586,14 @@ export class ChannelConnectorService {
           existingEntity = entity;
         }
       }
+      const resolvedSlug = (await this.resolveStoreSlugs(orgId, storeId, [item.slug])).get(item.slug) ?? { slug: item.slug, family: [item.slug] };
+      const slug = resolvedSlug.slug;
       if (entityId === undefined) {
         const [orphan] = await this.db.select().from(sellableEntities).where(and(
           eq(sellableEntities.organizationId, orgId),
           eq(sellableEntities.sourceStoreId, storeId),
-          eq(sellableEntities.slug, item.slug),
-        ));
+          inArray(sellableEntities.slug, resolvedSlug.family),
+        )).limit(1);
         if (orphan) {
           entityId = orphan.id;
           existingEntity = orphan;
@@ -3539,7 +3605,7 @@ export class ChannelConnectorService {
               const txContext = createTxContext(tx, { actor });
               const created = await this.catalog.create({
                 type: "product",
-                slug: item.slug,
+                slug,
                 sourceStoreId: storeId,
                 metadata: mergeMetadata(undefined, item.metadata ?? {}),
                 ...(status !== undefined ? { status, isVisible: status === "active" } : {}),
@@ -3618,8 +3684,9 @@ export class ChannelConnectorService {
           status?: string;
           isVisible?: boolean;
         } = {};
-        if (ownerAllows(owners, "entity.slug") && !blockedPaths.has("entity.slug") && existingEntity.slug !== writable.slug) {
-          updateInput.slug = writable.slug;
+        const keptSlug = this.slugToKeep(existingEntity.slug, resolvedSlug);
+        if (ownerAllows(owners, "entity.slug") && !blockedPaths.has("entity.slug") && existingEntity.slug !== keptSlug) {
+          updateInput.slug = keptSlug;
         }
         if (hash(remoteMetadata) !== hash(existingEntity.metadata ?? {})) updateInput.metadata = remoteMetadata;
         if (remoteStatus !== undefined && !blockedPaths.has("entity.status") && remoteStatus !== existingEntity.status) {
@@ -3653,7 +3720,9 @@ export class ChannelConnectorService {
         !heldSharedPaths.includes("options") && owners.get("options") !== "platform",
         item,
       );
-      if (!variantIds.ok) return variantIds;
+      // A variant the store's own data makes unwritable (a sku another of its products holds) is
+      // that item's failure, reported with its error — not a page error the caller would retry.
+      if (!variantIds.ok) { failures.push({ externalId: item.externalId, error: variantIds.error }); continue; }
       const taxonomy = await this.applyTaxonomy(orgId, entityId, writable, actor, warnings);
       if (!taxonomy.ok) return taxonomy;
       const media = await this.applyMedia(orgId, entityId, writable, variantIds.value.value, actor, warnings, owners);
@@ -4333,8 +4402,10 @@ export class ChannelConnectorService {
       status?: string;
       isVisible?: boolean;
     } = {};
-    if (fieldPaths.includes("entity.slug") && ownerAllows(owners, "entity.slug") && !blockedPaths.has("entity.slug") && entity.slug !== writable.slug) {
-      updateInput.slug = writable.slug;
+    if (fieldPaths.includes("entity.slug") && ownerAllows(owners, "entity.slug") && !blockedPaths.has("entity.slug") && typeof writable.slug === "string") {
+      const resolved = (await this.resolveStoreSlugs(orgId, storeId, [writable.slug])).get(writable.slug);
+      const slug = resolved ? this.slugToKeep(entity.slug, resolved) : writable.slug;
+      if (entity.slug !== slug) updateInput.slug = slug;
     }
     if (Object.keys(writable.metadata ?? {}).length > 0) {
       const remoteEntityMetadata = mergeMetadata(entity.metadata, writable.metadata ?? {});
