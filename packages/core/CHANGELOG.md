@@ -1,5 +1,7 @@
 # @porulle/core
 
+## 0.50.1
+
 ## 0.50.0
 
 ### Minor Changes
