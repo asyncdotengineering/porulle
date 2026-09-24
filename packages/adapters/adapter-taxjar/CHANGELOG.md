@@ -1,5 +1,12 @@
 # @porulle/adapter-taxjar
 
+## 0.56.0
+
+### Patch Changes
+
+- Updated dependencies [[`e3b8102`](https://github.com/asyncdotengineering/porulle/commit/e3b8102d85b528546ff37aca4ef8de6f8c8ef03e)]:
+  - @porulle/core@0.56.0
+
 ## 0.55.0
 
 ### Patch Changes
