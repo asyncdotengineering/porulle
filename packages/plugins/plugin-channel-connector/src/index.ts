@@ -308,7 +308,11 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
       handler: async ({ input, ctx }: { input: Record<string, unknown>; ctx: import("@porulle/core").TaskContext }) => {
         const orgId = String(input.orgId);
         const jobs = ctx.services.jobs as JobsAdapter;
-        const stores = await ctx.db.select().from(connectedStores).where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.status, "connected")));
+        // Only stores a registered connector can reach: a reconcile for any other provider (the
+        // seed's `manual` point-of-sale store) can only fail with "No connector registered".
+        const providers = new Set((options.connectors ?? []).map((connector) => connector.providerId));
+        const stores = (await ctx.db.select().from(connectedStores).where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.status, "connected"))))
+          .filter((store) => providers.has(store.provider));
         const window = options.reconcileJitterWindowMs ?? 60 * 60 * 1000;
         for (const store of stores) {
           const offset = createHash("sha256").update(store.id).digest().readUInt32BE(0) % window;
