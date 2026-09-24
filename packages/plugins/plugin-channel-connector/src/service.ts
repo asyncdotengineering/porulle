@@ -637,9 +637,31 @@ export function canCatalogPushTransition(from: CatalogPushState, to: CatalogPush
   return catalogPushTransitions[from].includes(to);
 }
 
-function hash(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+/**
+ * JSON with every object's keys sorted, recursively — the one form every hash here is taken over.
+ *
+ * The sync hash was `sha256(JSON.stringify(item))`, and JSON.stringify writes keys in insertion
+ * order. The host's page consumer rebuilds each landed item in its own key order while reconcile
+ * hashes the adapter's objects in theirs, so the fast path and reconcile hashed the SAME content
+ * differently and reconcile re-converged every freshly imported product. Content, not key order,
+ * is what a hash here must answer. `undefined` values are dropped exactly as JSON.stringify drops
+ * them; array order is kept (it carries meaning: images, variants, options).
+ */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((entry) => (entry === undefined ? "null" : canonicalJson(entry))).join(",")}]`;
+  if (value !== null && typeof value === "object" && !(value instanceof Date)) {
+    const entries = Object.entries(value).filter(([, entry]) => entry !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
+
+/** THE sync hash: every path that records or compares a `channel_entity_map.sync_hash` uses this. */
+export function channelSyncHash(value: unknown): string {
+  return createHash("sha256").update(canonicalJson(value)).digest("hex");
+}
+
+const hash = channelSyncHash;
 
 /**
  * The suffix a store's product takes when its handle is already another store's slug: the first
@@ -3914,7 +3936,9 @@ export class ChannelConnectorService {
    * products remain.
    */
   private async claimUnrecordedLinks(orgId: string, storeId: string, items: ChannelCatalogItem[]): Promise<void> {
-    if (items.length === 0) return;
+    // Nothing listed, nothing to claim: no query. Otherwise one select per converge call (a batch),
+    // never one per product.
+    if (!items.some((item) => (item.tags?.length ?? 0) > 0 || (item.categories?.length ?? 0) > 0 || item.brand !== undefined)) return;
     const unclaimed = await this.db.select({ externalId: channelEntityMap.externalId, entityId: channelEntityMap.entityId }).from(channelEntityMap).where(and(
       eq(channelEntityMap.organizationId, orgId),
       eq(channelEntityMap.storeId, storeId),

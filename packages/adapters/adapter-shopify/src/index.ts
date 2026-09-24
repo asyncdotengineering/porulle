@@ -97,6 +97,8 @@ type ShopifyProduct = {
     grams?: number | null;
     weight?: number | null;
     weight_unit?: string | null;
+    /** Read-only aggregate available across ALL the shop's locations (Shopify's ProductVariant). */
+    inventory_quantity?: number | null;
   }>;
 };
 
@@ -219,6 +221,35 @@ function shopifyOAuthStartUrl(appUrl: string, storeDomain: string): string | und
     return undefined;
   }
 }
+
+/**
+ * The `rel="next"` target of a REST response's `Link` header, or null on the last page.
+ *
+ * RFC 8288 permits the relation as a quoted string OR a bare token, and this reads both. It read
+ * only `rel="next"` once, and the asymmetry is the argument rather than the likelihood: a reader
+ * that accepts only the quoted form and meets `rel=next` does not throw — it finds no next link,
+ * ends the walk, and reports a SUCCESSFUL walk of a partial list. Silent truncation. Accepting both
+ * cannot make a malformed header parse as a valid one, so the permissive direction has no cost.
+ */
+function nextPageUrl(response: Response): string | null {
+  const link = response.headers.get("link") ?? "";
+  return link.match(/<([^>]+)>;\s*rel=(?:"next"|next)(?:\s*(?:,|$))/)?.[1] ?? null;
+}
+
+/** The `{ variant: { id, inventory_quantity } }` a `variants/{id}.json` answers, read without a cast. */
+function variantInventoryOf(body: unknown): { id: number | string; inventory_quantity: number | null } | undefined {
+  if (typeof body !== "object" || body === null || !("variant" in body)) return undefined;
+  const variant: unknown = body.variant;
+  if (typeof variant !== "object" || variant === null || !("id" in variant)) return undefined;
+  const id: unknown = variant.id;
+  if (typeof id !== "number" && typeof id !== "string") return undefined;
+  const quantity: unknown = "inventory_quantity" in variant ? variant.inventory_quantity : null;
+  return { id, inventory_quantity: typeof quantity === "number" ? quantity : null };
+}
+
+/** Up to this many variant ids are read one `variants/{id}.json` each (the order-time check);
+ *  more are answered from one walk of the catalogue. */
+const PER_VARIANT_INVENTORY_READS = 25;
 
 async function request<T>(fetchImpl: typeof fetch, url: string, accessToken: string, init?: RequestInit): Promise<Result<{ data: T; response: Response }>> {
   try {
@@ -364,15 +395,7 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
       const url = cursor ?? `${apiBase(store, version, options.baseUrl)}/products.json?limit=250`;
       const result = await request<{ products: ShopifyProduct[] }>(fetchImpl, url, token);
       if (!result.ok) return result;
-      const link = result.value.response.headers.get("link") ?? "";
-      // RFC 8288 permits the relation as a quoted string OR a bare token, and this reads both.
-      //
-      // It read only `rel="next"` before, and the asymmetry is the argument rather than the
-      // likelihood: a reader that accepts only the quoted form and meets `rel=next` does not throw
-      // — it finds no next link, ends the walk, and reports a SUCCESSFUL import of a partial
-      // catalogue. Silent truncation. Accepting both cannot make a malformed header parse as a
-      // valid one, so the permissive direction has no matching cost.
-      const next = link.match(/<([^>]+)>;\s*rel=(?:"next"|next)(?:\s*(?:,|$))/)?.[1] ?? null;
+      const next = nextPageUrl(result.value.response);
       return Ok({
         items: result.value.data.products.map((product) => {
           const options = product.options?.map((option, index) => ({
@@ -426,14 +449,68 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
         nextCursor: next,
       });
     },
+    /**
+     * Stock per VARIANT, keyed by the variant id every connector call site matches on.
+     *
+     * Read from the variant's `inventory_quantity`, never from `inventory_levels.json`: that
+     * endpoint requires `inventory_item_ids` or `location_ids`, takes at most 50 ids, and keys
+     * levels by INVENTORY ITEM id, which is not the variant id — so it answered a real store
+     * nothing the connector could match, and the sim (whose mock was laxer) one 250-row page.
+     * https://shopify.dev/docs/api/admin-rest/latest/resources/inventorylevel
+     *
+     * `inventory_quantity` sums ALL locations, so a store with a non-selling location overstates
+     * sellable stock; per-location stock would need InventoryLevel by location. Negative stock
+     * (oversold) reads as 0, as it is stored.
+     *
+     * A few ids (the order-time check) cost one `variants/{id}.json` each; a variant Shopify no
+     * longer has is omitted, which the caller treats as unconfirmed. More ids, or none (a full
+     * sync), are answered from one walk of `products.json`, every page: ceil(products / 250).
+     */
     async fetchInventory(store, ids): Promise<Result<ChannelInventoryLevel[]>> {
       const token = credentials(store);
       if (!token) return Err({ code: "SHOPIFY_CREDENTIALS_REQUIRED", message: "Shopify accessToken is required." });
-      const params = new URLSearchParams({ limit: "250" });
-      if (ids?.length) params.set("inventory_item_ids", ids.join(","));
-      const result = await request<{ inventory_levels: Array<{ inventory_item_id: number | string; available: number | null }> }>(fetchImpl, `${apiBase(store, version, options.baseUrl)}/inventory_levels.json?${params}`, token);
-      if (!result.ok) return result;
-      return Ok(result.value.data.inventory_levels.map((level) => ({ externalId: String(level.inventory_item_id), available: level.available ?? 0 })));
+      const base = apiBase(store, version, options.baseUrl);
+      const level = (variant: { id: number | string; inventory_quantity?: number | null }): ChannelInventoryLevel =>
+        ({ externalId: String(variant.id), available: Math.max(0, variant.inventory_quantity ?? 0) });
+
+      if (ids !== undefined && ids.length <= PER_VARIANT_INVENTORY_READS) {
+        const levels: ChannelInventoryLevel[] = [];
+        for (const id of ids) {
+          const url = `${base}/variants/${encodeURIComponent(id)}.json`;
+          let response: Response;
+          try {
+            response = await fetchImpl(url, { headers: { accept: "application/json", "x-shopify-access-token": token } });
+          } catch (error) {
+            return Err({ code: "SHOPIFY_API_FAILED", message: error instanceof Error ? error.message : "Shopify API request failed.", retriable: true });
+          }
+          // Gone upstream: omitted, so the caller refuses the line as unconfirmed rather than failing
+          // every other line of the order with it.
+          if (response.status === 404) continue;
+          if (!response.ok) return Err({ code: "SHOPIFY_API_FAILED", message: `Shopify API request failed (${response.status}) for ${url}.`, retriable: response.status >= 500 });
+          const variant = variantInventoryOf(await response.json());
+          if (variant === undefined) return Err({ code: "SHOPIFY_API_FAILED", message: `Shopify answered no variant for ${url}.` });
+          levels.push(level(variant));
+        }
+        return Ok(levels);
+      }
+
+      const wanted = ids === undefined ? undefined : new Set(ids);
+      const levels: ChannelInventoryLevel[] = [];
+      let url: string | null = `${base}/products.json?limit=250&fields=id,variants`;
+      const seen = new Set<string>();
+      while (url !== null) {
+        if (seen.has(url)) return Err({ code: "SHOPIFY_API_FAILED", message: "Shopify pagination repeated a page." });
+        seen.add(url);
+        const result = await request<{ products: ShopifyProduct[] }>(fetchImpl, url, token);
+        if (!result.ok) return result;
+        for (const product of result.value.data.products) {
+          for (const variant of product.variants ?? []) {
+            if (wanted === undefined || wanted.has(String(variant.id))) levels.push(level(variant));
+          }
+        }
+        url = nextPageUrl(result.value.response);
+      }
+      return Ok(levels);
     },
     async pushCatalog(store: ChannelStore, items: ChannelPushCatalogItem[], opts?: { dryRun?: boolean }): Promise<Result<ChannelPushCatalogResult, ChannelConnectorError>> {
       const oauthStartUrl = options.appUrl ? shopifyOAuthStartUrl(options.appUrl, store.storeDomain) : undefined;

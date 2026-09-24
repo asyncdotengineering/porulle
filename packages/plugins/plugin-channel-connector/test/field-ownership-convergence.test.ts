@@ -1,15 +1,13 @@
-import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createSystemActor, type ChannelCatalogItem } from "@porulle/core";
 import { and, eq } from "@porulle/core/drizzle";
 import { catalogFieldOwnership, entityMedia, mediaAssets, sellableAttributes, sellableEntities, sellableEntityRevisions } from "@porulle/core/schema";
 import { createPluginTestApp, jsonHeaders, TEST_ORG_ID, testAdminActor } from "@porulle/core/testing";
-import { channelConnectorPlugin, ChannelConnectorService, mockChannelConnector } from "../src/index.js";
+import { channelConnectorPlugin, ChannelConnectorService, channelSyncHash, mockChannelConnector } from "../src/index.js";
 import { channelEntityMap, connectedStores } from "../src/schema.js";
 
-function itemHash(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
-}
+/** The connector's own sync hash, not a re-implementation of it (which is how the two drifted). */
+const itemHash = channelSyncHash;
 
 async function createScenario(item: ChannelCatalogItem) {
   const connector = mockChannelConnector({ catalog: [item] });
