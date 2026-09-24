@@ -228,6 +228,9 @@ export type {
   ImportRowFailureCode,
 } from "./modules/catalog/import-service.js";
 export { writeEntityLinks, removeEntityLinks, linkFieldPaths } from "./modules/catalog/entity-links.js";
+/** The `inventory.afterAdjustMany` payload: a page's changed levels, grouped by product. */
+export type { InventoryAdjustManyResult } from "./modules/inventory/service.js";
+export type { InventoryLevel } from "./modules/inventory/repository/index.js";
 export type { EntityLinkRemovals, EntityLinkRows, EntityMediaRole, WrittenEntityLinks } from "./modules/catalog/entity-links.js";
 export type {
   TxContext,
