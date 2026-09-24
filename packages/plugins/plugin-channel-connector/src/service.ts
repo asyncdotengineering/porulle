@@ -60,6 +60,7 @@ import {
   variantOptionValues,
 } from "@porulle/core/schema";
 import type { SellableEntityRevisionSnapshot } from "@porulle/core/schema";
+import { planAbsentArchives } from "./deletion-policy.js";
 import {
   channelCatalogPushEvents,
   channelCatalogPushes,
@@ -164,6 +165,8 @@ export interface ReconcileReport extends Record<string, unknown> {
   inventoryUpdated: number;
   openConflicts: number;
   driftAlert: boolean;
+  /** Why this reconcile archived nothing although mapped products were absent (`planAbsentArchives`). */
+  refused?: string;
   skipped?: CatalogFieldSkip[];
   conflicts?: CatalogFieldConflict[];
   warnings?: string[];
@@ -4207,11 +4210,14 @@ export class ChannelConnectorService {
 
     const converged = await this.convergeCatalogItems(orgId, storeId, items, actor);
     if (!converged.ok) return converged;
-    const present = new Set(items.map((item) => item.externalId));
+    // Planned BEFORE anything is archived: an empty or truncated fetch is refused whole (see
+    // `planAbsentArchives`), and the refusal is reported, never half-applied.
+    const plan = planAbsentArchives(entityMappings.map((mapping) => mapping.externalId), items.map((item) => item.externalId));
+    const toArchive = new Set("archive" in plan ? plan.archive : []);
     let archived = 0;
     const skipped = [...converged.value.skipped];
     for (const mapping of entityMappings) {
-      if (present.has(mapping.externalId)) continue;
+      if (!toArchive.has(mapping.externalId)) continue;
       const [entity] = await this.db.select({ status: sellableEntities.status }).from(sellableEntities).where(and(
         eq(sellableEntities.organizationId, orgId),
         eq(sellableEntities.id, mapping.entityId),
@@ -4263,7 +4269,8 @@ export class ChannelConnectorService {
       archived,
       inventoryUpdated,
       openConflicts: openConflictRows.length,
-      driftAlert: converged.value.imported + converged.value.converged + archived > threshold,
+      driftAlert: "refused" in plan || converged.value.imported + converged.value.converged + archived > threshold,
+      ...("refused" in plan ? { refused: plan.refused } : {}),
       ...(skipped.length > 0 ? { skipped: uniqueSkipped(skipped) } : {}),
       ...(converged.value.conflicts.length > 0 ? { conflicts: converged.value.conflicts } : {}),
       ...(converged.value.warnings.length > 0 ? { warnings: converged.value.warnings } : {}),
