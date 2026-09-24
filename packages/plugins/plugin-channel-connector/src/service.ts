@@ -2228,7 +2228,13 @@ export class ChannelConnectorService {
     previousRoles: Map<string, string>;
   }>> {
     // Uploads what is missing and PLANS the entity's media links; `commitEntityLinks` writes them.
-    const images = item.images ?? [];
+    //
+    // Only the images the import ruling allows — the SAME `selectImportImages` the page fast path
+    // uses: the hero plus the first photo of each other variant. This path attached EVERY image
+    // the item listed, so the first converge of a product whose price changed pulled in the whole
+    // gallery the fast path had deliberately left out: an upload, an embed and a bump per photo.
+    const selection = selectImportImages(item);
+    const images = selection.hero === null ? [] : [selection.hero, ...selection.perVariant];
     const externalIds = [...new Set(images.map((image) => image.externalId).filter((id): id is string => id != null))];
     const urlHashes = [...new Set(images.map((image) => hash(image.url)))];
     const keyPredicates = [];
