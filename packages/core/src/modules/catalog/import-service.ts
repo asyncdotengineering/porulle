@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import type { Actor } from "../../auth/types.js";
 import { resolveOrgIdForCommerce } from "../../auth/org.js";
@@ -480,8 +481,27 @@ export class CatalogImportService {
       // rejected afterwards can leave new vocabulary behind; it is organization-wide and reusable.
       const taxonomy = await this.withTransaction(actor, undefined, (txCtx) =>
         resolveTaxonomy(writerOf(txCtx), orgId, candidates.map(({ item }) => item)));
+      const revisionRow = (write: ItemWrite, requestId: string) => ({
+        organizationId: orgId,
+        entityId: write.entityId,
+        revision: 1,
+        pinned: true,
+        snapshot: write.snapshot,
+        reason,
+        actorId: actor?.userId ?? null,
+        actorType: actor?.type ?? null,
+        requestId,
+      });
 
-      const report = await this.withTransaction(actor, ctx, async (txCtx): Promise<ImportProductsReport> => {
+      // Each item in its OWN transaction, so no item's rows outlive that item. As savepoints of one
+      // page transaction, an item's rows stayed uncommitted until the page's LAST item committed,
+      // and another store's page naming the same product slug (an organization-wide unique key)
+      // waited on it for the rest of the page. `reject-everything` keeps the page transaction (it
+      // must roll the page back as one), and so does a caller's transaction, which this cannot split.
+      const report = errorPolicy === "reject-failed-rows" && !isWriteContextTransactional(ctx)
+        ? await this.importItemByItem(actor, ctx, orgId, options.sourceStoreId, candidates, rows, taxonomy, revisionRow, page.length)
+        : await this.withTransaction(actor, ctx, async (txCtx): Promise<ImportProductsReport> => {
+
         const tx = writerOf(txCtx);
 
         // Page-level reads: the slugs already taken, then the shared vocabulary.
@@ -517,17 +537,7 @@ export class CatalogImportService {
         }
 
         if (written.length > 0) {
-          await tx.insert(sellableEntityRevisions).values(written.map(({ write }) => ({
-            organizationId: orgId,
-            entityId: write.entityId,
-            revision: 1,
-            pinned: true,
-            snapshot: write.snapshot,
-            reason,
-            actorId: actor?.userId ?? null,
-            actorType: actor?.type ?? null,
-            requestId: txCtx.requestId,
-          })));
+          await tx.insert(sellableEntityRevisions).values(written.map(({ write }) => revisionRow(write, txCtx.requestId)));
         }
         for (const { index, write } of written) {
           const item = page[index];
@@ -547,6 +557,53 @@ export class CatalogImportService {
       if (error instanceof RejectEverything) return Ok(rejectAll());
       return Err(toCommerceError(error));
     }
+  }
+
+  private async importItemByItem(
+    actor: Actor | null,
+    ctx: CatalogWriteContext | undefined,
+    orgId: string,
+    sourceStoreId: string,
+    candidates: Array<{ item: ImportProduct; index: number }>,
+    rows: ImportProductRowResult[],
+    taxonomy: Taxonomy,
+    revisionRow: (write: ItemWrite, requestId: string) => typeof sellableEntityRevisions.$inferInsert,
+    pageLength: number,
+  ): Promise<ImportProductsReport> {
+    // One request id for the page, so the revisions it writes still group as one import.
+    const requestId = randomUUID();
+    const hookContext = resolveWriteContextHookContext(ctx);
+    const inItemTransaction = <T>(fn: (tx: PluginDb) => Promise<T>): Promise<T> =>
+      this.deps.database.transaction(async (tx) => fn(writerOf(createTxContext(tx, { actor, requestId, ...(hookContext ? { hookContext } : {}) }))));
+
+    const slugs = candidates.map(({ item }) => item.slug);
+    const taken = slugs.length === 0
+      ? []
+      : await inItemTransaction((tx) => tx.select({ slug: sellableEntities.slug }).from(sellableEntities)
+        .where(and(eq(sellableEntities.organizationId, orgId), inArray(sellableEntities.slug, slugs))));
+    const takenSlugs = new Set(taken.map((row) => row.slug));
+
+    const written: ItemWrite[] = [];
+    for (const { item, index } of candidates) {
+      if (takenSlugs.has(item.slug)) {
+        rows[index] = failed(item.ref, "slug-conflict", `Slug "${item.slug}" already exists in this organization.`);
+        continue;
+      }
+      try {
+        const write = await inItemTransaction((tx) => writeItem(tx, orgId, sourceStoreId, item, taxonomy));
+        rows[index] = { ref: item.ref, status: "created", entityId: write.entityId, variantIds: write.variantIds, warnings: write.warnings };
+        written.push(write);
+      } catch (error) {
+        rows[index] = failed(item.ref, isUniqueViolation(error) ? "conflict" : "write-failed", describeWriteError(error));
+      }
+    }
+    // The page's revisions in ONE statement, as the page transaction wrote them: a revision per item
+    // would put a statement per product back on the import's critical path (links-provenance-budget).
+    // Revision rows carry no unique key another store's page could wait on.
+    if (written.length > 0) {
+      await inItemTransaction((tx) => tx.insert(sellableEntityRevisions).values(written.map((write) => revisionRow(write, requestId))));
+    }
+    return { sourceStoreId, created: written.length, failed: pageLength - written.length, rows };
   }
 
   private async withTransaction<T>(
