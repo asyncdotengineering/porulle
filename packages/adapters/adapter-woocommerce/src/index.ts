@@ -18,6 +18,38 @@ import type {
 
 export interface WooConnectorOptions { fetchImpl?: typeof fetch }
 
+/**
+ * The connector service names webhook topics the Shopify way (`products/update`, …); WooCommerce's are
+ * `resource.event` (`product.updated`, …) and it has no inventory topic, stock changes arriving as
+ * `product.updated`. Posting the Shopify names registered nothing a Woo store would fire.
+ * https://developer.woocommerce.com/docs/apis/rest-api/v1/webhooks/#topics
+ */
+const WOO_TOPIC_FOR: Record<string, string> = {
+  "products/update": "product.updated",
+  "products/delete": "product.deleted",
+  "orders/fulfilled": "order.updated",
+  "orders/cancelled": "order.updated",
+};
+
+/** The WooCommerce topics to register for the service's list: mapped, de-duplicated, the rest dropped. */
+export function wooTopics(canonical: readonly string[]): string[] {
+  return [...new Set(canonical.flatMap((topic) => WOO_TOPIC_FOR[topic] ?? []))];
+}
+
+/**
+ * A delivered Woo topic under the name the service handles. `order.updated` carries the order, so its
+ * status says which of the service's order topics it is; anything unmapped passes through as sent.
+ */
+export function canonicalTopic(wooTopic: string, data: unknown): string {
+  if (wooTopic === "product.updated") return "products/update";
+  if (wooTopic === "product.deleted") return "products/delete";
+  if (wooTopic === "order.updated" && data !== null && typeof data === "object" && "status" in data) {
+    if (data.status === "completed") return "orders/fulfilled";
+    if (data.status === "cancelled") return "orders/cancelled";
+  }
+  return wooTopic;
+}
+
 type WooProduct = {
   id: number | string;
   name: string;
@@ -940,7 +972,7 @@ export function wooConnector(options: WooConnectorOptions = {}): ChannelConnecto
         const id = request.headers.get("x-wc-webhook-id");
         const type = request.headers.get("x-wc-webhook-topic");
         if (!id || !type) return Err({ code: "INVALID_WEBHOOK", message: "WooCommerce webhook headers are incomplete." });
-        return Ok({ id, type, data });
+        return Ok({ id, type: canonicalTopic(type, data), data });
       } catch {
         return Err({ code: "INVALID_WEBHOOK", message: "WooCommerce webhook body must be valid JSON." });
       }
@@ -948,7 +980,7 @@ export function wooConnector(options: WooConnectorOptions = {}): ChannelConnecto
     async registerWebhooks(store: ChannelStore, topics: string[], callbackUrl: string) {
       const auth = credentials(store);
       if (!auth) return Err({ code: "WOO_CREDENTIALS_REQUIRED", message: "WooCommerce consumerKey and consumerSecret are required." });
-      for (const topic of topics) {
+      for (const topic of wooTopics(topics)) {
         const result = await request<{ id: number | string }>(fetchImpl, buildWooUrl(store.storeDomain, "/wp-json/wc/v3/webhooks", auth.key, auth.secret, 1), {
           method: "POST",
           headers: { "content-type": "application/json" },
