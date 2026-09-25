@@ -55,7 +55,7 @@ type ChannelRouteContext = {
 };
 
 export { ABSENT_ARCHIVE_FLOOR, ABSENT_ARCHIVE_FRACTION, planAbsentArchives } from "./deletion-policy.js";
-export { channelSyncHash } from "./service.js";
+export { channelSyncHash, withDistinctVariantSkus } from "./service.js";
 export type { AbsentArchivePlan } from "./deletion-policy.js";
 export { mockChannelConnector } from "./mock-connector.js";
 export type { MockChannelConnectorOptions } from "./mock-connector.js";

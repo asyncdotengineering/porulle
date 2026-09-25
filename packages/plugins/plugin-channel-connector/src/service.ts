@@ -660,6 +660,34 @@ function canonicalJson(value: unknown): string {
 }
 
 /** THE sync hash: every path that records or compares a `channel_entity_map.sync_hash` uses this. */
+/**
+ * A product whose own variants repeat a SKU would break the `(source_store_id, sku)` unique key and
+ * lose the whole product. Per item, group variants by SKU: the smallest externalId (string order)
+ * keeps it, every other variant becomes `${sku}-${externalId}`. Deterministic, independent of
+ * upstream order, and idempotent (a normalised item has no repeats left).
+ *
+ * Applied at the service's item intake — every `importCatalog` read and both converge entries — so
+ * converge, the sync hash and reconcile's `applyUpstreamVariantIdentity` all see the same variants.
+ * When only the host normalised, reconcile compared the stored suffixed SKU with the raw upstream one
+ * and recorded a `variants.sku` conflict on every pass.
+ */
+export function withDistinctVariantSkus(item: ChannelCatalogItem): ChannelCatalogItem {
+  const keeper = new Map<string, string>();
+  for (const variant of item.variants) {
+    if (variant.sku === undefined) continue;
+    const held = keeper.get(variant.sku);
+    if (held === undefined || variant.externalId < held) keeper.set(variant.sku, variant.externalId);
+  }
+  if (keeper.size === item.variants.filter((variant) => variant.sku !== undefined).length) return item;
+  return {
+    ...item,
+    variants: item.variants.map((variant) =>
+      variant.sku === undefined || keeper.get(variant.sku) === variant.externalId
+        ? variant
+        : { ...variant, sku: `${variant.sku}-${variant.externalId}` }),
+  };
+}
+
 export function channelSyncHash(value: unknown): string {
   return createHash("sha256").update(canonicalJson(value)).digest("hex");
 }
@@ -1176,6 +1204,13 @@ export class ChannelConnectorService {
     }
     this.jobs = options.jobs ?? (services.jobs as JobsAdapter | undefined);
     this.transact = transaction ?? ((fn) => this.db.transaction(fn));
+  }
+
+  /** Every catalogue read goes through here, so each item leaves the intake normalised once. */
+  private async readCatalogPage(connector: ChannelConnector, store: ChannelStore, cursor: string | undefined): ReturnType<ChannelConnector["importCatalog"]> {
+    const page = await connector.importCatalog(store, cursor);
+    if (!page.ok) return page;
+    return { ...page, value: { ...page.value, items: page.value.items.map(withDistinctVariantSkus) } };
   }
 
   getConnector(providerId: string): ChannelConnector | undefined {
@@ -3196,7 +3231,7 @@ export class ChannelConnectorService {
     if (!store || store.status !== "connected") return PluginErr("Connected store not found.", "NOT_FOUND");
     const connector = this.connectors.get(store.provider);
     if (!connector) return PluginErr(`No connector registered for provider "${store.provider}".`);
-    const page = await connector.importCatalog(store as ChannelStore, cursor ?? undefined);
+    const page = await this.readCatalogPage(connector, store as ChannelStore, cursor ?? undefined);
     if (!page.ok) return PluginErr(page.error.message);
     return Ok({ items: page.value.items, nextCursor: page.value.nextCursor ?? null });
   }
@@ -3214,9 +3249,11 @@ export class ChannelConnectorService {
   async convergeCatalogPage(
     orgId: string,
     storeId: string,
-    items: ChannelCatalogItem[],
+    rawItems: ChannelCatalogItem[],
     actor: Actor,
   ): Promise<PluginResult<CatalogPageConvergence>> {
+    // A host may hand items it never read through this service's intake; the rule is idempotent.
+    const items = rawItems.map(withDistinctVariantSkus);
     const failures: CatalogConvergenceFailure[] = [];
     const warnings: string[] = [];
     const entityByExternalId = new Map<string, string>();
@@ -3512,7 +3549,7 @@ export class ChannelConnectorService {
       const items: ChannelCatalogItem[] = [];
       let pageCursor: string | undefined = resume.pageCursor ?? undefined;
       do {
-        const page = await connector.importCatalog(store as ChannelStore, pageCursor);
+        const page = await this.readCatalogPage(connector, store as ChannelStore, pageCursor);
         if (!page.ok) return PluginErr(page.error.message);
         items.push(...page.value.items);
         pageCursor = page.value.nextCursor ?? undefined;
@@ -3546,7 +3583,7 @@ export class ChannelConnectorService {
     const entityIds: string[] = [];
 
     while (remaining > 0) {
-      const page = await connector.importCatalog(store as ChannelStore, pageCursor ?? undefined);
+      const page = await this.readCatalogPage(connector, store as ChannelStore, pageCursor ?? undefined);
       if (!page.ok) return PluginErr(page.error.message);
 
       const pageItems = page.value.items;
@@ -3732,7 +3769,7 @@ export class ChannelConnectorService {
       });
     }
     do {
-      const page = await connector.importCatalog(store as ChannelStore, cursor);
+      const page = await this.readCatalogPage(connector, store as ChannelStore, cursor);
       if (!page.ok) return PluginErr(page.error.message);
       const converged = await this.convergeCatalogItems(orgId, storeId, page.value.items, actor, true, dryRun);
       if (!converged.ok) return converged;
@@ -3984,11 +4021,12 @@ export class ChannelConnectorService {
   private async convergeCatalogItems(
     orgId: string,
     storeId: string,
-    items: ChannelCatalogItem[],
+    rawItems: ChannelCatalogItem[],
     actor: Actor,
     force = false,
     dryRun = false,
   ): Promise<PluginResult<CatalogConvergenceStats>> {
+    const items = rawItems.map(withDistinctVariantSkus);
     if (dryRun) return this.estimateCatalogItems(orgId, storeId, items);
     // One converge, one taxonomy snapshot. Cleared HERE rather than left to the service's lifetime:
     // the instance can outlive a batch on a warm isolate, and a taxonomy cached across batches would
@@ -4355,7 +4393,7 @@ export class ChannelConnectorService {
     const items: ChannelCatalogItem[] = [];
     let cursor: string | undefined;
     do {
-      const page = await connector.importCatalog(store as ChannelStore, cursor);
+      const page = await this.readCatalogPage(connector, store as ChannelStore, cursor);
       if (!page.ok) return PluginErr(page.error.message);
       items.push(...page.value.items);
       cursor = page.value.nextCursor ?? undefined;
