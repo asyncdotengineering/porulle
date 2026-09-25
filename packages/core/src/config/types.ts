@@ -458,6 +458,12 @@ export interface CommerceConfig {
      * limit. Defaults to 10MB.
      */
     maxUploadSize?: number;
+    /**
+     * Further routes that take photos and so get `maxUploadSize` instead of the global 1MB body
+     * limit, matched by EXACT path (e.g. `"/api/me/disputes/evidence"`). `/api/media/upload` is
+     * always included.
+     */
+    uploadPaths?: string[];
   };
   email?: {
     send(input: {
