@@ -99,6 +99,8 @@ type ShopifyProduct = {
     weight_unit?: string | null;
     /** Read-only aggregate available across ALL the shop's locations (Shopify's ProductVariant). */
     inventory_quantity?: number | null;
+    /** Shopify's inventory item: what `inventory_levels/update` webhooks name, never the variant id. */
+    inventory_item_id?: number | string | null;
   }>;
 };
 
@@ -429,7 +431,13 @@ export function shopifyConnector(options: ShopifyConnectorOptions = {}): Channel
               ...(variant.barcode ? { barcode: variant.barcode } : {}),
               ...(Object.keys(optionValues).length > 0 ? { optionValues } : {}),
               ...(prices ? { prices } : {}),
-              ...(weightGrams !== undefined ? { metadata: { weightGrams } } : {}),
+              // The inventory item id lets a stock webhook, which names only the item, find this variant.
+              ...(weightGrams !== undefined || (variant.inventory_item_id !== undefined && variant.inventory_item_id !== null)
+                ? { metadata: {
+                    ...(weightGrams !== undefined ? { weightGrams } : {}),
+                    ...(variant.inventory_item_id !== undefined && variant.inventory_item_id !== null ? { inventoryItemId: String(variant.inventory_item_id) } : {}),
+                  } }
+                : {}),
             };
           });
           const category = product.product_type ? slugify(product.product_type) : "";
