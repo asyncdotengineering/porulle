@@ -1,5 +1,11 @@
 # @porulle/core
 
+## 0.62.0
+
+### Minor Changes
+
+- [#157](https://github.com/asyncdotengineering/porulle/pull/157) [`821ebd4`](https://github.com/asyncdotengineering/porulle/commit/821ebd490a87ee52b85bd8ac538f3c6993219782) Thanks [@octalpixel](https://github.com/octalpixel)! - `config.media.uploadPaths` names further routes (matched by exact path) that take photos and so get `media.maxUploadSize` instead of the global 1MB body limit, e.g. a shopper's photo evidence of a damaged item. `/api/media/upload` is always included; an unlisted route, or one merely sharing a prefix, still answers 413 above 1MB.
+
 ## 0.61.0
 
 ## 0.60.0
