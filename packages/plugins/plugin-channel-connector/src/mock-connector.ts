@@ -104,7 +104,9 @@ export function mockChannelConnector(options: MockChannelConnectorOptions = {}) 
       return Ok(ids ? inventory.filter((item) => ids.includes(item.externalId)) : inventory);
     },
     async pushOrder(_store, slice) {
-      const remoteOrderId = `mock-order-${orders.size + 1}`;
+      // Derived from the order, not counted: the count lived in this in-memory Map, which every
+      // Worker isolate starts empty, so two different orders both came back as mock-order-1.
+      const remoteOrderId = `mock-order-${slice.orderId}`;
       orders.set(remoteOrderId, structuredClone(slice));
       return Ok({
         remoteOrderId,
