@@ -4798,9 +4798,19 @@ export class ChannelConnectorService {
         }
       }
     } else if (event.type === "inventory_levels/update") {
-      const externalId = String(data.inventory_item_id ?? data.variation_id ?? data.product_id ?? "");
       const available = Number(data.available ?? data.stock_quantity ?? 0);
-      await this.setMappedInventory(orgId, storeId, externalId, available, actor);
+      // Shopify names an INVENTORY ITEM, whose id is not the variant id the channel map is keyed by;
+      // looked up by it, every Shopify stock webhook found no mapping and was dropped. The variant is
+      // resolved through the inventory item id its import recorded; a provider that sends a variant
+      // id keeps the plain lookup.
+      const inventoryItemId = data.inventory_item_id !== undefined && data.inventory_item_id !== null ? String(data.inventory_item_id) : null;
+      const byInventoryItem = inventoryItemId === null ? null : await this.variantForInventoryItem(orgId, storeId, inventoryItemId);
+      if (byInventoryItem !== null) {
+        await this.setInventoryLevel(byInventoryItem.entityId, byInventoryItem.variantId, available, actor);
+      } else {
+        const externalId = String(data.variation_id ?? data.product_id ?? inventoryItemId ?? "");
+        await this.setMappedInventory(orgId, storeId, externalId, available, actor);
+      }
     } else if (event.type === "orders/fulfilled" || event.type === "orders/cancelled") {
       const orderId = await this.resolveOrderId(orgId, storeId, data);
       if (orderId) {
@@ -4913,8 +4923,27 @@ export class ChannelConnectorService {
   private async setMappedInventory(orgId: string, storeId: string, externalId: string, quantity: number, actor: Actor): Promise<void> {
     const [mapping] = await this.db.select().from(channelEntityMap).where(and(eq(channelEntityMap.organizationId, orgId), eq(channelEntityMap.storeId, storeId), eq(channelEntityMap.externalId, externalId)));
     if (!mapping) return;
+    await this.setInventoryLevel(mapping.entityId, mapping.variantId, quantity, actor);
+  }
+
+  private async setInventoryLevel(entityId: string, variantId: string | null, quantity: number, actor: Actor): Promise<void> {
     const inventory = this.services.inventory as { setAbsolute(input: { entityId: string; variantId?: string; quantity: number; reason?: string }, actor: Actor): Promise<{ ok: boolean }> };
-    await inventory.setAbsolute({ entityId: mapping.entityId, ...(mapping.variantId ? { variantId: mapping.variantId } : {}), quantity: Math.max(0, Math.floor(quantity)), reason: "Inventory webhook sync" }, actor);
+    await inventory.setAbsolute({ entityId, ...(variantId ? { variantId } : {}), quantity: Math.max(0, Math.floor(quantity)), reason: "Inventory webhook sync" }, actor);
+  }
+
+  /** This store's mapped variant whose import recorded `metadata.inventoryItemId`; null when none, or when two claim it. */
+  private async variantForInventoryItem(orgId: string, storeId: string, inventoryItemId: string): Promise<{ entityId: string; variantId: string } | null> {
+    const rows = await this.db.select({ entityId: channelEntityMap.entityId, variantId: channelEntityMap.variantId }).from(channelEntityMap)
+      .innerJoin(variants, eq(variants.id, channelEntityMap.variantId))
+      .where(and(
+        eq(channelEntityMap.organizationId, orgId),
+        eq(channelEntityMap.storeId, storeId),
+        eq(channelEntityMap.kind, "variant"),
+        sql`${variants.metadata}->>'inventoryItemId' = ${inventoryItemId}`,
+      ))
+      .limit(2);
+    const [only] = rows;
+    return rows.length === 1 && only !== undefined && only.variantId !== null ? { entityId: only.entityId, variantId: only.variantId } : null;
   }
 
   private async convergeCatalogItem(
