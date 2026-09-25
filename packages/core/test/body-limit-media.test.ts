@@ -48,4 +48,41 @@ describe("body limit / media upload exemption (#21)", () => {
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("PAYLOAD_TOO_LARGE");
   });
+
+  // A host route that takes photos (a shopper's evidence of a damaged item: 3–8 MB off a phone) was
+  // capped at 1 MB because only /api/media/upload was exempt, by a hard-coded path.
+  describe("config.media.uploadPaths", () => {
+    const evidence = "/api/me/disputes/evidence";
+    const post = async (config: Parameters<typeof createTestConfig>[0], path: string, bytes: number) => {
+      const { app } = await createServer(await createTestConfig(config));
+      return app.request(`http://localhost${path}`, { method: "POST", headers: { "content-type": "application/octet-stream" }, body: "x".repeat(bytes) });
+    };
+
+    it("a listed path takes a body up to maxUploadSize (not 413 at 2 MB)", async () => {
+      const res = await post({ media: { maxUploadSize: 4 * MB, uploadPaths: [evidence] } }, evidence, 2 * MB);
+      expect(res.status).not.toBe(413);
+    });
+
+    it("a listed path above maxUploadSize answers 413 FILE_TOO_LARGE", async () => {
+      const res = await post({ media: { maxUploadSize: 4 * MB, uploadPaths: [evidence] } }, evidence, 5 * MB);
+      expect(res.status).toBe(413);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe("FILE_TOO_LARGE");
+    });
+
+    it("an UNLISTED path still answers 413 PAYLOAD_TOO_LARGE above 1 MB", async () => {
+      const res = await post({ media: { maxUploadSize: 4 * MB, uploadPaths: [evidence] } }, "/api/me/disputes/other", 2 * MB);
+      expect(res.status).toBe(413);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe("PAYLOAD_TOO_LARGE");
+    });
+
+    it("matching is exact: a path that merely STARTS with a listed one keeps the 1 MB limit", async () => {
+      const res = await post({ media: { maxUploadSize: 4 * MB, uploadPaths: [evidence] } }, `${evidence}/extra`, 2 * MB);
+      expect(res.status).toBe(413);
+    });
+
+    it("/api/media/upload keeps the media limit when uploadPaths is set", async () => {
+      const res = await post({ media: { maxUploadSize: 4 * MB, uploadPaths: [evidence] } }, "/api/media/upload", 2 * MB);
+      expect(res.status).not.toBe(413);
+    });
+  });
 });
