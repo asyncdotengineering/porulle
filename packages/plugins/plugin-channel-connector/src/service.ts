@@ -5345,6 +5345,9 @@ export class ChannelConnectorService {
       if (customer) {
         email = customer.email;
         name = `${customer.firstName ?? ""} ${customer.lastName ?? ""}`.trim();
+        // The saved default is a FALLBACK. It was read first and the order's own address only when it
+        // was missing, so a shopper who typed an address, or picked a non-default one, had the order
+        // shipped to their default. The order's address is applied below and wins.
         const addresses = await this.db.select().from(customerAddresses).where(and(eq(customerAddresses.customerId, customer.id), eq(customerAddresses.type, "shipping")));
         const address = addresses.find((item) => item.isDefault) ?? addresses[0];
         if (address) shippingAddress = { first_name: address.firstName, last_name: address.lastName, address1: address.line1, ...(address.line2 ? { address2: address.line2 } : {}), city: address.city, ...(address.state ? { state: address.state } : {}), ...(address.postalCode ? { zip: address.postalCode } : {}), country: address.country, ...(address.phone ? { phone: address.phone } : {}) };
@@ -5354,8 +5357,8 @@ export class ChannelConnectorService {
     const guest = (metadata.customer ?? metadata.guestCustomer ?? {}) as Record<string, unknown>;
     email ??= typeof guest.email === "string" ? guest.email : null;
     name ||= typeof guest.name === "string" ? guest.name : `${typeof guest.firstName === "string" ? guest.firstName : ""} ${typeof guest.lastName === "string" ? guest.lastName : ""}`.trim();
-    const guestShipping = metadata.shippingAddress ?? metadata.guestShippingAddress ?? (typeof metadata.guestCustomer === "object" && metadata.guestCustomer ? (metadata.guestCustomer as Record<string, unknown>).shippingAddress : undefined);
-    if (!shippingAddress && guestShipping && typeof guestShipping === "object") shippingAddress = guestShipping as Record<string, unknown>;
+    const orderShipping = metadata.shippingAddress ?? metadata.guestShippingAddress ?? (typeof metadata.guestCustomer === "object" && metadata.guestCustomer ? (metadata.guestCustomer as Record<string, unknown>).shippingAddress : undefined);
+    if (orderShipping && typeof orderShipping === "object") shippingAddress = orderShipping as Record<string, unknown>;
     if (!email || !shippingAddress) return PluginErr("Customer email and shipping address are required for channel order export.", "CUSTOMER_DATA_MISSING");
     return Ok({ orderId, currency: order.currency, grandTotal: lines.reduce((sum, line) => sum + line.totalPrice, 0), lines, customer: { name, email, shippingAddress } });
   }
