@@ -1,5 +1,12 @@
 # @porulle/db
 
+## 0.58.0
+
+### Patch Changes
+
+- Updated dependencies [[`a8c90a0`](https://github.com/asyncdotengineering/porulle/commit/a8c90a0ae793c7471a03c54e2abe41f30b307a4d)]:
+  - @porulle/core@0.58.0
+
 ## 0.57.1
 
 ### Patch Changes
