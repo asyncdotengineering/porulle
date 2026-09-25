@@ -23,8 +23,10 @@ describe("get-session under a presented credential (full server)", () => {
     // The config is frozen, so the auth block is rebuilt around the harness's own defaults, on the
     // same database adapter.
     const base = await createTestConfig();
+    const databaseAdapter = base.databaseAdapter;
+    if (!databaseAdapter) throw new Error("createTestConfig returned no database adapter");
     const config = await createTestConfig({
-      databaseAdapter: base.databaseAdapter,
+      databaseAdapter,
       auth: { ...base.auth, trustedOrigins: [ORIGIN], storeResolver: async () => base.auth?.defaultOrganizationId ?? "org_default" },
     });
     app = (await createServer(config)).app;

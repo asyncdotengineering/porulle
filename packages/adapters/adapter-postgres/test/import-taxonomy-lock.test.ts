@@ -139,6 +139,50 @@ describe.skipIf(!serverUrl)("an import page and another store's page sharing a n
     expect(await taggedEntityIds(tagId ?? "")).toEqual(await entityIds([`a${storeB.slice(-1)}-1`, `b${storeB.slice(-1)}-1`]));
   }, 60_000);
 
+  // The ITEM writes, not only the vocabulary. Items were savepoints of one page transaction, so an
+  // item's rows stayed uncommitted until the page's LAST item committed. Another store naming the
+  // same product slug (an org-wide unique key, and generic handles collide across merchants)
+  // waited on that uncommitted key for the rest of A's page. Here A is held after its first item by
+  // an uncommitted row on another connection that its SECOND item collides with.
+  it("lets another store's page resolve a slug A's page already wrote, while A is still writing its next item", async () => {
+    const held = await raw.reserve();
+    await held`begin`;
+    await held`insert into sellable_entities (organization_id, type, slug) values (${TEST_ORG_ID}, 'product', 'xs-blocker-1')`;
+
+    const aPage: ImportProduct[] = [
+      { ...product("xs-shared", "xs-tag"), slug: "xs-shared-1", ref: "xs-shared-1" },
+      { ...product("xs-blocker", "xs-tag"), slug: "xs-blocker-1", ref: "xs-blocker-1", variants: [{ ref: "xs-blocker-1-v1", sku: "XS-BLOCKER-1" }] },
+    ];
+    const a = kernel.services.catalog.importProducts(aPage, { sourceStoreId: "store-xa" }, actor());
+    // A is past its first item once its second item's insert waits on the held row's unique key.
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const [waiting] = await raw<{ n: number }[]>`select count(*)::int as n from pg_stat_activity where datname = ${database} and wait_event_type = 'Lock'`;
+      if ((waiting?.n ?? 0) > 0 || Date.now() > deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    const started = Date.now();
+    const b = kernel.services.catalog.importProducts(
+      [{ ...product("xs-other", "xs-tag"), slug: "xs-shared-1", ref: "xs-other-1" }], { sourceStoreId: "store-xb" }, actor(),
+    );
+    const outcome = await Promise.race([
+      b.then((result) => ({ finished: true as const, result })),
+      new Promise<{ finished: false }>((resolve) => setTimeout(() => resolve({ finished: false }), B_MUST_FINISH_WITHIN_MS)),
+    ]);
+    const elapsedMs = Date.now() - started;
+    console.log(`lock row (item slug): page B ${outcome.finished ? "completed" : "was STILL BLOCKED"} after ${elapsedMs} ms while A was held after its first item`);
+
+    await held`rollback`;
+    held.release();
+    const aResult = await a;
+    const bResult = await b;
+
+    expect(outcome.finished, `B waited ${elapsedMs} ms on A's first item, still uncommitted behind A's second`).toBe(true);
+    expect(bResult.ok && bResult.value.rows[0]?.status === "failed" && bResult.value.rows[0].code).toBe("slug-conflict");
+    expect(aResult.ok && aResult.value.created).toBe(2);
+  }, 60_000);
+
   it("control: a lone page with a new tag still creates and links it", async () => {
     const result = await kernel.services.catalog.importProducts(page("solo", "only-here"), { sourceStoreId: "store-solo" }, actor());
 
