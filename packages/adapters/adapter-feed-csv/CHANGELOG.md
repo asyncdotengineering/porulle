@@ -1,5 +1,12 @@
 # @porulle/adapter-feed-csv
 
+## 0.60.0
+
+### Patch Changes
+
+- Updated dependencies [[`a227273`](https://github.com/asyncdotengineering/porulle/commit/a2272739c3e7f73fa0b98c9dca970f6700632381)]:
+  - @porulle/core@0.60.0
+
 ## 0.59.0
 
 ### Patch Changes
