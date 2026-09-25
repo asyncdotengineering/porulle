@@ -1,5 +1,18 @@
 # @porulle/plugin-channel-connector
 
+## 0.59.0
+
+### Minor Changes
+
+- [#154](https://github.com/asyncdotengineering/porulle/pull/154) [`0ec04dc`](https://github.com/asyncdotengineering/porulle/commit/0ec04dc860d7afb9e2367425c7264de2e9c066a9) Thanks [@octalpixel](https://github.com/octalpixel)! - A credential the caller presents (`Authorization` or `x-api-key`) that fails verification is now refused with 401 and a `WWW-Authenticate` challenge instead of being served as an anonymous guest; a rate-limited API key answers 429. Absent credentials, and a stale session cookie on its own, stay anonymous. Clients that relied on an expired token silently falling back to a guest must drop the credential or re-authenticate.
+
+  The channel connector normalises in-product duplicate SKUs at its item intake (`withDistinctVariantSkus`, exported): per item the variant with the smallest externalId (string order) keeps a repeated SKU and the others become `${sku}-${externalId}`. Converge, the sync hash and reconcile now read the same variants, so a suffixed product no longer records a `variants.sku` conflict on every reconcile.
+
+### Patch Changes
+
+- Updated dependencies [[`0ec04dc`](https://github.com/asyncdotengineering/porulle/commit/0ec04dc860d7afb9e2367425c7264de2e9c066a9)]:
+  - @porulle/core@0.59.0
+
 ## 0.58.0
 
 ### Minor Changes
