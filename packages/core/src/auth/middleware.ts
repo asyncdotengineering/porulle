@@ -4,7 +4,7 @@ import type { Actor } from "./types.js";
 import type { AuthInstance } from "./setup.js";
 import { getCustomerPermissions, resolveActor } from "./actor.js";
 import { DEFAULT_ORG_ID } from "./org.js";
-import { isCredentialRejection } from "./auth-failure.js";
+import { credentialRejectionStatus, isCredentialRejection } from "./auth-failure.js";
 import { isStrictOrgResolution } from "./strict-org-resolution.js";
 import { isIdentityFreeRoute } from "./identity-free-routes.js";
 
@@ -208,13 +208,28 @@ export function authMiddleware(
           return;
         }
       } catch (err) {
-        // An invalid, expired, or rate-limited key is a rejection: fall through
-        // to anonymous. Anything else means the key was never checked.
+        // A rejection better-auth raised was an evaluated credential; anything else means the key
+        // was never checked, and is a fault. A rate-limited key is not a bad one: say so.
         if (!isCredentialRejection(err)) {
           reportAuthCheckFault(err, "api_key");
           throw err;
         }
+        if (credentialRejectionStatus(err) === 429) {
+          return c.json({ error: { code: "RATE_LIMITED", message: "Too many requests for this credential." } }, 429);
+        }
       }
+    }
+
+    // A credential the caller PRESENTED and that did not verify is refused, not served as a guest.
+    // Falling through to anonymous gave a shopper whose token had expired a fresh guest cart in
+    // place of theirs, and told a broken client nothing. Absent credentials stay anonymous (guest
+    // checkout depends on it), and a stale session COOKIE is not "presented": browsers carry one on
+    // every public page, and refusing it would 401 logged-out browsing.
+    const presented = (c.req.header("x-api-key") ?? "").trim() !== "" || (c.req.header("authorization") ?? "").trim() !== "";
+    if (presented) {
+      const refused = c.json({ error: { code: "UNAUTHORIZED", message: "The presented credential could not be verified." } }, 401);
+      applyAuthenticateChallenge(refused);
+      return refused;
     }
 
     if (!c.get("actor")) {
