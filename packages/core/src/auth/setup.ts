@@ -228,6 +228,9 @@ export function createAuth(
         defaultCookieAttributes: {
           sameSite: "lax",
         },
+        ...(config.auth?.ipAddressHeaders
+          ? { ipAddress: { ipAddressHeaders: config.auth.ipAddressHeaders } }
+          : {}),
       },
       plugins,
       user: {
