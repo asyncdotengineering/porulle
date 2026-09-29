@@ -166,6 +166,17 @@ export interface AuthConfig {
   /** Origins allowed for CSRF protection (Better Auth `trustedOrigins`). */
   trustedOrigins?: string[];
   /**
+   * Request headers the auth rate limiter reads the client IP from, in order (Better Auth
+   * `advanced.ipAddress.ipAddressHeaders`). Unset keeps Better Auth's default: `x-forwarded-for`, one value.
+   *
+   * On Cloudflare Workers set `["cf-connecting-ip"]`. An internet request to a Worker carries no
+   * `x-forwarded-for`, so under the default every caller has NO IP and shares one per-path bucket — one
+   * client flooding sign-in throttles everyone's. Cloudflare sets `cf-connecting-ip` and overwrites any
+   * client-sent value; over a service binding only the calling Worker can set it, so that Worker must
+   * forward a verified client IP or nothing.
+   */
+  ipAddressHeaders?: string[];
+  /**
    * Predefined API key scopes. Each scope defines a named permission set
    * that can be used with `bunx @porulle/cli api-key create --scope <name>`.
    *
