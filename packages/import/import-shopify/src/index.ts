@@ -1,4 +1,4 @@
-import { Err, Ok, type Result } from "@porulle/core";
+import { Err, Ok, toMinorUnits, type Result } from "@porulle/core";
 
 export interface ShopifyImage {
   id: number;
@@ -128,6 +128,7 @@ export interface ShopifyImportOptions {
   apiVersion?: string;
   products?: ShopifyProduct[];
   customers?: ShopifyCustomer[];
+  currency?: string;
   fetchImpl?: typeof fetch;
   mediaFetcher?: (url: string) => Promise<{ data: ArrayBuffer; contentType: string; filename?: string }>;
   entityType?: string;
@@ -149,18 +150,16 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/g, "") || `product-${crypto.randomUUID().slice(0, 8)}`;
 }
 
-function parseMoney(value: string | undefined | null): number {
-  if (!value) return 0;
-  const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed)) return 0;
-  return Math.round(parsed * 100);
+function normalizeCurrency(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  return value.trim().toUpperCase();
 }
 
 async function fetchJson<T>(
   fetchImpl: typeof fetch,
   url: string,
   apiKey: string,
-): Promise<Result<T>> {
+): Promise<Result<{ data: T; response: Response }>> {
   try {
     const response = await fetchImpl(url, {
       headers: {
@@ -176,13 +175,35 @@ async function fetchJson<T>(
       });
     }
 
-    return Ok((await response.json()) as T);
+    return Ok({ data: (await response.json()) as T, response });
   } catch (error) {
     return Err({
       code: "SHOPIFY_API_FAILED",
       message: error instanceof Error ? error.message : "Shopify API request failed.",
     });
   }
+}
+
+function nextPageUrl(response: Response): string | null {
+  const link = response.headers.get("link") ?? "";
+  return link.match(/<([^>]+)>;\s*rel=(?:"next"|next)(?:\s*(?:,|$))/)?.[1] ?? null;
+}
+
+async function loadShopifyPages<T, TItem>(
+  fetchImpl: typeof fetch,
+  initialUrl: string,
+  apiKey: string,
+  readItems: (data: T) => TItem[],
+): Promise<Result<TItem[]>> {
+  const items: TItem[] = [];
+  let url: string | null = initialUrl;
+  while (url) {
+    const response = await fetchJson<T>(fetchImpl, url, apiKey);
+    if (!response.ok) return response;
+    items.push(...readItems(response.value.data));
+    url = nextPageUrl(response.value.response);
+  }
+  return Ok(items);
 }
 
 function filenameFromUrl(url: string): string {
@@ -224,14 +245,15 @@ async function loadProducts(options: ShopifyImportOptions): Promise<Result<Shopi
   const base = options.storeUrl.replace(/\/$/, "");
   const version = options.apiVersion ?? "2024-10";
   const fetchImpl = options.fetchImpl ?? fetch;
-  const response = await fetchJson<{ products: ShopifyProduct[] }>(
+  const response = await loadShopifyPages<{ products?: ShopifyProduct[] }, ShopifyProduct>(
     fetchImpl,
     `${base}/admin/api/${version}/products.json?limit=250`,
     options.apiKey,
+    (data) => data.products ?? [],
   );
 
   if (!response.ok) return response;
-  return Ok(response.value.products ?? []);
+  return Ok(response.value);
 }
 
 async function loadCustomers(options: ShopifyImportOptions): Promise<Result<ShopifyCustomer[]>> {
@@ -244,14 +266,30 @@ async function loadCustomers(options: ShopifyImportOptions): Promise<Result<Shop
   const base = options.storeUrl.replace(/\/$/, "");
   const version = options.apiVersion ?? "2024-10";
   const fetchImpl = options.fetchImpl ?? fetch;
-  const response = await fetchJson<{ customers: ShopifyCustomer[] }>(
+  const response = await loadShopifyPages<{ customers?: ShopifyCustomer[] }, ShopifyCustomer>(
     fetchImpl,
     `${base}/admin/api/${version}/customers.json?limit=250`,
     options.apiKey,
+    (data) => data.customers ?? [],
   );
 
   if (!response.ok) return response;
-  return Ok(response.value.customers ?? []);
+  return Ok(response.value);
+}
+
+async function loadCurrency(options: ShopifyImportOptions): Promise<string | undefined> {
+  const configured = normalizeCurrency(options.currency);
+  if (configured) return configured;
+  if (!options.storeUrl || !options.apiKey) return undefined;
+
+  const base = options.storeUrl.replace(/\/$/, "");
+  const version = options.apiVersion ?? "2024-10";
+  const response = await fetchJson<{ shop?: { currency?: unknown } }>(
+    options.fetchImpl ?? fetch,
+    `${base}/admin/api/${version}/shop.json`,
+    options.apiKey,
+  );
+  return response.ok ? normalizeCurrency(response.value.data.shop?.currency) : undefined;
 }
 
 function toAddress(address: ShopifyAddress): {
@@ -288,6 +326,7 @@ export async function importShopifyCatalog(options: ShopifyImportOptions): Promi
 
   const customersResult = await loadCustomers(options);
   if (!customersResult.ok) return customersResult;
+  const currency = await loadCurrency(options);
 
   const summary: ShopifyImportSummary = {
     entitiesImported: 0,
@@ -352,6 +391,9 @@ export async function importShopifyCatalog(options: ShopifyImportOptions): Promi
       if (options.target.createVariant && (product.variants?.length ?? 0) > 0) {
         for (const variant of product.variants ?? []) {
           try {
+            // An unknown shop currency falls back to two decimals, as before.
+            const price = toMinorUnits(variant.price, currency ?? "");
+            const compareAtPrice = toMinorUnits(variant.compare_at_price, currency ?? "");
             const optionValues: string[] = [];
             const selectors = [variant.option1, variant.option2, variant.option3];
             const productOptions = product.options ?? [];
@@ -376,8 +418,8 @@ export async function importShopifyCatalog(options: ShopifyImportOptions): Promi
                 source: "shopify",
                 shopifyVariantId: variant.id,
                 title: variant.title,
-                price: parseMoney(variant.price),
-                compareAtPrice: parseMoney(variant.compare_at_price),
+                ...(price !== undefined ? { price } : {}),
+                ...(compareAtPrice !== undefined ? { compareAtPrice } : {}),
               },
             });
 

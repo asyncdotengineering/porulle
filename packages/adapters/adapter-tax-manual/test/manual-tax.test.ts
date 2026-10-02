@@ -2,6 +2,24 @@ import { describe, expect, it } from "vitest";
 import { manualTaxAdapter } from "../src/index.js";
 
 describe("manual tax adapter", () => {
+  it("subtracts an order-level discount from the taxable subtotal", async () => {
+    const adapter = manualTaxAdapter({ rate: 0.1, shippingTaxable: true });
+
+    const calculated = await adapter.calculateTax({
+      currency: "USD",
+      shippingAmount: 0,
+      orderDiscount: 2000,
+      lineItems: [
+        { id: "1", entityId: "e1", description: "item", quantity: 1, unitPrice: 10000 },
+      ],
+    });
+
+    expect(calculated).toEqual({
+      ok: true,
+      value: { amountToCollect: 800, taxableAmount: 8000, rate: 0.1 },
+    });
+  });
+
   it("calculates tax and supports report/void", async () => {
     const adapter = manualTaxAdapter({ rate: 0.1, shippingTaxable: true });
 

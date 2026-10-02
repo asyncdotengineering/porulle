@@ -17,6 +17,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@porulle/core": "workspace:*",
     "@aws-sdk/client-sesv2": "^3.700.0"
   },
   "devDependencies": {

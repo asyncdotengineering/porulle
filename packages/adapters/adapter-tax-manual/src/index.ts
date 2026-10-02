@@ -10,7 +10,8 @@ function taxableSubtotal(params: TaxCalculationParams, shippingTaxable: boolean)
     (sum, lineItem) => sum + lineItem.unitPrice * lineItem.quantity - (lineItem.discount ?? 0),
     0,
   );
-  return lineTaxable + (shippingTaxable ? params.shippingAmount : 0);
+  return Math.max(0, lineTaxable - (params.orderDiscount ?? 0)) +
+    (shippingTaxable ? params.shippingAmount : 0);
 }
 
 export function manualTaxAdapter(options: ManualTaxAdapterOptions): TaxAdapter {

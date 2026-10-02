@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { PgBoss } from "pg-boss";
+import { prepareEnqueue } from "@porulle/core/jobs";
 import type {
   EnqueueOptions,
   ExecutionEngine,
@@ -115,28 +116,14 @@ export class PgBossExecutionEngine implements ExecutionEngine {
     options: EnqueueOptions,
   ): Promise<string> {
     const setup = this.requireSetup();
-    const task = setup.tasks.get(taskSlug);
-    if (!task) {
-      throw new Error(`Unknown task slug: ${taskSlug}`);
-    }
-
-    const organizationId = options.organizationId.trim();
-    if (!organizationId) {
-      throw new Error("Jobs enqueue requires a non-empty organizationId.");
-    }
+    const prepared = prepareEnqueue(setup.tasks, taskSlug, input, options);
+    const { task, organizationId, concurrencyKey, exclusive, supersedes, maxAttempts } = prepared;
 
     await this.ensureWorker();
-    const concurrencyKey =
-      options.concurrencyKey ?? task.concurrency?.key(input);
-    const exclusive = Boolean(
-      task.concurrency && task.concurrency.exclusive !== false,
-    );
-    const supersedes = options.supersedes ?? task.concurrency?.supersedes;
     const singletonKey =
       (exclusive || supersedes) && concurrencyKey
         ? concurrencyKey
         : randomUUID();
-    const maxAttempts = options.maxAttempts ?? task.retries?.attempts ?? 1;
     const data: PgBossJobData = {
       taskSlug,
       input,

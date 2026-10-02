@@ -1,6 +1,7 @@
 import {
   TaskNonRetryableError,
   createPassThroughTaskStep,
+  prepareEnqueue,
 } from "@porulle/core/jobs";
 import type {
   EnqueueOptions,
@@ -253,20 +254,8 @@ export class CloudflareExecutionEngine implements ExecutionEngine {
     input: Record<string, unknown>,
     options: EnqueueOptions,
   ): Promise<string> {
-    const task = this.requireSetup().tasks.get(taskSlug);
-    if (!task) throw new Error(`Unknown task slug: ${taskSlug}`);
-    const organizationId = options.organizationId.trim();
-    if (!organizationId)
-      throw new Error("Jobs enqueue requires a non-empty organizationId.");
-
-    const concurrencyKey =
-      options.concurrencyKey ?? task.concurrency?.key(input);
-    const exclusive = Boolean(
-      task.concurrency && task.concurrency.exclusive !== false,
-    );
-    const supersedes = Boolean(
-      options.supersedes ?? task.concurrency?.supersedes,
-    );
+    const prepared = prepareEnqueue(this.requireSetup().tasks, taskSlug, input, options);
+    const { organizationId, concurrencyKey, exclusive, supersedes, maxAttempts } = prepared;
     if (
       (exclusive || supersedes) &&
       concurrencyKey &&
@@ -283,7 +272,7 @@ export class CloudflareExecutionEngine implements ExecutionEngine {
       taskSlug,
       input,
       organizationId,
-      maxAttempts: options.maxAttempts ?? task.retries?.attempts ?? 1,
+      maxAttempts,
       exclusive,
       supersedes,
       ...(options.delayMs !== undefined ? { delayMs: options.delayMs } : {}),

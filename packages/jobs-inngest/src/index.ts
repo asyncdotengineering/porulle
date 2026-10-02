@@ -1,4 +1,5 @@
 import { Inngest } from "inngest";
+import { prepareEnqueue } from "@porulle/core/jobs";
 import type {
   EnqueueOptions,
   ExecutionEngine,
@@ -55,11 +56,8 @@ export class InngestExecutionEngine implements ExecutionEngine {
     input: Record<string, unknown>,
     options: EnqueueOptions,
   ): Promise<string> {
-    const task = this.requireSetup().tasks.get(taskSlug);
-    if (!task) throw new Error(`Unknown task slug: ${taskSlug}`);
-    const organizationId = options.organizationId.trim();
-    if (!organizationId)
-      throw new Error("Jobs enqueue requires a non-empty organizationId.");
+    const prepared = prepareEnqueue(this.requireSetup().tasks, taskSlug, input, options);
+    const { task, organizationId, concurrencyKey } = prepared;
     const taskMaxAttempts = task.retries?.attempts ?? 1;
     if (
       options.maxAttempts !== undefined &&
@@ -79,12 +77,10 @@ export class InngestExecutionEngine implements ExecutionEngine {
       );
     }
 
-    const concurrencyKey =
-      options.concurrencyKey ?? task.concurrency?.key(input);
     const data: InngestJobData = {
       input,
       organizationId,
-      maxAttempts: taskMaxAttempts,
+      maxAttempts: prepared.maxAttempts,
       ...(concurrencyKey ? { concurrencyKey } : {}),
     };
     const result = await this.client.send({

@@ -1,4 +1,4 @@
-import { defineChannelConnector, Err, Ok } from "@porulle/core";
+import { defineChannelConnector, Err, Ok, toMinorUnits } from "@porulle/core";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type {
   ChannelCatalogPage,
@@ -145,25 +145,6 @@ const wooVariationNativeFields = new Set([
   "menu_order",
 ]);
 
-const zeroDecimalCurrencies = new Set([
-  "BIF",
-  "CLP",
-  "DJF",
-  "GNF",
-  "ISK",
-  "JPY",
-  "KMF",
-  "KRW",
-  "PYG",
-  "RWF",
-  "UGX",
-  "VND",
-  "VUV",
-  "XAF",
-  "XOF",
-  "XPF",
-]);
-
 function buildWooUrl(base: string, path: string, key: string, secret: string, page: number, cursor?: string): string {
   const url = new URL(path, base.replace(/\/$/, "/"));
   url.searchParams.set("consumer_key", key);
@@ -179,17 +160,9 @@ function normalizeCurrency(value: unknown): string | undefined {
   return value.trim().toUpperCase();
 }
 
-function parseMoney(value: string | null | undefined, currency: string): number | undefined {
-  if (value == null || value.trim() === "") return undefined;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return undefined;
-  const exponent = zeroDecimalCurrencies.has(currency) ? 0 : 2;
-  return Math.round(parsed * (10 ** exponent));
-}
-
 function pricesForVariation(variation: WooProductVariation, currency: string | undefined): ChannelCatalogPrice[] | undefined {
   if (!currency) return undefined;
-  const amount = parseMoney(variation.price, currency);
+  const amount = toMinorUnits(variation.price, currency);
   return amount === undefined ? undefined : [{ currency, amount }];
 }
 

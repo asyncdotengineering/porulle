@@ -20,6 +20,51 @@ const actor = {
 } as any;
 
 describe("import-shopify", () => {
+  it("follows Shopify product cursors and preserves zero-decimal currency prices", async () => {
+    const createdTitles: string[] = [];
+    const variants: Array<Record<string, unknown>> = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/shop.json")) {
+        return Response.json({ shop: { currency: "JPY" } });
+      }
+      if (url.searchParams.get("page_info") === "next") {
+        return new Response(JSON.stringify({
+          products: [{ id: 2, title: "Second", variants: [{ id: 22, price: "1500" }] }],
+        }));
+      }
+      if (url.pathname.endsWith("/products.json")) {
+        return new Response(JSON.stringify({
+          products: [{ id: 1, title: "First", variants: [{ id: 11, price: "900" }] }],
+        }), {
+          headers: { link: '<https://shop.example/admin/api/2024-10/products.json?limit=250&page_info=next>; rel="next"' },
+        });
+      }
+      return Response.json({ customers: [] });
+    };
+
+    const result = await importShopifyCatalog({
+      storeUrl: "https://shop.example",
+      apiKey: "token",
+      fetchImpl,
+      target: {
+        async createEntity(input) {
+          createdTitles.push(input.attributes.title);
+          return { id: input.attributes.title };
+        },
+        async createVariant(input) {
+          variants.push(input.metadata ?? {});
+          return { id: `${variants.length}` };
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(createdTitles).toEqual(["First", "Second"]);
+    expect(variants.map((variant) => variant.price)).toEqual([900, 1500]);
+  });
+
   it("imports products, variants, media, and customers", async () => {
     const kernel = await createTestKernel();
 

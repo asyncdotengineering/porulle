@@ -1,4 +1,4 @@
-import { defineChannelConnector, Err, Ok } from "@porulle/core";
+import { defineChannelConnector, Err, Ok, toMinorUnits } from "@porulle/core";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type {
   ChannelCatalogPage,
@@ -104,36 +104,9 @@ type ShopifyProduct = {
   }>;
 };
 
-const zeroDecimalCurrencies = new Set([
-  "BIF",
-  "CLP",
-  "DJF",
-  "GNF",
-  "ISK",
-  "JPY",
-  "KMF",
-  "KRW",
-  "PYG",
-  "RWF",
-  "UGX",
-  "VND",
-  "VUV",
-  "XAF",
-  "XOF",
-  "XPF",
-]);
-
 function normalizeCurrency(value: unknown): string | undefined {
   if (typeof value !== "string" || value.trim() === "") return undefined;
   return value.trim().toUpperCase();
-}
-
-function parseMoney(value: string | null | undefined, currency: string): number | undefined {
-  if (value == null || value.trim() === "") return undefined;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return undefined;
-  const exponent = zeroDecimalCurrencies.has(currency) ? 0 : 2;
-  return Math.round(parsed * (10 ** exponent));
 }
 
 function pricesForVariant(
@@ -141,9 +114,9 @@ function pricesForVariant(
   currency: string | undefined,
 ): ChannelCatalogPrice[] | undefined {
   if (!currency) return undefined;
-  const amount = parseMoney(variant.price, currency);
+  const amount = toMinorUnits(variant.price, currency);
   if (amount === undefined) return undefined;
-  const compareAtAmount = parseMoney(variant.compare_at_price, currency);
+  const compareAtAmount = toMinorUnits(variant.compare_at_price, currency);
   return [{
     currency,
     amount,

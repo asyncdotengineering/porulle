@@ -89,5 +89,13 @@ describe("InngestExecutionEngine", () => {
         { organizationId: "org-1", maxAttempts: 2 },
       ),
     ).rejects.toThrow("retry counts are fixed");
+
+    await expect(
+      engine.enqueue(
+        task.slug,
+        { storeId: "s1" },
+        { organizationId: "org-1", supersedes: false },
+      ),
+    ).rejects.toThrow("debounce is fixed");
   });
 });

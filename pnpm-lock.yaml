@@ -343,31 +343,6 @@ importers:
         specifier: 5.9.2
         version: 5.9.2
 
-  packages/adapters/adapter-feed-csv:
-    dependencies:
-      '@porulle/core':
-        specifier: workspace:*
-        version: link:../../core
-    devDependencies:
-      '@porulle/eslint-config':
-        specifier: workspace:*
-        version: link:../../eslint-config
-      '@porulle/typescript-config':
-        specifier: workspace:*
-        version: link:../../typescript-config
-      '@types/node':
-        specifier: ^24.5.2
-        version: 24.13.2
-      eslint:
-        specifier: ^9.39.1
-        version: 9.39.4
-      typescript:
-        specifier: 5.9.2
-        version: 5.9.2
-      vitest:
-        specifier: ^3.2.4
-        version: 3.2.6(@types/debug@4.1.13)(@types/node@24.13.2)(tsx@4.22.4)(yaml@2.9.0)
-
   packages/adapters/adapter-local-storage:
     dependencies:
       '@porulle/core':
@@ -575,6 +550,9 @@ importers:
 
   packages/adapters/adapter-resend:
     dependencies:
+      '@porulle/core':
+        specifier: workspace:*
+        version: link:../../core
       resend:
         specifier: ^4.0.0
         version: 4.8.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -634,6 +612,9 @@ importers:
       '@aws-sdk/client-sesv2':
         specifier: ^3.700.0
         version: 3.1068.0
+      '@porulle/core':
+        specifier: workspace:*
+        version: link:../../core
     devDependencies:
       '@porulle/eslint-config':
         specifier: workspace:*
