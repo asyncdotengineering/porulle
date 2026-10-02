@@ -99,34 +99,12 @@ export type RFQResponseStatus = "submitted" | "shortlisted" | "accepted" | "reje
 
 export interface MarketplacePluginOptions {
   defaultCommissionRateBps?: number;
-
-  vendorApprovalMode?: VendorApprovalMode;
-  requiredDocuments?: DocumentType[];
-
-  defaultPayoutSchedule?: PayoutSchedule;
   defaultPayoutMinimumCents?: number;
-  defaultHoldbackDays?: number;
-
   vendorResponseDeadlineDays?: number;
-  autoEscalateOnMissedDeadline?: boolean;
-
-  returnWindowDays?: number;
-  autoApproveReturnsOnVendorTimeout?: boolean;
-  vendorReturnResponseDays?: number;
-
-  requireVerifiedPurchase?: boolean;
   reviewModerationEnabled?: boolean;
 
   b2b?: {
     rfq?: boolean;
-    contractPricing?: boolean;
-  };
-
-  performanceThresholds?: {
-    minRating?: number;
-    maxDefectRatePercent?: number;
-    maxLateShipmentRatePercent?: number;
-    maxCancellationRatePercent?: number;
   };
 }
 
@@ -155,10 +133,4 @@ export interface RouteContext {
   };
   json(data: unknown, status?: number): Response;
   get(key: string): unknown;
-}
-
-// ─── Error helper ────────────────────────────────────────────────────────────
-
-export function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : "Internal server error";
 }

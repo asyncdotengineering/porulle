@@ -1,11 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { PluginTestApp } from "@porulle/core/testing";
-import {
-  createPluginTestApp,
-  jsonHeaders,
-  restaurantAdminActor,
-  serverActor,
-} from "./test-utils.js";
+import { createPluginTestApp, jsonHeaders } from "@porulle/core/testing";
+import { restaurantAdminActor, serverActor } from "./test-utils.js";
 import { posRestaurantPlugin } from "../src/index.js";
 
 describe("POS Restaurant Tables", () => {

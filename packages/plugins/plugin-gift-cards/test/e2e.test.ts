@@ -1,13 +1,7 @@
 import { describe, expect, it, beforeAll } from "vitest";
 import type { PluginTestApp } from "@porulle/core/testing";
-import {
-  createPluginTestApp,
-  jsonHeaders,
-  testAdminActor,
-  testNoPermActor,
-  giftCardAdminActor,
-  customerActor,
-} from "./test-utils.js";
+import { createPluginTestApp, jsonHeaders, testAdminActor, testNoPermActor } from "@porulle/core/testing";
+import { giftCardAdminActor, customerActor } from "./test-utils.js";
 import { giftCardPlugin } from "../src/index.js";
 
 describe("Gift Card Plugin E2E", () => {

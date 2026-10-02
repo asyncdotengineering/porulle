@@ -39,11 +39,6 @@ export class ProviderService {
     return row ?? null;
   }
 
-  async getServiceTypeBySlug(slug: string) {
-    const [row] = await this.db.select().from(serviceTypes).where(eq(serviceTypes.slug, slug));
-    return row ?? null;
-  }
-
   async listServiceTypes() {
     return this.db.select().from(serviceTypes).where(eq(serviceTypes.isActive, true)).orderBy(desc(serviceTypes.createdAt));
   }

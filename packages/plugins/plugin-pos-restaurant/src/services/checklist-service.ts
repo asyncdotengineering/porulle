@@ -125,15 +125,4 @@ export class ChecklistService {
     return Ok({ completed: true });
   }
 
-  async isChecklistCompleted(checklistId: string, referenceType: string, referenceId: string): Promise<boolean> {
-    const rows = await this.db
-      .select()
-      .from(posChecklistCompletions)
-      .where(and(
-        eq(posChecklistCompletions.checklistId, checklistId),
-        eq(posChecklistCompletions.referenceType, referenceType as "transaction" | "shift"),
-        eq(posChecklistCompletions.referenceId, referenceId),
-      ));
-    return rows.length > 0;
-  }
 }

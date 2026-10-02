@@ -1,13 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { PluginTestApp } from "@porulle/core/testing";
-import {
-  createPluginTestApp,
-  jsonHeaders,
-  testAdminActor,
-  testNoPermActor,
-  posAdminActor,
-  posOperatorActor,
-} from "./test-utils.js";
+import { createPluginTestApp, jsonHeaders, testAdminActor, testNoPermActor } from "@porulle/core/testing";
+import { posAdminActor, posOperatorActor } from "./test-utils.js";
 import { posPlugin } from "../src/index.js";
 
 describe("POS Shift Management", () => {

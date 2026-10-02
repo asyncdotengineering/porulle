@@ -1,14 +1,13 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { type Actor, type ChannelPushCatalogItem } from "@porulle/core";
-import { createPluginTestApp, jsonHeaders, TEST_ORG_ID } from "@porulle/core/testing";
+import {createPluginTestApp, jsonHeaders, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
 import { organization } from "@porulle/core/auth-schema";
 import { eq } from "@porulle/core/drizzle";
 import { commerceJobs } from "@porulle/core/schema";
 import { channelConnectorPlugin, ChannelConnectorService, mockChannelConnector } from "../src/index.js";
 import { channelEntityMap } from "../src/schema.js";
 
-const actor: Actor = {
-  type: "user",
+const actor = createTestActor({
   userId: "push-catalog-preview-admin",
   email: "push-catalog-preview-admin@test.local",
   name: "Push Catalog Preview Admin",
@@ -16,9 +15,15 @@ const actor: Actor = {
   organizationId: TEST_ORG_ID,
   role: "admin",
   permissions: ["*:*"],
-};
+});
 const OTHER_ORG_ID = "push_catalog_preview_other_org";
-const otherActor: Actor = { ...actor, userId: "push-catalog-preview-other-admin", email: "push-catalog-preview-other@test.local", organizationId: OTHER_ORG_ID };
+const otherActor = createTestActor({
+  userId: "push-catalog-preview-other-admin",
+  email: "push-catalog-preview-other@test.local",
+  organizationId: OTHER_ORG_ID,
+  role: "admin",
+  permissions: ["*:*"],
+});
 
 describe("push catalog preview", () => {
   let built: Awaited<ReturnType<typeof createPluginTestApp>>;

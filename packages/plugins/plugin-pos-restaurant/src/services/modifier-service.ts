@@ -218,34 +218,4 @@ export class ModifierService {
     return Ok({ totalAdjustment, validatedModifiers });
   }
 
-  // ─── Get Modifiers for Entity ──────────────────────────────────────
-  // Returns all modifier groups with their options for a given entity.
-  // Used by the POS frontend to render modifier selection UI.
-
-  async getModifiersForEntity(orgId: string, entityId: string): Promise<PluginResult<Array<{
-    group: ModifierGroup;
-    options: ModifierOption[];
-  }>>> {
-    const groups = await this.db
-      .select()
-      .from(posModifierGroups)
-      .where(and(
-        eq(posModifierGroups.organizationId, orgId),
-        eq(posModifierGroups.entityId, entityId),
-      ))
-      .orderBy(posModifierGroups.sortOrder);
-
-    const result = [];
-    for (const group of groups) {
-      const options = await this.db
-        .select()
-        .from(posModifierOptions)
-        .where(eq(posModifierOptions.groupId, group.id))
-        .orderBy(posModifierOptions.sortOrder);
-
-      result.push({ group, options });
-    }
-
-    return Ok(result);
-  }
 }

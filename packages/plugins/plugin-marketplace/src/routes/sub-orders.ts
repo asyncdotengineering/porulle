@@ -1,4 +1,4 @@
-import { router } from "@porulle/core";
+import { router, CommerceNotFoundError } from "@porulle/core";
 import type { PluginRouteRegistration } from "@porulle/core";
 import type { z } from "@hono/zod-openapi";
 import type { SubOrderService } from "../services/sub-order.js";
@@ -29,7 +29,7 @@ export function buildSubOrderRoutes(services: {
     .permission("marketplace:admin")
     .handler(async ({ params }) => {
       const subOrder = await services.subOrder.getById(params.id!);
-      if (!subOrder) throw new Error("Sub-order not found");
+      if (!subOrder) throw new CommerceNotFoundError("Sub-order not found.");
       return subOrder;
     });
 
@@ -41,7 +41,7 @@ export function buildSubOrderRoutes(services: {
     .handler(async ({ params, input }) => {
       const body = input as z.infer<typeof UpdateSubOrderStatusBodySchema>;
       const subOrder = await services.subOrder.getById(params.id!);
-      if (!subOrder) throw new Error("Sub-order not found");
+      if (!subOrder) throw new CommerceNotFoundError("Sub-order not found.");
 
       // Use cancel() for cancelled status to trigger side effects
       // (inventory release + ledger reversal)

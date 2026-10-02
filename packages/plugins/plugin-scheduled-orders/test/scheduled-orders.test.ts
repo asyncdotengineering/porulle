@@ -1,12 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { PluginTestApp } from "@porulle/core/testing";
-import {
-  createPluginTestApp,
-  jsonHeaders,
-  testNoPermActor,
-  scheduledOrdersAdminActor,
-  scheduledOrdersCreatorActor,
-} from "./test-utils.js";
+import { createPluginTestApp, createTestActor, jsonHeaders, testNoPermActor } from "@porulle/core/testing";
+import { scheduledOrdersAdminActor, scheduledOrdersCreatorActor } from "./test-utils.js";
 import { scheduledOrdersPlugin } from "../src/index.js";
 
 const CUSTOMER_ID = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
@@ -126,11 +121,11 @@ describe("Scheduled Orders Plugin", () => {
   });
 
   it("org isolation: other org sees 0 orders", async () => {
-    const otherOrg: import("@porulle/core").Actor = {
-      type: "user", userId: "other", email: "o@o.local", name: "Other",
-      vendorId: null, organizationId: "org_other", role: "staff",
+    const otherOrg = createTestActor({
+      userId: "other",
+      organizationId: "org_other",
       permissions: ["scheduled-orders:read"],
-    };
+    });
     const res = await app.request("http://localhost/api/scheduled-orders", {
       headers: jsonHeaders(otherOrg),
     });

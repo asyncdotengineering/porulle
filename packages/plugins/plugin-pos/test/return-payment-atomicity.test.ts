@@ -1,15 +1,14 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { PluginTestApp } from "@porulle/core/testing";
-import type { Actor } from "@porulle/core/testing";
-import { createPluginTestApp, jsonHeaders, posAdminActor } from "./test-utils.js";
+import {createPluginTestApp, jsonHeaders, createTestActor } from "@porulle/core/testing";
+import { posAdminActor } from "./test-utils.js";
 import { posPlugin } from "../src/index.js";
 import { markOrderPaidForTest } from "@porulle/core/testing";
 
 const UNIT_PRICE = 3000;
 
 /** Actor with permissions to create paid orders and process returns. */
-const returnActor: Actor = {
-  ...posAdminActor,
+const returnActor = createTestActor({
   permissions: [
     ...posAdminActor.permissions,
     "orders:create",
@@ -19,7 +18,7 @@ const returnActor: Actor = {
     "catalog:read:unpublished",
     "pricing:manage",
   ],
-};
+});
 
 describe("POS return — refund ledger bound to payout (475ace30)", () => {
   let app: PluginTestApp["app"];

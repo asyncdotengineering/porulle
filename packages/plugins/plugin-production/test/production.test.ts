@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { PluginTestApp } from "@porulle/core/testing";
-import { createPluginTestApp, jsonHeaders, testNoPermActor, productionAdminActor, productionCreatorActor, productionReaderActor } from "./test-utils.js";
+import { createPluginTestApp, createTestActor, jsonHeaders, testNoPermActor } from "@porulle/core/testing";
+import { productionAdminActor, productionCreatorActor, productionReaderActor } from "./test-utils.js";
 import { productionPlugin } from "../src/index.js";
 
 // Fixed UUIDs for ingredient entities
@@ -495,10 +496,11 @@ describe("Production Plugin", () => {
   });
 
   it("org isolation: different org sees 0 BOMs", async () => {
-    const otherOrg: import("@porulle/core").Actor = {
-      type: "user", userId: "other", email: "o@o.local", name: "Other",
-      vendorId: null, organizationId: "org_other", role: "staff", permissions: ["production:read"],
-    };
+    const otherOrg = createTestActor({
+      userId: "other",
+      organizationId: "org_other",
+      permissions: ["production:read"],
+    });
     const res = await app.request("http://localhost/api/production/boms", {
       headers: jsonHeaders(otherOrg),
     });
@@ -507,10 +509,11 @@ describe("Production Plugin", () => {
   });
 
   it("org isolation: different org sees 0 orders", async () => {
-    const otherOrg: import("@porulle/core").Actor = {
-      type: "user", userId: "other", email: "o@o.local", name: "Other",
-      vendorId: null, organizationId: "org_other", role: "staff", permissions: ["production:read"],
-    };
+    const otherOrg = createTestActor({
+      userId: "other",
+      organizationId: "org_other",
+      permissions: ["production:read"],
+    });
     const res = await app.request("http://localhost/api/production/orders", {
       headers: jsonHeaders(otherOrg),
     });

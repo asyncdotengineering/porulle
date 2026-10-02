@@ -1,8 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import type { Actor } from "@porulle/core/testing";
-import { jsonHeaders, TEST_ORG_ID } from "@porulle/core/testing";
+import {jsonHeaders, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
 import { procurementPlugin } from "../src/index.js";
-import { createPluginTestApp } from "./test-utils.js";
+import { createPluginTestApp } from "@porulle/core/testing";
 import type { PluginTestApp } from "@porulle/core/testing";
 
 /**
@@ -13,8 +12,7 @@ const ORG_B = "org_sec21_b";
 const WAREHOUSE_ID = "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e";
 const ENTITY_ID = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
 
-const orgBActor: Actor = {
-  type: "user",
+const orgBActor = createTestActor({
   userId: "sec21-b-admin",
   email: "b@sec21.test",
   name: "Org B Admin",
@@ -22,10 +20,9 @@ const orgBActor: Actor = {
   organizationId: ORG_B,
   role: "staff",
   permissions: ["procurement:admin", "procurement:create", "procurement:read"],
-};
+});
 
-const orgAActor: Actor = {
-  type: "user",
+const orgAActor = createTestActor({
   userId: "sec21-a-staff",
   email: "a@sec21.test",
   name: "Org A Staff",
@@ -33,7 +30,7 @@ const orgAActor: Actor = {
   organizationId: ORG_A,
   role: "staff",
   permissions: ["procurement:create", "procurement:read"],
-};
+});
 
 describe("SEC-21 — GRN cross-tenant write blocked", () => {
   let harness: PluginTestApp;

@@ -1,13 +1,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { and, eq } from "@porulle/core/drizzle";
 import type { PluginTestApp } from "@porulle/core/testing";
-import {
-  createPluginTestApp,
-  jsonHeaders,
-  posAdminActor,
-  posOperatorActor,
-  TEST_ORG_ID,
-} from "./test-utils.js";
+import { createPluginTestApp, jsonHeaders, TEST_ORG_ID } from "@porulle/core/testing";
+import { posAdminActor, posOperatorActor } from "./test-utils.js";
 import { posPlugin } from "../src/index.js";
 import { posPinAttempts } from "../src/schema.js";
 

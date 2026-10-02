@@ -2530,14 +2530,6 @@ export class ChannelConnectorService {
     return resolved.family.includes(currentSlug) ? currentSlug : resolved.slug;
   }
 
-  async getStoreByDomain(shopDomain: string): Promise<ConnectedStore | undefined> {
-    const rows = await this.db
-      .select()
-      .from(connectedStores)
-      .where(eq(connectedStores.storeDomain, shopDomain));
-    return rows[0] as ConnectedStore | undefined;
-  }
-
   // A shop_domain can map to more than one connected store (reconnect, or the same
   // shop under two orgs). Compliance webhooks must fan out to all of them.
   async getStoresByDomain(shopDomain: string): Promise<ConnectedStore[]> {

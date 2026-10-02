@@ -2,12 +2,11 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createSystemActor, type Actor, type ChannelCatalogItem } from "@porulle/core";
 import { and, eq } from "@porulle/core/drizzle";
 import { commerceJobs, sellableEntities } from "@porulle/core/schema";
-import { createPluginTestApp, TEST_ORG_ID } from "@porulle/core/testing";
+import {createPluginTestApp, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
 import { channelConnectorPlugin, ChannelConnectorService, mockChannelConnector } from "../src/index.js";
 import { channelEntityMap, connectedStores } from "../src/schema.js";
 
-const actor: Actor = {
-  type: "user",
+const actor = createTestActor({
   userId: "c74-operator",
   email: "c74@test.local",
   name: "c74 Operator",
@@ -15,7 +14,7 @@ const actor: Actor = {
   organizationId: TEST_ORG_ID,
   role: "admin",
   permissions: ["*:*"],
-};
+});
 
 const item = (externalId: string, title: string): ChannelCatalogItem => ({
   externalId,

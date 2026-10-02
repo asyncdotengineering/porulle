@@ -1,11 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { PluginTestApp } from "@porulle/core/testing";
-import {
-  createPluginTestApp,
-  jsonHeaders,
-  posAdminActor,
-  posOperatorActor,
-} from "./test-utils.js";
+import { createPluginTestApp, jsonHeaders } from "@porulle/core/testing";
+import { posAdminActor, posOperatorActor } from "./test-utils.js";
 import { posPlugin } from "../src/index.js";
 
 // Issue #51 — config.auth.posPin existed with no runtime behind it: no PIN

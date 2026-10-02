@@ -86,33 +86,6 @@ export class RestaurantAnalyticsService {
     return Ok(pnl);
   }
 
-  async getDailyPnl(orgId: string, date: Date): Promise<PluginResult<{
-    pnl: typeof posDailyPnl.$inferSelect;
-    expenses: Array<typeof posPnlExpenses.$inferSelect>;
-  }>> {
-    const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
-
-    const pnls = await this.db
-      .select()
-      .from(posDailyPnl)
-      .where(and(
-        eq(posDailyPnl.organizationId, orgId),
-        sql`${posDailyPnl.date} >= ${startOfDay}`,
-        sql`${posDailyPnl.date} < ${endOfDay}`,
-      ));
-
-    if (pnls.length === 0) return Err("No P&L record for this date");
-    const pnl = pnls[0]!;
-
-    const expenses = await this.db
-      .select()
-      .from(posPnlExpenses)
-      .where(eq(posPnlExpenses.pnlId, pnl.id));
-
-    return Ok({ pnl, expenses });
-  }
-
   async listDailyPnl(orgId: string, limit?: number): Promise<PluginResult<Array<typeof posDailyPnl.$inferSelect>>> {
     const rows = await this.db
       .select()

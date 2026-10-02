@@ -1,4 +1,5 @@
 import { eq, and, desc } from "@porulle/core/drizzle";
+import { CommerceInvalidTransitionError, CommerceNotFoundError } from "@porulle/core";
 import { vendorSubOrders } from "../schema.js";
 import type { Db, SubOrderStatus } from "../types.js";
 import { SUB_ORDER_TRANSITIONS } from "../types.js";
@@ -17,12 +18,6 @@ export class SubOrderService {
   async getById(id: string) {
     const [sub] = await this.db.select().from(vendorSubOrders).where(eq(vendorSubOrders.id, id));
     return sub ?? null;
-  }
-
-  async listByOrder(orderId: string) {
-    return this.db.select().from(vendorSubOrders)
-      .where(eq(vendorSubOrders.orderId, orderId))
-      .orderBy(desc(vendorSubOrders.createdAt));
   }
 
   async listByVendor(vendorId: string, filters?: { status?: string }) {
@@ -49,13 +44,21 @@ export class SubOrderService {
   private assertTransition(current: SubOrderStatus, next: SubOrderStatus) {
     const allowed = SUB_ORDER_TRANSITIONS[current];
     if (!allowed?.includes(next)) {
-      throw new Error(`Cannot transition sub-order from "${current}" to "${next}".`);
+      throw new CommerceInvalidTransitionError(
+        `Cannot transition sub-order from "${current}" to "${next}".`,
+      );
     }
   }
 
+  private requireSubOrder(id: string) {
+    return this.getById(id).then((sub) => {
+      if (!sub) throw new CommerceNotFoundError("Sub-order not found.");
+      return sub;
+    });
+  }
+
   async confirm(id: string) {
-    const sub = await this.getById(id);
-    if (!sub) throw new Error("Sub-order not found.");
+    const sub = await this.requireSubOrder(id);
     this.assertTransition(sub.status as SubOrderStatus, "confirmed");
 
     const [updated] = await this.db.update(vendorSubOrders).set({
@@ -67,8 +70,7 @@ export class SubOrderService {
   }
 
   async process(id: string) {
-    const sub = await this.getById(id);
-    if (!sub) throw new Error("Sub-order not found.");
+    const sub = await this.requireSubOrder(id);
     this.assertTransition(sub.status as SubOrderStatus, "processing");
 
     const [updated] = await this.db.update(vendorSubOrders).set({
@@ -79,8 +81,7 @@ export class SubOrderService {
   }
 
   async ship(id: string, data: { trackingNumber: string; carrier: string }) {
-    const sub = await this.getById(id);
-    if (!sub) throw new Error("Sub-order not found.");
+    const sub = await this.requireSubOrder(id);
     this.assertTransition(sub.status as SubOrderStatus, "shipped");
 
     const [updated] = await this.db.update(vendorSubOrders).set({
@@ -94,8 +95,7 @@ export class SubOrderService {
   }
 
   async deliver(id: string) {
-    const sub = await this.getById(id);
-    if (!sub) throw new Error("Sub-order not found.");
+    const sub = await this.requireSubOrder(id);
     this.assertTransition(sub.status as SubOrderStatus, "delivered");
 
     const [updated] = await this.db.update(vendorSubOrders).set({
@@ -107,8 +107,7 @@ export class SubOrderService {
   }
 
   async cancel(id: string, reason?: string) {
-    const sub = await this.getById(id);
-    if (!sub) throw new Error("Sub-order not found.");
+    const sub = await this.requireSubOrder(id);
     this.assertTransition(sub.status as SubOrderStatus, "cancelled");
 
     const [updated] = await this.db.update(vendorSubOrders).set({
@@ -118,7 +117,6 @@ export class SubOrderService {
       updatedAt: new Date(),
     }).where(eq(vendorSubOrders.id, id)).returning();
 
-    // Trigger side effects: release inventory + reverse ledger
     if (this.onCancel && sub) {
       await this.onCancel(sub);
     }

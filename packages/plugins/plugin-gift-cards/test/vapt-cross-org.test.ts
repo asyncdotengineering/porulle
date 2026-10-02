@@ -1,12 +1,10 @@
 import { describe, expect, it, beforeAll } from "vitest";
 import type { PluginTestApp } from "@porulle/core/testing";
-import type { Actor } from "@porulle/core/testing";
-import { createPluginTestApp, jsonHeaders, testAdminActor, TEST_ORG_ID } from "./test-utils.js";
+import {createPluginTestApp, jsonHeaders, testAdminActor, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
 import { giftCardPlugin } from "../src/index.js";
 
 // A gift-cards admin belonging to a DIFFERENT organization than testAdminActor.
-const foreignAdmin: Actor = {
-  type: "user",
+const foreignAdmin = createTestActor({
   userId: "gc-foreign-admin",
   email: "foreign@test.local",
   name: "Foreign Admin",
@@ -14,7 +12,7 @@ const foreignAdmin: Actor = {
   organizationId: "org_gc_foreign",
   role: "staff",
   permissions: ["gift-cards:admin"],
-};
+});
 
 describe("VAPT: gift-card cross-tenant isolation", () => {
   let app: PluginTestApp["app"];

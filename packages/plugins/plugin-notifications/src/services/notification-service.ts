@@ -191,68 +191,6 @@ export class NotificationService {
     return Ok(logRows[0]!);
   }
 
-  // ── Direct Channel Sends ───────────────────────────────────────────
-
-  async sendSMS(orgId: string, to: string, body: string): Promise<Result<NotificationLogEntry>> {
-    let adapterError: string | undefined;
-    let adapterMessageId: string | undefined;
-
-    if (this.smsAdapter) {
-      const result = await this.smsAdapter.send({ to, body });
-      if (!result.ok) {
-        adapterError = result.error;
-      } else {
-        adapterMessageId = result.value.messageId;
-      }
-    }
-
-    const status: NotificationStatus = adapterError ? "failed" : "sent";
-    const rows = await this.db.insert(notificationLog).values({
-      organizationId: orgId,
-      channel: "sms",
-      event: "direct.sms",
-      recipient: to,
-      status,
-      error: adapterError,
-      metadata: adapterMessageId ? { adapterMessageId } : {},
-    }).returning();
-
-    return Ok(rows[0]!);
-  }
-
-  async sendPush(
-    orgId: string,
-    deviceToken: string,
-    title: string,
-    body: string,
-    data?: Record<string, unknown>,
-  ): Promise<Result<NotificationLogEntry>> {
-    let adapterError: string | undefined;
-    let adapterMessageId: string | undefined;
-
-    if (this.pushAdapter) {
-      const result = await this.pushAdapter.send({ deviceToken, title, body, ...(data != null ? { data } : {}) });
-      if (!result.ok) {
-        adapterError = result.error;
-      } else {
-        adapterMessageId = result.value.messageId;
-      }
-    }
-
-    const status: NotificationStatus = adapterError ? "failed" : "sent";
-    const rows = await this.db.insert(notificationLog).values({
-      organizationId: orgId,
-      channel: "push",
-      event: "direct.push",
-      recipient: deviceToken,
-      status,
-      error: adapterError,
-      metadata: adapterMessageId ? { adapterMessageId } : {},
-    }).returning();
-
-    return Ok(rows[0]!);
-  }
-
   // ── Log Queries ────────────────────────────────────────────────────
 
   async listLog(orgId: string, filters?: {

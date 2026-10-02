@@ -53,7 +53,7 @@ Models service types, staff/resources (providers), weekly templates, breaks, day
 
 ## Configuration options
 
-`AppointmentPluginOptions`: `defaultDurationMinutes`, `defaultBufferBeforeMinutes`, `defaultBufferAfterMinutes`, `minNoticeMinutes`, `maxAdvanceDays`, `defaultTimezone`, `autoConfirmCashBookings`.
+`AppointmentPluginOptions`: `minNoticeMinutes`, `maxAdvanceDays`.
 
 ## License
 

@@ -26,7 +26,7 @@ import {
 // The package's own harness cannot see the statements core issues (`import-statement-budget.test.ts`
 // counts only the service's handle). The PGlite adapter's query log sees every statement, and this
 // suite's first job is to count them, so it builds the adapter itself.
-import { createPGliteTestAdapter, createPluginTestApp, jsonHeaders, TEST_ORG_ID, testAdminActor } from "@porulle/core/testing";
+import {createPGliteTestAdapter, createPluginTestApp, jsonHeaders, TEST_ORG_ID, testAdminActor, createTestActor } from "@porulle/core/testing";
 import {
   channelConnectorPlugin,
   ChannelConnectorService,
@@ -377,7 +377,9 @@ describe("E2E: a page of products lands on the import fast path", () => {
   }, 120_000);
 
   it("F11: an actor without catalog:sync is refused and nothing is written", async () => {
-    const noSync: Actor = { ...testAdminActor, permissions: ["catalog:create", "catalog:update", "catalog:read", "channels:manage"] };
+    const noSync = createTestActor({
+      permissions: ["catalog:create", "catalog:update", "catalog:read", "channels:manage"],
+    });
     const before = (await built.db.select().from(sellableEntities).where(eq(sellableEntities.organizationId, TEST_ORG_ID))).length;
     queryLog.start();
     const outcome = await service.convergeCatalogPage(TEST_ORG_ID, storeId, [product(60, { externalId: "ext-nosync", slug: "dress-nosync" })], noSync);

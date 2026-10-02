@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Actor, JobsAdapter } from "@porulle/core";
-import { createPluginTestApp, TEST_ORG_ID } from "@porulle/core/testing";
+import {createPluginTestApp, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
 import { channelConnectorPlugin, ChannelConnectorService, mockChannelConnector } from "../src/index.js";
 import { connectedStores } from "../src/schema.js";
 
@@ -22,8 +22,7 @@ import { connectedStores } from "../src/schema.js";
  * deliberately turned catalog writes off for.
  */
 
-const actor: Actor = {
-  type: "user",
+const actor = createTestActor({
   userId: "unregistered-connector-admin",
   email: "unregistered-connector-admin@test.local",
   name: "Unregistered Connector Admin",
@@ -31,7 +30,7 @@ const actor: Actor = {
   organizationId: TEST_ORG_ID,
   role: "admin",
   permissions: ["*:*"],
-};
+});
 
 /**
  * The test kernel exposes a jobs adapter that its `services` type does not declare. Checked at

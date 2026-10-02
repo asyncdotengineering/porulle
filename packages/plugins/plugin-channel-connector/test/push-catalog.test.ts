@@ -5,7 +5,7 @@ import {
   type ChannelPushCatalogItem,
   type JobsAdapter,
 } from "@porulle/core";
-import { createPluginTestApp, jsonHeaders, TEST_ORG_ID } from "@porulle/core/testing";
+import {createPluginTestApp, jsonHeaders, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
 import { and, eq, inArray } from "@porulle/core/drizzle";
 import { commerceJobs, sellableAttributes } from "@porulle/core/schema";
 import {
@@ -23,8 +23,7 @@ import {
 } from "../src/schema.js";
 import { sellableEntityRevisions } from "@porulle/core/schema";
 
-const actor: Actor = {
-  type: "user",
+const actor = createTestActor({
   userId: "push-catalog-admin",
   email: "push-catalog-admin@test.local",
   name: "Push Catalog Admin",
@@ -32,7 +31,7 @@ const actor: Actor = {
   organizationId: TEST_ORG_ID,
   role: "admin",
   permissions: ["*:*"],
-};
+});
 
 describe("channel/push-catalog job", () => {
   const pushCapture = { batches: [] as ChannelPushCatalogItem[][] };
