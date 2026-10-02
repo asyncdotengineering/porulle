@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Kernel } from "../src/runtime/kernel.js";
-import { createTestServer, testActor } from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor } from "../src/test-utils/test-actors.js";
 // Item 5 of the release needs no runtime assertion: this type-only import fails `check-types`
 // when the export is missing, and `check-types` is already a gate. It is here rather than in a
 // comment so the failure has a location.

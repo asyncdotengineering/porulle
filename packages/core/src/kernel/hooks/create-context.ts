@@ -5,7 +5,7 @@ import type { JobsAdapter } from "../jobs/adapter.js";
 import { NullJobsAdapter } from "../jobs/adapter.js";
 import type { PluginDb } from "../database/plugin-types.js";
 import type { HookContext, HookOrigin, Logger, ServiceContainer } from "./types.js";
-import { createLogger } from "../../utils/logger.js";
+import { createConsoleLogger } from "../../utils/logger.js";
 
 export interface CreateHookContextArgs {
   actor: Actor | null;
@@ -81,7 +81,7 @@ export function createModuleHookContext(
   return createHookContext({
     actor,
     tx,
-    logger: createLogger(options.logScope ?? moduleName),
+    logger: createConsoleLogger(options.logScope ?? moduleName),
     services: deps.services,
     context: { moduleName, ...options.context },
     database: { db: deps.database.db as PluginDb },

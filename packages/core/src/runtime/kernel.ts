@@ -2,39 +2,29 @@ import type { CommerceConfig } from "../config/types.js";
 import { HookRegistry, isHookMarkedInTransaction, type HookHandler } from "../kernel/hooks/registry.js";
 import { createDatabaseConnection } from "../kernel/database/adapter.js";
 import type { DrizzleDatabase } from "../kernel/database/drizzle-db.js";
-import type { AppModule } from "../kernel/module/index.js";
-import { topoSortModules } from "../kernel/module/index.js";
 import { WebhookDeliveryWorker } from "../modules/webhooks/worker.js";
 import { WebhooksRepository } from "../modules/webhooks/repository/index.js";
-import { createLogger } from "../utils/logger.js";
+import { createConsoleLogger } from "../utils/logger.js";
 import { withTiming } from "../kernel/service-timing.js";
 import { setBootDefaultOrgId } from "../auth/org.js";
 import { DrizzleJobsAdapter } from "../kernel/jobs/drizzle-adapter.js";
 import type { ExecutionEngine } from "../kernel/jobs/adapter.js";
 import { CompensationFailuresRepository } from "../kernel/compensation/repository.js";
 
-import {
-  KERNEL_ALL_MODULES,
-  kernelModulesForTopoSort,
-} from "./kernel-modules.js";
+import { KERNEL_SERVICE_FACTORIES } from "./kernel-modules.js";
 import { registerConfiguredKernelHooks } from "./kernel-register-hooks.js";
 import {
   assertKernelServicesReady,
-  assertSortedBefore,
   type Kernel,
   type WebhookDeliveryPayload,
 } from "./kernel-types.js";
 
 export type { Kernel, WebhookDeliveryPayload };
 export type { ConfigRouteKernel, ConfigRouteDatabase } from "./kernel-types.js";
-export {
-  KERNEL_ALL_MODULES,
-  kernelModuleInstantiationOrder,
-} from "./kernel-modules.js";
 
 export function createKernel(config: CommerceConfig): Kernel {
   const hooks = new HookRegistry();
-  const logger = createLogger("kernel");
+  const logger = createConsoleLogger("kernel");
   hooks.setLogger({ error: (obj, msg) => logger.error(msg, obj) });
 
   // Register the configured default organization for resolveOrgId(). Done here
@@ -73,45 +63,17 @@ export function createKernel(config: CommerceConfig): Kernel {
   );
   const jobsEngine: ExecutionEngine =
     config.jobs?.adapter ?? new DrizzleJobsAdapter(db);
-  const jobLogger = {
-    info: (message: string, data?: unknown) => logger.info(message, data),
-    warn: (message: string, data?: unknown) => logger.warn(message, data),
-    error: (message: string, data?: unknown) => logger.error(message, data),
-  };
   jobsEngine.register({
     tasks: jobsTaskMap,
-    context: { logger: jobLogger, db, services: serviceContainer },
+    context: { logger, db, services: serviceContainer },
     ...(config.jobs?.processingOrder !== undefined
       ? { processingOrder: config.jobs.processingOrder }
       : {}),
   });
   serviceContainer.jobs = jobsEngine;
 
-  const topoGraph = kernelModulesForTopoSort();
-  const order = topoSortModules(topoGraph);
-  const moduleKeys = Object.keys(KERNEL_ALL_MODULES);
-  if (order.length !== moduleKeys.length) {
-    throw new Error(
-      `topoSortModules length mismatch: got ${order.length}, expected ${moduleKeys.length}`,
-    );
-  }
-  assertSortedBefore(order, "catalog", "inventory");
-  assertSortedBefore(order, "catalog", "pricing");
-
-  const moduleDeps = {
-    db: database,
-    hooks,
-    config,
-    logger,
-  };
-
-  for (const id of order) {
-    const mod = KERNEL_ALL_MODULES[id as keyof typeof KERNEL_ALL_MODULES];
-    const svc = (mod as AppModule<unknown, unknown, Record<string, unknown>>).service({
-      ...moduleDeps,
-      services: services as Record<string, unknown>,
-    });
-    (services as Record<string, unknown>)[id] = svc;
+  for (const [id, create] of KERNEL_SERVICE_FACTORIES) {
+    serviceContainer[id] = create({ database, db, hooks, config, services: serviceContainer });
   }
 
   const baseWebhooks = services.webhooks!;

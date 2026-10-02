@@ -18,29 +18,20 @@
  */
 
 import { OpenAPIHono } from "@hono/zod-openapi";
-import { createRequire } from "node:module";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { CommerceConfig, CommercePlugin } from "../config/types.js";
 import type { Actor } from "../auth/types.js";
 import { createTestConfig } from "./create-test-config.js";
 import { createKernel } from "../runtime/kernel.js";
 import type { Kernel } from "../runtime/kernel.js";
-import { buildSchema } from "../kernel/database/migrate.js";
-import { unwrapDb } from "../kernel/database/adapter.js";
+import { pushSchema } from "../kernel/database/migrate.js";
 import { ensureDefaultOrg } from "../auth/org.js";
-import { mapErrorToStatus } from "../kernel/error-mapper.js";
+import { mapErrorToResponse } from "../kernel/error-mapper.js";
+import { buildConfigRoutesKernel } from "../kernel/plugin/manifest.js";
 import { createAuth, type AuthInstance } from "../auth/setup.js";
 import { authMiddleware } from "../auth/middleware.js";
 
-// drizzle-kit/api uses CJS internally; createRequire provides ESM compat.
-const require = createRequire(import.meta.url);
 
-type DrizzleKitPushResult = {
-  hasDataLoss: boolean;
-  warnings: string[];
-  statementsToExecute: string[];
-  apply: () => Promise<void>;
-};
 
 /**
  * Hono environment type for the test app. Declares the `actor` context
@@ -84,24 +75,9 @@ export async function createPluginTestApp(
   // 2. Boot kernel (creates core services, hook registry)
   const kernel = createKernel(config);
 
-  // 3. Merge core + plugin schemas
-  const mergedSchema = buildSchema(config);
-
-  // 4. Programmatic schema push via drizzle-kit/api
-  //    Diffs current DB state against pgTable definitions, generates DDL, applies it.
-  //    On fresh PGlite: creates all tables. On existing DB: creates only missing tables.
-  const drizzleKit = require("drizzle-kit/api") as {
-    pushSchema(
-      imports: Record<string, unknown>,
-      drizzleInstance: PgDatabase<PgQueryResultHKT>,
-    ): Promise<DrizzleKitPushResult>;
-  };
-  const { apply } = await drizzleKit.pushSchema(
-    mergedSchema,
-    // drizzle-kit needs the native driver result shape; unwrap the normalized db.
-    unwrapDb(kernel.database.db) as PgDatabase<PgQueryResultHKT>,
-  );
-  await apply();
+  // 3. Create core + plugin tables (drizzle-kit diffs the live database and
+  //    applies only the missing DDL).
+  await pushSchema(kernel.database.db, config);
 
   // Ensure the default organization exists for plugin tests
   await ensureDefaultOrg(kernel.database.db);
@@ -128,33 +104,18 @@ export async function createPluginTestApp(
     return authMiddleware(auth, config)(c as never, next);
   });
 
-  // 7. Register plugin routes (deferred via config.routes) — with the auth
-  //    instance, matching server.ts's config.routes(app, kernel, auth).
+  // 7. Register plugin routes (deferred via config.routes) exactly as
+  //    server.ts does: with the tenant-scoped route kernel and the auth instance.
   const routes = config.routes as
     | ((app: unknown, kernel: unknown, auth?: unknown) => void)
     | undefined;
-  routes?.(app, kernel, auth);
+  routes?.(app, buildConfigRoutesKernel(kernel), auth);
 
-  // 8. Error handler matching production server.ts — maps CommerceError
-  //    subclasses (CommerceForbiddenError, CommerceNotFoundError, etc.)
-  //    to their proper HTTP status codes (403, 404, 409, 422, 503).
-  //    Without this, route handlers that throw assertPermission() etc.
-  //    surface as 500 in tests, masking real status assertions.
+  // 8. The production error handler: CommerceError subclasses map to their
+  //    status (403, 404, 409, 422, 503) instead of surfacing as 500.
   app.onError((err, c) => {
-    if (err instanceof Error && "code" in err && typeof (err as { code?: unknown }).code === "string") {
-      const status = mapErrorToStatus(err);
-      if (status !== 500) {
-        const errorCode = (err as { code: string }).code;
-        return c.json(
-          { error: { code: errorCode, message: err.message } },
-          status,
-        );
-      }
-    }
-    return c.json(
-      { error: { code: "INTERNAL_ERROR", message: err.message } },
-      500,
-    );
+    const { body, status } = mapErrorToResponse(err, false);
+    return c.json(body, status);
   });
 
   return {

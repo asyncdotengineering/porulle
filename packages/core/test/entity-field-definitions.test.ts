@@ -1,10 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import {
-  createTestServer,
-  makeRequest,
-  parseJsonResponse,
-  testActor,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor } from "../src/test-utils/test-actors.js";
 
 describe("runtime entity field definitions", () => {
   let server: Awaited<ReturnType<typeof createTestServer>>["server"];

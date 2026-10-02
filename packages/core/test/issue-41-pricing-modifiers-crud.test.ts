@@ -1,10 +1,6 @@
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
-import {
-  createTestServer,
-  makeRequest,
-  testActor,
-  parseJsonResponse,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor } from "../src/test-utils/test-actors.js";
 
 // Issue #41 — pricing modifiers were create-only: an operator could schedule
 // a store-wide sale but then couldn't see, edit, or end it. GET (list),

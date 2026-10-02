@@ -4,12 +4,8 @@ import { CommerceValidationError } from "../src/kernel/errors.js";
 import { Ok } from "../src/kernel/result.js";
 import type { PaymentAdapter } from "../src/modules/payments/adapter.js";
 import type { InventoryService } from "../src/modules/inventory/service.js";
-import {
-  createTestServer,
-  makeRequest,
-  parseJsonResponse,
-  testActor,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor } from "../src/test-utils/test-actors.js";
 
 type TestServerBundle = Awaited<ReturnType<typeof createTestServer>>;
 

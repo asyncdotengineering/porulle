@@ -4,11 +4,8 @@ import { processedWebhookEvents } from "../src/modules/webhooks/schema.js";
 import type { DrizzleDatabase } from "../src/kernel/database/drizzle-db.js";
 import type { Kernel } from "../src/runtime/kernel.js";
 import { Ok } from "../src/kernel/result.js";
-import {
-  createTestServer,
-  makeRequest,
-  testActor,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor } from "../src/test-utils/test-actors.js";
 
 /**
  * The payment webhook route must know WHICH gateway it is talking to.

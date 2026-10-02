@@ -1,11 +1,6 @@
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
-import {
-  createTestServer,
-  makeRequest,
-  testActor,
-  noPermActor,
-  parseJsonResponse,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor, testNoPermActor } from "../src/test-utils/test-actors.js";
 
 // Issue #49 — no runtime settings surface existed: store-level knobs
 // (branding, policy values, currency/timezone) required code + redeploy or a
@@ -117,7 +112,7 @@ describe("Issue #49 — org-scoped store settings", () => {
     const res = await makeRequest(server, {
       method: "GET",
       url: "http://localhost/api/settings",
-      actor: noPermActor,
+      actor: testNoPermActor,
     });
     expect(res.status).toBe(403);
   });

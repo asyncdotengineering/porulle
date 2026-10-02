@@ -23,7 +23,6 @@ import type {
   FulfillmentStrategy,
   FulfillmentStrategyContext,
 } from "./types.js";
-import { makeId } from "../../utils/id.js";
 
 interface InventoryServiceLike {
   adjust(input: {
@@ -88,7 +87,7 @@ class PhysicalFulfillmentStrategy implements FulfillmentStrategy {
     _context: FulfillmentStrategyContext,
   ): Promise<Result<FulfillmentRecord>> {
     return Ok({
-      id: makeId(),
+      id: crypto.randomUUID(),
       orderId: lineItem.orderId,
       type: this.type,
       status: "pending",
@@ -120,7 +119,7 @@ class DigitalDownloadFulfillmentStrategy implements FulfillmentStrategy {
   ): Promise<Result<FulfillmentRecord>> {
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString();
     return Ok({
-      id: makeId(),
+      id: crypto.randomUUID(),
       orderId: lineItem.orderId,
       type: this.type,
       status: "fulfilled",
@@ -160,7 +159,7 @@ class DigitalAccessFulfillmentStrategy implements FulfillmentStrategy {
     _context: FulfillmentStrategyContext,
   ): Promise<Result<FulfillmentRecord>> {
     return Ok({
-      id: makeId(),
+      id: crypto.randomUUID(),
       orderId: lineItem.orderId,
       type: this.type,
       status: "fulfilled",
@@ -198,7 +197,7 @@ class InternalTransferFulfillmentStrategy implements FulfillmentStrategy {
     _context: FulfillmentStrategyContext,
   ): Promise<Result<FulfillmentRecord>> {
     return Ok({
-      id: makeId(),
+      id: crypto.randomUUID(),
       orderId: lineItem.orderId,
       type: this.type,
       status: "processing",
@@ -229,7 +228,7 @@ class AppointmentFulfillmentStrategy implements FulfillmentStrategy {
     _context: FulfillmentStrategyContext,
   ): Promise<Result<FulfillmentRecord>> {
     return Ok({
-      id: makeId(),
+      id: crypto.randomUUID(),
       orderId: lineItem.orderId,
       type: this.type,
       status: "pending",

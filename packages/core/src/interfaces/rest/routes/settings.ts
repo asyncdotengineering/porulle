@@ -6,7 +6,7 @@ import {
   getSettingsGroupRoute,
   patchSettingsGroupRoute,
 } from "../schemas/settings.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requirePerm } from "../utils.js";
+import { type AppEnv, errorBody, mapErrorToStatus, requirePerm } from "../utils.js";
 
 export function settingsRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -17,14 +17,14 @@ export function settingsRoutes(kernel: Kernel) {
   // @ts-expect-error -- openapi handler union return type
   router.openapi(getAllSettingsRoute, async (c) => {
     const result = await kernel.services.settings.getAll(c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(getSettingsGroupRoute, async (c) => {
     const result = await kernel.services.settings.getGroup(c.req.param("group"), c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -53,7 +53,7 @@ export function settingsRoutes(kernel: Kernel) {
     }
 
     const result = await kernel.services.settings.updateGroup(group, body, c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 

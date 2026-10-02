@@ -73,6 +73,7 @@ export interface ResolvedPrice {
 
 export type { SetBasePriceInput, CreatePriceModifierInput } from "./schemas.js";
 import type { SetBasePriceInput, CreatePriceModifierInput } from "./schemas.js";
+import { normalizeCurrency } from "../../utils/money.js";
 
 function matchesQuantity(
   min: number | null | undefined,
@@ -171,9 +172,6 @@ function toGroupSet(context: PriceResolutionContext): Set<string> {
   return new Set(context.customerGroupIds ?? []);
 }
 
-function normalizeCurrency(currency: string): string {
-  return currency.trim().toUpperCase();
-}
 
 export class PricingService {
   private readonly repo: PricingRepository;

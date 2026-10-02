@@ -1,5 +1,5 @@
 import { defaultConfig } from "./defaults.js";
-import type { CommerceConfig, DefineConfigInput } from "./types.js";
+import type { CommerceConfig } from "./types.js";
 import type { TaskDefinition } from "../kernel/jobs/types.js";
 import { defaultKernelJobTasks } from "../kernel/jobs/builtin-job-tasks.js";
 import { _resetRegisteredPlugins } from "../kernel/plugin/manifest.js";
@@ -56,7 +56,7 @@ function merge<T extends object>(base: T, next: Partial<T>): T {
  * 4. Freezing the result to prevent runtime mutation
  */
 export async function defineConfig(
-  input: DefineConfigInput,
+  input: CommerceConfig,
 ): Promise<CommerceConfig> {
   let config = merge(defaultConfig as CommerceConfig, input);
 

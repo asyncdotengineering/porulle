@@ -4,12 +4,8 @@ import { organization } from "../src/auth/auth-schema.js";
 import type { DrizzleDatabase } from "../src/kernel/database/drizzle-db.js";
 import { createKernel } from "../src/runtime/kernel.js";
 import { createPGliteTestConfig } from "../src/test-utils/create-test-config.js";
-import {
-  createTestServer,
-  makeRequest,
-  parseJsonResponse,
-  testActor,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor } from "../src/test-utils/test-actors.js";
 
 const ORG_A = "custom_field_review_a";
 const ORG_B = "custom_field_review_b";

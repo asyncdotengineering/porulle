@@ -2,7 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
 import type { AttachMediaInput } from "../../../modules/media/service.js";
 import { attachMediaRoute, getMediaRoute, deleteMediaRoute } from "../schemas/media.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requireMethodPerm, requirePerm } from "../utils.js";
+import { type AppEnv, errorBody, mapErrorToStatus, requireMethodPerm, requirePerm } from "../utils.js";
 
 export function mediaRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -36,7 +36,7 @@ export function mediaRoutes(kernel: Kernel) {
     }, actor);
 
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
 
     return c.json({ data: result.value }, 201);
@@ -63,7 +63,7 @@ export function mediaRoutes(kernel: Kernel) {
       : await kernel.services.media.getUrl(c.req.param("id"), actor);
 
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
 
     return c.redirect(result.value, 302);
@@ -77,7 +77,7 @@ export function mediaRoutes(kernel: Kernel) {
     }
     const result = await kernel.services.media.delete(c.req.param("id"), actor);
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
     return c.json({ data: { deleted: true } });
   });
@@ -90,7 +90,7 @@ export function mediaRoutes(kernel: Kernel) {
     const body = c.req.valid("json") as AttachMediaInput;
     const result = await kernel.services.media.attachToEntity(body, c.get("actor"));
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
     return c.json({ data: { attached: true } }, 201);
   });

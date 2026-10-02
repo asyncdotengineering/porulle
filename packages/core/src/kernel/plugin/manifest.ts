@@ -18,14 +18,12 @@ import type {
   PluginPermission,
 } from "../../config/types.js";
 import type { TaskDefinition } from "../jobs/types.js";
+import type { Logger } from "../hooks/types.js";
 
 // ─── Plugin Logger ────────────────────────────────────────────────────
 
-export interface PluginLogger {
-  info(message: string, data?: unknown): void;
-  warn(message: string, data?: unknown): void;
-  error(message: string, data?: unknown): void;
-}
+/** The logger a plugin receives — the same shape every hook and job gets. */
+export type PluginLogger = Logger;
 
 // ─── Plugin Registration Types ────────────────────────────────────────
 

@@ -12,7 +12,6 @@ import type { Actor } from "../../auth/types.js";
 import type { ServiceContainer } from "../../kernel/hooks/types.js";
 import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import type { ShippingAddress } from "../shipping/calculator.js";
-import { makeId } from "../../utils/id.js";
 
 export interface OrderPricingInput {
   currency: string;
@@ -65,7 +64,7 @@ export async function computeOrderPricing(
   tx?: unknown,
 ): Promise<OrderPricingBreakdown> {
   const data: CheckoutData = {
-    checkoutId: makeId(),
+    checkoutId: crypto.randomUUID(),
     cartId: "",
     currency: input.currency,
     paymentMethodId: "",

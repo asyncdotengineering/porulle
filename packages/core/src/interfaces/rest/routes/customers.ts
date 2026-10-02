@@ -12,7 +12,7 @@ import {
   updateInteractionRoute,
   deleteInteractionRoute,
 } from "../schemas/customers.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, parsePagination, parseInclude, requirePerm } from "../utils.js";
+import { type AppEnv, errorBody, mapErrorToStatus, parsePagination, parseInclude, requirePerm } from "../utils.js";
 
 export function customerRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -27,7 +27,7 @@ export function customerRoutes(kernel: Kernel) {
     const { page, limit } = parsePagination(c.req.query());
 
     const result = await kernel.services.customers.list(actor);
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
 
     const all = result.value;
     const total = all.length;
@@ -46,7 +46,7 @@ export function customerRoutes(kernel: Kernel) {
   router.openapi(createCustomerRoute, async (c) => {
     const body = c.req.valid("json");
     const result = await kernel.services.customers.createWalkIn(body, c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value }, 201);
   });
 
@@ -55,7 +55,7 @@ export function customerRoutes(kernel: Kernel) {
     const { id } = c.req.valid("param");
     const actor = c.get("actor");
     const result = await kernel.services.customers.getById(id, actor);
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -75,7 +75,7 @@ export function customerRoutes(kernel: Kernel) {
     const result = await kernel.services.customers.update(id, updates, actor, undefined, {
       replaceMetadata,
     });
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -92,7 +92,7 @@ export function customerRoutes(kernel: Kernel) {
       { page, limit, ...(status ? { status } : {}), ...(includeTotals ? { includeTotals: true } : {}) },
       actor,
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     if (includeTotals) {
       // Wrapped shape: { data: { items, totals } } (+ pagination meta).
       return c.json({
@@ -111,13 +111,13 @@ export function customerRoutes(kernel: Kernel) {
 
     // Get customer first, then use their userId for address lookup
     const customerResult = await kernel.services.customers.getById(id, actor);
-    if (!customerResult.ok) return c.json(mapErrorToResponse(customerResult.error), mapErrorToStatus(customerResult.error));
+    if (!customerResult.ok) return c.json(errorBody(customerResult.error), mapErrorToStatus(customerResult.error));
 
     const addressResult = await kernel.services.customers.getAddresses(
       customerResult.value.userId,
       actor,
     );
-    if (!addressResult.ok) return c.json(mapErrorToResponse(addressResult.error), mapErrorToStatus(addressResult.error));
+    if (!addressResult.ok) return c.json(errorBody(addressResult.error), mapErrorToStatus(addressResult.error));
     return c.json({ data: addressResult.value });
   });
 
@@ -127,7 +127,7 @@ export function customerRoutes(kernel: Kernel) {
   router.openapi(listInteractionsRoute, async (c) => {
     const { id } = c.req.valid("param");
     const result = await kernel.services.customers.listInteractions(id, c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -136,7 +136,7 @@ export function customerRoutes(kernel: Kernel) {
     const { id } = c.req.valid("param");
     const body = c.req.valid("json");
     const result = await kernel.services.customers.createInteraction(id, body, c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value }, 201);
   });
 
@@ -145,7 +145,7 @@ export function customerRoutes(kernel: Kernel) {
     const { id, iid } = c.req.valid("param");
     const body = c.req.valid("json");
     const result = await kernel.services.customers.updateInteraction(id, iid, body, c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -153,7 +153,7 @@ export function customerRoutes(kernel: Kernel) {
   router.openapi(deleteInteractionRoute, async (c) => {
     const { id, iid } = c.req.valid("param");
     const result = await kernel.services.customers.deleteInteraction(id, iid, c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: { deleted: true } });
   });
 

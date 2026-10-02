@@ -53,7 +53,7 @@ import {
 } from "../schemas/catalog.js";
 import {
   type AppEnv,
-  mapErrorToResponse,
+  errorBody,
   mapErrorToStatus,
   parseInclude,
   parsePagination,
@@ -86,7 +86,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok) {
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     }
@@ -112,7 +112,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok) {
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     }
@@ -145,7 +145,7 @@ export function catalogRoutes(kernel: Kernel) {
 
       if (!result.ok) {
         return c.json(
-          mapErrorToResponse(result.error),
+          errorBody(result.error),
           mapErrorToStatus(result.error),
         );
       }
@@ -184,7 +184,7 @@ export function catalogRoutes(kernel: Kernel) {
       });
     } catch (error) {
       console.error("[catalog] List failed:", error instanceof Error ? error.message : error);
-      return c.json(mapErrorToResponse(error), mapErrorToStatus(error));
+      return c.json(errorBody(error), mapErrorToStatus(error));
     }
   });
 
@@ -215,7 +215,7 @@ export function catalogRoutes(kernel: Kernel) {
 
       if (!result.ok) {
         return c.json(
-          mapErrorToResponse(result.error),
+          errorBody(result.error),
           mapErrorToStatus(result.error),
         );
       }
@@ -223,7 +223,7 @@ export function catalogRoutes(kernel: Kernel) {
       return c.json({ data: result.value });
     } catch (error) {
       console.error("[catalog] Get entity failed:", error instanceof Error ? error.message : error);
-      return c.json(mapErrorToResponse(error), mapErrorToStatus(error));
+      return c.json(errorBody(error), mapErrorToStatus(error));
     }
   });
 
@@ -235,7 +235,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok) {
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     }
@@ -251,7 +251,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok) {
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     }
@@ -266,7 +266,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok) {
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     }
@@ -281,7 +281,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value });
@@ -295,7 +295,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value });
@@ -309,7 +309,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value });
@@ -325,7 +325,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: { updated: true } });
@@ -341,7 +341,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value });
@@ -357,7 +357,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value });
@@ -372,7 +372,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value });
@@ -387,7 +387,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value });
@@ -396,14 +396,14 @@ export function catalogRoutes(kernel: Kernel) {
   // @ts-expect-error -- openapi handler union return type
   router.openapi(archiveCategoryRoute, async (c) => {
     const result = await kernel.services.catalog.archiveCategory(c.req.param("categoryId"), c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(restoreCategoryRoute, async (c) => {
     const result = await kernel.services.catalog.restoreCategory(c.req.param("categoryId"), c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -415,7 +415,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value }, 201);
@@ -430,7 +430,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value });
@@ -444,7 +444,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: { deleted: true } });
@@ -459,7 +459,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: { linked: true } });
@@ -474,7 +474,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: { unlinked: true } });
@@ -485,7 +485,7 @@ export function catalogRoutes(kernel: Kernel) {
     const result = await kernel.services.catalog.listBrands({ actor: c.get("actor"), tx: null, requestId: "" });
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value });
@@ -499,7 +499,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value }, 201);
@@ -514,7 +514,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value });
@@ -528,7 +528,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: { deleted: true } });
@@ -543,7 +543,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: { linked: true } });
@@ -558,7 +558,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: { unlinked: true } });
@@ -572,7 +572,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value }, 201);
@@ -586,7 +586,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value }, 201);
@@ -600,7 +600,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value }, 201);
@@ -616,7 +616,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value }, result.value.created ? 201 : 200);
@@ -632,7 +632,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value }, 201);
@@ -648,7 +648,7 @@ export function catalogRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value }, 201);

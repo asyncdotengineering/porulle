@@ -129,8 +129,6 @@ export type { Result, PluginResult, PluginResultErr } from "./kernel/result.js";
 export { Ok, Err, PluginErr } from "./kernel/result.js";
 export type { PluginDb, PluginTxFn } from "./kernel/database/plugin-types.js";
 export type { ServiceRegistry } from "./kernel/service-registry.js";
-export { defineModule } from "./kernel/module/index.js";
-export type { AppModule, ModuleDeps, ServiceMap } from "./kernel/module/index.js";
 export { toHttpError, type HttpErrorResponse } from "./kernel/http-error.js";
 export { withTiming } from "./kernel/service-timing.js";
 

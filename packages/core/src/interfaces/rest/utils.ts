@@ -5,6 +5,7 @@ import type { Actor } from "../../auth/types.js";
 import {
   AUTHENTICATION_REQUIRED_MESSAGE,
   isUnauthenticatedActor,
+  hasPermissionFromList,
 } from "../../auth/permissions.js";
 
 export const ROUTE_PERMISSION_GUARD = Symbol("porulle.routePermissionGuard");
@@ -72,7 +73,7 @@ export function parseInclude(value?: string): Set<string> {
  * Map an error to a safe client response. Internal errors are sanitized
  * to prevent leaking SQL, schema, or stack trace details.
  */
-export function mapErrorToResponse(error: unknown): { error: { code: string; message: string } } {
+export function errorBody(error: unknown): { error: { code: string; message: string } } {
   const ce = toCommerceError(error);
   if (ce.code === "INTERNAL_ERROR") {
     // Sanitize internal errors -- do not expose raw messages to clients
@@ -91,14 +92,7 @@ export { mapErrorToStatus };
 export function requirePerm(permission: string) {
   const middleware = async (c: PermissionContext, next: () => Promise<void>) => {
     const actor = c.get("actor");
-    const perms = actor?.permissions ?? [];
-    if (perms.includes(permission) || perms.includes("*:*")) {
-      await next();
-      return;
-    }
-    // Check resource-level wildcard (e.g., "catalog:*" matches "catalog:create")
-    const [resource] = permission.split(":");
-    if (resource && perms.includes(`${resource}:*`)) {
+    if (hasPermissionFromList(actor?.permissions ?? [], permission)) {
       await next();
       return;
     }
@@ -114,11 +108,7 @@ export function requireAnyPerm(permissions: readonly string[]) {
   const middleware = async (c: PermissionContext, next: () => Promise<void>) => {
     const actor = c.get("actor");
     const granted = actor?.permissions ?? [];
-    const allowed = permissions.some((permission) =>
-      granted.includes(permission) ||
-      granted.includes("*:*") ||
-      granted.includes(`${permission.split(":")[0]}:*`),
-    );
+    const allowed = permissions.some((permission) => hasPermissionFromList(granted, permission));
     if (allowed) {
       await next();
       return;

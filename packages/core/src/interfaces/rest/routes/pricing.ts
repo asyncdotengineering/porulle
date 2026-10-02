@@ -5,7 +5,7 @@ import type { DrizzleDatabase } from "../../../kernel/database/drizzle-db.js";
 import { CatalogRepository } from "../../../modules/catalog/repository/index.js";
 import type { Kernel } from "../../../runtime/kernel.js";
 import { setBasePriceRoute, createModifierRoute, listPricesRoute, listModifiersRoute, updateModifierRoute, deleteModifierRoute } from "../schemas/pricing.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requirePerm } from "../utils.js";
+import { type AppEnv, errorBody, mapErrorToStatus, requirePerm } from "../utils.js";
 
 export function pricingRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -19,7 +19,7 @@ export function pricingRoutes(kernel: Kernel) {
     const actor = c.get("actor");
     const result = await kernel.services.pricing.setBasePrice(c.req.valid("json"), actor);
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
     return c.json({ data: result.value }, 201);
   });
@@ -39,7 +39,7 @@ export function pricingRoutes(kernel: Kernel) {
       ...(customerGroupId !== undefined ? { customerGroupId } : {}),
     }, actor);
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
     return c.json({ data: result.value });
   });
@@ -60,7 +60,7 @@ export function pricingRoutes(kernel: Kernel) {
       ...(active === "true" ? { active: true } : {}),
     }, actor);
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
     return c.json({ data: result.value });
   });
@@ -74,7 +74,7 @@ export function pricingRoutes(kernel: Kernel) {
       actor,
     );
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
     return c.json({ data: result.value });
   });
@@ -84,7 +84,7 @@ export function pricingRoutes(kernel: Kernel) {
     const actor = c.get("actor");
     const result = await kernel.services.pricing.deleteModifier(c.req.param("id"), actor);
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
     return c.json({ data: result.value });
   });
@@ -102,7 +102,7 @@ export function pricingRoutes(kernel: Kernel) {
       const entity = await catalogRepo.findEntityById(input.entityId);
       if (!entity || entity.organizationId !== orgId) {
         return c.json(
-          mapErrorToResponse(
+          errorBody(
             new CommerceValidationError("entityId does not belong to this organization."),
           ),
           422,
@@ -112,7 +112,7 @@ export function pricingRoutes(kernel: Kernel) {
 
     const result = await kernel.services.pricing.createModifier(input, actor);
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
     return c.json({ data: result.value }, 201);
   });

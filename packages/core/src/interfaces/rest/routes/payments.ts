@@ -1,7 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { Kernel } from "../../../runtime/kernel.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus } from "../utils.js";
+import { type AppEnv, errorBody, mapErrorToStatus } from "../utils.js";
 import { processedWebhookEvents } from "../../../modules/webhooks/schema.js";
 import type { Actor } from "../../../auth/types.js";
 import { toCommerceError } from "../../../kernel/errors.js";
@@ -21,7 +21,7 @@ export function paymentRoutes(kernel: Kernel) {
     const adapter = resolvedAdapter.value;
     const result = await adapter.verifyWebhook(c.req.raw);
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
 
     const event = result.value;

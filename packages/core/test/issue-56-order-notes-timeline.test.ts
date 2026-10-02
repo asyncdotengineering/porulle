@@ -1,11 +1,6 @@
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
-import {
-  createTestServer,
-  makeRequest,
-  testActor,
-  noPermActor,
-  parseJsonResponse,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor, testNoPermActor } from "../src/test-utils/test-actors.js";
 import { markOrderPaidForTest } from "../src/test-utils/order-test-helpers.js";
 
 // Issue #56 — orders had status history but no operator annotations and no
@@ -154,7 +149,7 @@ describe("Issue #56 — order notes + activity timeline", () => {
     const res = await makeRequest(server, {
       method: "GET",
       url: `http://localhost/api/orders/${orderId}/timeline`,
-      actor: noPermActor,
+      actor: testNoPermActor,
     });
     expect(res.status).toBe(403);
   });

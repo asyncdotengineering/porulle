@@ -8,12 +8,8 @@
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import {
-  createTestServer,
-  makeRequest,
-  testActor,
-  parseJsonResponse,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor } from "../src/test-utils/test-actors.js";
 import type { Actor } from "../src/auth/types.js";
 
 type Cat = { id: string; slug: string; status: string };

@@ -1,10 +1,6 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
-import {
-  createTestServer,
-  makeRequest,
-  testActor,
-  parseJsonResponse,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor } from "../src/test-utils/test-actors.js";
 
 // Issue #33 — setBasePrice was insert-only, so editing a price appended a
 // duplicate row. It now upserts on the natural key, and ?include=pricing

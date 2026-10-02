@@ -15,10 +15,9 @@
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";
-import { createRequire } from "node:module";
 import type { DatabaseAdapter } from "../kernel/database/adapter.js";
 import { createPGliteTransaction } from "../kernel/database/pglite-transaction.js";
-import { getSchema } from "../kernel/database/migrate.js";
+import { pushSchema } from "../kernel/database/migrate.js";
 import { ensureDefaultOrg } from "../auth/org.js";
 
 // Single barrel import --- includes all core modules + auth tables
@@ -40,29 +39,6 @@ export interface QueryLog {
   stop(): string[];
 }
 
-// drizzle-kit/api uses CJS internally; createRequire provides ESM compat.
-const require = createRequire(import.meta.url);
-
-/**
- * Pushes the core Drizzle schema to the database using drizzle-kit/api.
- *
- * drizzle-kit introspects the live database via information_schema, diffs
- * against the pgTable definitions, and generates the minimal DDL needed.
- * Typed as DrizzleDatabase (our concrete schema type) to avoid the
- * PGlite → PgDatabase<HKT> invariance cast — drizzle-kit accepts any
- * Drizzle instance at runtime regardless of the schema generic.
- */
-async function pushCoreSchema(db: DrizzleDatabase): Promise<void> {
-  const coreSchema = getSchema();
-  const drizzleKit = require("drizzle-kit/api") as {
-    pushSchema(
-      imports: Record<string, unknown>,
-      drizzleInstance: DrizzleDatabase,
-    ): Promise<{ apply: () => Promise<void> }>;
-  };
-  const { apply } = await drizzleKit.pushSchema(coreSchema, db);
-  await apply();
-}
 
 /**
  * Creates a PGlite-backed database adapter for testing.
@@ -118,7 +94,7 @@ export async function createPGliteTestAdapter(): Promise<{
   // PgliteDatabase<Schema> and DrizzleDatabase share the same Schema type;
   // the HKT parameter differs (PgliteQueryResultHKT vs PgQueryResultHKT)
   // but drizzle-kit's pushSchema doesn't use it at runtime.
-  await pushCoreSchema(db as DrizzleDatabase);
+  await pushSchema(db);
 
   // Ensure the default organization exists for all tests
   await ensureDefaultOrg(db);

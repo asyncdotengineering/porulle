@@ -1,7 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
 import { getReportRoute, listReportsRoute } from "../schemas/analytics.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requirePerm } from "../utils.js";
+import { type AppEnv, errorBody, mapErrorToStatus, requirePerm } from "../utils.js";
 
 export function analyticsRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -25,7 +25,7 @@ export function analyticsRoutes(kernel: Kernel) {
       },
       c.get("actor"),
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 

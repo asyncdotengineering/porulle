@@ -1,5 +1,5 @@
 import { HookRegistry } from "../kernel/hooks/registry.js";
-import { createLogger } from "../utils/logger.js";
+import { createConsoleLogger } from "../utils/logger.js";
 import { createTestConfig } from "./create-test-config.js";
 import type { CommerceConfig } from "../config/types.js";
 
@@ -58,7 +58,7 @@ export async function createTestPluginContext(options?: {
         return fn({});
       },
     },
-    logger: createLogger("test-plugin-context"),
+    logger: createConsoleLogger("test-plugin-context"),
     registeredRoutes,
     registeredAnalyticsModels,
     registeredSchemas,

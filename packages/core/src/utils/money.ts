@@ -55,3 +55,8 @@ export function formatAmount(minor: number, currency: string): string {
   });
   return `${formatted} ${currency}`;
 }
+
+/** An ISO 4217 code as stored: trimmed and upper-cased. */
+export function normalizeCurrency(currency: string): string {
+  return currency.trim().toUpperCase();
+}

@@ -570,7 +570,6 @@ export interface CommerceConfig {
   };
 }
 
-export interface DefineConfigInput extends CommerceConfig {}
 
 export interface AuthSessionLike {
   user: {

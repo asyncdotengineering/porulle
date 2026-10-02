@@ -12,7 +12,7 @@ import {
 } from "../../schemas/admin-entity-field-definitions.js";
 import {
   type AppEnv,
-  mapErrorToResponse,
+  errorBody,
   mapErrorToStatus,
   requirePerm,
 } from "../../utils.js";
@@ -35,7 +35,7 @@ export function adminEntityFieldDefinitionRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value }, 201);
@@ -50,7 +50,7 @@ export function adminEntityFieldDefinitionRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value });
@@ -65,7 +65,7 @@ export function adminEntityFieldDefinitionRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value });
@@ -79,7 +79,7 @@ export function adminEntityFieldDefinitionRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value });

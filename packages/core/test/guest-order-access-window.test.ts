@@ -1,11 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
-import {
-  createTestServer,
-  makeRequest,
-  parseJsonResponse,
-  testActor,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor } from "../src/test-utils/test-actors.js";
 import { orders } from "../src/modules/orders/schema.js";
 import { customers } from "../src/modules/customers/schema.js";
 import type { Actor } from "../src/auth/types.js";

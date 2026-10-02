@@ -15,8 +15,8 @@ import type { CatalogRepository } from "../catalog/repository/index.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
 import { createTxContext } from "../../kernel/database/tx-context.js";
 import type { DatabaseAdapter } from "../../kernel/database/adapter.js";
-import { makeId } from "../../utils/id.js";
 import type { MediaAssetOrigin } from "./schema.js";
+import { isUniqueViolation } from "../../kernel/database/unique-violation.js";
 
 export interface UploadMediaInput {
   filename: string;
@@ -66,12 +66,6 @@ export function assertMediaWritable(asset: Pick<MediaAsset, "origin">, actor: Ac
   if (asset.origin === "merchant") assertPermission(actor, "media:write");
 }
 
-function isUniqueViolation(error: unknown): boolean {
-  if (error == null || typeof error !== "object") return false;
-  const value = error as { code?: unknown; cause?: unknown };
-  if (value.code === "23505") return true;
-  return isUniqueViolation(value.cause);
-}
 
 function isSvgOrXml(buffer: Uint8Array): boolean {
   const prefix = new TextDecoder()
@@ -160,7 +154,7 @@ export class MediaService {
       );
     }
 
-    const id = makeId();
+    const id = crypto.randomUUID();
     const key = `${new Date().getFullYear()}/${id}-${input.filename}`;
     const uploaded = await this.deps.storage.upload(
       key,

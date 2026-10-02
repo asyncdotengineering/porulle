@@ -3,7 +3,7 @@ import { rateLimiter } from "hono-rate-limiter";
 import type { Kernel } from "../../../runtime/kernel.js";
 import { createPromotionRoute, updatePromotionRoute, validatePromotionRoute, deactivatePromotionRoute, listPromotionsRoute } from "../schemas/promotions.js";
 import type { PromotionStatusFilter } from "../../../modules/promotions/service.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requireMethodPerm, requirePerm } from "../utils.js";
+import { type AppEnv, errorBody, mapErrorToStatus, requireMethodPerm, requirePerm } from "../utils.js";
 import { resolveOrgIdForCommerce } from "../../../auth/org.js";
 import { assertPermission } from "../../../auth/permissions.js";
 
@@ -34,7 +34,7 @@ export function promotionRoutes(kernel: Kernel) {
     const actor = c.get("actor");
     const result = await kernel.services.promotions.create(body, actor);
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
     return c.json({ data: result.value }, 201);
   });
@@ -49,7 +49,7 @@ export function promotionRoutes(kernel: Kernel) {
       actor,
     );
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
     return c.json({ data: result.value });
   });
@@ -77,7 +77,7 @@ export function promotionRoutes(kernel: Kernel) {
     });
 
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
 
     return c.json({ data: result.value });
@@ -96,12 +96,12 @@ export function promotionRoutes(kernel: Kernel) {
     try {
       assertPermission(actor, "promotions:manage");
     } catch (error) {
-      return c.json(mapErrorToResponse(error), mapErrorToStatus(error));
+      return c.json(errorBody(error), mapErrorToStatus(error));
     }
     const orgId = resolveOrgIdForCommerce(actor, kernel.config);
     const result = await kernel.services.promotions.update(orgId, c.req.param("id"), body, actor);
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
     return c.json({ data: result.value });
   });
@@ -116,7 +116,7 @@ export function promotionRoutes(kernel: Kernel) {
     const orgId = resolveOrgIdForCommerce(actor, kernel.config);
     const result = await kernel.services.promotions.deactivate(orgId, c.req.param("id"));
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
     return c.json({ data: result.value });
   });

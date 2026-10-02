@@ -1,12 +1,6 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
-import {
-  createTestServer,
-  makeRequest,
-  testActor,
-  readonlyActor,
-  noPermActor,
-  parseJsonResponse,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { readonlyActor, testActor, testNoPermActor } from "../src/test-utils/test-actors.js";
 
 describe("REST API: Carts", () => {
   let server: any;
@@ -66,7 +60,7 @@ describe("REST API: Carts", () => {
         method: "POST",
         url: "http://localhost/api/carts",
         body: { currency: "USD" },
-        actor: noPermActor,
+        actor: testNoPermActor,
       });
 
       expect(response.status).toBe(403);

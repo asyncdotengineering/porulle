@@ -1,51 +1,33 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createKernel } from "../src/runtime/kernel.js";
-import {
-  KERNEL_ALL_MODULES,
-  kernelModuleInstantiationOrder,
-} from "../src/runtime/kernel-modules.js";
+import { KERNEL_SERVICE_FACTORIES } from "../src/runtime/kernel-modules.js";
 import { createPGliteTestConfig } from "../src/test-utils/create-test-config.js";
 
-describe("kernel module wiring (S4-06)", () => {
-  it("topo order satisfies catalog before inventory and catalog before pricing", () => {
-    const order = kernelModuleInstantiationOrder();
-    const ic = order.indexOf("catalog");
-    const ii = order.indexOf("inventory");
-    const ip = order.indexOf("pricing");
-    expect(ic).toBeGreaterThanOrEqual(0);
-    expect(ii).toBeGreaterThanOrEqual(0);
-    expect(ip).toBeGreaterThanOrEqual(0);
-    expect(ic).toBeLessThan(ii);
-    expect(ic).toBeLessThan(ip);
+describe("kernel service wiring", () => {
+  let cleanup: () => Promise<void>;
+  let kernel: ReturnType<typeof createKernel>;
+
+  beforeAll(async () => {
+    const out = await createPGliteTestConfig({});
+    cleanup = out.cleanup;
+    // Boots only if every factory runs after the services it reads at
+    // construction (catalog's repository, the inventory service).
+    kernel = createKernel(out.config);
   });
 
-  describe("createKernel", () => {
-    let cleanup: () => Promise<void>;
-    let kernel: ReturnType<typeof createKernel>;
+  afterAll(async () => {
+    await cleanup();
+  });
 
-    beforeAll(async () => {
-      const out = await createPGliteTestConfig({});
-      cleanup = out.cleanup;
-      kernel = createKernel(out.config);
-    });
+  it("builds every core service", () => {
+    expect(KERNEL_SERVICE_FACTORIES).toHaveLength(19);
+    for (const [id] of KERNEL_SERVICE_FACTORIES) {
+      expect((kernel.services as Record<string, unknown>)[id]).toBeDefined();
+    }
+  });
 
-    afterAll(async () => {
-      await cleanup();
-    });
-
-    it("instantiates all 19 module registry services", () => {
-      const ids = Object.keys(KERNEL_ALL_MODULES);
-      expect(ids).toHaveLength(19);
-      for (const id of ids) {
-        expect(
-          (kernel.services as Record<string, unknown>)[id],
-        ).toBeDefined();
-      }
-    });
-
-    it("also exposes compensationFailures and email", () => {
-      expect(kernel.services.compensationFailures).toBeDefined();
-      expect(kernel.services.email).toBeDefined();
-    });
+  it("also exposes compensationFailures and email", () => {
+    expect(kernel.services.compensationFailures).toBeDefined();
+    expect(kernel.services.email).toBeDefined();
   });
 });
