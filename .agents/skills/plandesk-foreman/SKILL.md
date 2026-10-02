@@ -119,10 +119,11 @@ contract in [factory.md](../../factory/factory.md), dispatch and verification in
    ordering is the cheapest real protection in the whole run.
 
    **Unless the dispatch was killed.** No result file means it ran no gates and
-   wrote no result, so the tree holds unverified partial output rather than work
-   product. Discard it and re-dispatch clean per
-   [protocol.md](../../factory/protocol.md) — staging it makes salvage look like
-   a deliverable, and the next reader cannot tell the difference.
+   wrote no result, so the tree holds an unverified draft, not a deliverable.
+   Save it as a patch and resume from it with the same brief plus a `## Resume`
+   section — or discard it only when it picked a design the brief did not —
+   per the decision table in [protocol.md](../../factory/protocol.md) ("When a
+   dispatch is killed"). Never present the draft as finished work.
 
 7. **Verify the claims.** Follow the verification sequence in
    [protocol.md](../../factory/protocol.md) — gate integrity before re-running

@@ -213,14 +213,30 @@ A killed dispatch ran no gates and wrote no result. Whatever is in the tree is
 **unverified partial output, not work product** — it may not compile, and it may
 be half of a design its author had not finished choosing.
 
-**Discard it and re-dispatch clean.** Do not continue from it, and do not ask
-the next worker to "finish" it. Continuing from salvage is how one task consumed
-eight cycles: each round inherited the previous round's half-made decisions,
-and nobody ever chose the design deliberately. Reverting costs one dispatch;
-building on a foundation nobody chose costs several, and the cost is invisible
-until late.
+**Save the draft first, then resume from it by default.** A dispatch killed from
+outside (machine shutdown, session kill) usually leaves mostly-right work, and
+redoing it from scratch costs the whole dispatch again for nothing:
 
-Before discarding, confirm the tree holds nothing else — a killed dispatch's
+```
+git add -A && git diff --cached --binary > runs/killed-<task>.patch   # keep it staged too
+```
+
+Re-dispatch the **same brief** with a `## Resume` section: the staged draft is
+unverified; review it against the brief, keep what is right, finish what is
+missing, run every gate. Its claims are verified like any other result.
+
+| the draft… | do |
+| --- | --- |
+| follows the brief's design, only incomplete | **resume** (default) |
+| does not compile, but the design is the brief's | **resume**; the gates catch it |
+| picks a design the brief did not specify, or two half-designs | **discard** and re-dispatch clean; say why in the brief |
+| was already resumed once and killed again mid-design | **discard**; say why |
+
+Discarding is for an unchosen design, not for missing gates. Continuing from
+salvage is how one task consumed eight cycles: each round inherited the previous
+round's half-made decisions and nobody chose the design deliberately.
+
+Before either, confirm the tree holds nothing else — a killed dispatch's
 output and your own uncommitted work look identical in `git status`. This is
 the reason the previous slice is committed before the next one starts.
 
