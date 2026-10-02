@@ -97,12 +97,6 @@ export class GiftCardService {
     return Ok(card);
   }
 
-  async getByCode(orgId: string, code: string): Promise<PluginResult<GiftCard>> {
-    const card = await this.repo.findByCode(orgId, normalizeCode(code));
-    if (!card) return Err("Gift card not found");
-    return Ok(card);
-  }
-
   async list(orgId: string, filters?: {
     status?: GiftCardStatus;
     purchaserId?: string;

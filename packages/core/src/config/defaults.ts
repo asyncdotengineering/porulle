@@ -1,4 +1,5 @@
 import type { CommerceConfig } from "./types.js";
+import { DEFAULT_CUSTOMER_PERMISSIONS } from "../auth/actor.js";
 
 export const defaultConfig: Partial<CommerceConfig> = {
   version: "0.0.1",
@@ -44,28 +45,10 @@ export const defaultConfig: Partial<CommerceConfig> = {
         ],
       },
       customer: {
-        permissions: [
-          "catalog:read",
-          "cart:create",
-          "cart:read",
-          "cart:update",
-          "orders:create",
-          "orders:read:own",
-          "customers:read:self",
-          "customers:update:self",
-        ],
+        permissions: [...DEFAULT_CUSTOMER_PERMISSIONS],
       },
     },
-    customerPermissions: [
-      "catalog:read",
-      "cart:create",
-      "cart:read",
-      "cart:update",
-      "orders:create",
-      "orders:read:own",
-      "customers:read:self",
-      "customers:update:self",
-    ],
+    customerPermissions: [...DEFAULT_CUSTOMER_PERMISSIONS],
   },
   cart: {
     ttlMinutes: 60 * 24 * 7,

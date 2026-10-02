@@ -42,11 +42,10 @@
     }
   },
   "scripts": {
-    "generate:plugins": "node ./scripts/generate-plugin-types.mjs",
     "check:store-guard": "node ./scripts/check-store-guard.mjs",
     "check:auth-schema": "vitest run test/auth-schema-better-auth-parity.test.ts",
-    "build": "rm -rf dist tsconfig.build.tsbuildinfo && npm run generate:plugins && npm run check:store-guard && npm run check:auth-schema && tsc -p tsconfig.build.json",
-    "check-types": "npm run generate:plugins && npm run check:store-guard && tsc --noEmit",
+    "build": "rm -rf dist tsconfig.build.tsbuildinfo && npm run check:store-guard && npm run check:auth-schema && tsc -p tsconfig.build.json",
+    "check-types": "npm run check:store-guard && tsc --noEmit",
     "lint": "eslint . --max-warnings 1000",
     "test": "vitest run"
   },

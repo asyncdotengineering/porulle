@@ -42,14 +42,4 @@ export class WishlistService {
     return Ok({ deleted: true });
   }
 
-  async removeByEntity(orgId: string, userId: string, entityId: string): Promise<PluginResult<{ deleted: boolean }>> {
-    const rows = await this.db.delete(wishlistItems)
-      .where(and(
-        eq(wishlistItems.organizationId, orgId),
-        eq(wishlistItems.userId, userId),
-        eq(wishlistItems.entityId, entityId),
-      )).returning();
-    if (rows.length === 0) return Err("Item not found");
-    return Ok({ deleted: true });
-  }
 }

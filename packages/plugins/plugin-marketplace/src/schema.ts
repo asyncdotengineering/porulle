@@ -242,19 +242,3 @@ export const rfqResponses = pgTable("marketplace_rfq_responses", {
   status: text("status").notNull().default("submitted"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
-
-// ─── Contract Prices (B2B) ───────────────────────────────────────────────────
-
-export const contractPrices = pgTable("marketplace_contract_prices", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  vendorId: uuid("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
-  buyerId: uuid("buyer_id").notNull(),
-  entityId: uuid("entity_id").notNull(),
-  variantId: uuid("variant_id"),
-  priceCents: integer("price_cents").notNull(),
-  minQuantity: integer("min_quantity").notNull().default(1),
-  currency: text("currency").notNull().default("USD"),
-  validFrom: timestamp("valid_from", { withTimezone: true }),
-  validUntil: timestamp("valid_until", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});

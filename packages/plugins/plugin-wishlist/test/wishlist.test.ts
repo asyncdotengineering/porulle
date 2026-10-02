@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { PluginTestApp } from "@porulle/core/testing";
 import { sellableEntities } from "@porulle/core/schema";
-import { createPluginTestApp, jsonHeaders, testNoPermActor, wishlistUserActor, wishlistAdminActor, TEST_ORG_ID } from "./test-utils.js";
+import { createPluginTestApp, createTestActor, jsonHeaders, testNoPermActor, TEST_ORG_ID } from "@porulle/core/testing";
+import { wishlistUserActor, wishlistAdminActor } from "./test-utils.js";
 import { wishlistPlugin } from "../src/index.js";
 
 const ENTITY_A = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
@@ -81,11 +82,12 @@ describe("Wishlist Plugin", () => {
   });
 
   it("org isolation: other org user sees empty wishlist", async () => {
-    const otherOrg: import("@porulle/core").Actor = {
-      type: "user", userId: "wishlist-user-1", email: "user@test.local", name: "Same User",
-      vendorId: null, organizationId: "org_other", role: "customer",
+    const otherOrg = createTestActor({
+      userId: "wishlist-user-1",
+      organizationId: "org_other",
+      role: "customer",
       permissions: ["wishlist:read", "wishlist:write"],
-    };
+    });
     const res = await app.request("http://localhost/api/wishlist", { headers: jsonHeaders(otherOrg) });
     expect(res.status).toBe(200);
     expect((await res.json()).data.length).toBe(0);

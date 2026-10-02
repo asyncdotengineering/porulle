@@ -1,11 +1,6 @@
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
-import {
-  createTestServer,
-  makeRequest,
-  testActor,
-  noPermActor,
-  parseJsonResponse,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor, testNoPermActor } from "../src/test-utils/test-actors.js";
 
 // Issue #50 — creating a sellable variant took three API calls (option type →
 // option value → variant) and still left no inventory_levels row. The quick
@@ -129,7 +124,7 @@ describe("Issue #50 — one-call quick/bulk variant creation", () => {
       method: "POST",
       url: `http://localhost/api/catalog/entities/${entityId}/variants/quick`,
       body: { options: { color: "Red" } },
-      actor: noPermActor,
+      actor: testNoPermActor,
     });
     expect(res.status).toBe(403);
   });

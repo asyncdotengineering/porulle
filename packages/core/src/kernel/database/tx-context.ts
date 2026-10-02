@@ -43,29 +43,11 @@ export async function withTransaction<TDb, TTx, TResult>(
   });
 }
 
-export function reuseOrCreateTxContext<TTx>(
-  tx: TTx,
-  options: WithTransactionOptions,
-  existing?: TxContext<TTx> | null,
-): TxContext<TTx> {
-  if (existing) {
-    return existing;
-  }
-  return createTxContext(tx, options);
-}
 
-function hookContextFromWriteContext(ctx?: CatalogWriteContext): Record<string, unknown> | undefined {
+export function resolveWriteContextHookContext(ctx?: CatalogWriteContext): Record<string, unknown> | undefined {
   return ctx?.hookContext;
 }
 
-function isTransactionalWriteContext<TTx>(ctx: CatalogWriteContext<TTx>): ctx is TxContext<TTx> {
-  return "tx" in ctx && ctx.tx != null;
-}
-
-export function resolveWriteContextHookContext(ctx?: CatalogWriteContext): Record<string, unknown> | undefined {
-  return hookContextFromWriteContext(ctx);
-}
-
 export function isWriteContextTransactional<TTx>(ctx?: CatalogWriteContext<TTx>): ctx is TxContext<TTx> {
-  return ctx != null && isTransactionalWriteContext(ctx);
+  return ctx != null && "tx" in ctx && ctx.tx != null;
 }

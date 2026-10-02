@@ -1,11 +1,6 @@
 import type { Logger, ServiceContainer } from "../hooks/types.js";
 import type { DrizzleDatabase } from "../database/drizzle-db.js";
 
-export const BUILTIN_JOB_TASK_SLUGS = {
-  webhookDeliver: "webhooks/deliver",
-  staleJobReaper: "jobs/reap-stale",
-} as const;
-
 export interface TaskContext {
   logger: Logger;
   db: DrizzleDatabase;

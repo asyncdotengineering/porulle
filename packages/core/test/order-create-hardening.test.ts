@@ -3,12 +3,8 @@ import { organization } from "../src/auth/auth-schema.js";
 import type { Actor } from "../src/auth/types.js";
 import type { DrizzleDatabase } from "../src/kernel/database/drizzle-db.js";
 import type { Kernel } from "../src/runtime/kernel.js";
-import {
-  createTestServer,
-  makeRequest,
-  parseJsonResponse,
-  testActor,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor } from "../src/test-utils/test-actors.js";
 
 const FOREIGN_ORG_ID = "org_order_hardening_foreign";
 

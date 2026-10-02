@@ -1,10 +1,6 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
-import {
-  createTestServer,
-  makeRequest,
-  testActor,
-  parseJsonResponse,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor } from "../src/test-utils/test-actors.js";
 
 // Issue #38 — POST /entities/{id}/variants/generate crashed with a 500
 // ("Cannot read properties of undefined (reading 'include')") for a missing /

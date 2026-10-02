@@ -1,13 +1,11 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import type { Actor } from "@porulle/core";
-import { createPluginTestApp, TEST_ORG_ID } from "@porulle/core/testing";
+import {createPluginTestApp, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
 import { and, eq } from "@porulle/core/drizzle";
 import { inventoryLevels, orderLineItems, orderRefunds, orders, sellableEntities, variants } from "@porulle/core/schema";
 import { channelConnectorPlugin, mockChannelConnector, ChannelConnectorService } from "../src/index.js";
 import { channelEntityMap, channelOrderExports, channelRefundRequests, connectedStores } from "../src/schema.js";
 
-const actor: Actor = {
-  type: "user",
+const actor = createTestActor({
   userId: "c66-operator",
   email: "c66@test.local",
   name: "c66 Operator",
@@ -15,7 +13,7 @@ const actor: Actor = {
   organizationId: TEST_ORG_ID,
   role: "admin",
   permissions: ["*:*"],
-};
+});
 
 describe("channel connector c66 two-way sync and refunds", () => {
   const mock = mockChannelConnector({ catalog: [] });

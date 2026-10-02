@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { defineCommand } from "citty";
 import consola from "consola";
+import { apiBaseUrl, bearerHeaders, requestJson } from "../utils.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -26,44 +27,6 @@ async function loadImporter<T>(pkg: string, named: string): Promise<T> {
     throw new Error(`"${pkg}" did not export "${named}".`);
   }
   return fn as T;
-}
-
-function toBaseUrl(raw: string | undefined): string {
-  return (raw ?? "http://localhost:3000").replace(/\/$/, "");
-}
-
-function toHeaders(token?: string): Record<string, string> {
-  if (!token) return {};
-  return { authorization: `Bearer ${token}` };
-}
-
-async function requestJson<T>(
-  baseUrl: string,
-  path: string,
-  method: "GET" | "POST" | "PATCH" | "DELETE",
-  body: unknown,
-  token?: string,
-): Promise<T> {
-  const response = await fetch(`${baseUrl}${path}`, {
-    method,
-    headers: {
-      "content-type": "application/json",
-      ...toHeaders(token),
-    },
-    body: JSON.stringify(body),
-  });
-
-  const payload = (await response.json().catch(() => ({}))) as { data?: T; error?: { message?: string } };
-  if (!response.ok) {
-    const message = payload.error?.message ?? `HTTP ${response.status}`;
-    throw new Error(`Request failed for ${method} ${path}: ${message}`);
-  }
-
-  if (payload.data === undefined) {
-    throw new Error(`Expected data payload for ${method} ${path}.`);
-  }
-
-  return payload.data;
 }
 
 function createRestImportTarget(baseUrl: string, token?: string) {
@@ -139,7 +102,7 @@ function createRestImportTarget(baseUrl: string, token?: string) {
       const response = await fetch(`${baseUrl}/api/media/upload`, {
         method: "POST",
         headers: {
-          ...toHeaders(token),
+          ...bearerHeaders(token),
         },
         body: form,
       });
@@ -218,7 +181,7 @@ export const importCommand = defineCommand({
   },
   async run({ args }) {
     const source = String(args.source).toLowerCase();
-    const baseUrl = toBaseUrl(args.targetUrl ? String(args.targetUrl) : undefined);
+    const baseUrl = apiBaseUrl(args.targetUrl ? String(args.targetUrl) : undefined);
     const token = args.authToken ? String(args.authToken) : undefined;
     const target = createRestImportTarget(baseUrl, token);
 

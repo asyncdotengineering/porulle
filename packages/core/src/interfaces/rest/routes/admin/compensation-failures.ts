@@ -9,7 +9,7 @@ import {
   listCompensationFailuresRoute,
   resolveCompensationFailureRoute,
 } from "../../schemas/compensation-failures.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requirePerm } from "../../utils.js";
+import { type AppEnv, errorBody, mapErrorToStatus, requirePerm } from "../../utils.js";
 
 function toIso(d: Date | null | undefined): string | null {
   if (d == null) return null;
@@ -78,7 +78,7 @@ export function compensationFailureAdminRoutes(kernel: Kernel) {
     const resolvedParsed = parseResolvedFilter(c.req.query("resolved"));
     if (!resolvedParsed.ok) {
       return c.json(
-        mapErrorToResponse(
+        errorBody(
           new CommerceValidationError(
             'Query "resolved" must be true, false, or all.',
           ),
@@ -105,7 +105,7 @@ export function compensationFailureAdminRoutes(kernel: Kernel) {
         : {}),
     });
     if (!listed.ok) {
-      return c.json(mapErrorToResponse(listed.error), mapErrorToStatus(listed.error));
+      return c.json(errorBody(listed.error), mapErrorToStatus(listed.error));
     }
     return c.json({
       items: listed.value.items.map(digestFailure),
@@ -125,7 +125,7 @@ export function compensationFailureAdminRoutes(kernel: Kernel) {
 
     const found = await kernel.services.compensationFailures.findById(id);
     if (!found.ok) {
-      return c.json(mapErrorToResponse(found.error), mapErrorToStatus(found.error));
+      return c.json(errorBody(found.error), mapErrorToStatus(found.error));
     }
     const row = found.value;
     if (!row) {
@@ -154,7 +154,7 @@ export function compensationFailureAdminRoutes(kernel: Kernel) {
       ...(body.notes !== undefined ? { notes: body.notes } : {}),
     });
     if (!resolved.ok) {
-      return c.json(mapErrorToResponse(resolved.error), mapErrorToStatus(resolved.error));
+      return c.json(errorBody(resolved.error), mapErrorToStatus(resolved.error));
     }
     return c.json({ failure: digestFailure(resolved.value) });
   });

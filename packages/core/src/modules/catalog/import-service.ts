@@ -29,6 +29,8 @@ import {
 import { prices } from "../pricing/schema.js";
 import { catalogHookContext } from "./entity-service.js";
 import type { CatalogServiceDeps } from "./service.js";
+import { isUniqueViolation } from "../../kernel/database/unique-violation.js";
+import { normalizeCurrency } from "../../utils/money.js";
 
 /**
  * The import fast path: a PAGE of new products lands in one transaction.
@@ -147,12 +149,6 @@ function failed(ref: string, code: ImportRowFailureCode, error: string): ImportP
   return { ref, status: "failed", code, error };
 }
 
-function isUniqueViolation(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const value = error as { code?: unknown; cause?: unknown };
-  if (value.code === "23505") return true;
-  return isUniqueViolation(value.cause);
-}
 
 /**
  * A row's failure names the constraint, not the statement: Drizzle's message carries the whole
@@ -169,9 +165,6 @@ function describeWriteError(error: unknown): string {
   return message.split("\n", 1)[0] ?? message;
 }
 
-function normaliseCurrency(currency: string): string {
-  return currency.trim().toUpperCase();
-}
 
 /** Everything that can be known wrong without a database. */
 function validateInMemory(page: ImportProduct[]): Map<number, Failure> {
@@ -215,7 +208,7 @@ function validateInMemory(page: ImportProduct[]): Map<number, Failure> {
       }
       for (const price of variant.prices ?? []) {
         if (!Number.isInteger(price.amount) || price.amount < 0) fail(`Variant "${variant.ref}" has a non-integer or negative amount for ${price.currency}.`);
-        if (normaliseCurrency(price.currency).length === 0) fail(`Variant "${variant.ref}" has a price with no currency.`);
+        if (normalizeCurrency(price.currency).length === 0) fail(`Variant "${variant.ref}" has a price with no currency.`);
       }
     }
     for (const path of item.ownedFieldPaths ?? []) {
@@ -382,7 +375,7 @@ async function writeItem(
         organizationId: orgId,
         entityId,
         variantId,
-        currency: normaliseCurrency(price.currency),
+        currency: normalizeCurrency(price.currency),
         amount: price.amount,
         ...(price.compareAtAmount !== undefined ? { compareAtAmount: price.compareAtAmount } : {}),
       };

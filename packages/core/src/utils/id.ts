@@ -1,9 +1,5 @@
 import type { Actor } from "../auth/types.js";
 
-export function makeId(): string {
-  return crypto.randomUUID();
-}
-
 export async function makeDeterministicId(value: string): Promise<string> {
   const digest = new Uint8Array(
     await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),

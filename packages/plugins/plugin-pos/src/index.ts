@@ -41,8 +41,6 @@ export { LookupService } from "./services/lookup-service.js";
 export { ReceiptService } from "./services/receipt-service.js";
 export { PinService, hashPin, verifyPinHash } from "./services/pin-service.js";
 export { ExchangeService } from "./services/exchange-service.js";
-export { createPOSPaymentAdapter } from "./payment-adapter.js";
-
 /**
  * POS Plugin — Tier 0 Core Primitives
  *
@@ -54,7 +52,6 @@ export { createPOSPaymentAdapter } from "./payment-adapter.js";
  * - Returns with original order linkage
  * - Barcode/SKU lookup via indexed queries
  * - Receipt data assembly + email
- * - POS payment adapter for checkout pipeline
  * - Checkout hooks (zero shipping, transaction finalization)
  */
 export function posPlugin(userOptions: POSPluginOptions = {}) {

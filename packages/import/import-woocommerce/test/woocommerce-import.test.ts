@@ -20,6 +20,49 @@ const actor = {
 } as any;
 
 describe("import-woocommerce", () => {
+  it("follows WooCommerce product pages and converts prices using the shop currency", async () => {
+    const createdTitles: string[] = [];
+    const variants: Array<Record<string, unknown>> = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/settings/general")) {
+        return Response.json([{ id: "woocommerce_currency", value: "JPY" }]);
+      }
+      if (url.pathname.endsWith("/products")) {
+        const page = url.searchParams.get("page");
+        const product = page === "2"
+          ? { id: 2, name: "Second", variationsData: [{ id: 22, price: "1500" }] }
+          : { id: 1, name: "First", variationsData: [{ id: 11, price: "900" }] };
+        return new Response(JSON.stringify([product]), {
+          headers: { "x-wp-totalpages": "2" },
+        });
+      }
+      return Response.json([]);
+    };
+
+    const result = await importWooCommerceCatalog({
+      storeUrl: "https://woo.example",
+      consumerKey: "key",
+      consumerSecret: "secret",
+      fetchImpl,
+      target: {
+        async createEntity(input) {
+          createdTitles.push(input.attributes.title);
+          return { id: input.attributes.title };
+        },
+        async createVariant(input) {
+          variants.push(input.metadata ?? {});
+          return { id: `${variants.length}` };
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(createdTitles).toEqual(["First", "Second"]);
+    expect(variants.map((variant) => variant.price)).toEqual([900, 1500]);
+  });
+
   it("imports product catalog with variations and customers", async () => {
     const kernel = await createTestKernel();
 

@@ -16,8 +16,3 @@ export function isCredentialRejection(err: unknown): err is { name: "APIError"; 
   const { name, statusCode } = err as { name?: unknown; statusCode?: unknown };
   return name === "APIError" && typeof statusCode === "number";
 }
-
-/** The HTTP status better-auth attached to a credential rejection, or null for anything else. */
-export function credentialRejectionStatus(err: unknown): number | null {
-  return isCredentialRejection(err) ? err.statusCode : null;
-}

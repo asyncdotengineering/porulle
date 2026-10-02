@@ -105,21 +105,6 @@ export class GiftCardRepository {
     return rows[0]!;
   }
 
-  async adjustBalance(
-    orgId: string,
-    id: string,
-    delta: number,
-    tx: Db,
-  ): Promise<GiftCard> {
-    const card = await this.findByIdForUpdate(orgId, id, tx);
-    if (!card) throw new Error("Gift card not found");
-
-    const newBalance = Math.max(0, Math.min(card.initialAmount, card.balance + delta));
-    const newStatus: GiftCardStatus = newBalance === 0 ? "exhausted" : "active";
-
-    return this.updateBalance(orgId, id, newBalance, newStatus, card.version, tx);
-  }
-
   // ─── Transactions ───────────────────────────────────────────────────
 
   async recordTransaction(
@@ -151,14 +136,4 @@ export class GiftCardRepository {
       .orderBy(desc(giftCardTransactions.createdAt));
   }
 
-  async findTransactionsByOrderId(
-    orderId: string,
-    ctx?: { tx?: Db },
-  ): Promise<GiftCardTransaction[]> {
-    return this.getDb(ctx)
-      .select()
-      .from(giftCardTransactions)
-      .where(eq(giftCardTransactions.orderId, orderId))
-      .orderBy(desc(giftCardTransactions.createdAt));
-  }
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { PluginTestApp } from "@porulle/core/testing";
-import type { Actor } from "@porulle/core/testing";
-import { createPluginTestApp, jsonHeaders, posAdminActor } from "./test-utils.js";
+import {createPluginTestApp, jsonHeaders, createTestActor } from "@porulle/core/testing";
+import { posAdminActor } from "./test-utils.js";
 import { posPlugin } from "../src/index.js";
 import { markOrderPaidForTest } from "@porulle/core/testing";
 
@@ -21,13 +21,17 @@ describe("SEC-08 — POS return refund is server-derived, capped, idempotent", (
   let shiftId: string;
   let entityId: string;
 
-  const actor: Actor = {
-    ...posAdminActor,
+  const actor = createTestActor({
     permissions: [
       ...posAdminActor.permissions,
-      "orders:create", "orders:read", "orders:update", "catalog:create", "catalog:read:unpublished", "pricing:manage",
+      "orders:create",
+      "orders:read",
+      "orders:update",
+      "catalog:create",
+      "catalog:read:unpublished",
+      "pricing:manage",
     ],
-  };
+  });
 
   async function makeOrder() {
     const order = await (kernel.services as any).orders.create(

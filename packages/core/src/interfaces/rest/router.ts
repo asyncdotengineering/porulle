@@ -28,7 +28,7 @@
 
 import { createRoute, z } from "@hono/zod-openapi";
 import { ErrorSchema } from "./schemas/shared.js";
-import { mapErrorToResponse, mapErrorToStatus, markRoutePermissionGuard } from "./utils.js";
+import { errorBody, mapErrorToStatus, markRoutePermissionGuard } from "./utils.js";
 import type { CommerceConfig } from "../../config/types.js";
 import type { PluginRouteRegistration } from "../../kernel/plugin/manifest.js";
 import { createScopedDb } from "../../kernel/database/scoped-db.js";
@@ -302,11 +302,11 @@ class RouteChain {
       } catch (error: unknown) {
         try {
           return ctx.json(
-            mapErrorToResponse(error),
+            errorBody(error),
             mapErrorToStatus(error) as number,
           );
         } catch {
-          // Fallback if mapErrorToResponse/mapErrorToStatus themselves throw
+          // Fallback if errorBody/mapErrorToStatus themselves throw
           return ctx.json(
             { error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred." } },
             500,

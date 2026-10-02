@@ -1,16 +1,12 @@
 import { describe, expect, it, beforeAll } from "vitest";
-import type { PluginTestApp, Actor } from "@porulle/core/testing";
-import { createPluginTestApp, jsonHeaders, TEST_ORG_ID } from "@porulle/core/testing";
+import type { PluginTestApp } from "@porulle/core/testing";
+import { createPluginTestApp, createTestActor, jsonHeaders } from "@porulle/core/testing";
 import { marketplacePlugin } from "../src/index.js";
 
-/** Admin actor with marketplace + core permissions */
-const marketplaceAdmin: Actor = {
-  type: "user",
+const marketplaceAdmin = createTestActor({
   userId: "mkt-admin-1",
   email: "mkt-admin@test.local",
   name: "Marketplace Admin",
-  vendorId: null,
-  organizationId: TEST_ORG_ID,
   role: "admin",
   permissions: [
     "marketplace:admin",
@@ -22,17 +18,12 @@ const marketplaceAdmin: Actor = {
     "orders:read",
     "orders:update",
   ],
-};
+});
 
-/** Staff actor with core permissions only (no marketplace) */
-const coreStaffActor: Actor = {
-  type: "user",
+const coreStaffActor = createTestActor({
   userId: "staff-1",
   email: "staff@example.com",
   name: "Staff",
-  vendorId: null,
-  organizationId: TEST_ORG_ID,
-  role: "staff",
   permissions: [
     "catalog:create",
     "catalog:update",
@@ -44,7 +35,7 @@ const coreStaffActor: Actor = {
     "orders:read",
     "orders:update",
   ],
-};
+});
 
 describe("marketplace plugin", () => {
   let app: PluginTestApp["app"];
@@ -232,6 +223,103 @@ describe("marketplace plugin", () => {
     expect(vendorAPayout.netAmount).toBe(5400);
     // Vendor B: 12000 sale - 1800 commission = 10200 net
     expect(vendorBPayout.netAmount).toBe(10200);
+  });
+
+  it("returns 422 INVALID_TRANSITION for invalid sub-order status change via vendor portal", async () => {
+    const vendorRes = await app.request("http://localhost/api/marketplace/vendors", {
+      method: "POST",
+      headers: jsonHeaders(marketplaceAdmin),
+      body: JSON.stringify({ name: "Transition Vendor", commissionRateBps: 1000 }),
+    });
+    expect(vendorRes.status).toBe(201);
+    const vendor = (await vendorRes.json()).data;
+
+    await app.request(`http://localhost/api/marketplace/vendors/${vendor.id}/approve`, {
+      method: "POST",
+      headers: jsonHeaders(marketplaceAdmin),
+    });
+
+    const entity = await kernel.services.catalog.create(
+      {
+        type: "product",
+        slug: "transition-product",
+        attributes: { title: "Transition Product" },
+        metadata: { vendorId: vendor.id },
+      },
+      coreStaffActor,
+    );
+    expect(entity.ok).toBe(true);
+    if (!entity.ok) return;
+
+    await kernel.services.inventory.createWarehouse({ name: "Main", code: "MAIN-T" });
+    await kernel.services.inventory.adjust(
+      { entityId: entity.value.id, adjustment: 5, reason: "stock" },
+      coreStaffActor,
+    );
+
+    const order = await kernel.services.orders.create(
+      {
+        customerId: "c0000000-0000-4000-8000-000000000002",
+        currency: "USD",
+        subtotal: 5000,
+        taxTotal: 0,
+        shippingTotal: 0,
+        discountTotal: 0,
+        grandTotal: 5000,
+        lineItems: [
+          {
+            entityId: entity.value.id,
+            entityType: "product",
+            title: "Transition Product",
+            quantity: 1,
+            unitPrice: 5000,
+            totalPrice: 5000,
+          },
+        ],
+      },
+      coreStaffActor,
+    );
+    expect(order.ok).toBe(true);
+    if (!order.ok) return;
+
+    const subOrdersRes = await app.request(
+      `http://localhost/api/marketplace/sub-orders?orderId=${order.value.id}`,
+      { headers: jsonHeaders(marketplaceAdmin) },
+    );
+    const subOrder = (await subOrdersRes.json()).data[0];
+    expect(subOrder?.status).toBe("pending");
+
+    const vendorActor = createTestActor({ vendorId: vendor.id, role: "staff", permissions: [] });
+    const deliverRes = await app.request(
+      `http://localhost/api/marketplace/vendor/me/orders/${subOrder.id}/deliver`,
+      { method: "POST", headers: jsonHeaders(vendorActor), body: "{}" },
+    );
+    expect(deliverRes.status).toBe(422);
+    const body = await deliverRes.json();
+    expect(body.error.code).toBe("INVALID_TRANSITION");
+  });
+
+  it("returns 404 NOT_FOUND when vendor confirms a missing sub-order", async () => {
+    const vendorRes = await app.request("http://localhost/api/marketplace/vendors", {
+      method: "POST",
+      headers: jsonHeaders(marketplaceAdmin),
+      body: JSON.stringify({ name: "Missing Sub Vendor" }),
+    });
+    const vendor = (await vendorRes.json()).data;
+    await app.request(`http://localhost/api/marketplace/vendors/${vendor.id}/approve`, {
+      method: "POST",
+      headers: jsonHeaders(marketplaceAdmin),
+    });
+
+    const vendorActor = createTestActor({ vendorId: vendor.id, role: "staff", permissions: [] });
+    const missingId = "00000000-0000-4000-8000-000000000099";
+    const confirmRes = await app.request(
+      `http://localhost/api/marketplace/vendor/me/orders/${missingId}/confirm`,
+      { method: "POST", headers: jsonHeaders(vendorActor), body: "{}" },
+    );
+    expect(confirmRes.status).toBe(404);
+    const body = await confirmRes.json();
+    expect(body.error.code).toBe("NOT_FOUND");
   });
 
   it("core catalog works alongside marketplace plugin", async () => {

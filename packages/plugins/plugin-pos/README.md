@@ -52,7 +52,7 @@ Registers POS tables for terminals, shifts, transactions, payments, and return l
 
 ## Configuration options
 
-`POSPluginOptions`: `defaultCurrency`, `maxHoldHours`, `discountOverrideThreshold`.
+`POSPluginOptions`: `pinAuth` (API key scope, credential TTL, PIN lockout thresholds).
 
 ## License
 

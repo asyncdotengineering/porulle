@@ -1,13 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { PluginTestApp } from "@porulle/core/testing";
-import {
-  createPluginTestApp,
-  jsonHeaders,
-  testNoPermActor,
-  posAdminActor,
-  posOperatorActor,
-  posManagerActor,
-} from "./test-utils.js";
+import { createPluginTestApp, jsonHeaders, testNoPermActor } from "@porulle/core/testing";
+import { posAdminActor, posOperatorActor, posManagerActor } from "./test-utils.js";
 import { posPlugin } from "../src/index.js";
 
 describe("POS Adversarial / Edge Cases", () => {

@@ -3,6 +3,8 @@ import type { Actor } from "./types.js";
 import type { AuthInstance } from "./setup.js";
 import { DEFAULT_ORG_ID } from "./org.js";
 import { isCredentialRejection } from "./auth-failure.js";
+import { CommerceTwoFactorRequiredError } from "../kernel/errors.js";
+import { roleParts } from "./role-authority.js";
 
 /**
  * The slice of Better Auth's internal context this file uses. Declared here
@@ -135,6 +137,18 @@ export async function resolveActor(
     } catch {
       // fall through — use defaultOrgId
     }
+  }
+
+  // A role that must prove a second factor gets nothing until the member has
+  // enrolled. Refused outright rather than served as a customer, so the client
+  // can tell the member why and where to enrol.
+  // Better Auth stores a member's role as a comma-separated list, so "owner,admin"
+  // holds "owner": any listed part requires the second factor.
+  const requiredForRoles = config.auth?.twoFactor?.requiredForRoles ?? [];
+  if (roleParts(role).some((part) => requiredForRoles.includes(part)) && session.user.twoFactorEnabled !== true) {
+    throw new CommerceTwoFactorRequiredError(
+      `The "${role}" role requires two-factor authentication. Enable it at /api/auth/two-factor/enable, then sign in again.`,
+    );
   }
 
   return {

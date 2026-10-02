@@ -1,5 +1,5 @@
 // Leaf entry for execution engines that run outside Node (Cloudflare Workers):
-// only the job types and the two runtime helpers, none of the server runtime.
+// only the job types and the runtime helpers engines share, none of the server runtime.
 export type {
   JobInstanceStatus,
   TaskContext,
@@ -10,6 +10,7 @@ export type {
 } from "./kernel/jobs/types.js";
 export { TaskNonRetryableError } from "./kernel/jobs/types.js";
 export { createPassThroughTaskStep } from "./kernel/jobs/step.js";
+export { prepareEnqueue, type PreparedEnqueue } from "./kernel/jobs/prepare-enqueue.js";
 export type {
   EnqueueOptions,
   ExecutionEngine,

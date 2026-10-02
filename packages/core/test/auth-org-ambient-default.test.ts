@@ -2,13 +2,11 @@ import { describe, expect, it, afterEach } from "vitest";
 import type { CommerceConfig } from "../src/config/types.js";
 import { resolveOrgId, setBootDefaultOrgId } from "../src/auth/org.js";
 import { OrgResolutionError } from "../src/kernel/errors.js";
-import { setBootStrictOrgResolution } from "../src/auth/strict-org-resolution.js";
 
 describe("resolveOrgId ambient boot default vs strict resolution", () => {
   afterEach(() => {
     delete process.env.STRICT_ORG_RESOLUTION;
     setBootDefaultOrgId("");
-    setBootStrictOrgResolution(false);
   });
 
   it("throws OrgResolutionError for null actor with boot default under strict resolution", () => {

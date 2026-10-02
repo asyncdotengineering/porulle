@@ -5,12 +5,17 @@ import type { DrizzleDatabase } from "../src/kernel/database/drizzle-db.js";
 import { OrgResolutionError } from "../src/kernel/errors.js";
 import { DrizzleJobsAdapter } from "../src/kernel/jobs/drizzle-adapter.js";
 import { commerceJobs } from "../src/kernel/jobs/schema.js";
+import type { TaskDefinition } from "../src/kernel/jobs/types.js";
 import { createPGliteTestAdapter } from "../src/test-utils/create-pglite-adapter.js";
+
+function registered(...slugs: string[]): Map<string, TaskDefinition> {
+  return new Map(slugs.map((slug) => [slug, { slug, handler: async () => ({ output: {} }) }]));
+}
 
 describe("DrizzleJobsAdapter organizationId (S1-06 / MT-5)", () => {
   it("inserts job with explicit organizationId", async () => {
     const { db } = await createPGliteTestAdapter();
-    const adapter = new DrizzleJobsAdapter(db as DrizzleDatabase, new Map());
+    const adapter = new DrizzleJobsAdapter(db as DrizzleDatabase, registered("test/slug"));
     const id = await adapter.enqueue(
       "test/slug",
       { k: 1 },
@@ -27,7 +32,7 @@ describe("DrizzleJobsAdapter organizationId (S1-06 / MT-5)", () => {
 
   it("throws OrgResolutionError when organizationId is empty", async () => {
     const { db } = await createPGliteTestAdapter();
-    const adapter = new DrizzleJobsAdapter(db as DrizzleDatabase, new Map());
+    const adapter = new DrizzleJobsAdapter(db as DrizzleDatabase, registered("t"));
     await expect(
       adapter.enqueue("t", {}, { organizationId: "" }),
     ).rejects.toThrow(OrgResolutionError);

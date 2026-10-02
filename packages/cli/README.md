@@ -8,9 +8,6 @@ The command-line tool. Scaffolds new stores, runs migrations, mints API keys, do
 |---|---|
 | `porulle init <name>` | scaffold a new store from `templates/starter/` — `commerce.config.ts`, `drizzle.config.ts`, server entry, package.json wired to `@porulle/*` workspace deps |
 | `porulle dev` | start the example server with reload (delegates to the app's own `dev` script when present) |
-| `porulle migrate` | apply pending Drizzle migrations against `DATABASE_URL` |
-| `porulle generate migration` | drizzle-kit generate — produce a new SQL migration from schema diffs |
-| `porulle deploy` | thin wrapper around the app's deploy script |
 | `porulle import <file>` | run an import adapter (Shopify CSV, WooCommerce XML, flat JSON) |
 | `porulle api-key create --scope <scope>` | mint an API key with the given permission scope (replaces the deprecated `auth.devKey`) |
 | `porulle doctor` | environment + config sanity check |

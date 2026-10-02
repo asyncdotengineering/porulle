@@ -10,7 +10,7 @@ import {
   updateTaxClassRoute,
   deleteTaxClassRoute,
 } from "../schemas/tax.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requirePerm } from "../utils.js";
+import { type AppEnv, errorBody, mapErrorToStatus, requirePerm } from "../utils.js";
 
 export function taxRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -23,14 +23,14 @@ export function taxRoutes(kernel: Kernel) {
   // @ts-expect-error -- openapi handler union return type
   router.openapi(createTaxRateRoute, async (c) => {
     const result = await kernel.services.tax.createTaxRate(c.req.valid("json"), c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value }, 201);
   });
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(listTaxRatesRoute, async (c) => {
     const result = await kernel.services.tax.listTaxRates(c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -41,14 +41,14 @@ export function taxRoutes(kernel: Kernel) {
       c.req.valid("json"),
       c.get("actor"),
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(deleteTaxRateRoute, async (c) => {
     const result = await kernel.services.tax.deleteTaxRate(c.req.param("id"), c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -57,14 +57,14 @@ export function taxRoutes(kernel: Kernel) {
   // @ts-expect-error -- openapi handler union return type
   router.openapi(createTaxClassRoute, async (c) => {
     const result = await kernel.services.tax.createTaxClass(c.req.valid("json"), c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value }, 201);
   });
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(listTaxClassesRoute, async (c) => {
     const result = await kernel.services.tax.listTaxClasses(c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -75,14 +75,14 @@ export function taxRoutes(kernel: Kernel) {
       c.req.valid("json"),
       c.get("actor"),
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(deleteTaxClassRoute, async (c) => {
     const result = await kernel.services.tax.deleteTaxClass(c.req.param("id"), c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 

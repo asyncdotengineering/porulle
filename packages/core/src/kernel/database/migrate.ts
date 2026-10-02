@@ -64,19 +64,6 @@ export function buildSchema(config?: CommerceConfig): Record<string, unknown> {
   return merged;
 }
 
-/**
- * Returns a list of all schema table names defined by the commerce engine.
- */
-export function getTableNames(): string[] {
-  return Object.entries(schema)
-    .filter(
-      ([_, value]) =>
-        value != null &&
-        typeof value === "object" &&
-        "getSQL" in (value as object),
-    )
-    .map(([key]) => key);
-}
 
 /**
  * Returns the absolute filesystem path(s) of the combined schema module for
@@ -121,10 +108,8 @@ export async function pushSchema(
       "pushSchema() requires `drizzle-kit` to be installed. Add it to your project: bun add -d drizzle-kit",
     );
   }
-  // With a config, push the merged core + plugin schema so plugin-declared
-  // tables are created too; without one, push core only (backward compatible).
-  const schemaToApply = config ? buildSchema(config) : getSchema();
+  // Core plus any plugin-declared tables in `config.customSchemas`.
   // drizzle-kit needs the native driver result shape; unwrap a normalized db.
-  const { apply } = await drizzleKit.pushSchema(schemaToApply, unwrapDb(drizzleInstance));
+  const { apply } = await drizzleKit.pushSchema(buildSchema(config), unwrapDb(drizzleInstance));
   await apply();
 }

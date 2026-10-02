@@ -1,6 +1,7 @@
 import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import type { AfterHook } from "../../kernel/hooks/types.js";
 import type { InventoryAdjustManyResult } from "../inventory/service.js";
+import { webhookDeliveryTask } from "./tasks.js";
 
 /**
  * Webhook delivery hook — enqueues delivery jobs instead of blocking.
@@ -27,7 +28,7 @@ export const deliverWebhooks: AfterHook<unknown> = async ({ result, operation, c
   if (!endpoints.ok) return;
 
   for (const endpoint of endpoints.value) {
-    await context.jobs.enqueue("webhooks/deliver", {
+    await context.jobs.enqueue(webhookDeliveryTask.slug, {
       endpointId: endpoint.id,
       endpointUrl: endpoint.url,
       endpointSecret: endpoint.secret,
@@ -58,7 +59,7 @@ export const deliverWebhooksForAdjustMany: AfterHook<InventoryAdjustManyResult> 
   if (!endpoints.ok) return;
   for (const endpoint of endpoints.value) {
     for (const level of levels) {
-      await context.jobs.enqueue("webhooks/deliver", {
+      await context.jobs.enqueue(webhookDeliveryTask.slug, {
         endpointId: endpoint.id,
         endpointUrl: endpoint.url,
         endpointSecret: endpoint.secret,

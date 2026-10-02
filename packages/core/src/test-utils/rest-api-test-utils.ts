@@ -16,6 +16,7 @@ import { Ok, Err } from "../kernel/result.js";
 import type { CommerceConfig } from "../config/types.js";
 import type { Actor } from "../auth/types.js";
 import type { AuthInstance } from "../auth/setup.js";
+import { testActor } from "./test-actors.js";
 
 type ServerEnv = {
   Variables: {
@@ -122,9 +123,9 @@ export async function createTestServer(
       await next();
     } catch (error) {
       // Import error handling utilities
-      const { mapErrorToResponse, mapErrorToStatus } = await import("../interfaces/rest/utils.js");
+      const { errorBody, mapErrorToStatus } = await import("../interfaces/rest/utils.js");
       return c.json(
-        mapErrorToResponse(error),
+        errorBody(error),
         mapErrorToStatus(error),
       );
     }
@@ -143,76 +144,8 @@ export async function parseJsonResponse<T = unknown>(response: Response): Promis
   return response.json() as Promise<T>;
 }
 
-/**
- * Common test actor with staff permissions
- */
-export const testActor: Actor = {
-  type: "user",
-  userId: "00000000-0000-0000-0000-000000000001",
-  email: "test@example.com",
-  name: "Test Staff",
-  vendorId: null,
-  organizationId: "org_default",
-  role: "staff",
-  permissions: [
-    "catalog:create",
-    "catalog:update",
-    "catalog:read",
-    "catalog:read:unpublished",
-    "inventory:adjust",
-    "inventory:read",
-    "orders:create",
-    "orders:create:on-behalf",
-    "orders:read",
-    "orders:update",
-    "orders:manage",
-    "cart:create",
-    "cart:update",
-    "cart:read",
-    "cart:manage",
-    "customers:update:self",
-    "webhooks:manage",
-    "pricing:manage",
-    "shipping:manage",
-    "tax:manage",
-    "settings:manage",
-    "analytics:read",
-    "staff:manage",
-    "promotions:manage",
-    "promotions:read",
-    "audit:read",
-    "media:write",
-    "compensation:admin",
-  ],
-};
 
-/**
- * Test actor with read-only permissions
- */
-export const readonlyActor: Actor = {
-  type: "user",
-  userId: "00000000-0000-0000-0000-000000000002",
-  email: "readonly@example.com",
-  name: "Read Only User",
-  vendorId: null,
-  organizationId: "org_default",
-  role: "customer",
-  permissions: ["catalog:read", "cart:read", "orders:read:own"],
-};
 
-/**
- * Test actor with no permissions
- */
-export const noPermActor: Actor = {
-  type: "user",
-  userId: "00000000-0000-0000-0000-000000000003",
-  email: "noperm@example.com",
-  name: "No Perm",
-  vendorId: null,
-  organizationId: "org_default",
-  role: "customer",
-  permissions: [],
-};
 
 /**
  * Helper to create a mock request with actor context

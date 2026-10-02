@@ -5,7 +5,6 @@ import type { CommerceConfig } from "../../../../config/types.js";
 import type { DrizzleDatabase } from "../../../../kernel/database/drizzle-db.js";
 import { member, user, invitation } from "../../../../auth/auth-schema.js";
 import { resolveOrgIdForCommerce } from "../../../../auth/org.js";
-import { makeId } from "../../../../utils/id.js";
 import {
   listStaffRoute,
   createStaffRoute,
@@ -200,7 +199,7 @@ export function adminStaffRoutes(kernel: Kernel) {
     const rows = await db
       .insert(member)
       .values({
-        id: makeId(),
+        id: crypto.randomUUID(),
         organizationId: orgId,
         userId: body.userId,
         role: body.role,
@@ -221,7 +220,7 @@ export function adminStaffRoutes(kernel: Kernel) {
     const rows = await db
       .insert(invitation)
       .values({
-        id: makeId(),
+        id: crypto.randomUUID(),
         organizationId: orgId,
         email: body.email,
         role: body.role,

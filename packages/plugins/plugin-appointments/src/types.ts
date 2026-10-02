@@ -51,11 +51,6 @@ export interface SlotGenerationParams {
 // ─── Plugin Options ─────────────────────────────────────────────────────────
 
 export interface AppointmentPluginOptions {
-  defaultDurationMinutes?: number;
-  defaultBufferBeforeMinutes?: number;
-  defaultBufferAfterMinutes?: number;
   minNoticeMinutes?: number;
   maxAdvanceDays?: number;
-  defaultTimezone?: string;
-  autoConfirmCashBookings?: boolean;
 }

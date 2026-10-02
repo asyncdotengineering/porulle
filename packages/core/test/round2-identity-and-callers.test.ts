@@ -6,12 +6,8 @@ import { createPGliteTestConfig } from "../src/test-utils/create-test-config.js"
 import { createKernel } from "../src/runtime/kernel.js";
 import { Hono } from "hono";
 import type { AppEnv } from "../src/interfaces/rest/utils.js";
-import {
-  createTestServer,
-  makeRequest,
-  parseJsonResponse,
-  testActor,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor } from "../src/test-utils/test-actors.js";
 
 const STORE = "org_round2_identity";
 

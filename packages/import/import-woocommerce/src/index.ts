@@ -1,4 +1,4 @@
-import { Err, Ok, type Result } from "@porulle/core";
+import { Err, Ok, toMinorUnits, type Result } from "@porulle/core";
 
 export interface WooImage {
   id: number;
@@ -126,6 +126,7 @@ export interface WooImportOptions {
   consumerSecret?: string;
   products?: WooProduct[];
   customers?: WooCustomer[];
+  currency?: string;
   fetchImpl?: typeof fetch;
   mediaFetcher?: (url: string) => Promise<{ data: ArrayBuffer; contentType: string; filename?: string }>;
   entityType?: string;
@@ -147,15 +148,37 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/g, "") || `product-${crypto.randomUUID().slice(0, 8)}`;
 }
 
-function buildWooUrl(base: string, path: string, key: string, secret: string): string {
+function buildWooUrl(base: string, path: string, key: string, secret: string, page = 1): string {
   const url = new URL(path, base.replace(/\/$/, "/"));
   url.searchParams.set("consumer_key", key);
   url.searchParams.set("consumer_secret", secret);
   url.searchParams.set("per_page", "100");
+  url.searchParams.set("page", String(page));
   return url.toString();
 }
 
-async function fetchJson<T>(fetchImpl: typeof fetch, url: string): Promise<Result<T>> {
+function normalizeCurrency(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  return value.trim().toUpperCase();
+}
+
+function settingCurrency(data: unknown): string | undefined {
+  if (Array.isArray(data)) {
+    for (const entry of data) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const setting = entry as Record<string, unknown>;
+      if (setting.id === "woocommerce_currency") return normalizeCurrency(setting.value);
+    }
+  }
+  if (typeof data !== "object" || data === null) return undefined;
+  const object = data as Record<string, unknown>;
+  return normalizeCurrency(object.woocommerce_currency);
+}
+
+async function fetchJson<T>(
+  fetchImpl: typeof fetch,
+  url: string,
+): Promise<Result<{ data: T; response: Response }>> {
   try {
     const response = await fetchImpl(url, { headers: { accept: "application/json" } });
     if (!response.ok) {
@@ -164,13 +187,18 @@ async function fetchJson<T>(fetchImpl: typeof fetch, url: string): Promise<Resul
         message: `WooCommerce request failed (${response.status}) for ${url}.`,
       });
     }
-    return Ok((await response.json()) as T);
+    return Ok({ data: (await response.json()) as T, response });
   } catch (error) {
     return Err({
       code: "WOO_API_FAILED",
       message: error instanceof Error ? error.message : "WooCommerce request failed.",
     });
   }
+}
+
+function totalPages(response: Response): number | undefined {
+  const value = Number.parseInt(response.headers.get("x-wp-totalpages") ?? "", 10);
+  return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 async function loadProducts(options: WooImportOptions): Promise<Result<WooProduct[]>> {
@@ -183,10 +211,19 @@ async function loadProducts(options: WooImportOptions): Promise<Result<WooProduc
   }
 
   const fetchImpl = options.fetchImpl ?? fetch;
-  return fetchJson<WooProduct[]>(
-    fetchImpl,
-    buildWooUrl(options.storeUrl, "/wp-json/wc/v3/products", options.consumerKey, options.consumerSecret),
-  );
+  const products: WooProduct[] = [];
+  for (let page = 1; ; page += 1) {
+    const response = await fetchJson<WooProduct[]>(
+      fetchImpl,
+      buildWooUrl(options.storeUrl, "/wp-json/wc/v3/products", options.consumerKey, options.consumerSecret, page),
+    );
+    if (!response.ok) return response;
+    products.push(...response.value.data);
+    if (response.value.data.length === 0 || (totalPages(response.value.response) ?? Number.POSITIVE_INFINITY) <= page) {
+      break;
+    }
+  }
+  return Ok(products);
 }
 
 async function loadCustomers(options: WooImportOptions): Promise<Result<WooCustomer[]>> {
@@ -196,10 +233,30 @@ async function loadCustomers(options: WooImportOptions): Promise<Result<WooCusto
   }
 
   const fetchImpl = options.fetchImpl ?? fetch;
-  return fetchJson<WooCustomer[]>(
-    fetchImpl,
-    buildWooUrl(options.storeUrl, "/wp-json/wc/v3/customers", options.consumerKey, options.consumerSecret),
+  const customers: WooCustomer[] = [];
+  for (let page = 1; ; page += 1) {
+    const response = await fetchJson<WooCustomer[]>(
+      fetchImpl,
+      buildWooUrl(options.storeUrl, "/wp-json/wc/v3/customers", options.consumerKey, options.consumerSecret, page),
+    );
+    if (!response.ok) return response;
+    customers.push(...response.value.data);
+    if (response.value.data.length === 0 || (totalPages(response.value.response) ?? Number.POSITIVE_INFINITY) <= page) {
+      break;
+    }
+  }
+  return Ok(customers);
+}
+
+async function loadCurrency(options: WooImportOptions): Promise<string | undefined> {
+  const configured = normalizeCurrency(options.currency);
+  if (configured) return configured;
+  if (!options.storeUrl || !options.consumerKey || !options.consumerSecret) return undefined;
+  const response = await fetchJson<unknown>(
+    options.fetchImpl ?? fetch,
+    buildWooUrl(options.storeUrl, "/wp-json/wc/v3/settings/general", options.consumerKey, options.consumerSecret),
   );
+  return response.ok ? settingCurrency(response.value.data) : undefined;
 }
 
 function filenameFromUrl(url: string): string {
@@ -233,6 +290,7 @@ export async function importWooCommerceCatalog(options: WooImportOptions): Promi
 
   const customers = await loadCustomers(options);
   if (!customers.ok) return customers;
+  const currency = await loadCurrency(options);
 
   const summary: WooImportSummary = {
     entitiesImported: 0,
@@ -298,6 +356,8 @@ export async function importWooCommerceCatalog(options: WooImportOptions): Promi
         const variationData = product.variationsData ?? [];
         for (const variant of variationData) {
           try {
+            // An unknown store currency falls back to two decimals.
+            const price = toMinorUnits(variant.price, currency ?? "");
             const optionValueIds = (variant.attributes ?? [])
               .map((attribute) => optionValueIdByKey.get(`${attribute.name}::${attribute.option ?? ""}`))
               .filter((value): value is string => typeof value === "string");
@@ -309,7 +369,7 @@ export async function importWooCommerceCatalog(options: WooImportOptions): Promi
               metadata: {
                 source: "woocommerce",
                 wooVariationId: variant.id,
-                price: variant.price,
+                ...(price !== undefined ? { price } : {}),
               },
             });
 

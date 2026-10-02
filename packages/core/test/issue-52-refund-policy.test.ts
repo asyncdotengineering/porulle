@@ -1,10 +1,6 @@
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
-import {
-  createTestServer,
-  makeRequest,
-  testActor,
-  parseJsonResponse,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor } from "../src/test-utils/test-actors.js";
 import { markOrderPaidForTest } from "../src/test-utils/order-test-helpers.js";
 
 // Issue #52 — core refund (#37) moves money and flips status, but retail

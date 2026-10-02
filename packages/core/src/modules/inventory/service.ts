@@ -10,13 +10,11 @@ import {
   toCommerceError,
 } from "../../kernel/errors.js";
 import { runAfterHooks } from "../../kernel/hooks/executor.js";
-import { createHookContext } from "../../kernel/hooks/create-context.js";
+import { createModuleHookContext } from "../../kernel/hooks/create-context.js";
 import type { HookContext } from "../../kernel/hooks/types.js";
 import type { HookRegistry } from "../../kernel/hooks/registry.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
-import { createLogger } from "../../utils/logger.js";
 import type { DatabaseAdapter } from "../../kernel/database/adapter.js";
-import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import { createTxContext, type TxContext } from "../../kernel/database/tx-context.js";
 import {
   InventoryRepository,
@@ -438,15 +436,7 @@ export class InventoryService {
         txCtx,
       );
 
-      const hookCtx: HookContext = createHookContext({
-        actor: actor ?? null,
-        tx: txCtx.tx,
-        logger: createLogger("inventory.adjust"),
-        services: this.deps.services,
-        context: { moduleName: "inventory" },
-        database: { db: this.deps.database.db as PluginDb },
-        commerceConfig: this.deps.config,
-      });
+      const hookCtx: HookContext = createModuleHookContext("inventory", this.deps, actor ?? null, txCtx.tx, { logScope: "inventory.adjust" });
 
       const afterHooks = this.deps.hooks.resolve("inventory.afterAdjust");
       await runAfterHooks(
@@ -622,15 +612,7 @@ export class InventoryService {
         organizationId: orgId,
         entities: [...byEntity].map(([entityId, levels]) => ({ entityId, levels })),
       };
-      const hookCtx: HookContext = createHookContext({
-        actor: actor ?? null,
-        tx: txCtx.tx,
-        logger: createLogger("inventory.adjustMany"),
-        services: this.deps.services,
-        context: { moduleName: "inventory" },
-        database: { db: this.deps.database.db as PluginDb },
-        commerceConfig: this.deps.config,
-      });
+      const hookCtx: HookContext = createModuleHookContext("inventory", this.deps, actor ?? null, txCtx.tx, { logScope: "inventory.adjustMany" });
       await runAfterHooks(
         this.deps.hooks.resolve("inventory.afterAdjustMany") as Parameters<typeof runAfterHooks>[0],
         null,

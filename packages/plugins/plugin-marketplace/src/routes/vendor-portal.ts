@@ -1,4 +1,4 @@
-import { router } from "@porulle/core";
+import { router, CommerceNotFoundError } from "@porulle/core";
 import type { PluginRouteRegistration } from "@porulle/core";
 import type { z } from "@hono/zod-openapi";
 import type { VendorService } from "../services/vendor.js";
@@ -113,7 +113,7 @@ export function buildVendorPortalRoutes(services: {
     .handler(async ({ actor, params }) => {
       const vendorId = requireVendorId(actor);
       const subOrder = await services.subOrder.getById(params.subOrderId!);
-      if (!subOrder) throw new Error("Sub-order not found");
+      if (!subOrder) throw new CommerceNotFoundError("Sub-order not found.");
       if (subOrder.vendorId !== vendorId) throw new Error("Forbidden");
       return subOrder;
     });
@@ -125,7 +125,7 @@ export function buildVendorPortalRoutes(services: {
     .handler(async ({ actor, params }) => {
       const vendorId = requireVendorId(actor);
       const subOrder = await services.subOrder.getById(params.subOrderId!);
-      if (!subOrder) throw new Error("Sub-order not found");
+      if (!subOrder) throw new CommerceNotFoundError("Sub-order not found.");
       if (subOrder.vendorId !== vendorId) throw new Error("Forbidden");
       return services.subOrder.confirm(params.subOrderId!);
     });
@@ -139,7 +139,7 @@ export function buildVendorPortalRoutes(services: {
       const vendorId = requireVendorId(actor);
       const body = input as z.infer<typeof ShipSubOrderBodySchema>;
       const subOrder = await services.subOrder.getById(params.subOrderId!);
-      if (!subOrder) throw new Error("Sub-order not found");
+      if (!subOrder) throw new CommerceNotFoundError("Sub-order not found.");
       if (subOrder.vendorId !== vendorId) throw new Error("Forbidden");
       return services.subOrder.ship(params.subOrderId!, {
         trackingNumber: body.trackingNumber,
@@ -154,7 +154,7 @@ export function buildVendorPortalRoutes(services: {
     .handler(async ({ actor, params }) => {
       const vendorId = requireVendorId(actor);
       const subOrder = await services.subOrder.getById(params.subOrderId!);
-      if (!subOrder) throw new Error("Sub-order not found");
+      if (!subOrder) throw new CommerceNotFoundError("Sub-order not found.");
       if (subOrder.vendorId !== vendorId) throw new Error("Forbidden");
       return services.subOrder.deliver(params.subOrderId!);
     });
@@ -168,7 +168,7 @@ export function buildVendorPortalRoutes(services: {
       const vendorId = requireVendorId(actor);
       const body = input as z.infer<typeof CancelSubOrderBodySchema>;
       const subOrder = await services.subOrder.getById(params.subOrderId!);
-      if (!subOrder) throw new Error("Sub-order not found");
+      if (!subOrder) throw new CommerceNotFoundError("Sub-order not found.");
       if (subOrder.vendorId !== vendorId) throw new Error("Forbidden");
       return services.subOrder.cancel(params.subOrderId!, body.reason);
     });

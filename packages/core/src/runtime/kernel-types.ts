@@ -24,14 +24,9 @@ import { SettingsService } from "../modules/settings/service.js";
 import { DocumentsService } from "../modules/documents/service.js";
 import type { AuditService } from "../modules/audit/service.js";
 import { OrganizationService } from "../modules/organization/service.js";
-import { createLogger } from "../utils/logger.js";
+import { createConsoleLogger } from "../utils/logger.js";
 import { CompensationFailuresRepository } from "../kernel/compensation/repository.js";
 
-export interface WebhookDeliveryPayload {
-  endpoint: { id: string; url: string; secret: string };
-  eventName: string;
-  payload: unknown;
-}
 
 export interface Kernel {
   config: CommerceConfig;
@@ -46,9 +41,7 @@ export interface Kernel {
     payments: PaymentsService;
     fulfillment: FulfillmentService;
     customers: CustomerService;
-    webhooks: WebhookService & {
-      enqueueDelivery(payload: WebhookDeliveryPayload): Promise<void>;
-    };
+    webhooks: WebhookService;
     analytics: AnalyticsService;
     pricing: PricingService;
     promotions: PromotionService;
@@ -63,7 +56,7 @@ export interface Kernel {
     organization: OrganizationService;
   };
   pluginPermissions: PluginPermission[];
-  logger: ReturnType<typeof createLogger>;
+  logger: ReturnType<typeof createConsoleLogger>;
 }
 
 export interface ConfigRouteDatabase extends DatabaseAdapter {
@@ -106,19 +99,3 @@ export function assertKernelServicesReady(
   }
 }
 
-export function assertSortedBefore(
-  topo: readonly string[],
-  a: string,
-  b: string,
-): void {
-  const ia = topo.indexOf(a);
-  const ib = topo.indexOf(b);
-  if (ia < 0 || ib < 0) {
-    throw new Error(`kernelModuleInstantiationOrder missing key: ${a} or ${b}`);
-  }
-  if (ia >= ib) {
-    throw new Error(
-      `Invalid kernel topo order: expected "${a}" before "${b}" (indices ${ia}, ${ib})`,
-    );
-  }
-}

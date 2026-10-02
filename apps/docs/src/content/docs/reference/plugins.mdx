@@ -248,48 +248,61 @@ const res = await app.request("http://localhost/api/my-route", {
 | `testCustomerActor` | customer | catalog:read, cart, orders:read:own |
 | `testNoPermActor` | customer | (none) |
 
-### Typed hook helpers
+For any other shape, build one with `createTestActor({ permissions, role })` — it fills the rest (test organization, a stable user id) so a test names only what it is about.
+
+### Typed hooks
+
+Type a handler with `AfterHook` / `BeforeHook` and register it by key:
 
 ```ts
-import { beforeHook, afterHook } from "@porulle/core";
+import { resolveOrgIdForCommerce, type AfterHook } from "@porulle/core";
 
-hooks: () => [
-  afterHook<{ id: string; grandTotal: number }>("orders.afterCreate", async ({ result, context }) => {
-    await context.jobs.enqueue("loyalty:award-points", { orderId: result.id });
-  }),
-],
+const awardPoints: AfterHook<{ id: string; grandTotal: number }> = async ({ result, context }) => {
+  await context.jobs.enqueue(
+    "loyalty:award-points",
+    { orderId: result.id },
+    // The org the event belongs to; a blank organizationId is refused at enqueue.
+    { organizationId: resolveOrgIdForCommerce(context.actor, context.commerceConfig) },
+  );
+};
+
+hooks: () => [{ key: "orders.afterCreate", handler: awardPoints }],
 ```
 
 ---
 
-## @porulle/db package
+## Plugin table schemas
 
-Plugin developers import from `@porulle/db` instead of `drizzle-orm` directly.
+Define plugin-owned tables with Drizzle's `pgTable` and column builders imported from `@porulle/core/drizzle` (same copy the kernel uses — avoids type drift). Every org-scoped table needs an `organizationId` text column; add indexes and unique constraints in the table callback as needed.
 
-```ts
-import { defineTable, column, eq, and, desc, sql } from "@porulle/db";
+```ts title="src/schema.ts"
+import {
+  pgTable,
+  uuid,
+  text,
+  timestamp,
+  index,
+  uniqueIndex,
+} from "@porulle/core/drizzle";
+import { organization } from "@porulle/core/auth-schema";
+import { sellableEntities } from "@porulle/core/schema";
+
+export const wishlistItems = pgTable("wishlist_items", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  entityId: uuid("entity_id")
+    .notNull()
+    .references(() => sellableEntities.id, { onDelete: "cascade" }),
+  note: text("note"),
+  addedAt: timestamp("added_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  orgIdx: index("idx_wishlist_items_org").on(table.organizationId),
+  orgUserEntityUnique: uniqueIndex("wishlist_items_org_user_entity_unique")
+    .on(table.organizationId, table.userId, table.entityId),
+}));
 ```
 
-### defineTable(name, columns)
-
-Wraps Drizzle's `pgTable` with auto-injected fields for org-scoped tables:
-
-| Auto-injected field | Description |
-|--------------------|-------------|
-| `id` | `uuid`, primary key, `defaultRandom()` |
-| `organizationId` | `text`, NOT NULL, FK to `organization.id` |
-| `createdAt` | `timestamptz`, `defaultNow()`, NOT NULL |
-| `updatedAt` | `timestamptz`, `defaultNow()`, NOT NULL |
-
-Child tables (detected by FK to a table that has `organizationId`) get only `id` and `createdAt` — no duplicate `organizationId`.
-
-### column namespace
-
-| Builder | Options |
-|---------|---------|
-| `column.text(opts?)` | `unique`, `optional`, `enum`, `default` |
-| `column.integer(opts?)` | `unique`, `optional`, `default` |
-| `column.boolean(opts?)` | `optional`, `default` |
-| `column.uuid(opts?)` | `optional`, `references` (PgTable for FK) |
-| `column.timestamp(opts?)` | `optional`, `default` (`"now"`) |
-| `column.json(opts?)` | `optional`, `default` |
+Query helpers (`eq`, `and`, `desc`, `sql`, …) also come from `@porulle/core/drizzle`.

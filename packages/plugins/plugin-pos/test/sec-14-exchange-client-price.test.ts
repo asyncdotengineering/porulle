@@ -1,11 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { PluginTestApp } from "@porulle/core/testing";
-import type { Actor } from "@porulle/core/testing";
-import {
-  createPluginTestApp,
-  jsonHeaders,
-  posAdminActor,
-} from "./test-utils.js";
+import {createPluginTestApp, jsonHeaders, createTestActor } from "@porulle/core/testing";
+import { posAdminActor } from "./test-utils.js";
 import { posPlugin } from "../src/index.js";
 import { markOrderPaidForTest } from "@porulle/core/testing";
 
@@ -19,8 +15,7 @@ describe("SEC-14 — exchange replacement unitPrice is server-resolved", () => {
   let shiftId: string;
   let entityId: string;
 
-  const exchangeActor: Actor = {
-    ...posAdminActor,
+  const exchangeActor = createTestActor({
     permissions: [
       ...posAdminActor.permissions,
       "orders:create",
@@ -32,7 +27,7 @@ describe("SEC-14 — exchange replacement unitPrice is server-resolved", () => {
       "pricing:manage",
       "inventory:adjust",
     ],
-  };
+  });
 
   beforeAll(async () => {
     const built = await createPluginTestApp(posPlugin());

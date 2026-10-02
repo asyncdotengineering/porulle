@@ -8,7 +8,6 @@ import {
   calculateTax,
   checkInventoryAvailability,
   completeCheckout,
-  recordAnalyticsEvent,
   resolveCurrentPrices,
   validateCartNotEmpty,
   validatePaymentMethod,
@@ -19,11 +18,11 @@ import { runAfterHooks, runBeforeHooks } from "../../../kernel/hooks/executor.js
 import { createHookContext } from "../../../kernel/hooks/create-context.js";
 import type { AfterHook, BeforeHook, ServiceContainer } from "../../../kernel/hooks/types.js";
 import type { PluginDb } from "../../../kernel/database/plugin-types.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus } from "../utils.js";
+import { type AppEnv, errorBody, mapErrorToStatus } from "../utils.js";
 import { isCommerceError } from "../../../kernel/errors.js";
 import { assertPermission } from "../../../auth/permissions.js";
 import { resolveOrgIdForCommerce } from "../../../auth/org.js";
-import { makeDeterministicId, makeId, makeIdempotencyScope } from "../../../utils/id.js";
+import { makeDeterministicId, makeIdempotencyScope } from "../../../utils/id.js";
 import type { ShippingAddress } from "../../../modules/shipping/calculator.js";
 import type { Actor } from "../../../auth/types.js";
 
@@ -85,7 +84,7 @@ export function checkoutRoutes(kernel: Kernel) {
     const body = c.req.valid("json");
 
     const actor = c.get("actor");
-    const cartSecret = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
+    const cartSecret = c.req.header("x-cart-secret") ?? undefined;
 
     // Idempotent replay is authorized by the order service before payment runs.
     // This preflight only preserves the no-double-payment fast path; the create
@@ -99,7 +98,7 @@ export function checkoutRoutes(kernel: Kernel) {
         cartSecret,
       );
       if (!replay.ok) {
-        return c.json(mapErrorToResponse(replay.error), mapErrorToStatus(replay.error));
+        return c.json(errorBody(replay.error), mapErrorToStatus(replay.error));
       }
       if (replay.value) return c.json({ data: replay.value }, 201);
     }
@@ -116,7 +115,7 @@ export function checkoutRoutes(kernel: Kernel) {
     );
     if (!cartAccess.ok) {
       return c.json(
-        mapErrorToResponse(cartAccess.error),
+        errorBody(cartAccess.error),
         mapErrorToStatus(cartAccess.error),
       );
     }
@@ -127,9 +126,9 @@ export function checkoutRoutes(kernel: Kernel) {
       ? await makeDeterministicId(
           `checkout:${resolveOrgIdForCommerce(actor, kernel.config)}:${idempotencyScope}:${body.idempotencyKey}`,
         )
-      : makeId();
+      : crypto.randomUUID();
     const checkoutData: CheckoutData = {
-      checkoutId: makeId(),
+      checkoutId: crypto.randomUUID(),
       orderId,
       cartId: body.cartId,
       currency: body.currency ?? "USD",
@@ -192,7 +191,6 @@ export function checkoutRoutes(kernel: Kernel) {
 
     const afterHooks: AfterHook<OrderResult>[] = [
       completeCheckout,
-      recordAnalyticsEvent,
       ...(kernel.hooks.resolve("checkout.afterCreate") as AfterHook<OrderResult>[]),
     ];
 
@@ -299,7 +297,7 @@ export function checkoutRoutes(kernel: Kernel) {
 
       if (!order.ok) {
         return c.json(
-          mapErrorToResponse(order.error),
+          errorBody(order.error),
           mapErrorToStatus(order.error),
         );
       }

@@ -2,7 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
 import type { CreateCartInput, AddCartItemInput } from "../../../modules/cart/schemas.js";
 import { createCartRoute, addCartItemRoute, updateCartItemQuantityRoute, getCartRoute, removeCartItemRoute, listCartsRoute, recoverCartRoute } from "../schemas/carts.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, parsePagination, requireMethodPerm, requirePerm } from "../utils.js";
+import { type AppEnv, errorBody, mapErrorToStatus, parsePagination, requireMethodPerm, requirePerm } from "../utils.js";
 
 export function cartRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -21,7 +21,7 @@ export function cartRoutes(kernel: Kernel) {
     const result = await kernel.services.cart.create(c.req.valid("json") as CreateCartInput, actor);
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value }, 201);
@@ -57,7 +57,7 @@ export function cartRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({
@@ -71,7 +71,7 @@ export function cartRoutes(kernel: Kernel) {
     const result = await kernel.services.cart.recover(c.req.param("id"), c.get("actor"));
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value });
@@ -80,7 +80,7 @@ export function cartRoutes(kernel: Kernel) {
   // @ts-expect-error -- openapi handler union return type
   router.openapi(getCartRoute, async (c) => {
     const actor = c.get("actor");
-    const secretHeader = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret");
+    const secretHeader = c.req.header("x-cart-secret");
     const result = await kernel.services.cart.getById(
       c.req.param("id"),
       actor,
@@ -89,7 +89,7 @@ export function cartRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value });
@@ -99,7 +99,7 @@ export function cartRoutes(kernel: Kernel) {
   // returns union responses (201 | 400 | 422). The route definition documents the
   // contract; the handler returns dynamic status.
   router.openapi(addCartItemRoute, async (c) => {
-    const secret = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
+    const secret = c.req.header("x-cart-secret") ?? undefined;
     const result = await kernel.services.cart.addItem(
       { ...c.req.valid("json"), cartId: c.req.param("id") } as AddCartItemInput,
       c.get("actor"),
@@ -108,7 +108,7 @@ export function cartRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value }, 201);
@@ -119,7 +119,7 @@ export function cartRoutes(kernel: Kernel) {
   // contract; the handler returns dynamic status.
   router.openapi(updateCartItemQuantityRoute, async (c) => {
     const body = c.req.valid("json");
-    const secret = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
+    const secret = c.req.header("x-cart-secret") ?? undefined;
     const result = await kernel.services.cart.updateQuantity(
       {
         cartId: c.req.param("id"),
@@ -132,7 +132,7 @@ export function cartRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: result.value });
@@ -140,7 +140,7 @@ export function cartRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(removeCartItemRoute, async (c) => {
-    const secret = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
+    const secret = c.req.header("x-cart-secret") ?? undefined;
     const result = await kernel.services.cart.removeItem(
       c.req.param("id"),
       c.req.param("itemId"),
@@ -150,7 +150,7 @@ export function cartRoutes(kernel: Kernel) {
     );
     if (!result.ok)
       return c.json(
-        mapErrorToResponse(result.error),
+        errorBody(result.error),
         mapErrorToStatus(result.error),
       );
     return c.json({ data: { deleted: true } });

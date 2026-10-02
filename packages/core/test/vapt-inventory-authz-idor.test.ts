@@ -1,11 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../src/auth/types.js";
 import type { Kernel } from "../src/runtime/kernel.js";
-import {
-  createTestServer,
-  makeRequest,
-  testActor,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor } from "../src/test-utils/test-actors.js";
 
 // A plain customer: catalog/cart/orders, but NO inventory permissions.
 const customerActor: Actor = {

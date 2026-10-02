@@ -4,7 +4,7 @@ import {
   runPendingJobs,
   type Actor,
 } from "@porulle/core";
-import { createPluginTestApp, TEST_ORG_ID } from "@porulle/core/testing";
+import {createPluginTestApp, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
 import { and, eq, inArray } from "@porulle/core/drizzle";
 import {
   customerAddresses,
@@ -22,8 +22,7 @@ import {
 } from "../src/index.js";
 import { channelEntityMap, channelOrderExports } from "../src/schema.js";
 
-const actor: Actor = {
-  type: "user",
+const actor = createTestActor({
   userId: "c64-c65-admin",
   email: "c64-c65-admin@test.local",
   name: "C64 C65 Admin",
@@ -31,7 +30,7 @@ const actor: Actor = {
   organizationId: TEST_ORG_ID,
   role: "admin",
   permissions: ["*:*"],
-};
+});
 
 describe("channel connector c64/c65 order injection", () => {
   const mock = mockChannelConnector({ catalog: [] });

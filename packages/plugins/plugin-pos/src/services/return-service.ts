@@ -40,27 +40,4 @@ export class ReturnService {
     return Ok(rows);
   }
 
-  /**
-   * Get all return items for a return transaction.
-   */
-  async getReturnItems(transactionId: string): Promise<PluginResult<ReturnItem[]>> {
-    const rows = await this.db
-      .select()
-      .from(posReturnItems)
-      .where(eq(posReturnItems.transactionId, transactionId));
-
-    return Ok(rows);
-  }
-
-  /**
-   * Calculate total refund amount for a return transaction.
-   */
-  async calculateRefundTotal(transactionId: string): Promise<number> {
-    const items = await this.db
-      .select()
-      .from(posReturnItems)
-      .where(eq(posReturnItems.transactionId, transactionId));
-
-    return items.reduce((sum, item) => sum + item.refundAmount, 0);
-  }
 }

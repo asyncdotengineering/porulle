@@ -4,7 +4,7 @@ import type {
   ExecutionEngineSetup,
   TaskDefinition,
 } from "../src/index.js";
-import { BUILTIN_JOB_TASK_SLUGS } from "../src/kernel/jobs/types.js";
+import { webhookDeliveryTask } from "../src/modules/webhooks/tasks.js";
 import { createServer } from "../src/runtime/server.js";
 import { createTestConfig } from "../src/test-utils/create-test-config.js";
 
@@ -36,7 +36,7 @@ describe("job execution engine selection", () => {
     expect(register).toHaveBeenCalledOnce();
     const setup = register.mock.calls[0]![0];
     expect(setup.tasks.get(task.slug)).toBe(task);
-    expect(setup.tasks.has(BUILTIN_JOB_TASK_SLUGS.webhookDeliver)).toBe(true);
+    expect(setup.tasks.has(webhookDeliveryTask.slug)).toBe(true);
     expect(setup.processingOrder).toEqual(processingOrder);
 
     await expect(server.runJobs("priority", 3)).resolves.toEqual({

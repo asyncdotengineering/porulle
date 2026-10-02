@@ -2,34 +2,27 @@
 import { defineCommand, runMain } from "citty";
 import { initCommand } from "./commands/init.js";
 import { devCommand } from "./commands/dev.js";
-import { generateMigrationCommand } from "./commands/generate-migration.js";
-import { migrateCommand } from "./commands/migrate.js";
-import { deployCommand } from "./commands/deploy.js";
 import { importCommand } from "./commands/import.js";
 import { apiKeyCommand } from "./commands/api-key.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { channelBackfillCommand } from "./commands/channel-backfill.js";
+import { readCliVersion } from "./utils.js";
+
+const cliVersion = await readCliVersion();
 
 const main = defineCommand({
   meta: {
     name: "@porulle/cli",
-    version: "0.2.5",
+    version: cliVersion ?? "0.0.0",
     description: "UnifiedCommerce Engine CLI",
   },
   subCommands: {
     init: initCommand,
     dev: devCommand,
-    migrate: migrateCommand,
-    deploy: deployCommand,
     import: importCommand,
     "api-key": apiKeyCommand,
     doctor: doctorCommand,
     "channel:backfill": channelBackfillCommand,
-    generate: defineCommand({
-      subCommands: {
-        migration: generateMigrationCommand,
-      },
-    }),
   },
 });
 

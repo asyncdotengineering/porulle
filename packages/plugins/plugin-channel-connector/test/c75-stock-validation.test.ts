@@ -1,12 +1,11 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { CommerceValidationError, type Actor } from "@porulle/core";
-import { createPluginTestApp, TEST_ORG_ID } from "@porulle/core/testing";
+import {createPluginTestApp, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
 import { sellableEntities } from "@porulle/core/schema";
 import { channelConnectorPlugin, mockChannelConnector } from "../src/index.js";
 import { channelEntityMap, connectedStores } from "../src/schema.js";
 
-const actor: Actor = {
-  type: "user",
+const actor = createTestActor({
   userId: "c75-test-admin",
   email: "c75@test.local",
   name: "c75 Test Admin",
@@ -14,7 +13,7 @@ const actor: Actor = {
   organizationId: TEST_ORG_ID,
   role: "admin",
   permissions: ["*"],
-};
+});
 
 describe("c75 checkout.beforePayment stock validation", () => {
   const mockOptions: {

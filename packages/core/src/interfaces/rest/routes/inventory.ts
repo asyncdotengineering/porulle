@@ -9,7 +9,7 @@ import {
   listWarehousesRoute,
   listInventoryLevelsRoute,
 } from "../schemas/inventory.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requirePerm } from "../utils.js";
+import { type AppEnv, errorBody, mapErrorToStatus, requirePerm } from "../utils.js";
 
 export function inventoryRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -39,7 +39,7 @@ export function inventoryRoutes(kernel: Kernel) {
       },
       actor,
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -54,7 +54,7 @@ export function inventoryRoutes(kernel: Kernel) {
       entityIds,
       c.get("actor"),
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -62,7 +62,7 @@ export function inventoryRoutes(kernel: Kernel) {
   router.openapi(inventoryAdjustRoute, async (c) => {
     const body = c.req.valid("json");
     const result = await kernel.services.inventory.adjustDetailed(body, c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     const { level, before, after, delta, movementId } = result.value;
     // Additive: level fields (back-compat) plus before/after/delta/movementId.
     return c.json({ data: { ...level, before, after, delta, movementId } });
@@ -72,7 +72,7 @@ export function inventoryRoutes(kernel: Kernel) {
   router.openapi(inventoryReserveRoute, async (c) => {
     const body = c.req.valid("json");
     const result = await kernel.services.inventory.reserve(body, c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: { reserved: true } });
   });
 
@@ -80,7 +80,7 @@ export function inventoryRoutes(kernel: Kernel) {
   router.openapi(inventoryReleaseRoute, async (c) => {
     const body = c.req.valid("json");
     const result = await kernel.services.inventory.release(body, c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: { released: true } });
   });
 
@@ -95,7 +95,7 @@ export function inventoryRoutes(kernel: Kernel) {
       return c.json({ error: { code: "FORBIDDEN", message: "Permission 'inventory:adjust' is required." } }, 403);
     }
     const result = await kernel.services.inventory.createWarehouse(body, actor);
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value }, 201);
   });
 
@@ -103,7 +103,7 @@ export function inventoryRoutes(kernel: Kernel) {
   router.openapi(listWarehousesRoute, async (c) => {
     const actor = c.get("actor");
     const result = await kernel.services.inventory.listWarehouses(actor);
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 

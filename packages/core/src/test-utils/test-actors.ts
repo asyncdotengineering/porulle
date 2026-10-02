@@ -9,6 +9,72 @@ import { DEFAULT_ORG_ID } from "../auth/org.js";
  */
 export const TEST_ORG_ID = DEFAULT_ORG_ID;
 
+/**
+ * A test actor in {@link TEST_ORG_ID}. Pass only what the test is about —
+ * usually `permissions` (and `role`); everything else has a stable default.
+ */
+export function createTestActor(overrides: Partial<Actor> = {}): Actor {
+  return {
+    type: "user",
+    userId: "test-user-1",
+    email: "user@test.local",
+    name: "Test User",
+    vendorId: null,
+    organizationId: TEST_ORG_ID,
+    role: "staff",
+    permissions: [],
+    ...overrides,
+  };
+}
+
+/** Staff with the permissions the REST suites exercise. */
+export const testActor: Actor = createTestActor({
+  userId: "00000000-0000-0000-0000-000000000001",
+  email: "test@example.com",
+  name: "Test Staff",
+  role: "staff",
+  permissions: [
+    "catalog:create",
+    "catalog:update",
+    "catalog:read",
+    "catalog:read:unpublished",
+    "inventory:adjust",
+    "inventory:read",
+    "orders:create",
+    "orders:create:on-behalf",
+    "orders:read",
+    "orders:update",
+    "orders:manage",
+    "cart:create",
+    "cart:update",
+    "cart:read",
+    "cart:manage",
+    "customers:update:self",
+    "webhooks:manage",
+    "pricing:manage",
+    "shipping:manage",
+    "tax:manage",
+    "settings:manage",
+    "analytics:read",
+    "staff:manage",
+    "promotions:manage",
+    "promotions:read",
+    "audit:read",
+    "media:write",
+    "compensation:admin",
+  ],
+});
+
+/** Read-only shopper: browses and reads its own orders, cannot create a cart. */
+export const readonlyActor: Actor = createTestActor({
+  userId: "00000000-0000-0000-0000-000000000002",
+  email: "readonly@example.com",
+  name: "Read Only User",
+  role: "customer",
+  permissions: ["catalog:read", "cart:read", "orders:read:own"],
+
+});
+
 /** Admin with wildcard permissions. Use for setup operations in beforeAll. */
 export const testAdminActor: Actor = {
   type: "user",

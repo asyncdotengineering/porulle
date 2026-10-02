@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { PluginTestApp } from "@porulle/core/testing";
-import type { Actor } from "@porulle/core/testing";
-import { createPluginTestApp, jsonHeaders, TEST_ORG_ID } from "@porulle/core/testing";
+import {createPluginTestApp, jsonHeaders, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
 import { layawayPlugin, type Layaway } from "../src/index.js";
 
 // Issue #58 — layaway/installment selling had no porulle primitive. A plan
@@ -14,20 +13,15 @@ describe("plugin-layaway (issue #58)", () => {
   let entityId: string;
   const forfeited: Layaway[] = [];
 
-  const operator: Actor = {
-    type: "user",
-    userId: "layaway-op-1",
-    email: "op@test.local",
-    name: "Operator",
-    vendorId: null,
-    organizationId: TEST_ORG_ID,
-    role: "staff",
-    // `catalog:read:unpublished` is required because this operator creates a
-    // product (which defaults to draft) and then sells it. Order creation
-    // validates every line item against the catalog read policy, so an operator
-    // that cannot see unpublished entities cannot sell one it just created.
-    permissions: ["layaway:operate", "layaway:manage", "orders:create", "orders:read", "catalog:create", "catalog:read:unpublished", "inventory:adjust"],
-  };
+  const operator = createTestActor({
+  userId: "layaway-op-1",
+  email: "op@test.local",
+  name: "Operator",
+  vendorId: null,
+  organizationId: TEST_ORG_ID,
+  role: "staff",
+  permissions: ["layaway:operate", "layaway:manage", "orders:create", "orders:read", "catalog:create", "catalog:read:unpublished", "inventory:adjust"],
+});
 
   async function availableStock(): Promise<{ onHand: number; reserved: number }> {
     const levels = await (kernel.services as any).inventory.getLevelsByEntityId(entityId, operator);

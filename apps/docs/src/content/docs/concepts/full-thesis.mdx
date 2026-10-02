@@ -2409,10 +2409,9 @@ serve({ fetch: server.fetch, port: 3000 });
 CLI:
 ```
 npx @porulle/cli init my-store
-npx @porulle/cli generate migration
-npx @porulle/cli deploy --target cloudflare
-npx @porulle/cli deploy --target vercel
 npx @porulle/cli dev
+bunx drizzle-kit generate --config drizzle.config.ts
+npx vercel deploy
 ```
 
 ---

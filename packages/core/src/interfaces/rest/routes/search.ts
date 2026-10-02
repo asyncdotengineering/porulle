@@ -1,7 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
 import { searchRoute, suggestRoute } from "../schemas/search.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requirePerm } from "../utils.js";
+import { type AppEnv, errorBody, mapErrorToStatus, requirePerm } from "../utils.js";
 
 const SAFE_ATTRIBUTE_NAME = /^[A-Za-z0-9_-]+$/;
 
@@ -53,7 +53,7 @@ export function searchRoutes(kernel: Kernel) {
       }, { actor: c.get("actor"), tx: null, requestId: "" });
 
       if (!result.ok) {
-        return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+        return c.json(errorBody(result.error), mapErrorToStatus(result.error));
       }
 
       return c.json({
@@ -85,7 +85,7 @@ export function searchRoutes(kernel: Kernel) {
       }, { actor: c.get("actor"), tx: null, requestId: "" });
 
       if (!result.ok) {
-        return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+        return c.json(errorBody(result.error), mapErrorToStatus(result.error));
       }
 
       return c.json({ data: result.value });

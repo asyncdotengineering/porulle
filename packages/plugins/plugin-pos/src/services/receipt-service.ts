@@ -1,5 +1,5 @@
 import { eq, and } from "@porulle/core/drizzle";
-import { Ok, Err } from "@porulle/core";
+import { Ok, Err, escapeHtml, formatAmount } from "@porulle/core";
 import type { PluginResult } from "@porulle/core";
 import { posTransactions, posPayments } from "../schema.js";
 import type { Db, Transaction, Payment } from "../types.js";
@@ -29,6 +29,7 @@ export interface ReceiptData {
   }>;
   changeDue: number;
   customerId?: string | null;
+  currency: string;
 }
 
 export class ReceiptService {
@@ -74,20 +75,24 @@ export class ReceiptService {
 
     // Get order line items from core
     let lineItems: ReceiptData["lineItems"] = [];
+    let currency = "USD";
     if (txn.orderId) {
       const orders = this.services.orders as {
-        getById: (id: string, actor: unknown) => Promise<{ ok: boolean; value?: { lineItems?: Array<{ title?: string; quantity: number; unitPrice?: number; totalPrice?: number }> } }>;
+        getById: (id: string, actor: unknown) => Promise<{ ok: boolean; value?: { currency?: string; lineItems?: Array<{ title?: string; quantity: number; unitPrice?: number; totalPrice?: number }> } }>;
       } | undefined;
 
       if (orders) {
         const orderResult = await orders.getById(txn.orderId, null);
-        if (orderResult.ok && orderResult.value?.lineItems) {
-          lineItems = orderResult.value.lineItems.map((li) => ({
-            title: li.title ?? "Item",
-            quantity: li.quantity,
-            unitPrice: li.unitPrice ?? 0,
-            totalPrice: li.totalPrice ?? 0,
-          }));
+        if (orderResult.ok && orderResult.value) {
+          currency = orderResult.value.currency ?? currency;
+          if (orderResult.value.lineItems) {
+            lineItems = orderResult.value.lineItems.map((li) => ({
+              title: li.title ?? "Item",
+              quantity: li.quantity,
+              unitPrice: li.unitPrice ?? 0,
+              totalPrice: li.totalPrice ?? 0,
+            }));
+          }
         }
       }
     }
@@ -119,6 +124,7 @@ export class ReceiptService {
       })),
       changeDue,
       customerId: txn.customerId,
+      currency,
     });
   }
 
@@ -140,30 +146,31 @@ export class ReceiptService {
     await emailService.send({
       to: email,
       subject: `Receipt ${receiptResult.value.receiptNumber}`,
-      html: this.formatReceiptHtml(receiptResult.value),
+      html: this.formatReceiptHtml(receiptResult.value, receiptResult.value.currency),
     });
 
     return Ok({ sent: true });
   }
 
-  private formatReceiptHtml(receipt: ReceiptData): string {
+  private formatReceiptHtml(receipt: ReceiptData, currency = "USD"): string {
+    const fmt = (minor: number) => formatAmount(minor, currency);
     const lines = receipt.lineItems
-      .map((li) => `<tr><td>${li.title}</td><td>${li.quantity}</td><td>${(li.unitPrice / 100).toFixed(2)}</td><td>${(li.totalPrice / 100).toFixed(2)}</td></tr>`)
+      .map((li) => `<tr><td>${escapeHtml(li.title)}</td><td>${li.quantity}</td><td>${fmt(li.unitPrice)}</td><td>${fmt(li.totalPrice)}</td></tr>`)
       .join("");
 
     return `
-      <h2>Receipt ${receipt.receiptNumber}</h2>
+      <h2>Receipt ${escapeHtml(receipt.receiptNumber)}</h2>
       <p>Date: ${receipt.timestamp.toISOString()}</p>
       <table>
         <tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>
         ${lines}
       </table>
-      <p>Subtotal: ${(receipt.subtotal / 100).toFixed(2)}</p>
-      ${receipt.discountTotal > 0 ? `<p>Discount: -${(receipt.discountTotal / 100).toFixed(2)}</p>` : ""}
-      <p>Tax: ${(receipt.taxTotal / 100).toFixed(2)}</p>
-      <p><strong>Total: ${(receipt.total / 100).toFixed(2)}</strong></p>
-      ${receipt.payments.map((p) => `<p>${p.method}: ${(p.amount / 100).toFixed(2)}</p>`).join("")}
-      ${receipt.changeDue > 0 ? `<p>Change: ${(receipt.changeDue / 100).toFixed(2)}</p>` : ""}
+      <p>Subtotal: ${fmt(receipt.subtotal)}</p>
+      ${receipt.discountTotal > 0 ? `<p>Discount: -${fmt(receipt.discountTotal)}</p>` : ""}
+      <p>Tax: ${fmt(receipt.taxTotal)}</p>
+      <p><strong>Total: ${fmt(receipt.total)}</strong></p>
+      ${receipt.payments.map((p) => `<p>${escapeHtml(p.method)}: ${fmt(p.amount)}</p>`).join("")}
+      ${receipt.changeDue > 0 ? `<p>Change: ${fmt(receipt.changeDue)}</p>` : ""}
     `;
   }
 }

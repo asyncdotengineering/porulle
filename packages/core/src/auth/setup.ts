@@ -91,6 +91,14 @@ export function createAuth(
     jwt(),
   ];
 
+  // Requiring a second factor while the plugin that enrols one is off would lock
+  // every listed role out with no way back in.
+  if ((config.auth?.twoFactor?.requiredForRoles?.length ?? 0) > 0 && !config.auth?.twoFactor?.enabled) {
+    throw new Error(
+      "auth.twoFactor.requiredForRoles needs auth.twoFactor.enabled: true — members of those roles could never enrol.",
+    );
+  }
+
   if (config.auth?.twoFactor?.enabled) {
     plugins.push(twoFactor({ issuer: config.storeName ?? "UnifiedCommerce" }));
   }

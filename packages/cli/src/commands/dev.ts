@@ -1,10 +1,10 @@
-import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineCommand } from "citty";
 import consola from "consola";
 import postgres from "postgres";
+import { npxCommand, runProcess } from "../utils.js";
 
 const DRIZZLE_CONFIG_CANDIDATES = [
   "drizzle.config.ts",
@@ -85,22 +85,11 @@ export async function runDrizzleKitPush(
   }
   const configPath = join(cwd, configName);
   const spawnCwd = spawnCwdForDrizzleKit(cwd);
-  await new Promise<void>((resolvePromise, rejectPromise) => {
-    const proc = spawn(
-      process.platform === "win32" ? "npx.cmd" : "npx",
-      ["drizzle-kit", "push", "--force", "--config", configPath],
-      { cwd: spawnCwd, stdio: "inherit", shell: false, env },
-    );
-    proc.on("exit", (code) => {
-      if (code === 0) resolvePromise();
-      else {
-        rejectPromise(
-          new Error(`drizzle-kit push exited with code ${code ?? "unknown"}`),
-        );
-      }
-    });
-    proc.on("error", rejectPromise);
-  });
+  await runProcess(
+    npxCommand(),
+    ["drizzle-kit", "push", "--force", "--config", configPath],
+    { cwd: spawnCwd, env },
+  );
 }
 
 export async function maybeBootstrapDevDatabase(options: {
@@ -178,21 +167,12 @@ export const devCommand = defineCommand({
       process.exit(1);
     }
 
-    const proc = spawn(
-      process.platform === "win32" ? "npx.cmd" : "npx",
-      ["tsx", "watch", "src/dev-server.ts", "--port", port],
-      {
-        stdio: "inherit",
-        shell: false,
-      },
-    );
-
-    await new Promise<void>((resolvePromise, rejectPromise) => {
-      proc.on("exit", (code) => {
-        if (code === 0) resolvePromise();
-        else rejectPromise(new Error(`dev exited with code ${code}`));
-      });
-      proc.on("error", rejectPromise);
-    });
+    await runProcess(npxCommand(), [
+      "tsx",
+      "watch",
+      "src/dev-server.ts",
+      "--port",
+      port,
+    ]);
   },
 });

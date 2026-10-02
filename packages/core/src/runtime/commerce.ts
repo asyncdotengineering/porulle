@@ -3,8 +3,7 @@ import type { CommerceConfig } from "../config/types.js";
 import type { Kernel } from "./kernel.js";
 import { createKernel } from "./kernel.js";
 import { pushSchema } from "../kernel/database/migrate.js";
-import { ensureDefaultOrg, setBootDefaultOrgId } from "../auth/org.js";
-import { setBootStrictOrgResolution } from "../auth/strict-org-resolution.js";
+import { ensureDefaultOrg } from "../auth/org.js";
 import { createAuth, type AuthInstance } from "../auth/setup.js";
 import { createLogger, type Logger } from "./logger.js";
 import { createLocalAPI, type CommerceLocalAPI, type LocalAPIOptions } from "../kernel/local-api.js";
@@ -132,15 +131,9 @@ export async function createCommerce(
     await pushSchema(kernel.database.db, config);
   }
 
-  setBootStrictOrgResolution(config.auth?.strictOrgResolution === true);
-
-  // Register the config-driven org ID so resolveOrgId() can use it
-  // without requiring every service to have config access.
-  if (config.auth?.defaultOrganizationId) {
-    setBootDefaultOrgId(config.auth.defaultOrganizationId);
-  } else {
-    // Legacy fallback: auto-create org_default for deployments
-    // that haven't migrated to seed-based org creation yet.
+  // createKernel registered a configured default organization; without one,
+  // create org_default for deployments that have not seeded their own.
+  if (!config.auth?.defaultOrganizationId) {
     await ensureDefaultOrg(kernel.database.db, config.storeName);
   }
 

@@ -1,11 +1,6 @@
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
-import {
-  createTestServer,
-  makeRequest,
-  testActor,
-  noPermActor,
-  parseJsonResponse,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor, testNoPermActor } from "../src/test-utils/test-actors.js";
 import { inventoryLevels } from "../src/modules/inventory/schema.js";
 
 // Issue #48 — the analytics module had a query engine but no canned
@@ -180,7 +175,7 @@ describe("Issue #48 — canned retail reports + store timezone", () => {
     const forbidden = await makeRequest(server, {
       method: "GET",
       url: "http://localhost/api/analytics/reports/daily-journal",
-      actor: noPermActor,
+      actor: testNoPermActor,
     });
     expect(forbidden.status).toBe(403);
   });

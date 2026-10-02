@@ -1,7 +1,8 @@
 import { defaultConfig } from "./defaults.js";
-import type { CommerceConfig, DefineConfigInput } from "./types.js";
+import type { CommerceConfig } from "./types.js";
 import type { TaskDefinition } from "../kernel/jobs/types.js";
-import { defaultKernelJobTasks } from "../kernel/jobs/builtin-job-tasks.js";
+import { staleJobReaperTask } from "../kernel/jobs/reaper.js";
+import { webhookDeliveryTask } from "../modules/webhooks/tasks.js";
 import { _resetRegisteredPlugins } from "../kernel/plugin/manifest.js";
 import { noopStorageAdapter } from "../modules/media/noop-adapter.js";
 
@@ -14,7 +15,7 @@ function mergeBuiltinJobTasks(
 ): NonNullable<CommerceConfig["jobs"]> {
   const userTasks = jobs?.tasks ?? [];
   const bySlug = new Map<string, TaskDefinition>();
-  for (const t of defaultKernelJobTasks) {
+  for (const t of [webhookDeliveryTask, staleJobReaperTask] as TaskDefinition[]) {
     bySlug.set(t.slug, t);
   }
   for (const t of userTasks) {
@@ -56,7 +57,7 @@ function merge<T extends object>(base: T, next: Partial<T>): T {
  * 4. Freezing the result to prevent runtime mutation
  */
 export async function defineConfig(
-  input: DefineConfigInput,
+  input: CommerceConfig,
 ): Promise<CommerceConfig> {
   let config = merge(defaultConfig as CommerceConfig, input);
 

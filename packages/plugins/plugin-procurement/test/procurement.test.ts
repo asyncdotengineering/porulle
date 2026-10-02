@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { PluginTestApp } from "@porulle/core/testing";
-import { createPluginTestApp, jsonHeaders, testNoPermActor, procAdminActor, procStaffActor } from "./test-utils.js";
+import { createPluginTestApp, createTestActor, jsonHeaders, testNoPermActor } from "@porulle/core/testing";
+import { procAdminActor, procStaffActor } from "./test-utils.js";
 import { procurementPlugin } from "../src/index.js";
 
 describe("Procurement Plugin", () => {
@@ -139,10 +140,11 @@ describe("Procurement Plugin", () => {
 
   // Org isolation
   it("org isolation: other org sees 0 suppliers", async () => {
-    const otherOrg: import("@porulle/core").Actor = {
-      type: "user", userId: "other", email: "o@o.local", name: "Other",
-      vendorId: null, organizationId: "org_other", role: "staff", permissions: ["procurement:read"],
-    };
+    const otherOrg = createTestActor({
+      userId: "other",
+      organizationId: "org_other",
+      permissions: ["procurement:read"],
+    });
     const res = await app.request("http://localhost/api/procurement/suppliers", { headers: jsonHeaders(otherOrg) });
     expect(res.status).toBe(200);
     expect((await res.json()).data.length).toBe(0);

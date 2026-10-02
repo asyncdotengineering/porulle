@@ -1,6 +1,6 @@
 import type { Logger } from "../kernel/hooks/types.js";
 
-export function createLogger(scope: string): Logger {
+export function createConsoleLogger(scope: string): Logger {
   return {
     info(message: string, data?: unknown) {
       // eslint-disable-next-line no-console

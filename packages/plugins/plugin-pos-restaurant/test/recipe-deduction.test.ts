@@ -5,7 +5,7 @@ import { organization, inventoryLevels, inventoryMovements } from "@porulle/core
 import { posRestaurantPlugin } from "../src/index.js";
 import { RecipeDeductionService } from "../src/services/recipe-deduction-service.js";
 import { RecipeService } from "../src/services/recipe-service.js";
-import { createPluginTestApp, testAdminActor } from "./test-utils.js";
+import { createPluginTestApp, testAdminActor } from "@porulle/core/testing";
 
 const ORG_B = "org_recipe_deduction_b";
 

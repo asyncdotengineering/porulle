@@ -5,6 +5,13 @@ description: Release history for Porulle.
 
 The whole `@porulle/*` family versions in lockstep. Per-release detail lives in each package's `CHANGELOG.md`; the migration contracts are indexed under [Upgrading](/production/upgrading/).
 
+## v0.65.0
+
+- **Breaking: dead and pass-through APIs are removed.** A deletion-test audit removed what nothing used or what only forwarded to something else: `@porulle/db` (use `pgTable` from `@porulle/core/drizzle`), `@porulle/sdk/react` and `createSDK`, the CLI's `migrate` / `generate migration` / `deploy`, `defineModule` and the module types, `createRepository`, the query registry, the access combinators, the `LocalAPI` class, 18 plugin options nothing read, and marketplace contract pricing. See [`migration-0.64-to-0.65.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-0.64-to-0.65.md) for every removal and its replacement.
+- **Webhooks deliver for every subscribed event.** `customers.*`, `pricing.*`, `promotions.*`, `inventory.update`, `fulfillment.create` and `cart.addItem` endpoints previously never received a delivery.
+- **`auth.twoFactor.requiredForRoles` is enforced.** A member of a listed role without 2FA gets `403 TWO_FACTOR_REQUIRED`; enrolment under `/api/auth/*` stays reachable.
+- **Imports are complete and money is exact.** Shopify and WooCommerce imports page through the whole catalogue; zero-decimal currencies are no longer multiplied by 100; `adapter-tax-manual` subtracts order-level discounts.
+
 ## v0.16.0
 
 - **An auth check that fails is no longer reported as a rejected credential.** `getSession` and `verifyApiKey` were wrapped in bare catches that fell through to anonymous, so a database outage, a schema drift, or two Better Auth copies in one module graph all came back as `401 "Authentication required."`, logged nowhere. A genuine rejection still falls through to anonymous; anything else is logged with its stage and returns 500. `resolveActor` throws on a fault rather than returning `null`. See [`migration-0.15-to-0.16.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-0.15-to-0.16.md) — if a route starts returning 500, it was already broken.

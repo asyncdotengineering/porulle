@@ -86,25 +86,6 @@ export class RecipeService {
     return Ok({ recipe, ingredients, totalCost, costPerUnit });
   }
 
-  async calculateCOGS(orgId: string, entityId: string, quantity: number): Promise<number> {
-    const recipes = await this.db
-      .select()
-      .from(posRecipes)
-      .where(and(eq(posRecipes.organizationId, orgId), eq(posRecipes.entityId, entityId), eq(posRecipes.isActive, true)));
-
-    if (recipes.length === 0) return 0;
-    const recipe = recipes[0]!;
-
-    const ingredients = await this.db
-      .select()
-      .from(posRecipeIngredients)
-      .where(eq(posRecipeIngredients.recipeId, recipe.id));
-
-    const costPerYield = ingredients.reduce((sum, i) => sum + i.quantity * i.costPerUnit, 0);
-    const costPerUnit = costPerYield / recipe.yieldQuantity;
-    return Math.round(costPerUnit * quantity);
-  }
-
   async listRecipes(orgId: string): Promise<PluginResult<Array<typeof posRecipes.$inferSelect>>> {
     const rows = await this.db
       .select()

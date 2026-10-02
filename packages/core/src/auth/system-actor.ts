@@ -1,11 +1,11 @@
 import type { Actor } from "./types.js";
-import { DEFAULT_ORG_ID } from "./org.js";
 
 /**
  * Creates a system actor for internal operations (webhooks, jobs, compensation chains).
- * System actors have full permissions and are scoped to a specific organization.
+ * System actors have full permissions, so the organization they act in is
+ * always named by the caller — there is no default tenant to fall back to.
  */
-export function createSystemActor(orgId: string = DEFAULT_ORG_ID): Actor {
+export function createSystemActor(orgId: string): Actor {
   return {
     type: "api_key",
     userId: "system:internal",

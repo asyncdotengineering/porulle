@@ -2,13 +2,8 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { eq } from "@porulle/core/drizzle";
 import { apikey, member, organization } from "@porulle/core/auth-schema";
 import type { PluginTestApp } from "@porulle/core/testing";
-import type { Actor } from "@porulle/core/testing";
-import {
-  createPluginTestApp,
-  jsonHeaders,
-  posAdminActor,
-  TEST_ORG_ID,
-} from "./test-utils.js";
+import {createPluginTestApp, jsonHeaders, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
+import { posAdminActor } from "./test-utils.js";
 import { posPlugin } from "../src/index.js";
 import { DEFAULT_ORG_ID, requireUserId } from "@porulle/core";
 import { posShifts } from "../src/schema.js";
@@ -20,21 +15,23 @@ describe("SEC-16 — pin-login API key carries operator organization", () => {
   let db: PluginTestApp["db"];
   let terminalId: string;
 
-  const storeAdmin: Actor = {
-    ...posAdminActor,
+  const storeAdmin = createTestActor({
+    userId: posAdminActor.userId,
+    email: posAdminActor.email,
+    name: posAdminActor.name,
     organizationId: STORE_ORG_ID,
-  };
+    permissions: posAdminActor.permissions,
+  });
 
-  const storeOperator: Actor = {
-    type: "user",
-    userId: "pos-operator-sec16",
-    email: "sec16-cashier@test.local",
-    name: "SEC-16 Cashier",
-    vendorId: null,
-    organizationId: STORE_ORG_ID,
-    role: "staff",
-    permissions: ["pos:operate", "cart:create", "cart:update", "cart:read", "catalog:read"],
-  };
+  const storeOperator = createTestActor({
+  userId: "pos-operator-sec16",
+  email: "sec16-cashier@test.local",
+  name: "SEC-16 Cashier",
+  vendorId: null,
+  organizationId: STORE_ORG_ID,
+  role: "staff",
+  permissions: ["pos:operate", "cart:create", "cart:update", "cart:read", "catalog:read"],
+});
 
   beforeAll(async () => {
     const built = await createPluginTestApp(posPlugin());

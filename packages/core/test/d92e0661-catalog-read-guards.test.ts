@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../src/auth/types.js";
-import { DEFAULT_CUSTOMER_PERMISSIONS } from "../src/auth/middleware.js";
+import { DEFAULT_CUSTOMER_PERMISSIONS } from "../src/auth/actor.js";
 import {
   createTestServer,
   makeRequest,

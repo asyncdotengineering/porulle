@@ -111,7 +111,7 @@ export default defineConfig({
   payments: [mockPayments],
 
   plugins: [
-    posPlugin({ defaultCurrency: "USD", maxHoldHours: 24, discountOverrideThreshold: 20 }),
+    posPlugin(),
     posRestaurantPlugin({ enableKDS: true, enableTips: true, enableModifiers: true, kdsAlertMinutes: 15 }),
   ],
 });

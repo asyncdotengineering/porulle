@@ -1,4 +1,5 @@
 import type { CommerceConfig } from "../config/types.js";
+import { hasPermissionFromList } from "./permissions.js";
 
 const BUILTIN_ROLE_RANK: Record<string, number> = {
   owner: 3,
@@ -42,16 +43,6 @@ export function permissionsForRole(config: CommerceConfig, role: string): string
   return config.auth?.roles?.[role]?.permissions ?? [];
 }
 
-export function hasPermissionFromList(
-  actorPermissions: readonly string[],
-  required: string,
-): boolean {
-  if (actorPermissions.includes("*:*")) return true;
-
-  const [resource] = required.split(":");
-  if (resource && actorPermissions.includes(`${resource}:*`)) return true;
-  return actorPermissions.includes(required);
-}
 
 /**
  * The role's privilege rank. A composite role ranks as its strongest part, so

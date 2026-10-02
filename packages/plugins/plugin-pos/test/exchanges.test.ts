@@ -1,12 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { PluginTestApp } from "@porulle/core/testing";
-import type { Actor } from "@porulle/core/testing";
-import {
-  createPluginTestApp,
-  jsonHeaders,
-  posAdminActor,
-  TEST_ORG_ID,
-} from "./test-utils.js";
+import {createPluginTestApp, jsonHeaders, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
+import { posAdminActor } from "./test-utils.js";
 import { posPlugin } from "../src/index.js";
 import { markOrderPaidForTest } from "@porulle/core/testing";
 
@@ -24,8 +19,7 @@ describe("POS exchanges (issue #53)", () => {
   let premiumEntityId: string;
 
   // Exchange touches core orders, so the actor carries order scopes too.
-  const exchangeActor: Actor = {
-    ...posAdminActor,
+  const exchangeActor = createTestActor({
     permissions: [
       ...posAdminActor.permissions,
       "orders:create",
@@ -37,7 +31,7 @@ describe("POS exchanges (issue #53)", () => {
       "pricing:manage",
       "inventory:adjust",
     ],
-  };
+  });
 
   async function createOrder(): Promise<{ orderId: string; lineItemId: string }> {
     const result = await (kernel.services as any).orders.create(

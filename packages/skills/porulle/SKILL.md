@@ -216,8 +216,8 @@ const { data: cart } = await client.POST("/api/carts", {
 });
 
 // 3. For React: create typed TanStack Query hooks
-import { createCommerceHooks } from "@porulle/sdk/react";
-const commerce = createCommerceHooks(client);
+import createQueryHooks from "openapi-react-query";
+const commerce = createQueryHooks(client);
 // commerce.useQuery("get", "/api/catalog/entities", { params: ... })
 ```
 

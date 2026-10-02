@@ -1,7 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
 import { createWebhookEndpointRoute, listWebhookEndpointsRoute, deleteWebhookEndpointRoute } from "../schemas/webhooks.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requirePerm } from "../utils.js";
+import { type AppEnv, errorBody, mapErrorToStatus, requirePerm } from "../utils.js";
 
 export function webhookRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -18,7 +18,7 @@ export function webhookRoutes(kernel: Kernel) {
     const actor = c.get("actor");
     const result = await kernel.services.webhooks.createEndpoint(body, actor);
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
     return c.json({ data: result.value }, 201);
   });
@@ -27,7 +27,7 @@ export function webhookRoutes(kernel: Kernel) {
   router.openapi(listWebhookEndpointsRoute, async (c) => {
     const result = await kernel.services.webhooks.listEndpoints(c.get("actor"));
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
     const sanitized = result.value.map(({ secret: _secret, ...rest }) => rest);
     return c.json({ data: sanitized });
@@ -40,7 +40,7 @@ export function webhookRoutes(kernel: Kernel) {
       c.get("actor"),
     );
     if (!result.ok) {
-      return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+      return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     }
     return c.json({ data: { deleted: true } });
   });

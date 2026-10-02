@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createSystemActor, type Actor, type ChannelCatalogItem } from "@porulle/core";
 import { and, eq } from "@porulle/core/drizzle";
 import { commerceJobs } from "@porulle/core/schema";
-import { createPluginTestApp, jsonHeaders, TEST_ORG_ID, testAdminActor } from "@porulle/core/testing";
+import {createPluginTestApp, jsonHeaders, TEST_ORG_ID, testAdminActor, createTestActor } from "@porulle/core/testing";
 import {
   catalogPushConcurrencyKey,
   channelConnectorPlugin,
@@ -12,8 +12,7 @@ import {
 import { CHANNEL_CONVERGENCE_CTX } from "../src/catalog-push-trigger.js";
 import { channelEntityMap } from "../src/schema.js";
 
-const actor: Actor = {
-  type: "user",
+const actor = createTestActor({
   userId: "push-trigger-admin",
   email: "push-trigger-admin@test.local",
   name: "Push Trigger Admin",
@@ -21,7 +20,7 @@ const actor: Actor = {
   organizationId: TEST_ORG_ID,
   role: "admin",
   permissions: ["*:*"],
-};
+});
 
 describe("catalog push trigger", () => {
   let built: Awaited<ReturnType<typeof createPluginTestApp>>;

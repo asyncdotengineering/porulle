@@ -42,12 +42,6 @@ export type ShiftStatus = "open" | "closed";
 export type TerminalType = "register" | "tablet" | "mobile" | "kiosk";
 
 export interface POSPluginOptions {
-  /** Default currency for new transactions. Default: "USD" */
-  defaultCurrency?: string;
-  /** Maximum hold duration in hours before auto-void. Default: 24 */
-  maxHoldHours?: number;
-  /** Require manager override for discounts above this percentage. Default: 20 */
-  discountOverrideThreshold?: number;
   /** PIN auth runtime (issue #51). */
   pinAuth?: {
     /** Named auth.apiKeyScopes config used to mint per-shift keys. */
@@ -62,8 +56,5 @@ export interface POSPluginOptions {
 }
 
 export const DEFAULT_POS_OPTIONS: Required<POSPluginOptions> = {
-  defaultCurrency: "USD",
-  maxHoldHours: 24,
-  discountOverrideThreshold: 20,
   pinAuth: {},
 };

@@ -1,7 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
 import { changeOrderStatusRoute, listOrdersRoute, orderLookupRoute, getOrderRoute, getOrderFulfillmentsRoute, createOrderRoute, quoteOrderRoute, refundOrderRoute, captureOrderRoute, createOrderFulfillmentRoute, addOrderLineItemRoute, updateOrderLineItemRoute, removeOrderLineItemRoute, refundOrderLinesRoute, undoOrderRefundRoute, listOrderRefundsRoute, refundCapStatusRoute, createOrderNoteRoute, listOrderNotesRoute, deleteOrderNoteRoute, orderTimelineRoute } from "../schemas/orders.js";
-import { type AppEnv, isUUID, mapErrorToResponse, mapErrorToStatus, parsePagination, requireAnyPerm, requireMethodPerm, requirePerm } from "../utils.js";
+import { type AppEnv, isUUID, errorBody, mapErrorToStatus, parsePagination, requireAnyPerm, requireMethodPerm, requirePerm } from "../utils.js";
 import type { CreateOrderInput } from "../../../modules/orders/service.js";
 import { computeOrderPricing } from "../../../modules/orders/quote.js";
 import { assertPermission } from "../../../auth/permissions.js";
@@ -29,7 +29,7 @@ export function orderRoutes(kernel: Kernel) {
       c.get("actor"),
     );
 
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({
       data: result.value.items,
       meta: {
@@ -54,19 +54,19 @@ export function orderRoutes(kernel: Kernel) {
       if (!Number.isNaN(d.getTime())) opts.to = d;
     }
     const result = await kernel.services.orders.lookup(q, opts, c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(getOrderRoute, async (c) => {
     const idOrNumber = c.req.param("idOrNumber");
-    const guestCredential = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
+    const guestCredential = c.req.header("x-cart-secret") ?? undefined;
     const result = isUUID(idOrNumber)
       ? await kernel.services.orders.getById(idOrNumber, c.get("actor"), undefined, guestCredential)
       : await kernel.services.orders.getByNumber(idOrNumber, c.get("actor"), undefined, guestCredential);
 
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -75,14 +75,14 @@ export function orderRoutes(kernel: Kernel) {
     try {
       assertPermission(c.get("actor"), "orders:create");
     } catch (error) {
-      return c.json(mapErrorToResponse(error), mapErrorToStatus(error));
+      return c.json(errorBody(error), mapErrorToStatus(error));
     }
     const body = c.req.valid("json") as CreateOrderInput;
-    const guestCredential = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
+    const guestCredential = c.req.header("x-cart-secret") ?? undefined;
     const result = await kernel.services.orders.create(body, c.get("actor"), undefined, {
       ...(guestCredential !== undefined ? { guestCredential } : {}),
     });
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value }, 201);
   });
 
@@ -91,7 +91,7 @@ export function orderRoutes(kernel: Kernel) {
     try {
       assertPermission(c.get("actor"), "orders:manage");
     } catch (error) {
-      return c.json(mapErrorToResponse(error), mapErrorToStatus(error));
+      return c.json(errorBody(error), mapErrorToStatus(error));
     }
     const body = c.req.valid("json") as {
       currency: string;
@@ -116,7 +116,7 @@ export function orderRoutes(kernel: Kernel) {
       );
       return c.json({ data: breakdown });
     } catch (error) {
-      return c.json(mapErrorToResponse(error), mapErrorToStatus(error));
+      return c.json(errorBody(error), mapErrorToStatus(error));
     }
   });
 
@@ -130,7 +130,7 @@ export function orderRoutes(kernel: Kernel) {
       undefined,
       body?.amount !== undefined ? { amount: body.amount } : undefined,
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -140,14 +140,14 @@ export function orderRoutes(kernel: Kernel) {
   router.openapi(createOrderNoteRoute, async (c) => {
     const body = c.req.valid("json") as { body: string; pinned?: boolean };
     const result = await kernel.services.orders.addNote(c.req.param("id"), body, c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value }, 201);
   });
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(listOrderNotesRoute, async (c) => {
     const result = await kernel.services.orders.listNotes(c.req.param("id"), c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -158,14 +158,14 @@ export function orderRoutes(kernel: Kernel) {
       c.req.param("noteId"),
       c.get("actor"),
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(orderTimelineRoute, async (c) => {
     const result = await kernel.services.orders.timeline(c.req.param("id"), c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -174,7 +174,7 @@ export function orderRoutes(kernel: Kernel) {
   // @ts-expect-error -- openapi handler union return type
   router.openapi(refundCapStatusRoute, async (c) => {
     const result = await kernel.services.orders.refundCapStatus(c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -186,7 +186,7 @@ export function orderRoutes(kernel: Kernel) {
       body,
       c.get("actor"),
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value }, 201);
   });
 
@@ -197,14 +197,14 @@ export function orderRoutes(kernel: Kernel) {
       c.req.param("refundId"),
       c.get("actor"),
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(listOrderRefundsRoute, async (c) => {
     const result = await kernel.services.orders.listRefunds(c.req.param("id"), c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -216,7 +216,7 @@ export function orderRoutes(kernel: Kernel) {
       c.get("actor"),
       body?.amount !== undefined ? { amount: body.amount } : undefined,
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -225,7 +225,7 @@ export function orderRoutes(kernel: Kernel) {
     try {
       assertPermission(c.get("actor"), "orders:manage");
     } catch (error) {
-      return c.json(mapErrorToResponse(error), mapErrorToStatus(error));
+      return c.json(errorBody(error), mapErrorToStatus(error));
     }
     const body = c.req.valid("json");
     const result = await kernel.services.orders.addLineItem(
@@ -233,7 +233,7 @@ export function orderRoutes(kernel: Kernel) {
       body,
       c.get("actor"),
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value }, 201);
   });
 
@@ -246,7 +246,7 @@ export function orderRoutes(kernel: Kernel) {
       body,
       c.get("actor"),
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -257,7 +257,7 @@ export function orderRoutes(kernel: Kernel) {
       c.req.param("lineItemId"),
       c.get("actor"),
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -275,7 +275,7 @@ export function orderRoutes(kernel: Kernel) {
       c.get("actor"),
     );
 
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -287,13 +287,13 @@ export function orderRoutes(kernel: Kernel) {
     try {
       assertPermission(actor, "orders:update");
     } catch (error) {
-      return c.json(mapErrorToResponse(error), mapErrorToStatus(error));
+      return c.json(errorBody(error), mapErrorToStatus(error));
     }
-    const guestCredential = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
+    const guestCredential = c.req.header("x-cart-secret") ?? undefined;
 
     // Verify the order exists and the actor has access before recording
     const orderResult = await kernel.services.orders.getById(orderId, actor, undefined, guestCredential);
-    if (!orderResult.ok) return c.json(mapErrorToResponse(orderResult.error), mapErrorToStatus(orderResult.error));
+    if (!orderResult.ok) return c.json(errorBody(orderResult.error), mapErrorToStatus(orderResult.error));
 
     const body = c.req.valid("json") as {
       lineItems: Array<{ orderLineItemId: string; quantity: number }>;
@@ -308,7 +308,7 @@ export function orderRoutes(kernel: Kernel) {
       { ...body, orderId: orderResult.value.id },
       actor,
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value }, 201);
   });
 
@@ -316,17 +316,17 @@ export function orderRoutes(kernel: Kernel) {
   router.openapi(getOrderFulfillmentsRoute, async (c) => {
     const orderId = c.req.param("id");
     const actor = c.get("actor");
-    const guestCredential = c.req.header("x-cart-secret") ?? c.req.header("X-Cart-Secret") ?? undefined;
+    const guestCredential = c.req.header("x-cart-secret") ?? undefined;
 
     // Verify the order exists and the actor has access before returning fulfillments
     const orderResult = isUUID(orderId)
       ? await kernel.services.orders.getById(orderId, actor, undefined, guestCredential)
       : await kernel.services.orders.getByNumber(orderId, actor, undefined, guestCredential);
 
-    if (!orderResult.ok) return c.json(mapErrorToResponse(orderResult.error), mapErrorToStatus(orderResult.error));
+    if (!orderResult.ok) return c.json(errorBody(orderResult.error), mapErrorToStatus(orderResult.error));
 
     const result = await kernel.services.fulfillment.getByOrderId(orderResult.value.id, actor);
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 

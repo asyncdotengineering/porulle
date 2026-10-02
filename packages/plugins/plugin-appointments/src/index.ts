@@ -8,7 +8,6 @@ import {
 import { ProviderService } from "./services/provider-service.js";
 import { SlotService } from "./services/slot-service.js";
 import { BookingService } from "./services/booking-service.js";
-import { buildHooks } from "./hooks.js";
 import { buildServiceRoutes } from "./routes/services.js";
 import { buildProviderRoutes } from "./routes/providers.js";
 import { buildAvailabilityRoutes } from "./routes/availability.js";
@@ -53,7 +52,7 @@ export function appointmentPlugin(options: AppointmentPluginOptions = {}) {
       bookingPayments,
     }),
 
-    hooks: () => buildHooks(options),
+    hooks: () => [],
 
     routes: (ctx) => {
       const db = ctx.database.db as Db;

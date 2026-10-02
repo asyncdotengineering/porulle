@@ -2,16 +2,6 @@
 
 Typed TypeScript client for any Porulle server. Generated from the OpenAPI spec — every endpoint, request body, and response is type-checked at compile time.
 
-## Two surfaces
-
-```ts
-import { createClient } from "@porulle/sdk";
-import { createCommerceHooks } from "@porulle/sdk/react";
-```
-
-- **`createClient<paths>`** — a vanilla `openapi-fetch` client. Use anywhere (Node, Bun, browser, Cloudflare Workers).
-- **`createCommerceHooks(client)`** — TanStack Query (React Query) hooks bound to that client.
-
 ## Usage
 
 ```ts
@@ -28,12 +18,12 @@ const { data, error } = await client.GET("/api/catalog/entities", {
 });
 ```
 
-React Query bindings:
+React Query hooks bind directly to the same client via `openapi-react-query`:
 
 ```tsx
-import { createCommerceHooks } from "@porulle/sdk/react";
+import createQueryHooks from "openapi-react-query";
 
-const commerce = createCommerceHooks(client);
+const commerce = createQueryHooks(client);
 
 function ProductList() {
   const { data } = commerce.useQuery("get", "/api/catalog/entities", {

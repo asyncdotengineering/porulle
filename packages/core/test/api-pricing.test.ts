@@ -1,13 +1,8 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
 import type { Actor } from "../src/auth/types.js";
 import { organization } from "../src/auth/auth-schema.js";
-import {
-  createTestServer,
-  makeRequest,
-  testActor,
-  readonlyActor,
-  parseJsonResponse,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { readonlyActor, testActor } from "../src/test-utils/test-actors.js";
 
 describe("REST API: Pricing", () => {
   let server: any;

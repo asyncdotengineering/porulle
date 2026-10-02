@@ -4,12 +4,8 @@ import { orders } from "../src/modules/orders/schema.js";
 import type { DrizzleDatabase } from "../src/kernel/database/drizzle-db.js";
 import { eq } from "drizzle-orm";
 import { markOrderPaidForTest } from "../src/test-utils/order-test-helpers.js";
-import {
-  createTestServer,
-  makeRequest,
-  parseJsonResponse,
-  testActor,
-} from "../src/test-utils/rest-api-test-utils.js";
+import { createTestServer, makeRequest, parseJsonResponse } from "../src/test-utils/rest-api-test-utils.js";
+import { testActor } from "../src/test-utils/test-actors.js";
 
 // Recording payment adapter: captures every gateway refund amount so we can
 // assert money-conservation (total refunded never exceeds captured).

@@ -15,13 +15,13 @@ import type { TaxClass, TaxRate, TaxRatesRepository } from "./repository/index.j
 
 interface TaxServiceDeps {
   adapter: TaxAdapter | undefined;
-  repository?: TaxRatesRepository;
+  repository: TaxRatesRepository;
   config: CommerceConfig;
 }
 
 export class TaxService {
   private adapter: TaxAdapter | undefined;
-  private repository: TaxRatesRepository | undefined;
+  private repository: TaxRatesRepository;
   private config: CommerceConfig;
 
   constructor(deps: TaxServiceDeps) {
@@ -47,14 +47,14 @@ export class TaxService {
     orgId?: string,
     ctx?: TxContext,
   ): Promise<Result<TaxCalculationResult>> {
-    if (this.repository && orgId && params.lineItems.length > 0) {
+    if (orgId && params.lineItems.length > 0) {
       const classes = await this.repository.findActiveClasses(orgId, ctx);
       if (classes.length > 0) {
         return Ok(await this.calculateByClasses(params, classes, ctx));
       }
     }
 
-    if (this.repository && orgId && params.toAddress) {
+    if (orgId && params.toAddress) {
       const matched = await this.matchRuntimeRates(orgId, params.toAddress, ctx);
       if (matched.length > 0) {
         // Subtract the order-level discount from the taxable base too (audit
@@ -110,7 +110,7 @@ export class TaxService {
     const byName = new Map(classes.map((c) => [c.name, c]));
     const defaultClass = classes.find((c) => c.isDefault) ?? null;
 
-    const { byEntity, byVariant } = await this.repository!.resolveCatalogTaxClasses(
+    const { byEntity, byVariant } = await this.repository.resolveCatalogTaxClasses(
       params.lineItems.map((li) => ({ entityId: li.entityId, variantId: li.variantId })),
       ctx,
     );
@@ -175,14 +175,12 @@ export class TaxService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<TaxClass>> {
-    const repo = this.requireRepository();
-    if (!repo.ok) return repo;
     if (input.rateBps < 0) {
       return Err(new CommerceValidationError("rateBps must be non-negative."));
     }
     const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config);
-    if (input.isDefault) await repo.value.clearDefaultClass(orgId, ctx);
-    const created = await repo.value.createClass(
+    if (input.isDefault) await this.repository.clearDefaultClass(orgId, ctx);
+    const created = await this.repository.createClass(
       {
         organizationId: orgId,
         name: input.name,
@@ -196,10 +194,8 @@ export class TaxService {
   }
 
   async listTaxClasses(actor?: Actor | null, ctx?: TxContext): Promise<Result<TaxClass[]>> {
-    const repo = this.requireRepository();
-    if (!repo.ok) return repo;
     const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config);
-    return Ok(await repo.value.findAllClasses(orgId, ctx));
+    return Ok(await this.repository.findAllClasses(orgId, ctx));
   }
 
   async updateTaxClass(
@@ -208,13 +204,11 @@ export class TaxService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<TaxClass>> {
-    const repo = this.requireRepository();
-    if (!repo.ok) return repo;
     const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config);
-    const existing = await repo.value.findClassById(orgId, id, ctx);
+    const existing = await this.repository.findClassById(orgId, id, ctx);
     if (!existing) return Err(new CommerceNotFoundError("Tax class not found."));
-    if (patch.isDefault) await repo.value.clearDefaultClass(orgId, ctx);
-    const updated = await repo.value.updateClass(
+    if (patch.isDefault) await this.repository.clearDefaultClass(orgId, ctx);
+    const updated = await this.repository.updateClass(
       id,
       {
         ...(patch.name !== undefined ? { name: patch.name } : {}),
@@ -228,12 +222,10 @@ export class TaxService {
   }
 
   async deleteTaxClass(id: string, actor?: Actor | null, ctx?: TxContext): Promise<Result<{ deleted: true }>> {
-    const repo = this.requireRepository();
-    if (!repo.ok) return repo;
     const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config);
-    const existing = await repo.value.findClassById(orgId, id, ctx);
+    const existing = await this.repository.findClassById(orgId, id, ctx);
     if (!existing) return Err(new CommerceNotFoundError("Tax class not found."));
-    await repo.value.deleteClass(id, ctx);
+    await this.repository.deleteClass(id, ctx);
     return Ok({ deleted: true });
   }
 
@@ -242,7 +234,7 @@ export class TaxService {
     toAddress: { country: string; state?: string },
     ctx?: TxContext,
   ): Promise<TaxRate[]> {
-    const rates = await this.repository!.findActive(orgId, ctx);
+    const rates = await this.repository.findActive(orgId, ctx);
     if (rates.length === 0) return [];
     const country = toAddress.country?.toUpperCase();
     const state = toAddress.state?.toUpperCase();
@@ -267,21 +259,9 @@ export class TaxService {
     return this.adapter.voidTransaction(params);
   }
 
-  requireConfigured(): Result<TaxAdapter> {
-    if (!this.adapter) {
-      return Err(new CommerceValidationError("Tax adapter is not configured."));
-    }
-    return Ok(this.adapter);
-  }
 
   // ── Runtime tax-rate management (issue #45) ────────────────────────────
 
-  private requireRepository(): Result<TaxRatesRepository> {
-    if (!this.repository) {
-      return Err(new CommerceValidationError("Tax rate persistence is not available."));
-    }
-    return Ok(this.repository);
-  }
 
   async createTaxRate(
     input: {
@@ -296,13 +276,11 @@ export class TaxService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<TaxRate>> {
-    const repo = this.requireRepository();
-    if (!repo.ok) return repo;
     if (input.rateBps < 0) {
       return Err(new CommerceValidationError("rateBps must be non-negative."));
     }
     const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config);
-    const rate = await repo.value.create(
+    const rate = await this.repository.create(
       {
         organizationId: orgId,
         name: input.name,
@@ -319,10 +297,8 @@ export class TaxService {
   }
 
   async listTaxRates(actor?: Actor | null, ctx?: TxContext): Promise<Result<TaxRate[]>> {
-    const repo = this.requireRepository();
-    if (!repo.ok) return repo;
     const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config);
-    return Ok(await repo.value.findAll(orgId, ctx));
+    return Ok(await this.repository.findAll(orgId, ctx));
   }
 
   async updateTaxRate(
@@ -339,12 +315,10 @@ export class TaxService {
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<TaxRate>> {
-    const repo = this.requireRepository();
-    if (!repo.ok) return repo;
     const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config);
-    const existing = await repo.value.findById(orgId, id, ctx);
+    const existing = await this.repository.findById(orgId, id, ctx);
     if (!existing) return Err(new CommerceNotFoundError("Tax rate not found."));
-    const updated = await repo.value.update(
+    const updated = await this.repository.update(
       id,
       {
         ...(patch.name !== undefined ? { name: patch.name } : {}),
@@ -363,12 +337,10 @@ export class TaxService {
   }
 
   async deleteTaxRate(id: string, actor?: Actor | null, ctx?: TxContext): Promise<Result<{ deleted: true }>> {
-    const repo = this.requireRepository();
-    if (!repo.ok) return repo;
     const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config);
-    const existing = await repo.value.findById(orgId, id, ctx);
+    const existing = await this.repository.findById(orgId, id, ctx);
     if (!existing) return Err(new CommerceNotFoundError("Tax rate not found."));
-    await repo.value.delete(id, ctx);
+    await this.repository.delete(id, ctx);
     return Ok({ deleted: true });
   }
 }

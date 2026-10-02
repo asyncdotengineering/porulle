@@ -10,7 +10,7 @@ import {
   updateShippingRateRoute,
   deleteShippingRateRoute,
 } from "../schemas/shipping.js";
-import { type AppEnv, mapErrorToResponse, mapErrorToStatus, requirePerm } from "../utils.js";
+import { type AppEnv, errorBody, mapErrorToStatus, requirePerm } from "../utils.js";
 
 export function shippingRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -23,14 +23,14 @@ export function shippingRoutes(kernel: Kernel) {
   // @ts-expect-error -- openapi handler union return type
   router.openapi(createShippingZoneRoute, async (c) => {
     const result = await kernel.services.shipping.createZone(c.req.valid("json"), c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value }, 201);
   });
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(listShippingZonesRoute, async (c) => {
     const result = await kernel.services.shipping.listZones(c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -41,21 +41,21 @@ export function shippingRoutes(kernel: Kernel) {
       c.req.valid("json"),
       c.get("actor"),
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(deleteShippingZoneRoute, async (c) => {
     const result = await kernel.services.shipping.deleteZone(c.req.param("id"), c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(createShippingRateRoute, async (c) => {
     const result = await kernel.services.shipping.createRate(c.req.valid("json"), c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value }, 201);
   });
 
@@ -66,7 +66,7 @@ export function shippingRoutes(kernel: Kernel) {
       zoneId !== undefined ? { zoneId } : undefined,
       c.get("actor"),
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
@@ -77,14 +77,14 @@ export function shippingRoutes(kernel: Kernel) {
       c.req.valid("json"),
       c.get("actor"),
     );
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(deleteShippingRateRoute, async (c) => {
     const result = await kernel.services.shipping.deleteRate(c.req.param("id"), c.get("actor"));
-    if (!result.ok) return c.json(mapErrorToResponse(result.error), mapErrorToStatus(result.error));
+    if (!result.ok) return c.json(errorBody(result.error), mapErrorToStatus(result.error));
     return c.json({ data: result.value });
   });
 

@@ -81,18 +81,6 @@ export class PaymentService {
   }
 
   /**
-   * List all payments for a transaction.
-   */
-  async listPayments(transactionId: string): Promise<PluginResult<Payment[]>> {
-    const rows = await this.db
-      .select()
-      .from(posPayments)
-      .where(eq(posPayments.transactionId, transactionId));
-
-    return Ok(rows);
-  }
-
-  /**
    * Validate that total payments cover the transaction total, then return
    * the transaction details needed for checkout.
    */
@@ -128,16 +116,5 @@ export class PaymentService {
     }
 
     return Ok({ transaction: txn, payments, totalPaid });
-  }
-
-  /**
-   * Mark payments as refunded for a transaction.
-   */
-  async refundPayments(transactionId: string, tx?: Db): Promise<void> {
-    const db = tx ?? this.db;
-    await db
-      .update(posPayments)
-      .set({ status: "refunded" })
-      .where(eq(posPayments.transactionId, transactionId));
   }
 }

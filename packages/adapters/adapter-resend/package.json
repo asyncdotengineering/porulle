@@ -17,6 +17,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@porulle/core": "workspace:*",
     "resend": "^4.0.0"
   },
   "devDependencies": {

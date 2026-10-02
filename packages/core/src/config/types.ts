@@ -442,7 +442,6 @@ export interface CommerceConfig {
   version?: string;
   database: {
     provider: "postgresql";
-    options?: Record<string, unknown>;
   };
   databaseAdapter?: DatabaseAdapter;
   auth?: AuthConfig;
@@ -570,7 +569,6 @@ export interface CommerceConfig {
   };
 }
 
-export interface DefineConfigInput extends CommerceConfig {}
 
 export interface AuthSessionLike {
   user: {
@@ -578,6 +576,8 @@ export interface AuthSessionLike {
     email?: string | null;
     name?: string | null;
     vendorId?: string | null;
+    /** Set by Better Auth's twoFactor plugin once the user has enrolled. */
+    twoFactorEnabled?: boolean | null;
   };
   session: {
     activeOrganizationId?: string | null;

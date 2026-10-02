@@ -2,7 +2,7 @@
 
 A production-grade, headless multi-vendor marketplace plugin for [Porulle](../../../README.md). This plugin transforms a single-tenant storefront into a fully operational marketplace where multiple vendors sell through a unified platform — handling everything from vendor onboarding and commission calculations through to dispute resolution and vendor payouts.
 
-It is designed for both **B2C marketplaces** (think Amazon, Etsy, Zalando) and **B2B marketplaces** (think Alibaba, Faire, ThomasNet) — the B2B capabilities (RFQ, contract pricing) are opt-in and activate only when you need them.
+It is designed for both **B2C marketplaces** (think Amazon, Etsy, Zalando) and **B2B marketplaces** (think Alibaba, Faire, ThomasNet) — B2B RFQ is opt-in and activates only when you need it.
 
 ## Philosophy
 
@@ -35,23 +35,9 @@ When you need more, you layer it on:
 ```typescript
 marketplacePlugin({
   defaultCommissionRateBps: 1500, // 15%
-  defaultPayoutSchedule: "biweekly",
-  defaultHoldbackDays: 14,
-  vendorApprovalMode: "auto",
-  requireVerifiedPurchase: true,
+  defaultPayoutMinimumCents: 2500,
   reviewModerationEnabled: true,
-
-  // B2B features — only activate when you need them
-  b2b: {
-    rfq: true,
-    contractPricing: true,
-  },
-
-  performanceThresholds: {
-    minRating: 3.5,
-    maxDefectRatePercent: 3,
-    maxLateShipmentRatePercent: 8,
-  },
+  b2b: { rfq: true },
 });
 ```
 
@@ -336,7 +322,6 @@ All endpoints are scoped to the authenticated vendor via `actor.vendorId`. Retur
 | Group | Endpoints | Enabled by |
 |-------|-----------|------------|
 | RFQ | Create, list, detail, respond, award, close | `b2b.rfq: true` |
-| Contract Pricing | CRUD | `b2b.contractPricing: true` |
 
 ---
 
@@ -344,43 +329,12 @@ All endpoints are scoped to the authenticated vendor via `actor.vendorId`. Retur
 
 ```typescript
 interface MarketplacePluginOptions {
-  // ── Commission ──────────────────────────────────────────────
-  defaultCommissionRateBps?: number;         // Default: 1000 (10%)
-
-  // ── Vendor Onboarding ───────────────────────────────────────
-  vendorApprovalMode?: "manual" | "auto" | "invitation";
-  requiredDocuments?: Array<"business_license" | "tax_form" | "bank_proof" | "identity">;
-
-  // ── Payouts ─────────────────────────────────────────────────
-  defaultPayoutSchedule?: "daily" | "weekly" | "biweekly" | "monthly" | "manual";
-  defaultPayoutMinimumCents?: number;        // Default: 5000 ($50)
-  defaultHoldbackDays?: number;              // Default: 7
-
-  // ── Disputes ────────────────────────────────────────────────
-  vendorResponseDeadlineDays?: number;       // Default: 3
-  autoEscalateOnMissedDeadline?: boolean;    // Default: true
-
-  // ── Returns ─────────────────────────────────────────────────
-  returnWindowDays?: number;                 // Default: 30
-  autoApproveReturnsOnVendorTimeout?: boolean;
-  vendorReturnResponseDays?: number;         // Default: 5
-
-  // ── Reviews ─────────────────────────────────────────────────
-  requireVerifiedPurchase?: boolean;         // Default: true
-  reviewModerationEnabled?: boolean;         // Default: false
-
-  // ── B2B (opt-in) ───────────────────────────────────────────
+  defaultCommissionRateBps?: number;
+  defaultPayoutMinimumCents?: number;
+  vendorResponseDeadlineDays?: number;
+  reviewModerationEnabled?: boolean;
   b2b?: {
-    rfq?: boolean;                           // Default: false
-    contractPricing?: boolean;               // Default: false
-  };
-
-  // ── Performance Enforcement ─────────────────────────────────
-  performanceThresholds?: {
-    minRating?: number;                      // Default: 3.0
-    maxDefectRatePercent?: number;            // Default: 5
-    maxLateShipmentRatePercent?: number;      // Default: 10
-    maxCancellationRatePercent?: number;      // Default: 5
+    rfq?: boolean;
   };
 }
 ```
@@ -389,7 +343,7 @@ interface MarketplacePluginOptions {
 
 ## Schema
 
-The plugin manages 13 PostgreSQL tables:
+The plugin manages 12 PostgreSQL tables:
 
 | Table | Purpose |
 |-------|---------|
@@ -405,7 +359,6 @@ The plugin manages 13 PostgreSQL tables:
 | `marketplace_return_requests` | Per-sub-order return/RMA requests |
 | `marketplace_rfq` | Request for Quote (B2B) |
 | `marketplace_rfq_responses` | Vendor bids on RFQs (B2B) |
-| `marketplace_contract_prices` | Negotiated pricing per buyer/vendor/product (B2B) |
 
 ---
 
@@ -416,7 +369,7 @@ plugin-marketplace/
   src/
     index.ts                    ← Plugin entrypoint, wires services/routes/hooks
     types.ts                    ← TypeScript types, state machines, options interface
-    schema.ts                   ← All 13 Drizzle pgTable definitions
+    schema.ts                   ← All 12 Drizzle pgTable definitions
     hooks.ts                    ← Catalog + order lifecycle hooks
     mcp-tools.ts                ← 8 AI agent tools
     services/
@@ -428,7 +381,6 @@ plugin-marketplace/
       return.ts                 ← Return request lifecycle
       review.ts                 ← Vendor reviews + aggregate ratings
       rfq.ts                    ← RFQ lifecycle (B2B)
-      contract-price.ts         ← Negotiated pricing (B2B)
     routes/
       vendors.ts                ← Platform admin vendor management
       vendor-portal.ts          ← Vendor self-service (scoped by actor.vendorId)
@@ -436,7 +388,7 @@ plugin-marketplace/
       commission.ts             ← Commission rules CRUD
       payouts.ts                ← Payout management
       disputes-returns-reviews.ts ← Trust & safety
-      b2b.ts                    ← RFQ + contract pricing (conditional)
+      b2b.ts                    ← RFQ (conditional)
 ```
 
 ### Type Safety

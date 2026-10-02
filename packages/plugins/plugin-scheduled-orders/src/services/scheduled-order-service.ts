@@ -88,23 +88,4 @@ export class ScheduledOrderService {
     return Ok(rows[0]!);
   }
 
-  async expireOld(orgId: string, hoursThreshold: number = 24): Promise<PluginResult<ScheduledOrder[]>> {
-    const cutoff = new Date(Date.now() - hoursThreshold * 60 * 60 * 1000).toISOString();
-    const old = await this.db.select().from(scheduledOrders)
-      .where(and(
-        eq(scheduledOrders.organizationId, orgId),
-        eq(scheduledOrders.status, "scheduled"),
-        lte(scheduledOrders.scheduledFor, sql`${cutoff}::timestamptz`),
-      ));
-    if (old.length === 0) return Ok([]);
-    const updated: ScheduledOrder[] = [];
-    for (const item of old) {
-      const rows = await this.db.update(scheduledOrders).set({
-        status: "expired",
-        updatedAt: new Date(),
-      }).where(eq(scheduledOrders.id, item.id)).returning();
-      updated.push(rows[0]!);
-    }
-    return Ok(updated);
-  }
 }

@@ -4,7 +4,7 @@ import {
   type ChannelPushCatalogItem,
   type Actor,
 } from "@porulle/core";
-import { createPluginTestApp, jsonHeaders, TEST_ORG_ID } from "@porulle/core/testing";
+import {createPluginTestApp, jsonHeaders, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
 import { eq } from "@porulle/core/drizzle";
 import {
   entityMedia,
@@ -49,8 +49,7 @@ const pushItems: ChannelPushCatalogItem[] = [
   },
 ];
 
-const actor: Actor = {
-  type: "user",
+const actor = createTestActor({
   userId: "catalog-write-admin",
   email: "catalog-write-admin@test.local",
   name: "Catalog Write Admin",
@@ -58,7 +57,7 @@ const actor: Actor = {
   organizationId: TEST_ORG_ID,
   role: "admin",
   permissions: ["*:*"],
-};
+});
 const OTHER_ORG_ID = "00000000-0000-4000-8000-000000000099";
 
 function providerConnector(providerId: "shopify" | "woocommerce") {

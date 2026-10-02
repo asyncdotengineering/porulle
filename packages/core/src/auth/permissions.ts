@@ -17,13 +17,19 @@ export function isUnauthenticatedActor(
   return actor === null || (actor.type === "user" && actor.userId === null);
 }
 
-export function hasPermission(actor: Actor | null, required: string): boolean {
-  if (!actor) return false;
-  if (actor.permissions.includes("*:*")) return true;
-
+/** Whether a permission list grants `required`: an exact entry, `resource:*`, or `*:*`. */
+export function hasPermissionFromList(
+  granted: readonly string[],
+  required: string,
+): boolean {
+  if (granted.includes("*:*")) return true;
   const [resource] = required.split(":");
-  if (resource && actor.permissions.includes(`${resource}:*`)) return true;
-  return actor.permissions.includes(required);
+  if (resource && granted.includes(`${resource}:*`)) return true;
+  return granted.includes(required);
+}
+
+export function hasPermission(actor: Actor | null, required: string): boolean {
+  return actor !== null && hasPermissionFromList(actor.permissions, required);
 }
 
 export function assertPermission(actor: Actor | null, required: string): void {

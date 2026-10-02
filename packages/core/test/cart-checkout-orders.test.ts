@@ -9,13 +9,9 @@ import {
   authorizePayment,
   calculateShipping,
   calculateTax,
-  capturePayment,
   checkInventoryAvailability,
-  initiateFulfillment,
-  recordAnalyticsEvent,
-  reserveInventory,
+  completeCheckout,
   resolveCurrentPrices,
-  sendConfirmation,
   validateCartNotEmpty,
   validatePaymentMethod,
   type CheckoutData,
@@ -196,7 +192,7 @@ describe("cart + checkout + orders (PGlite-backed)", () => {
     if (!order.ok) return;
 
     const afterReport = await runAfterHooks(
-      [capturePayment, reserveInventory, initiateFulfillment, sendConfirmation, recordAnalyticsEvent],
+      [completeCheckout],
       null,
       order.value,
       "create",

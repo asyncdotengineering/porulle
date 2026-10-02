@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { normalizeExecuteShape } from "@porulle/core";
 
 // Issue #55 — no first-party Neon/Workers adapter existed; integrators
 // hand-rolled hybrid adapters (ordereka's hyperdrive-adapter.ts). These tests
@@ -76,7 +77,7 @@ vi.mock("drizzle-orm/postgres-js", () => ({
   })),
 }));
 
-import { neonAdapter, normalizeExecuteShape, withPooledTransactions } from "../src/index.js";
+import { neonAdapter, withPooledTransactions } from "../src/index.js";
 
 beforeEach(() => {
   poolInstances.length = 0;

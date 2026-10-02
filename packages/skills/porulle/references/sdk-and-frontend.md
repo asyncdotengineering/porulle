@@ -111,12 +111,12 @@ console.log(data.data.id);
 
 ```ts
 import { createClient } from "@porulle/sdk";
-import { createCommerceHooks } from "@porulle/sdk/react";
+import createQueryHooks from "openapi-react-query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { paths } from "./generated/api-types";
 
 const client = createClient<paths>({ baseUrl: "", auth: { type: "api_key", key: "..." } });
-const commerce = createCommerceHooks(client);
+const commerce = createQueryHooks(client);
 const queryClient = new QueryClient();
 
 // Wrap your app
@@ -177,20 +177,6 @@ For the SDK client, use empty `baseUrl` since API is on the same origin:
 ```ts
 const client = createClient<paths>({ baseUrl: "", auth: { ... } });
 ```
-
-## Convenience Wrapper (Quick Scripts)
-
-For one-off scripts where you don't need codegen, `createSDK()` provides untyped domain namespaces:
-
-```ts
-import { createSDK } from "@porulle/sdk";
-
-const sdk = createSDK({ baseUrl: "http://localhost:3000", auth: { type: "api_key", key: "..." } });
-await sdk.catalog.list({ type: "product" });
-await sdk.cart.create({ currency: "USD" });
-```
-
-These are untyped (no compile-time validation). For production code, always use `createClient<paths>()` with generated types.
 
 ## Authentication Methods
 

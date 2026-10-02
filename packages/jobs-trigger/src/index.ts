@@ -2,6 +2,7 @@ import {
   task as createTriggerTask,
   tasks as triggerTasks,
 } from "@trigger.dev/sdk";
+import { prepareEnqueue } from "@porulle/core/jobs";
 import type { AnyTask } from "@trigger.dev/sdk";
 import type {
   EnqueueOptions,
@@ -50,36 +51,25 @@ export class TriggerExecutionEngine implements ExecutionEngine {
     input: Record<string, unknown>,
     options: EnqueueOptions,
   ): Promise<string> {
-    const definition = this.requireSetup().tasks.get(taskSlug);
-    if (!definition) throw new Error(`Unknown task slug: ${taskSlug}`);
-    const organizationId = options.organizationId.trim();
-    if (!organizationId)
-      throw new Error("Jobs enqueue requires a non-empty organizationId.");
-
-    const concurrencyKey =
-      options.concurrencyKey ?? definition.concurrency?.key(input);
-    const exclusive = Boolean(
-      definition.concurrency && definition.concurrency.exclusive !== false,
-    );
-    const supersedes = options.supersedes ?? definition.concurrency?.supersedes;
-    const maxAttempts =
-      options.maxAttempts ?? definition.retries?.attempts ?? 1;
+    const prepared = prepareEnqueue(this.requireSetup().tasks, taskSlug, input, options);
     const payload: TriggerJobPayload = {
       input,
-      organizationId,
-      maxAttempts,
-      ...(concurrencyKey ? { concurrencyKey } : {}),
+      organizationId: prepared.organizationId,
+      maxAttempts: prepared.maxAttempts,
+      ...(prepared.concurrencyKey ? { concurrencyKey: prepared.concurrencyKey } : {}),
     };
     const handle = await triggerTasks.trigger(taskSlug, payload, {
-      maxAttempts,
-      ...(exclusive && concurrencyKey ? { concurrencyKey } : {}),
+      maxAttempts: prepared.maxAttempts,
+      ...(prepared.exclusive && prepared.concurrencyKey
+        ? { concurrencyKey: prepared.concurrencyKey }
+        : {}),
       ...(options.delayMs !== undefined
         ? { delay: new Date(Date.now() + options.delayMs) }
         : {}),
-      ...(supersedes && concurrencyKey
+      ...(prepared.supersedes && prepared.concurrencyKey
         ? {
             debounce: {
-              key: concurrencyKey,
+              key: prepared.concurrencyKey,
               delay: this.supersedesDebounce,
               mode: "trailing" as const,
             },

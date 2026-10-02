@@ -4,18 +4,15 @@ import type { Actor } from "./types.js";
 import type { AuthInstance } from "./setup.js";
 import { getCustomerPermissions, resolveActor } from "./actor.js";
 import { DEFAULT_ORG_ID } from "./org.js";
-import { credentialRejectionStatus, isCredentialRejection } from "./auth-failure.js";
+import { isCredentialRejection } from "./auth-failure.js";
 import { isStrictOrgResolution } from "./strict-org-resolution.js";
 import { isIdentityFreeRoute } from "./identity-free-routes.js";
+import { CommerceTwoFactorRequiredError } from "../kernel/errors.js";
 
 function emptyToNull(value: string | null | undefined): string | null {
   return value == null || value === "" ? null : value;
 }
 
-// Exported so the storefront contract can be pinned by a test: an anonymous
-// visitor resolved by `storeResolver` gets these permissions, so dropping
-// `catalog:read` here would 401 every public storefront read.
-export { DEFAULT_CUSTOMER_PERMISSIONS } from "./actor.js";
 
 /**
  * The challenge RFC 9110 §15.5.2 requires on a 401: it "MUST include a WWW-Authenticate header
@@ -100,6 +97,10 @@ export function authMiddleware(
     try {
       actor = await resolveActor(c.req.raw.headers, auth, config, c.req.raw);
     } catch (err) {
+      // An evaluated credential that the role policy refuses — not a fault.
+      if (err instanceof CommerceTwoFactorRequiredError) {
+        return c.json({ error: { code: err.code, message: err.message } }, 403);
+      }
       reportAuthCheckFault(err, "session");
       throw err;
     }
@@ -214,7 +215,7 @@ export function authMiddleware(
           reportAuthCheckFault(err, "api_key");
           throw err;
         }
-        if (credentialRejectionStatus(err) === 429) {
+        if (err.statusCode === 429) {
           return c.json({ error: { code: "RATE_LIMITED", message: "Too many requests for this credential." } }, 429);
         }
       }

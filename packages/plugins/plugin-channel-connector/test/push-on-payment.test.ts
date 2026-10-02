@@ -1,6 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import type { Actor } from "@porulle/core";
-import { createPluginTestApp, TEST_ORG_ID } from "@porulle/core/testing";
+import {createPluginTestApp, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
 import { eq } from "@porulle/core/drizzle";
 import { commerceJobs, sellableEntities } from "@porulle/core/schema";
 import { channelConnectorPlugin, mockChannelConnector } from "../src/index.js";
@@ -14,8 +13,7 @@ import { channelConnectorPlugin, mockChannelConnector } from "../src/index.js";
  * not passing against a connector that simply never pushes.
  */
 
-const actor: Actor = {
-  type: "user",
+const actor = createTestActor({
   userId: "push-on-payment-admin",
   email: "push-on-payment@test.local",
   name: "Push On Payment Admin",
@@ -23,7 +21,7 @@ const actor: Actor = {
   organizationId: TEST_ORG_ID,
   role: "admin",
   permissions: ["*:*"],
-};
+});
 
 type TestApp = Awaited<ReturnType<typeof createPluginTestApp>>;
 

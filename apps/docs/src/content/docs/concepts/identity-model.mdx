@@ -100,7 +100,7 @@ Three isolation strategies exist for multi-tenant systems. Database-per-tenant i
 The trade-off: shared tables mean a bug in query scoping could leak data between tenants. Porulle mitigates this at three layers:
 
 1. Every service resolves the org from the actor context internally, so callers never handle org IDs directly.
-2. The `defineTable` abstraction auto-injects the `organizationId` column.
+2. Every org-scoped table — core and plugin — declares an `organizationId` column.
 3. The scoped DB proxy auto-stamps `organizationId` on INSERT operations.
 
 The multi-org isolation test suite (`packages/core/test/multi-org-isolation.test.ts`) verifies that cross-org access fails for every operation.

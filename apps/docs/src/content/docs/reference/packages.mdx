@@ -17,12 +17,11 @@ bun add @porulle/core @porulle/adapter-postgres @porulle/adapter-stripe
 
 ## Core
 
-The four packages every Porulle install touches — kernel, CLI, database, SDK.
+The three packages every Porulle install touches — kernel, CLI, SDK.
 
 <CardGrid>
   <LinkCard title="@porulle/core" href="https://www.npmjs.com/package/@porulle/core" description="The kernel — services, adapters, hooks, state machines, auth, runtime. Everything else composes on top of it." />
-  <LinkCard title="@porulle/cli" href="https://www.npmjs.com/package/@porulle/cli" description="Command-line tool. Scaffolds new stores, runs migrations, mints API keys, doctors broken setups." />
-  <LinkCard title="@porulle/db" href="https://www.npmjs.com/package/@porulle/db" description="The database surface plugins use instead of importing Drizzle directly." />
+  <LinkCard title="@porulle/cli" href="https://www.npmjs.com/package/@porulle/cli" description="Command-line tool. Scaffolds new stores, mints API keys, doctors broken setups." />
   <LinkCard title="@porulle/sdk" href="https://www.npmjs.com/package/@porulle/sdk" description="Typed TypeScript client for any Porulle server. Generated from the OpenAPI spec — every endpoint type-checked at compile time." />
 </CardGrid>
 

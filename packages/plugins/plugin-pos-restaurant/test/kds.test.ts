@@ -1,11 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { PluginTestApp  } from "@porulle/core/testing";
-import {
-  createPluginTestApp,
-  jsonHeaders,
-  restaurantAdminActor,
-  serverActor,
-} from "./test-utils.js";
+import { createPluginTestApp, jsonHeaders } from "@porulle/core/testing";
+import { restaurantAdminActor, serverActor } from "./test-utils.js";
 import { TEST_ORG_ID } from "@porulle/core/testing";
 import { posRestaurantPlugin } from "../src/index.js";
 import { KDSService } from "../src/services/kds-service.js";

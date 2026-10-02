@@ -93,33 +93,6 @@ export class AnalyticsService {
     return this.deps.adapter.query(params, scope);
   }
 
-  async getDashboard(name: string, scope: AnalyticsScope): Promise<Result<AnalyticsQueryResult>> {
-    const normalized = name.trim().toLowerCase();
-
-    if (normalized === "revenue" || normalized === "revenue-overview") {
-      return this.query({
-        measures: ["Orders.revenue", "Orders.count"],
-        timeDimensions: [{
-          dimension: "Orders.placedAt",
-          granularity: "month",
-          dateRange: "this month",
-        }],
-        order: { "Orders.placedAt": "asc" },
-      }, scope);
-    }
-
-    if (normalized === "inventory" || normalized === "inventory-health") {
-      return this.query({
-        measures: ["Inventory.totalAvailable", "Inventory.lowStockCount"],
-        dimensions: ["Inventory.warehouseId"],
-        order: { "Inventory.totalAvailable": "desc" },
-      }, scope);
-    }
-
-    return Err(
-      new CommerceValidationError(`Unknown analytics dashboard: ${name}`),
-    );
-  }
 
   /** The canned retail reports pack (issue #48). */
   listReports(): Array<{ name: string; description: string }> {
@@ -161,15 +134,6 @@ export class AnalyticsService {
     });
   }
 
-  async meta(): Promise<Result<{ measures: string[]; dimensions: string[]; segments: string[] }>> {
-    const meta = await this.getMeta();
-    if (!meta.ok) return meta;
-    return Ok({
-      measures: meta.value.measures,
-      dimensions: meta.value.dimensions,
-      segments: meta.value.segments,
-    });
-  }
 
   // ─── Private ─────────────────────────────────────────────────────────────
 

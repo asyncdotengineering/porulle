@@ -1,5 +1,7 @@
 import type { HydratedOrder } from "../orders/service.js";
 import { A4, type PdfTextOp } from "./pdf.js";
+import { escapeHtml } from "../../utils/escape-html.js";
+import { formatAmount } from "../../utils/money.js";
 
 /** Branding values read from the settings module's `branding` group. */
 export interface DocumentBranding {
@@ -17,25 +19,6 @@ export interface DocumentContext {
   order: HydratedOrder;
   branding: DocumentBranding;
   invoiceNumber: string;
-}
-
-export function escapeHtml(value: unknown): string {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-/** Minor units → "1,234.50 LKR". */
-export function formatAmount(minor: number, currency: string): string {
-  const major = minor / 100;
-  const formatted = major.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  return `${formatted} ${currency}`;
 }
 
 function formatDate(date: Date | string | null | undefined): string {

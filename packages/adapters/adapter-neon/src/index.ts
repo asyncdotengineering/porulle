@@ -23,7 +23,7 @@ import { drizzle as drizzleHttp, type NeonHttpDatabase } from "drizzle-orm/neon-
 import { drizzle as drizzleWs, type NeonDatabase } from "drizzle-orm/neon-serverless";
 import { drizzle as drizzlePg, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import type { DatabaseAdapter } from "@porulle/core";
+import { normalizeExecuteShape, type DatabaseAdapter } from "@porulle/core";
 
 if (typeof WebSocket !== "undefined") {
   neonConfig.webSocketConstructor = WebSocket as unknown as typeof neonConfig.webSocketConstructor;
@@ -32,7 +32,6 @@ if (typeof WebSocket !== "undefined") {
 type HttpClient = NeonHttpDatabase<Record<string, unknown>>;
 type WsClient = NeonDatabase<Record<string, unknown>>;
 type PgClient = PostgresJsDatabase<Record<string, never>>;
-type AnyDb = HttpClient | WsClient | PgClient;
 
 export interface NeonAdapterOptions {
   /** Direct Neon connection string (postgresql://...neon.tech/...). */
@@ -97,35 +96,6 @@ export async function withPooledTransactions<T>(fn: () => Promise<T>): Promise<T
     // that never pooled, because the leak is invisible until Hyperdrive runs out of them.
     if (client) await client.end({ timeout: 1 }).catch(() => {});
   }
-}
-
-/**
- * Normalizes `.execute()` to the postgres-js shape (array of rows). Core and
- * custom routes iterate `.execute()` results directly; the raw neon drivers
- * return `{ rows, command, rowCount }`, which breaks that contract.
- */
-export function normalizeExecuteShape<T extends AnyDb>(db: T): T {
-  const handler: ProxyHandler<T> = {
-    get(target, prop, receiver) {
-      const orig = Reflect.get(target, prop, receiver);
-      if (prop === "execute" && typeof orig === "function") {
-        return async (...args: unknown[]) => {
-          const result = await (orig as (...a: unknown[]) => Promise<unknown>).apply(target, args);
-          if (
-            result &&
-            typeof result === "object" &&
-            "rows" in result &&
-            Array.isArray((result as { rows: unknown[] }).rows)
-          ) {
-            return (result as { rows: unknown[] }).rows;
-          }
-          return result;
-        };
-      }
-      return orig;
-    },
-  };
-  return new Proxy(db, handler);
 }
 
 export function neonAdapter(options: NeonAdapterOptions): NeonDatabaseAdapter {

@@ -218,6 +218,10 @@ auth: {
 
 If you omit `requiredForRoles`, 2FA is optional for all users.
 
+When `requiredForRoles` lists a role, a signed-in member holding that role who has not enabled 2FA is refused on every API route with `403` and code `TWO_FACTOR_REQUIRED` — they are not served that role's permissions. Better Auth's own routes under `/api/auth/*` stay reachable, so the member can enrol at `POST /api/auth/two-factor/enable` and verify, after which the same session is accepted. API keys are not subject to this check.
+
+`requiredForRoles` requires `enabled: true`; booting with required roles while two-factor is disabled throws, because members of those roles could never enrol.
+
 ## Bearer token authentication
 
 After sign-in, use the session token as a Bearer token for non-browser clients:

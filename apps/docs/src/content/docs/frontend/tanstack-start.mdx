@@ -115,7 +115,7 @@ Create a typed client. Use an empty `baseUrl` so SDK calls route through the sam
 
 ```ts title="src/lib/commerce.ts"
 import { createClient } from "@porulle/sdk";
-import { createCommerceHooks } from "@porulle/sdk/react";
+import createQueryHooks from "openapi-react-query";
 import { QueryClient } from "@tanstack/react-query";
 import type { paths } from "@/generated/api-types";
 
@@ -124,7 +124,7 @@ export const client = createClient<paths>({
   auth: { type: "cookie" },
 });
 
-export const commerce = createCommerceHooks(client);
+export const commerce = createQueryHooks(client);
 
 export const queryClient = new QueryClient({
   defaultOptions: {
