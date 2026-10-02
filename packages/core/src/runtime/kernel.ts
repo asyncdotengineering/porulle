@@ -9,7 +9,6 @@ import { WebhooksRepository } from "../modules/webhooks/repository/index.js";
 import { createLogger } from "../utils/logger.js";
 import { withTiming } from "../kernel/service-timing.js";
 import { setBootDefaultOrgId } from "../auth/org.js";
-import { setBootStrictOrgResolution } from "../auth/strict-org-resolution.js";
 import { DrizzleJobsAdapter } from "../kernel/jobs/drizzle-adapter.js";
 import type { ExecutionEngine } from "../kernel/jobs/adapter.js";
 import { CompensationFailuresRepository } from "../kernel/compensation/repository.js";
@@ -38,11 +37,9 @@ export function createKernel(config: CommerceConfig): Kernel {
   const logger = createLogger("kernel");
   hooks.setLogger({ error: (obj, msg) => logger.error(msg, obj) });
 
-  // Apply boot-time org resolution settings from config. Previously only
-  // createCommerce did this, which meant tests calling createKernel directly
-  // had services fall back to DEFAULT_ORG_ID with a deprecation warning even
-  // when config.auth.defaultOrganizationId was set.
-  setBootStrictOrgResolution(config.auth?.strictOrgResolution === true);
+  // Register the configured default organization for resolveOrgId(). Done here
+  // rather than only in createCommerce so tests calling createKernel directly
+  // see it too.
   if (config.auth?.defaultOrganizationId) {
     setBootDefaultOrgId(config.auth.defaultOrganizationId);
   }

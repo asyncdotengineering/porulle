@@ -9,13 +9,9 @@ import {
   authorizePayment,
   calculateShipping,
   calculateTax,
-  capturePayment,
   checkInventoryAvailability,
-  initiateFulfillment,
-  recordAnalyticsEvent,
-  reserveInventory,
+  completeCheckout,
   resolveCurrentPrices,
-  sendConfirmation,
   validateCartNotEmpty,
   validatePaymentMethod,
   type CheckoutData,
@@ -740,7 +736,7 @@ describe("checkout – happy path (PGlite-backed)", () => {
     expect(processed.shippingTotal).toBe(0);
   });
 
-  it("after-hooks: reserveInventory called for each line item after order created", async () => {
+  it("after-hooks: completeCheckout reserves each line item after the order is created", async () => {
 
     const entity = await kernel.services.catalog.create(
       { type: "product", slug: "co-after-reserve", attributes: { title: "After Reserve" }, metadata: {} },
@@ -807,7 +803,7 @@ describe("checkout – happy path (PGlite-backed)", () => {
     const availableBefore = beforeReserve.value;
 
     const afterReport = await runAfterHooks(
-      [capturePayment, reserveInventory, initiateFulfillment, sendConfirmation, recordAnalyticsEvent],
+      [completeCheckout],
       null,
       order.value,
       "create",
@@ -1094,14 +1090,14 @@ describe("checkout – edge cases (PGlite-backed)", () => {
     if (!order.ok) return;
 
     const afterReport = await runAfterHooks(
-      [reserveInventory],
+      [completeCheckout],
       null,
       order.value,
       "create",
       ctx,
     );
 
-    // reserveInventory should succeed for null variantId line items
+    // completeCheckout should succeed for null variantId line items
     expect(afterReport.hasErrors).toBe(false);
   });
 });

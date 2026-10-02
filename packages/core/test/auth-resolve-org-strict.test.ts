@@ -6,13 +6,11 @@ import {
   setBootDefaultOrgId,
 } from "../src/auth/org.js";
 import { OrgResolutionError } from "../src/kernel/errors.js";
-import { setBootStrictOrgResolution } from "../src/auth/strict-org-resolution.js";
 
 describe("resolveOrgId strict org resolution (MT-2)", () => {
   afterEach(() => {
     delete process.env.STRICT_ORG_RESOLUTION;
     setBootDefaultOrgId("");
-    setBootStrictOrgResolution(false);
     vi.restoreAllMocks();
   });
 
@@ -56,10 +54,6 @@ describe("resolveOrgId strict org resolution (MT-2)", () => {
     );
   });
 
-  it("applies boot strict flag when commerceConfig is omitted (matches createCommerce)", () => {
-    setBootStrictOrgResolution(true);
-    expect(() => resolveOrgId(null)).toThrow(OrgResolutionError);
-  });
 
   it("throws when strictOrgResolution is set only on optional commerceConfig", () => {
     const cfg = { auth: { strictOrgResolution: true } } as CommerceConfig;

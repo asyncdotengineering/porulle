@@ -34,10 +34,7 @@ After the before hooks complete and the transaction commits, the order is create
 
 ## After hooks: side effects with compensation
 
-After hooks run outside the transaction. The core after hooks are:
-
-1. **completeCheckout** — the compensation chain (see below)
-2. **recordAnalyticsEvent** — records the order creation event for analytics
+After hooks run outside the transaction. The core after hook is **completeCheckout** — the compensation chain (see below). Analytics needs no hook: reports query the orders and inventory tables directly.
 
 After hooks receive the `result` (the created order) but cannot modify it. They are fire-and-forget side effects. If an after hook fails, the order still exists. The engine collects after-hook errors into a `hookErrors` array and includes them in the response metadata, but the 201 response is still sent.
 

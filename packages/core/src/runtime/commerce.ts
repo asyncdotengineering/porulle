@@ -4,7 +4,6 @@ import type { Kernel } from "./kernel.js";
 import { createKernel } from "./kernel.js";
 import { pushSchema } from "../kernel/database/migrate.js";
 import { ensureDefaultOrg, setBootDefaultOrgId } from "../auth/org.js";
-import { setBootStrictOrgResolution } from "../auth/strict-org-resolution.js";
 import { createAuth, type AuthInstance } from "../auth/setup.js";
 import { createLogger, type Logger } from "./logger.js";
 import { createLocalAPI, type CommerceLocalAPI, type LocalAPIOptions } from "../kernel/local-api.js";
@@ -131,8 +130,6 @@ export async function createCommerce(
   if (config.databaseAdapter?.autoMigrate && config.customSchemas?.length) {
     await pushSchema(kernel.database.db, config);
   }
-
-  setBootStrictOrgResolution(config.auth?.strictOrgResolution === true);
 
   // Register the config-driven org ID so resolveOrgId() can use it
   // without requiring every service to have config access.

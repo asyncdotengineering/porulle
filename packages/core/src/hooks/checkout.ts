@@ -573,93 +573,9 @@ export const authorizePayment: BeforeHook<CheckoutData> = async ({
   return data;
 };
 
-export const capturePayment: AfterHook<OrderResult> = async ({ context }) => {
-  const payments = context.services.payments as {
-    capture(paymentIntentId: string, amount?: number, paymentMethodId?: string): Promise<unknown>;
-  };
-  const paymentIntentId = context.context.paymentIntentId as string | undefined;
-  const paymentMethodId = context.context.paymentMethodId as string | undefined;
-  if (!paymentIntentId) return;
-  await payments.capture(paymentIntentId, undefined, paymentMethodId);
-};
-
-export const reserveInventory: AfterHook<OrderResult> = async ({ result, context }) => {
-  const inventory = context.services.inventory as {
-    reserve(input: {
-      entityId: string;
-      variantId?: string;
-      quantity: number;
-      orderId: string;
-      performedBy: string;
-    }, actor?: unknown): Promise<unknown>;
-  };
-  for (const lineItem of result.lineItems ?? []) {
-    await inventory.reserve(
-      {
-        entityId: lineItem.entityId,
-        ...(lineItem.variantId != null ? { variantId: lineItem.variantId } : {}),
-        quantity: lineItem.quantity,
-        orderId: result.id,
-        performedBy: context.actor?.userId ?? "system",
-      },
-      context.actor,
-    );
-  }
-};
-
-export const initiateFulfillment: AfterHook<OrderResult> = async ({
-  result,
-  context,
-}) => {
-  const fulfillment = context.services.fulfillment as {
-    fulfillOrder(orderId: string, actor?: unknown): Promise<unknown>;
-  };
-  await fulfillment.fulfillOrder(result.id, context.actor);
-};
-
-export const sendConfirmation: AfterHook<OrderResult> = async ({ result, context }) => {
-  const customers = context.services.customers as {
-    getByUserId(
-      userId: string,
-      actor?: unknown,
-    ): Promise<{ ok: boolean; value?: { email?: string } }>;
-  };
-  const email = context.services.email as
-    | {
-        send(input: {
-          template: string;
-          to: string;
-          data?: Record<string, unknown>;
-        }): Promise<void>;
-      }
-    | undefined;
-
-  if (!result.customerId || !email?.send) return;
-  const customer = await customers.getByUserId(result.customerId, context.actor);
-  if (!customer.ok || !customer.value?.email) return;
-
-  await email.send({
-    template: "order-confirmation",
-    to: customer.value.email,
-    data: { order: result },
-  });
-};
-
 /**
- * Analytics event recording — intentional no-op.
- *
- * The DrizzleAnalyticsAdapter queries source tables (orders, inventory)
- * directly via SQL, so no separate event recording is needed. The export
- * is preserved for backwards compatibility with checkout route imports.
- */
-export const recordAnalyticsEvent: AfterHook<OrderResult> = async () => {
-  // No-op: source tables ARE the analytics events.
-};
-
-/**
- * Replaces the separate capturePayment and reserveInventory AfterHooks
- * with a single compensation chain that can roll back completed steps
- * if any step fails.
+ * Completes a placed order as one compensation chain that can roll back
+ * completed steps if any step fails.
  *
  * Order of steps:
  *   1. Reserve inventory — if this fails, no money is charged

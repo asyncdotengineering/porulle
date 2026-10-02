@@ -8,7 +8,6 @@ import {
   calculateTax,
   checkInventoryAvailability,
   completeCheckout,
-  recordAnalyticsEvent,
   resolveCurrentPrices,
   validateCartNotEmpty,
   validatePaymentMethod,
@@ -192,7 +191,6 @@ export function checkoutRoutes(kernel: Kernel) {
 
     const afterHooks: AfterHook<OrderResult>[] = [
       completeCheckout,
-      recordAnalyticsEvent,
       ...(kernel.hooks.resolve("checkout.afterCreate") as AfterHook<OrderResult>[]),
     ];
 
