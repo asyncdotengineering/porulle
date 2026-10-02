@@ -89,6 +89,7 @@ export type {
 } from "./kernel/jobs/adapter.js";
 export { NullJobsAdapter } from "./kernel/jobs/adapter.js";
 export { DrizzleJobsAdapter } from "./kernel/jobs/drizzle-adapter.js";
+export { prepareEnqueue, type PreparedEnqueue } from "./kernel/jobs/prepare-enqueue.js";
 export { runPendingJobs } from "./kernel/jobs/runner.js";
 export type { RunPendingJobsArgs } from "./kernel/jobs/runner.js";
 export type {
@@ -213,6 +214,8 @@ export type {
   SearchSuggestParams,
 } from "./modules/search/adapter.js";
 export type { DatabaseAdapter } from "./kernel/database/adapter.js";
+export { normalizeExecuteShape } from "./kernel/database/adapter.js";
+export { createPGliteTransaction, type PGliteExec } from "./kernel/database/pglite-transaction.js";
 export { isValidFieldPath, validateFieldPath } from "./modules/catalog/ownership.js";
 export type { FieldPath, FieldOwner } from "./modules/catalog/ownership.js";
 export type {
@@ -263,6 +266,9 @@ export {
   pushSchema,
 } from "./kernel/database/migrate.js";
 export { consoleEmailAdapter } from "./adapters/console-email.js";
+export { renderEmail, type EmailData, type EmailTemplateMap, type RenderEmailOptions } from "./adapters/email-render.js";
+export { escapeHtml } from "./utils/escape-html.js";
+export { currencyExponent, formatAmount, toMinorUnits } from "./utils/money.js";
 
 export { promotionTypeEnum, type PromotionType } from "./modules/promotions/schemas.js";
 

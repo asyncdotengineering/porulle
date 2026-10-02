@@ -54,7 +54,7 @@ export function unwrapDb<T>(db: T): T {
  * on the `{ rows }` drivers. We intercept only `execute`; every other method
  * is bound to the real driver instance so its internals are untouched.
  */
-function normalizeExecuteShape<T extends object>(db: T): T {
+export function normalizeExecuteShape<T extends object>(db: T): T {
   return new Proxy(db, {
     get(target, prop, receiver) {
       if (prop === RAW_DB) return target;

@@ -17,6 +17,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";
 import { createRequire } from "node:module";
 import type { DatabaseAdapter } from "../kernel/database/adapter.js";
+import { createPGliteTransaction } from "../kernel/database/pglite-transaction.js";
 import { getSchema } from "../kernel/database/migrate.js";
 import { ensureDefaultOrg } from "../auth/org.js";
 
@@ -122,46 +123,7 @@ export async function createPGliteTestAdapter(): Promise<{
   // Ensure the default organization exists for all tests
   await ensureDefaultOrg(db);
 
-  /**
-   * PGlite-compatible transaction wrapper.
-   *
-   * Drizzle's transaction() method can hang with PGlite due to how the adapter
-   * manages transaction state, so this drives BEGIN/COMMIT manually.
-   *
-   * PGlite is a single connection, so two transaction bodies awaiting
-   * concurrently would otherwise interleave their statements between one
-   * BEGIN and one COMMIT — the second BEGIN is a no-op Postgres only warns
-   * about. Merged that way, two callers share a snapshot and hold each other's
-   * row locks, so an isolation bug reads as if the guard failed. Bodies are
-   * queued instead, which is what a connection pool would do to two
-   * transactions competing for the same rows.
-   *
-   * A nested call joins the transaction already open rather than deadlocking
-   * on the queue; without savepoints that is the only sound reading.
-   */
-  let transactionQueue: Promise<unknown> = Promise.resolve();
-  let inTransaction = false;
-
-  async function transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
-    if (inTransaction) return fn(db);
-
-    const run = transactionQueue.then(async () => {
-      inTransaction = true;
-      await pg.exec("BEGIN");
-      try {
-        const result = await fn(db);
-        await pg.exec("COMMIT");
-        return result;
-      } catch (error) {
-        await pg.exec("ROLLBACK");
-        throw error;
-      } finally {
-        inTransaction = false;
-      }
-    });
-    transactionQueue = run.catch(() => undefined);
-    return run as Promise<T>;
-  }
+  const { transaction, inTransaction } = createPGliteTransaction(pg, db);
 
   const adapter: DatabaseAdapter & { inTransaction(): boolean } = {
     provider: "postgresql",
@@ -181,7 +143,7 @@ export async function createPGliteTestAdapter(): Promise<{
      * Test-utils only. Production adapters do not carry it, and nothing outside a test may branch
      * on it — a behaviour that depends on this flag would be a behaviour no production adapter has.
      */
-    inTransaction: () => inTransaction,
+    inTransaction,
   };
 
   /**

@@ -15,6 +15,7 @@ export { createRepositoryTestHarness } from "./test-utils/create-repository-test
 export { createPluginTestApp, type PluginTestApp, type TestAppEnv } from "./test-utils/create-plugin-test-app.js";
 export {
   TEST_ORG_ID,
+  createTestActor,
   testAdminActor, testStaffActor, testCustomerActor, testNoPermActor,
   jsonHeaders,
 } from "./test-utils/test-actors.js";

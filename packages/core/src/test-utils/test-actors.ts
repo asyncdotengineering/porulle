@@ -9,6 +9,24 @@ import { DEFAULT_ORG_ID } from "../auth/org.js";
  */
 export const TEST_ORG_ID = DEFAULT_ORG_ID;
 
+/**
+ * A test actor in {@link TEST_ORG_ID}. Pass only what the test is about —
+ * usually `permissions` (and `role`); everything else has a stable default.
+ */
+export function createTestActor(overrides: Partial<Actor> = {}): Actor {
+  return {
+    type: "user",
+    userId: "test-user-1",
+    email: "user@test.local",
+    name: "Test User",
+    vendorId: null,
+    organizationId: TEST_ORG_ID,
+    role: "staff",
+    permissions: [],
+    ...overrides,
+  };
+}
+
 /** Admin with wildcard permissions. Use for setup operations in beforeAll. */
 export const testAdminActor: Actor = {
   type: "user",

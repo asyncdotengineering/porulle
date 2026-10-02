@@ -7,8 +7,9 @@ import type {
   ExecutionEngineSetup,
   RunJobsOptions,
 } from "./adapter.js";
-import { OrgResolutionError, CommerceNotFoundError } from "../errors.js";
+import { CommerceNotFoundError } from "../errors.js";
 import { commerceJobs } from "./schema.js";
+import { prepareEnqueue } from "./prepare-enqueue.js";
 import { runPendingJobs } from "./runner.js";
 import {
   getJobReapThresholdMs,
@@ -79,17 +80,8 @@ export class DrizzleJobsAdapter implements ExecutionEngine {
     input: Record<string, unknown>,
     options: EnqueueOptions,
   ): Promise<string> {
-    const organizationId = options.organizationId.trim();
-    if (!organizationId) {
-      throw new OrgResolutionError(
-        "Jobs enqueue requires a non-empty organizationId.",
-      );
-    }
-
-    const task = this.tasks.get(taskSlug);
-    const concurrencyKey =
-      options.concurrencyKey ?? task?.concurrency?.key(input);
-    const supersedes = options.supersedes ?? task?.concurrency?.supersedes;
+    const { organizationId, concurrencyKey, supersedes, maxAttempts } =
+      prepareEnqueue(this.tasks, taskSlug, input, options);
 
     // If supersedes is set, delete existing pending jobs with the same concurrency key
     if (concurrencyKey && supersedes) {
@@ -104,9 +96,6 @@ export class DrizzleJobsAdapter implements ExecutionEngine {
           ),
         );
     }
-
-    // Look up task definition for default retry config
-    const maxAttempts = options.maxAttempts ?? task?.retries?.attempts ?? 1;
 
     const rows = await this.db
       .insert(commerceJobs)
