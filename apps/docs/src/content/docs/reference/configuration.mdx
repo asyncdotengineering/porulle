@@ -110,7 +110,7 @@ interface AuthConfig {
 | `requireEmailVerification` | `boolean` | `true` | Require email verification before account activation |
 | `sessionDuration` | `number` | `604800` (7 days, in seconds) | Session lifetime in seconds |
 | `socialProviders` | `Record<string, { clientId: string; clientSecret: string }>` | — | OAuth provider credentials keyed by provider name |
-| `twoFactor` | `{ enabled: boolean; requiredForRoles?: string[] }` | `{ enabled: false }` | Two-factor authentication settings |
+| `twoFactor` | `{ enabled: boolean; requiredForRoles?: string[] }` | `{ enabled: false }` | Two-factor authentication. Members of a listed role who have not enrolled are refused with `403 TWO_FACTOR_REQUIRED`; `requiredForRoles` requires `enabled: true` |
 | `apiKeys` | `{ enabled: boolean; defaultPermissions?: string[] }` | `{ enabled: false }` | Enable API key authentication |
 | `roles` | `Record<string, RoleDefinition>` | See below | Role definitions mapping role names to permission sets |
 | `trustedOrigins` | `string[]` | — | Origins allowed for CSRF protection |

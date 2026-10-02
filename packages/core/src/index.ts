@@ -140,6 +140,7 @@ export {
   CommerceForbiddenError,
   CommerceUnauthorizedError,
   CommerceReauthRequiredError,
+  CommerceTwoFactorRequiredError,
   CommerceConflictError,
   CommerceInvalidTransitionError,
   OrgResolutionError,

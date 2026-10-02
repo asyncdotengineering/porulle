@@ -7,6 +7,7 @@ import { DEFAULT_ORG_ID } from "./org.js";
 import { credentialRejectionStatus, isCredentialRejection } from "./auth-failure.js";
 import { isStrictOrgResolution } from "./strict-org-resolution.js";
 import { isIdentityFreeRoute } from "./identity-free-routes.js";
+import { CommerceTwoFactorRequiredError } from "../kernel/errors.js";
 
 function emptyToNull(value: string | null | undefined): string | null {
   return value == null || value === "" ? null : value;
@@ -100,6 +101,10 @@ export function authMiddleware(
     try {
       actor = await resolveActor(c.req.raw.headers, auth, config, c.req.raw);
     } catch (err) {
+      // An evaluated credential that the role policy refuses — not a fault.
+      if (err instanceof CommerceTwoFactorRequiredError) {
+        return c.json({ error: { code: err.code, message: err.message } }, 403);
+      }
       reportAuthCheckFault(err, "session");
       throw err;
     }

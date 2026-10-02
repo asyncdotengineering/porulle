@@ -70,6 +70,24 @@ export class CommerceReauthRequiredError extends Error implements CommerceError 
   }
 }
 
+/**
+ * Raised for a signed-in member whose role is listed in
+ * `auth.twoFactor.requiredForRoles` but who has not enabled two-factor
+ * authentication. The client discriminates on `code === "TWO_FACTOR_REQUIRED"`
+ * to send the member to enrolment (`/api/auth/two-factor/enable`) rather than
+ * treating it as a plain refusal.
+ */
+export class CommerceTwoFactorRequiredError extends Error implements CommerceError {
+  code = "TWO_FACTOR_REQUIRED" as const;
+  constructor(
+    message: string,
+    public details?: unknown,
+  ) {
+    super(message);
+    this.name = "CommerceTwoFactorRequiredError";
+  }
+}
+
 export class CommerceForbiddenError extends Error implements CommerceError {
   code = "FORBIDDEN" as const;
   constructor(
