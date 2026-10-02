@@ -124,12 +124,12 @@ console.log(data.data.id);
 
 ```typescript title="src/lib/commerce.ts"
 import { createClient } from "@porulle/sdk";
-import { createCommerceHooks } from "@porulle/sdk/react";
+import createQueryHooks from "openapi-react-query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { paths } from "./generated/api-types";
 
 const client = createClient<paths>({ baseUrl: "", auth: { type: "cookie" } });
-const commerce = createCommerceHooks(client);
+const commerce = createQueryHooks(client);
 const queryClient = new QueryClient();
 
 function App() {
@@ -186,20 +186,6 @@ const client = createClient<paths>({ baseUrl: "", auth: { type: "cookie" } });
 ```
 
 API calls from client components go to `/api/...` which Next.js routes to your Hono handler. No CORS, no proxy, no separate port.
-
-## Untyped convenience wrapper
-
-For one-off scripts where you don't need compile-time validation, `createSDK()` provides domain namespaces without codegen:
-
-```typescript
-import { createSDK } from "@porulle/sdk";
-
-const sdk = createSDK({ baseUrl: "http://localhost:4000", auth: { type: "api_key", key: "..." } });
-await sdk.catalog.list({ type: "product" });
-await sdk.cart.create({ currency: "USD" });
-```
-
-Bodies and responses are untyped. For production code, always use `createClient<paths>()` with generated types.
 
 ## Regenerate types
 

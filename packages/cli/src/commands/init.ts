@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { defineCommand } from "citty";
 import consola from "consola";
 import { downloadTemplate } from "giget";
-import { copyDir, readJson, writeJson } from "../utils.js";
+import { copyDir, readCliVersion, readJson, writeJson } from "../utils.js";
 
 const currentDir = fileURLToPath(new URL(".", import.meta.url));
 
@@ -39,13 +39,6 @@ export function pinPorulleDependencies(
       }
     }
   }
-}
-
-async function readCliVersion(): Promise<string | undefined> {
-  const pkg = await readJson<PackageJsonShape>(
-    resolve(currentDir, "../../package.json"),
-  );
-  return pkg.version;
 }
 
 export const initCommand = defineCommand({

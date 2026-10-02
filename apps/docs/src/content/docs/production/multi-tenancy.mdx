@@ -125,27 +125,35 @@ The error names all three remedies:
   previous permissive behaviour during a migration
 :::
 
-## Define plugin tables with `defineTable`
+## Define plugin tables with `pgTable`
 
-Use `defineTable` from `@porulle/db` for plugin-owned tables that need multi-tenant scoping. It auto-injects `id`, `organizationId`, `createdAt`, `updatedAt`, org index, and composite unique constraints:
+Plugin-owned tables use Drizzle's `pgTable` from `@porulle/core/drizzle`, with an explicit `organizationId` column on every org-scoped table:
 
 ```ts title="src/schema.ts"
-import { defineTable, column } from "@porulle/db";
+import {
+  pgTable,
+  uuid,
+  text,
+  integer,
+  timestamp,
+  index,
+  uniqueIndex,
+} from "@porulle/core/drizzle";
 
-export const giftCards = defineTable("gift_cards", {
-  code: column.text({ unique: true }),
-  balance: column.integer(),
-  currency: column.text(),
-});
-
-export const giftCardTransactions = defineTable("gift_card_transactions", {
-  giftCardId: column.uuid({ references: giftCards }),
-  amount: column.integer(),
-  type: column.text({ enum: ["debit", "credit", "refund"] }),
-});
+export const posTerminals = pgTable("pos_terminals", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  name: text("name").notNull(),
+  code: text("code").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  orgIdx: index("idx_pos_terminals_org").on(table.organizationId),
+  codeUnique: uniqueIndex("pos_terminals_org_code_unique").on(table.organizationId, table.code),
+}));
 ```
 
-Child tables whose parent has `organizationId` do not get a second `organizationId` — the FK relationship provides the scoping implicitly.
+Route handlers receive a scoped `db` that stamps `organizationId` on INSERT; your schema still declares the column so Drizzle migrations and types stay correct.
 
 ## Write plugin routes with the scoped DB
 
@@ -177,4 +185,4 @@ GROUP BY o.name;
 
 - [Identity and Store Resolution](/concepts/identity-model/) — conceptual design of org isolation
 - [Authentication guide](/building/authentication/) — `storeResolver` and `strictOrgResolution` in detail
-- [Plugin API Reference](/reference/plugins/) — `defineTable` API and `@porulle/db` exports
+- [Plugin API Reference](/reference/plugins/) — plugin table schemas and `@porulle/core/drizzle`

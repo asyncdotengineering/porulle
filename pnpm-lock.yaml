@@ -880,31 +880,6 @@ importers:
         specifier: ^3.2.4
         version: 3.2.6(@types/debug@4.1.13)(@types/node@25.9.3)(tsx@4.22.4)(yaml@2.9.0)
 
-  packages/db:
-    dependencies:
-      '@porulle/core':
-        specifier: workspace:*
-        version: link:../core
-      drizzle-orm:
-        specifier: ^0.45.1
-        version: 0.45.2(@cloudflare/workers-types@5.20260730.1)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/pg@8.15.6)(kysely@0.29.2)(pg@8.22.0)(postgres@3.4.9)
-      postgres:
-        specifier: ^3.4.7
-        version: 3.4.9
-    devDependencies:
-      '@porulle/typescript-config':
-        specifier: workspace:*
-        version: link:../typescript-config
-      '@types/node':
-        specifier: ^24.5.2
-        version: 24.13.2
-      typescript:
-        specifier: 5.9.2
-        version: 5.9.2
-      vitest:
-        specifier: ^3.2.4
-        version: 3.2.6(@types/debug@4.1.13)(@types/node@24.13.2)(tsx@4.22.4)(yaml@2.9.0)
-
   packages/eslint-config:
     devDependencies:
       '@eslint/js':
@@ -1359,9 +1334,6 @@ importers:
       '@porulle/core':
         specifier: workspace:*
         version: link:../../core
-      '@porulle/db':
-        specifier: workspace:*
-        version: link:../../db
       hono:
         specifier: ^4.12.5
         version: 4.12.25
@@ -1635,9 +1607,15 @@ importers:
 
   packages/sdk:
     dependencies:
+      '@tanstack/react-query':
+        specifier: '>=5.0.0'
+        version: 5.101.0(react@19.2.7)
       openapi-fetch:
         specifier: ^0.17.0
         version: 0.17.0
+      openapi-react-query:
+        specifier: '>=0.3.0'
+        version: 0.5.4(@tanstack/react-query@5.101.0(react@19.2.7))(openapi-fetch@0.17.0)
       openapi-typescript-helpers:
         specifier: ^0.1.0
         version: 0.1.0
@@ -1648,18 +1626,12 @@ importers:
       '@porulle/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
-      '@tanstack/react-query':
-        specifier: ^5.94.5
-        version: 5.101.0(react@19.2.7)
       '@types/node':
         specifier: ^24.5.2
         version: 24.13.2
       eslint:
         specifier: ^9.39.1
         version: 9.39.4
-      openapi-react-query:
-        specifier: ^0.5.4
-        version: 0.5.4(@tanstack/react-query@5.101.0(react@19.2.7))(openapi-fetch@0.17.0)
       openapi-typescript:
         specifier: ^7.13.0
         version: 7.13.0(typescript@5.9.2)

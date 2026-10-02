@@ -1,4 +1,4 @@
-export { createSDK, createClient, type SDKOptions } from "./client.js";
+export { createClient, type SDKOptions } from "./client.js";
 export {
   OfflineQueue,
   memoryStorage,

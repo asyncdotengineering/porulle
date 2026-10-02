@@ -34,8 +34,8 @@ bun add @porulle/core \
 | Package | Purpose |
 |---------|---------|
 | `@porulle/core` | Kernel: services, hooks, state machines, auth, runtime |
-| `@porulle/cli` | `init`, `dev`, `migrate`, `api-key`, `doctor` commands |
-| `@porulle/sdk` | Typed TypeScript client + React Query bindings |
+| `@porulle/cli` | `init`, `dev`, `api-key`, `doctor` commands |
+| `@porulle/sdk` | Typed `openapi-fetch` client (`createClient`) |
 | `@porulle/adapter-postgres` | PostgreSQL database adapter (required) |
 | `@porulle/adapter-stripe` | Stripe payment adapter |
 | `@porulle/adapter-local-storage` | Local filesystem media storage |

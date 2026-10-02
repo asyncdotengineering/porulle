@@ -1,31 +1,8 @@
 import { defineCommand } from "citty";
 import consola from "consola";
+import { apiBaseUrl, requestJson } from "../utils.js";
 
 type BackfillReport = Record<string, unknown>;
-
-function baseUrl(raw: string | undefined): string {
-  return (raw ?? "http://localhost:3000").replace(/\/$/, "");
-}
-
-async function requestBackfill(
-  url: string,
-  storeId: string,
-  dryRun: boolean,
-  restart: boolean,
-  token?: string,
-): Promise<BackfillReport> {
-  const response = await fetch(`${url}/api/channels/stores/${encodeURIComponent(storeId)}/backfill`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ dryRun, ...(restart ? { restart: true } : {}) }),
-  });
-  const payload = (await response.json().catch(() => ({}))) as { data?: BackfillReport; error?: { message?: string } };
-  if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? `Backfill request failed (${response.status}).`);
-  return payload.data;
-}
 
 export const channelBackfillCommand = defineCommand({
   meta: {
@@ -60,11 +37,12 @@ export const channelBackfillCommand = defineCommand({
   },
   async run({ args }) {
     const dryRun = args["dry-run"] === true;
-    const report = await requestBackfill(
-      baseUrl(args.targetUrl ? String(args.targetUrl) : undefined),
-      String(args.store),
-      dryRun,
-      args.restart === true,
+    const url = apiBaseUrl(args.targetUrl ? String(args.targetUrl) : undefined);
+    const report = await requestJson<BackfillReport>(
+      url,
+      `/api/channels/stores/${encodeURIComponent(String(args.store))}/backfill`,
+      "POST",
+      { dryRun, ...(args.restart === true ? { restart: true } : {}) },
       args.authToken ? String(args.authToken) : undefined,
     );
     if (dryRun) {

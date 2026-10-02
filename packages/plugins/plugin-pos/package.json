@@ -25,7 +25,6 @@
   "dependencies": {
     "@hono/zod-openapi": "^1.2.2",
     "@porulle/core": "workspace:*",
-    "@porulle/db": "workspace:*",
     "hono": "^4.12.5"
   },
   "devDependencies": {
