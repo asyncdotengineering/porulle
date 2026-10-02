@@ -5,17 +5,19 @@
   "type": "module",
   "exports": {
     ".": {
-      "bun": "./src/index.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.js",
-      "types": "./src/index.ts"
+      "@porulle/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./schema": {
-      "bun": "./src/schema.ts",
-      "import": "./dist/schema.js",
-      "require": "./dist/schema.js",
-      "types": "./src/schema.ts"
-    }
+      "@porulle/source": "./src/schema.ts",
+      "types": "./dist/schema.d.ts",
+      "default": "./dist/schema.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=20.19.0"
   },
   "scripts": {
     "build": "rm -rf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json",

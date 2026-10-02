@@ -5,6 +5,10 @@ description: Release history for Porulle.
 
 The whole `@porulle/*` family versions in lockstep. Per-release detail lives in each package's `CHANGELOG.md`; the migration contracts are indexed under [Upgrading](/production/upgrading/).
 
+## v0.65.1
+
+- **Breaking: package exports work with every loader.** Every entry is now `{ "@porulle/source", "types": dist .d.ts, "default": dist .js }`, so `require()` (and drizzle-kit, which loads schema files through it) resolves every package. In 0.65.0, a schema importing a plugin failed with `ERR_PACKAGE_PATH_NOT_EXPORTED` while drizzle-kit exited 0. Requires Node ≥ 20.19. Types now come from `dist`. The `bun` condition is removed. See section 5 of [`migration-0.64-to-0.65.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-0.64-to-0.65.md).
+
 ## v0.65.0
 
 - **Breaking: dead and pass-through APIs are removed.** A deletion-test audit removed what nothing used or what only forwarded to something else: `@porulle/db` (use `pgTable` from `@porulle/core/drizzle`), `@porulle/sdk/react` and `createSDK`, the CLI's `migrate` / `generate migration` / `deploy`, `defineModule` and the module types, `createRepository`, the query registry, the access combinators, the `LocalAPI` class, 18 plugin options nothing read, and marketplace contract pricing. See [`migration-0.64-to-0.65.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-0.64-to-0.65.md) for every removal and its replacement.

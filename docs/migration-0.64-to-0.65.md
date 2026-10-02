@@ -85,10 +85,31 @@ No core table changed.
 
 ## 4. Checklist
 
-1. Bump every `@porulle/*` dependency to `0.65.0` together (they are released as one group).
+1. Bump every `@porulle/*` dependency to `0.65.1` together (they are released as one group).
 2. Remove `@porulle/db` from your dependencies and switch its imports to `@porulle/core/drizzle`.
 3. `tsc --noEmit`: every removed export above fails to compile, so the compiler gives you the full list for your code.
 4. Delete the plugin options listed in section 2.
 5. If you use `auth.twoFactor.requiredForRoles`, confirm the listed members have enrolled.
 6. Run `drizzle-kit generate` and review the marketplace `DROP TABLE` if you use the marketplace plugin.
 7. Re-run catalogue imports that may have been truncated at 250 / 100 products.
+
+---
+
+## 5. 0.65.1: package exports
+
+0.65.0 exported most packages' root entry under `import` only. `require()` of those packages failed with `ERR_PACKAGE_PATH_NOT_EXPORTED`. drizzle-kit loads schema files through `require()`, so a `drizzle.config.ts` whose schema imported a plugin failed, and drizzle-kit still exited 0 and wrote no migration. 0.65.1 fixes this. Every entry now has the shape:
+
+```json
+".": {
+  "@porulle/source": "./src/index.ts",
+  "types": "./dist/index.d.ts",
+  "default": "./dist/index.js"
+}
+```
+
+What changes for you:
+
+- **Node ≥ 20.19 (or ≥ 22.12).** The packages are ESM. `require()` loads them only on Node versions that support `require(esm)`, and `engines.node` now says so.
+- **Types come from `dist/*.d.ts`.** Before 0.65.1 your compiler read the shipped `src/*.ts`. If you relied on a type that `src` exposed but the declarations do not, `tsc` reports it.
+- **No `bun` condition.** Bun now loads `dist`, the same files Node loads. If you set `customConditions: ["bun"]` to reach `src`, remove it.
+- **Run `drizzle-kit generate` again after upgrading.** A 0.65.0 run that printed `ERR_PACKAGE_PATH_NOT_EXPORTED` produced no migration, even though it exited 0.
