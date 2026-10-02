@@ -29,7 +29,7 @@ describe("auth.twoFactor.requiredForRoles", () => {
   };
 
   async function signedInMember(role: string): Promise<{ cookie: string; userId: string }> {
-    const email = `tfa-${role}-${Date.now()}-${Math.random().toString(36).slice(2)}@test.local`;
+    const email = `tfa-${role.replace(/[^a-z]/g, "-")}-${Date.now()}-${Math.random().toString(36).slice(2)}@test.local`;
     const headers = { "content-type": "application/json", origin: "http://localhost" };
     const signUp = await authApp().request("http://localhost/api/auth/sign-up/email", {
       method: "POST",
@@ -89,6 +89,14 @@ describe("auth.twoFactor.requiredForRoles", () => {
 
   it("refuses a listed role whose user has not enabled 2FA, with a code that says why", async () => {
     const owner = await signedInMember("owner");
+    const res = await probeAs(owner.cookie);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: { code: "TWO_FACTOR_REQUIRED" } });
+  });
+
+  it("refuses a composite role that contains a listed role", async () => {
+    // Better Auth stores a member's role as a comma-separated list; "owner,admin" is an owner.
+    const owner = await signedInMember("owner,admin");
     const res = await probeAs(owner.cookie);
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ error: { code: "TWO_FACTOR_REQUIRED" } });

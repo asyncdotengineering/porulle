@@ -79,4 +79,30 @@ describe("webhook delivery reaches the jobs engine for every hooked module", () 
     expect(adjusted.ok).toBe(true);
     expect(deliveries).toEqual(["inventory.update"]);
   });
+
+  it("pricing.update", async () => {
+    const modifier = await kernel.services.pricing.createModifier(
+      { name: "Spring", type: "percentage_discount", value: 10, priority: 1 },
+      admin,
+    );
+    expect(modifier.ok).toBe(true);
+    if (!modifier.ok) return;
+    await subscribe("pricing.update");
+    const updated = await kernel.services.pricing.updateModifier(modifier.value.id, { value: 15 }, admin);
+    expect(updated.ok).toBe(true);
+    expect(deliveries).toEqual(["pricing.update"]);
+  });
+
+  it("catalog.delete", async () => {
+    const entity = await kernel.services.catalog.create(
+      { type: "product", slug: `wh-del-${Date.now()}`, attributes: { locale: "en", title: "Doomed" } },
+      admin,
+    );
+    expect(entity.ok).toBe(true);
+    if (!entity.ok) return;
+    await subscribe("catalog.delete");
+    const deleted = await kernel.services.catalog.delete(entity.value.id, admin);
+    expect(deleted.ok).toBe(true);
+    expect(deliveries).toEqual(["catalog.delete"]);
+  });
 });

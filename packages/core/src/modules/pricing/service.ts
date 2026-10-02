@@ -363,6 +363,13 @@ export class PricingService {
       },
       ctx,
     );
+
+    const afterHooks = this.deps.hooks.resolve(
+      "pricing.afterUpdate",
+    ) as AfterHook<PriceModifier>[];
+    const hctx = createModuleHookContext("pricing", this.deps, actor ?? ctx?.actor ?? null, ctx?.tx ?? null);
+    await runAfterHooks(afterHooks, existing, updated!, "update", hctx);
+
     return Ok(updated!);
   }
 

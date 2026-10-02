@@ -119,6 +119,37 @@ describe("createPGliteTransaction", () => {
     expect(statements).toEqual(["BEGIN", "a", "a2", "COMMIT", "BEGIN", "b", "COMMIT"]);
   });
 
+  it("queues a transaction that starts while another body is already running", async () => {
+    const { pg, statements } = recordingPg();
+    const { transaction } = createPGliteTransaction(pg, "db");
+    let releaseA!: () => void;
+    const gate = new Promise<void>((r) => { releaseA = r; });
+    const a = transaction(async () => { statements.push("a"); await gate; statements.push("a2"); });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(statements).toEqual(["BEGIN", "a"]);
+    const b = transaction(async () => { statements.push("b"); });
+    await new Promise((r) => setTimeout(r, 0));
+    releaseA();
+    await Promise.all([a, b]);
+    expect(statements).toEqual(["BEGIN", "a", "a2", "COMMIT", "BEGIN", "b", "COMMIT"]);
+  });
+
+  it("does not run later bodies outside a transaction after a BEGIN fails", async () => {
+    const statements: string[] = [];
+    let failNextBegin = true;
+    const pg = {
+      exec: async (statement: string) => {
+        if (statement === "BEGIN" && failNextBegin) { failNextBegin = false; throw new Error("begin failed"); }
+        statements.push(statement);
+      },
+    };
+    const { transaction, inTransaction } = createPGliteTransaction(pg, "db");
+    await expect(transaction(async () => { statements.push("first"); })).rejects.toThrow("begin failed");
+    expect(inTransaction()).toBe(false);
+    await transaction(async () => { statements.push("second"); });
+    expect(statements).toEqual(["BEGIN", "second", "COMMIT"]);
+  });
+
   it("joins an open transaction for a nested call and rolls back on failure", async () => {
     const { pg, statements } = recordingPg();
     const { transaction, inTransaction } = createPGliteTransaction(pg, "db");

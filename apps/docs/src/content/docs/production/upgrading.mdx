@@ -12,7 +12,8 @@ have no schema component.
 
 | Contract | What it covers |
 |----------|----------------|
-| [`migration-0.15-to-0.16.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-0.15-to-0.16.md) | **Latest.** No schema changes. An auth check that fails is no longer reported as a rejected credential — a fault now logs and returns 500 instead of a silent 401 |
+| [`migration-0.64-to-0.65.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-0.64-to-0.65.md) | **Latest. Breaking.** Removes dead and pass-through APIs (including `@porulle/db`, `@porulle/sdk/react`, three CLI commands and 18 unread plugin options) and fixes webhooks that never delivered, unenforced `twoFactor.requiredForRoles`, truncated imports and tax over-collection. One schema change: the marketplace plugin drops `marketplace_contract_prices` |
+| [`migration-0.15-to-0.16.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-0.15-to-0.16.md) | No schema changes. An auth check that fails is no longer reported as a rejected credential — a fault now logs and returns 500 instead of a silent 401 |
 | [`migration-0.13-to-0.14.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-0.13-to-0.14.md) | The server refuses to start when it can resolve no organization; `resolveActor` becomes a public export. Everything else additive |
 | [`migration-0.11-to-0.13.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-0.11-to-0.13.md) | **Start here if you are on 0.11.** There is no 0.12.0 on npm, so `latest` went 0.11.0 → 0.13.0 and this covers both. Authorization defaults tightened in several places |
 | [`migration-0.1-to-0.7.md`](https://github.com/asyncdotengineering/porulle/blob/main/docs/migration-0.1-to-0.7.md) | Upgrade path for 0.1.0 early adopters — schema diff first, then behavioral changes |

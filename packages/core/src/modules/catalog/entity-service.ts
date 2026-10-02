@@ -324,6 +324,8 @@ export class EntityService {
     await this.repo.deleteVariantOptionValuesByEntityId(id, ctx);
     await this.repo.deleteVariantsByEntityId(id, ctx);
     await this.repo.deleteEntity(id, ctx);
+    const afterHooks = this.deps.hooks.resolve("catalog.afterDelete") as AfterHook<SellableEntity>[];
+    await runAfterHooks(afterHooks, existing, existing, "delete", catalogHookContext(this.deps, actor, ctx, "delete"), (hook) => this.deps.hooks.runsInTransaction(hook));
     return Ok(undefined);
   } catch (error) { return Err(toCommerceError(error)); } }
 

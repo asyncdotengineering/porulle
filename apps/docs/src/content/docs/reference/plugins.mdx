@@ -255,13 +255,14 @@ For any other shape, build one with `createTestActor({ permissions, role })` —
 Type a handler with `AfterHook` / `BeforeHook` and register it by key:
 
 ```ts
-import type { AfterHook } from "@porulle/core";
+import { resolveOrgIdForCommerce, type AfterHook } from "@porulle/core";
 
 const awardPoints: AfterHook<{ id: string; grandTotal: number }> = async ({ result, context }) => {
   await context.jobs.enqueue(
     "loyalty:award-points",
     { orderId: result.id },
-    { organizationId: context.actor?.organizationId ?? "" },
+    // The org the event belongs to; a blank organizationId is refused at enqueue.
+    { organizationId: resolveOrgIdForCommerce(context.actor, context.commerceConfig) },
   );
 };
 
