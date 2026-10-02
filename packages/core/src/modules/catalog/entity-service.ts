@@ -12,17 +12,14 @@ import {
   runAfterHooks,
   runBeforeHooks,
 } from "../../kernel/hooks/executor.js";
-import { createHookContext } from "../../kernel/hooks/create-context.js";
+import { createModuleHookContext } from "../../kernel/hooks/create-context.js";
 import type {
   AfterHook,
   BeforeHook,
   HookContext,
 } from "../../kernel/hooks/types.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
-import { createLogger } from "../../utils/logger.js";
 import { paginate } from "../../utils/pagination.js";
-import type { JobsAdapter } from "../../kernel/jobs/adapter.js";
-import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import type { CatalogWriteContext, TxContext } from "../../kernel/database/tx-context.js";
 import { createTxContext, isWriteContextTransactional } from "../../kernel/database/tx-context.js";
 import { canReadUnpublishedCatalog, isCatalogEntityVisible } from "./read-policy.js";
@@ -52,9 +49,6 @@ import type {
   Variant,
 } from "./repository/index.js";
 
-function hookDatabaseArg(database: CatalogServiceDeps["database"]): { database: { db: PluginDb } } {
-  return { database: { db: database.db as PluginDb } };
-}
 
 const attributeFields = ["title", "subtitle", "description", "richDescription", "seoTitle", "seoDescription"] as const;
 
@@ -64,15 +58,9 @@ export function catalogHookContext(
   ctx: CatalogWriteContext | undefined,
   operation: string,
 ): HookContext {
-  return createHookContext({
-    actor,
-    tx: isWriteContextTransactional(ctx) ? ctx.tx : null,
-    logger: createLogger(`catalog.${operation}`),
-    services: deps.services,
-    ...(deps.services.jobs ? { jobs: deps.services.jobs as JobsAdapter } : {}),
-    context: { moduleName: "catalog", ...(ctx?.hookContext ?? {}) },
-    ...hookDatabaseArg(deps.database),
-    commerceConfig: deps.config,
+  return createModuleHookContext("catalog", deps, actor, isWriteContextTransactional(ctx) ? ctx.tx : null, {
+    logScope: `catalog.${operation}`,
+    ...(ctx?.hookContext ? { context: ctx.hookContext } : {}),
   });
 }
 
@@ -342,7 +330,7 @@ export class EntityService {
   async getById(id: string, options: GetOptions | undefined, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
     const resolvedActor = actor ?? ctx?.actor ?? null;
     const orgId = resolveOrgIdForCommerce(resolvedActor, this.deps.config);
-    const context: HookContext = createHookContext({ actor: resolvedActor, tx: ctx?.tx ?? null, logger: createLogger("catalog.read"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database), commerceConfig: this.deps.config });
+    const context: HookContext = createModuleHookContext("catalog", this.deps, resolvedActor, ctx?.tx ?? null, { logScope: "catalog.read" });
     const globalBeforeHooks = this.deps.hooks.resolve("catalog.beforeRead") as CatalogReadBeforeHook[];
     const globalAfterHooks = this.deps.hooks.resolve("catalog.afterRead") as CatalogReadAfterHook[];
     let processed = await runBeforeHooks(globalBeforeHooks, { id, ...(options !== undefined ? { options } : {}) }, "read", context);
@@ -389,7 +377,7 @@ export class EntityService {
   }
 
   async getBySlug(slug: string, options: GetOptions | undefined, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
-    const context: HookContext = createHookContext({ actor: actor ?? null, tx: ctx?.tx ?? null, logger: createLogger("catalog.read"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database), commerceConfig: this.deps.config });
+    const context: HookContext = createModuleHookContext("catalog", this.deps, actor ?? null, ctx?.tx ?? null, { logScope: "catalog.read" });
     const globalBeforeHooks = this.deps.hooks.resolve("catalog.beforeRead") as CatalogReadBeforeHook[];
     const globalAfterHooks = this.deps.hooks.resolve("catalog.afterRead") as CatalogReadAfterHook[];
     let processed = await runBeforeHooks(globalBeforeHooks, { slug, ...(options !== undefined ? { options } : {}) }, "read", context);
@@ -424,7 +412,7 @@ export class EntityService {
 
   async list(params: ListParams, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogListResult>> {
     const resolvedActor = actor ?? ctx?.actor ?? null;
-    const context: HookContext = createHookContext({ actor: resolvedActor, tx: ctx?.tx ?? null, logger: createLogger("catalog.list"), services: this.deps.services, context: { moduleName: "catalog" }, ...hookDatabaseArg(this.deps.database), commerceConfig: this.deps.config });
+    const context: HookContext = createModuleHookContext("catalog", this.deps, resolvedActor, ctx?.tx ?? null, { logScope: "catalog.list" });
     const globalBeforeHooks = this.deps.hooks.resolve("catalog.beforeList") as CatalogListBeforeHook[];
     const globalAfterHooks = this.deps.hooks.resolve("catalog.afterList") as CatalogListAfterHook[];
     let processed = await runBeforeHooks(globalBeforeHooks, params, "list", context);

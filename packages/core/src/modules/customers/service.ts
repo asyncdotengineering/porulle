@@ -4,14 +4,12 @@ import type { Actor } from "../../auth/types.js";
 import type { CommerceConfig } from "../../config/types.js";
 import { CommerceNotFoundError, toCommerceError } from "../../kernel/errors.js";
 import { runAfterHooks } from "../../kernel/hooks/executor.js";
-import { createHookContext } from "../../kernel/hooks/create-context.js";
+import { createModuleHookContext } from "../../kernel/hooks/create-context.js";
 import type { HookRegistry } from "../../kernel/hooks/registry.js";
-import type { AfterHook, HookContext } from "../../kernel/hooks/types.js";
+import type { AfterHook } from "../../kernel/hooks/types.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
 import type { DatabaseAdapter } from "../../kernel/database/adapter.js";
-import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
-import { createLogger } from "../../utils/logger.js";
 import type {
   CustomersRepository,
   Customer,
@@ -28,23 +26,6 @@ interface CustomerServiceDeps {
   database: DatabaseAdapter;
 }
 
-function hookContext(
-  actor: Actor | null,
-  services: Record<string, unknown>,
-  database: DatabaseAdapter,
-  config: CommerceConfig,
-  tx: unknown,
-): HookContext {
-  return createHookContext({
-    actor,
-    tx,
-    logger: createLogger("customers"),
-    services,
-    context: { moduleName: "customers" },
-    database: { db: database.db as PluginDb },
-    commerceConfig: config,
-  });
-}
 
 export class CustomerService {
   private readonly repo: CustomersRepository;
@@ -101,7 +82,7 @@ export class CustomerService {
     const afterHooks = this.deps.hooks.resolve(
       "customers.afterCreate",
     ) as AfterHook<Customer>[];
-    const hctx = hookContext(actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null);
+    const hctx = createModuleHookContext("customers", this.deps, actor ?? null, ctx?.tx ?? null);
     await runAfterHooks(afterHooks, null, customer, "create", hctx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
     return Ok(customer);
@@ -202,7 +183,7 @@ export class CustomerService {
     const afterHooks = this.deps.hooks.resolve(
       "customers.afterCreate",
     ) as AfterHook<Customer>[];
-    const hctx = hookContext(actor, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null);
+    const hctx = createModuleHookContext("customers", this.deps, actor, ctx?.tx ?? null);
     await runAfterHooks(afterHooks, null, customer, "create", hctx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
     return customer;
@@ -282,9 +263,7 @@ export class CustomerService {
     const afterHooks = this.deps.hooks.resolve(
       "customers.afterUpdate",
     ) as AfterHook<Customer>[];
-    const hctx = hookContext(
-      actor ?? ctx?.actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null,
-    );
+    const hctx = createModuleHookContext("customers", this.deps, actor ?? ctx?.actor ?? null, ctx?.tx ?? null);
     await runAfterHooks(afterHooks, existing, updated, "update", hctx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
     return Ok(updated);
@@ -315,7 +294,7 @@ export class CustomerService {
     const afterHooks = this.deps.hooks.resolve(
       "customers.afterUpdate",
     ) as AfterHook<Customer>[];
-    const hctx = hookContext(resolvedActor, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null);
+    const hctx = createModuleHookContext("customers", this.deps, resolvedActor, ctx?.tx ?? null);
     await runAfterHooks(afterHooks, customer, updated, "update", hctx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
     return Ok(updated);

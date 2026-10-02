@@ -13,13 +13,8 @@ import {
   toCommerceError,
 } from "../../kernel/errors.js";
 import { runAfterHooks, runBeforeHooks } from "../../kernel/hooks/executor.js";
-import { createHookContext } from "../../kernel/hooks/create-context.js";
-import type { JobsAdapter } from "../../kernel/jobs/adapter.js";
-import type {
-  AfterHook,
-  BeforeHook,
-  HookContext,
-} from "../../kernel/hooks/types.js";
+import { createModuleHookContext } from "../../kernel/hooks/create-context.js";
+import type { AfterHook, BeforeHook } from "../../kernel/hooks/types.js";
 import type { HookRegistry } from "../../kernel/hooks/registry.js";
 import {
   canTransition,
@@ -28,7 +23,6 @@ import {
   type StateDefinition,
 } from "../../kernel/state-machine/machine.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
-import { createLogger } from "../../utils/logger.js";
 import { makeIdempotencyScope } from "../../utils/id.js";
 import { paginate, type Pagination } from "../../utils/pagination.js";
 import {
@@ -36,7 +30,6 @@ import {
   type TxContext,
 } from "../../kernel/database/tx-context.js";
 import type { DatabaseAdapter } from "../../kernel/database/adapter.js";
-import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import {
   OrdersRepository,
   type Order,
@@ -143,24 +136,6 @@ type BeforeStatusChangeHook = BeforeHook<StatusChangeHookInput>;
  */
 type AfterStatusChangeHook = AfterHook<HydratedOrder, StatusChangeHookInput>;
 
-function context(
-  actor: Actor | null,
-  services: Record<string, unknown>,
-  database: DatabaseAdapter,
-  config: CommerceConfig,
-  tx: unknown = null,
-): HookContext {
-  return createHookContext({
-    actor,
-    tx,
-    logger: createLogger("orders"),
-    services,
-    ...(services.jobs ? { jobs: services.jobs as JobsAdapter } : {}),
-    context: { moduleName: "orders" },
-    database: { db: database.db as PluginDb },
-    commerceConfig: config,
-  });
-}
 
 export class OrderService {
   private readonly repo: OrdersRepository;
@@ -522,7 +497,7 @@ export class OrderService {
     const afterHooks = this.deps.hooks.resolve(
       "orders.afterCreate",
     ) as AfterCreateOrderHook[];
-    const hookCtx = context(actor, this.deps.services, this.deps.database, this.deps.config, ctx?.tx);
+    const hookCtx = createModuleHookContext("orders", this.deps, actor, ctx?.tx);
 
     const processed = await runBeforeHooks(
       beforeHooks,
@@ -804,7 +779,7 @@ export class OrderService {
       "orders.afterGet",
     ) as AfterHook<HydratedOrder>[];
     if (afterGetHooks.length > 0) {
-      const hookCtx = context(actor, this.deps.services, this.deps.database, this.deps.config, ctx?.tx);
+      const hookCtx = createModuleHookContext("orders", this.deps, actor, ctx?.tx);
       await runAfterHooks(afterGetHooks, null, hydrated, "read", hookCtx, (hook) => this.deps.hooks.runsInTransaction(hook));
     }
 
@@ -1013,7 +988,7 @@ export class OrderService {
       "orders.afterStatusChange",
     ) as AfterStatusChangeHook[];
 
-    const hookCtx = context(actor, this.deps.services, this.deps.database, this.deps.config, ctx?.tx);
+    const hookCtx = createModuleHookContext("orders", this.deps, actor, ctx?.tx);
     const statusHookInput: StatusChangeHookInput = {
       orderId: order.id,
       fromStatus: order.status as OrderState,

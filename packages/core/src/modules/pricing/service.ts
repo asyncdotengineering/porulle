@@ -2,18 +2,16 @@ import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import type { Actor } from "../../auth/types.js";
 import type { CommerceConfig } from "../../config/types.js";
 import type { DatabaseAdapter } from "../../kernel/database/adapter.js";
-import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
 import {
   CommerceNotFoundError,
   CommerceValidationError,
 } from "../../kernel/errors.js";
 import { runAfterHooks } from "../../kernel/hooks/executor.js";
-import { createHookContext } from "../../kernel/hooks/create-context.js";
+import { createModuleHookContext } from "../../kernel/hooks/create-context.js";
 import type { HookRegistry } from "../../kernel/hooks/registry.js";
-import type { AfterHook, HookContext } from "../../kernel/hooks/types.js";
+import type { AfterHook } from "../../kernel/hooks/types.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
-import { createLogger } from "../../utils/logger.js";
 import type {
   PricingRepository,
   Price,
@@ -39,23 +37,6 @@ interface PricingServiceDeps {
   database: DatabaseAdapter;
 }
 
-function hookContext(
-  actor: Actor | null,
-  services: Record<string, unknown>,
-  database: DatabaseAdapter,
-  config: CommerceConfig,
-  tx: unknown,
-): HookContext {
-  return createHookContext({
-    actor,
-    tx,
-    logger: createLogger("pricing"),
-    services,
-    context: { moduleName: "pricing" },
-    database: { db: database.db as PluginDb },
-    commerceConfig: config,
-  });
-}
 
 export interface PriceResolutionContext {
   entityId: string;
@@ -269,9 +250,7 @@ export class PricingService {
     const afterHooks = this.deps.hooks.resolve(
       "pricing.afterCreate",
     ) as AfterHook<Price>[];
-    const hctx = hookContext(
-      actor ?? ctx?.actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null,
-    );
+    const hctx = createModuleHookContext("pricing", this.deps, actor ?? ctx?.actor ?? null, ctx?.tx ?? null);
     await runAfterHooks(afterHooks, null, record, "create", hctx);
 
     return Ok(record);
@@ -326,9 +305,7 @@ export class PricingService {
     const afterHooks = this.deps.hooks.resolve(
       "pricing.afterCreate",
     ) as AfterHook<PriceModifier>[];
-    const hctx = hookContext(
-      actor ?? ctx?.actor ?? null, this.deps.services, this.deps.database, this.deps.config, ctx?.tx ?? null,
-    );
+    const hctx = createModuleHookContext("pricing", this.deps, actor ?? ctx?.actor ?? null, ctx?.tx ?? null);
     await runAfterHooks(afterHooks, null, modifier, "create", hctx);
 
     return Ok(modifier);

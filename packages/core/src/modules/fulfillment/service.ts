@@ -4,15 +4,13 @@ import { assertPermission } from "../../auth/permissions.js";
 import type { Actor } from "../../auth/types.js";
 import type { CommerceConfig } from "../../config/types.js";
 import type { DatabaseAdapter } from "../../kernel/database/adapter.js";
-import type { PluginDb } from "../../kernel/database/plugin-types.js";
 import type { TxContext } from "../../kernel/database/tx-context.js";
 import { CommerceNotFoundError, CommerceValidationError, toCommerceError } from "../../kernel/errors.js";
 import { runAfterHooks } from "../../kernel/hooks/executor.js";
-import { createHookContext } from "../../kernel/hooks/create-context.js";
+import { createModuleHookContext } from "../../kernel/hooks/create-context.js";
 import type { HookRegistry } from "../../kernel/hooks/registry.js";
 import type { AfterHook, HookContext } from "../../kernel/hooks/types.js";
 import { Err, Ok, type Result } from "../../kernel/result.js";
-import { createLogger } from "../../utils/logger.js";
 import type {
   FulfillmentRecord as FulfillmentDbRow,
   FulfillmentRecordInsert,
@@ -328,15 +326,7 @@ export class FulfillmentService {
       const afterHooks = this.deps.hooks.resolve(
         "fulfillment.afterCreate",
       ) as AfterHook<FulfillmentRecord>[];
-      const hookCtx: HookContext = createHookContext({
-        actor: actor ?? ctx?.actor ?? null,
-        tx: ctx?.tx ?? null,
-        logger: createLogger("fulfillment"),
-        services: this.deps.services,
-        context: { moduleName: "fulfillment" },
-        database: { db: this.deps.database.db as PluginDb },
-        commerceConfig: this.deps.config,
-      });
+      const hookCtx: HookContext = createModuleHookContext("fulfillment", this.deps, actor ?? ctx?.actor ?? null, ctx?.tx ?? null);
       await runAfterHooks(afterHooks, null, record, "create", hookCtx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
       // Create a fulfillment line item linking this fulfillment to the order line item
@@ -487,15 +477,7 @@ export class FulfillmentService {
     const afterHooks = this.deps.hooks.resolve(
       "fulfillment.afterCreate",
     ) as AfterHook<FulfillmentRecord>[];
-    const hookCtx: HookContext = createHookContext({
-      actor: actor ?? ctx?.actor ?? null,
-      tx: ctx?.tx ?? null,
-      logger: createLogger("fulfillment"),
-      services: this.deps.services,
-      context: { moduleName: "fulfillment" },
-      database: { db: this.deps.database.db as PluginDb },
-      commerceConfig: this.deps.config,
-    });
+    const hookCtx: HookContext = createModuleHookContext("fulfillment", this.deps, actor ?? ctx?.actor ?? null, ctx?.tx ?? null);
     await runAfterHooks(afterHooks, null, record, "create", hookCtx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
     return Ok(record);
