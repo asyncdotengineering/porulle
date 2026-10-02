@@ -116,7 +116,7 @@ export default defineConfig({
 
   plugins: [
     // POS + Restaurant
-    posPlugin({ defaultCurrency: "LKR", maxHoldHours: 24, discountOverrideThreshold: 20 }),
+    posPlugin(),
     posRestaurantPlugin({ enableKDS: true, enableTips: true, enableModifiers: true, kdsAlertMinutes: 10 }),
     // Supply Chain
     uomPlugin(),

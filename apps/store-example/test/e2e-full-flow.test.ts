@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createKernel, buildSchema, getSchema, type Actor } from "@porulle/core";
 import { eq, sql } from "@porulle/core/drizzle";
 import configPromise from "../commerce.config.js";
-import { loyaltyPoints, loyaltyTransactions } from "../src/plugins/loyalty-schema.js";
+import { loyaltyPoints, loyaltyTransactions } from "@porulle/plugin-loyalty/schema";
 
 // All Drizzle table definitions exposed via getSchema()
 const {

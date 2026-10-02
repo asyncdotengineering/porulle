@@ -183,7 +183,9 @@ apps/store-example/
 ├── src/
 │   ├── server.ts               # Hono server with auth middleware
 │   ├── plugins/
-│   │   └── loyalty-plugin.ts   # Loyalty points plugin (hooks + routes)
+│   │   └── extended-catalog-schema.ts # Extra columns on sellable entities
+│   ├── routes/
+│   │   └── supplier-info.ts    # Custom route reading the extended columns
 │   └── scripts/
 │       ├── _helpers.ts         # Shared fetch helper with API key header
 │       ├── seed.ts             # Database seeding
