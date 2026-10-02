@@ -5,10 +5,14 @@
   "type": "module",
   "exports": {
     ".": {
-      "bun": "./src/index.ts",
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    }
+      "@porulle/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=20.19.0"
   },
   "bin": {
     "unifiedcommerce-sdk": "./dist/cli.js"

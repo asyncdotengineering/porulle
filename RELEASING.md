@@ -49,8 +49,16 @@ pnpm run version-packages     # = changeset version && pnpm install --lockfile-o
 # 3. Publish. Builds ALL publishable packages (nested adapters/plugins/import
 #    included — note the `./packages/**` filter), publishes via pnpm (which
 #    strips workspace:*), creates git tags, and pushes them.
-pnpm run release              # = turbo run build --filter=./packages/** && changeset publish && git push --follow-tags
+pnpm run release              # = turbo run build --filter=./packages/** && check-package-exports && changeset publish && git push --follow-tags
 ```
+
+`scripts/check-package-exports.mjs` (`pnpm run check:packages`) runs between
+build and publish and stops the release if any package cannot be loaded the way
+consumers load it: every export entry must be
+`{ "@porulle/source", "types": dist .d.ts, "default": dist .js }`, must
+resolve and load through both `require()` and `import()`, and must pass
+`publint --strict` and `attw --profile node16`. 0.65.0 shipped plugins that
+`require()` (drizzle-kit) could not resolve; publint and attw both passed them.
 
 Then create a GitHub release for the version tag (`gh release create vX.Y.Z`).
 

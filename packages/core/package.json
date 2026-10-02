@@ -5,41 +5,39 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "bun": "./src/index.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.js"
+      "@porulle/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./schema": {
-      "types": "./src/kernel/database/schema.ts",
-      "bun": "./src/kernel/database/schema.ts",
-      "import": "./dist/kernel/database/schema.js",
-      "require": "./dist/kernel/database/schema.js"
+      "@porulle/source": "./src/kernel/database/schema.ts",
+      "types": "./dist/kernel/database/schema.d.ts",
+      "default": "./dist/kernel/database/schema.js"
     },
     "./auth-schema": {
-      "types": "./src/auth/auth-schema.ts",
-      "bun": "./src/auth/auth-schema.ts",
-      "import": "./dist/auth/auth-schema.js",
-      "require": "./dist/auth/auth-schema.js"
+      "@porulle/source": "./src/auth/auth-schema.ts",
+      "types": "./dist/auth/auth-schema.d.ts",
+      "default": "./dist/auth/auth-schema.js"
     },
     "./testing": {
-      "types": "./src/testing.ts",
-      "bun": "./src/testing.ts",
-      "import": "./dist/testing.js",
-      "require": "./dist/testing.js"
+      "@porulle/source": "./src/testing.ts",
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
     },
     "./drizzle": {
-      "types": "./src/drizzle.ts",
-      "bun": "./src/drizzle.ts",
-      "import": "./dist/drizzle.js",
-      "require": "./dist/drizzle.js"
+      "@porulle/source": "./src/drizzle.ts",
+      "types": "./dist/drizzle.d.ts",
+      "default": "./dist/drizzle.js"
     },
     "./jobs": {
-      "types": "./src/jobs.ts",
-      "bun": "./src/jobs.ts",
-      "import": "./dist/jobs.js",
-      "require": "./dist/jobs.js"
-    }
+      "@porulle/source": "./src/jobs.ts",
+      "types": "./dist/jobs.d.ts",
+      "default": "./dist/jobs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=20.19.0"
   },
   "scripts": {
     "check:store-guard": "node ./scripts/check-store-guard.mjs",
