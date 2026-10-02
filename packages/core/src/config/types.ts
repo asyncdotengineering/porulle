@@ -442,7 +442,6 @@ export interface CommerceConfig {
   version?: string;
   database: {
     provider: "postgresql";
-    options?: Record<string, unknown>;
   };
   databaseAdapter?: DatabaseAdapter;
   auth?: AuthConfig;

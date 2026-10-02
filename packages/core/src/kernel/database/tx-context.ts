@@ -43,16 +43,6 @@ export async function withTransaction<TDb, TTx, TResult>(
   });
 }
 
-export function reuseOrCreateTxContext<TTx>(
-  tx: TTx,
-  options: WithTransactionOptions,
-  existing?: TxContext<TTx> | null,
-): TxContext<TTx> {
-  if (existing) {
-    return existing;
-  }
-  return createTxContext(tx, options);
-}
 
 export function resolveWriteContextHookContext(ctx?: CatalogWriteContext): Record<string, unknown> | undefined {
   return ctx?.hookContext;

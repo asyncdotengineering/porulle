@@ -64,19 +64,6 @@ export function buildSchema(config?: CommerceConfig): Record<string, unknown> {
   return merged;
 }
 
-/**
- * Returns a list of all schema table names defined by the commerce engine.
- */
-export function getTableNames(): string[] {
-  return Object.entries(schema)
-    .filter(
-      ([_, value]) =>
-        value != null &&
-        typeof value === "object" &&
-        "getSQL" in (value as object),
-    )
-    .map(([key]) => key);
-}
 
 /**
  * Returns the absolute filesystem path(s) of the combined schema module for

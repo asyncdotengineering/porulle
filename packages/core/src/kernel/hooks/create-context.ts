@@ -17,12 +17,7 @@ export interface CreateHookContextArgs {
   origin?: HookOrigin;
   jobs?: JobsAdapter;
   db?: PluginDb;
-  /** Prefer this over {@link CreateHookContextArgs.kernel}. */
   database?: { db: PluginDb };
-  /**
-   * @deprecated Pass {@link CreateHookContextArgs.database} or {@link CreateHookContextArgs.db} instead.
-   */
-  kernel?: { database: { db: PluginDb } };
   commerceConfig?: CommerceConfig | null;
 }
 
@@ -33,11 +28,11 @@ const nullJobs = new NullJobsAdapter();
  */
 export function createHookContext(args: CreateHookContextArgs): HookContext {
   const db =
-    args.db ?? args.database?.db ?? args.kernel?.database?.db ?? null;
+    args.db ?? args.database?.db ?? null;
 
   if (db == null) {
     throw new Error(
-      "createHookContext requires a database: pass `db`, `database: { db }`, or `kernel: { database: { db } }`.",
+      "createHookContext requires a database: pass `db` or `database: { db }`.",
     );
   }
 

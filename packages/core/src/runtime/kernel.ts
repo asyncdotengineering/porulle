@@ -2,8 +2,6 @@ import type { CommerceConfig } from "../config/types.js";
 import { HookRegistry, isHookMarkedInTransaction, type HookHandler } from "../kernel/hooks/registry.js";
 import { createDatabaseConnection } from "../kernel/database/adapter.js";
 import type { DrizzleDatabase } from "../kernel/database/drizzle-db.js";
-import { WebhookDeliveryWorker } from "../modules/webhooks/worker.js";
-import { WebhooksRepository } from "../modules/webhooks/repository/index.js";
 import { createConsoleLogger } from "../utils/logger.js";
 import { withTiming } from "../kernel/service-timing.js";
 import { setBootDefaultOrgId } from "../auth/org.js";
@@ -16,16 +14,14 @@ import { registerConfiguredKernelHooks } from "./kernel-register-hooks.js";
 import {
   assertKernelServicesReady,
   type Kernel,
-  type WebhookDeliveryPayload,
 } from "./kernel-types.js";
 
-export type { Kernel, WebhookDeliveryPayload };
+export type { Kernel };
 export type { ConfigRouteKernel, ConfigRouteDatabase } from "./kernel-types.js";
 
 export function createKernel(config: CommerceConfig): Kernel {
   const hooks = new HookRegistry();
   const logger = createConsoleLogger("kernel");
-  hooks.setLogger({ error: (obj, msg) => logger.error(msg, obj) });
 
   // Register the configured default organization for resolveOrgId(). Done here
   // rather than only in createCommerce so tests calling createKernel directly
@@ -75,16 +71,6 @@ export function createKernel(config: CommerceConfig): Kernel {
   for (const [id, create] of KERNEL_SERVICE_FACTORIES) {
     serviceContainer[id] = create({ database, db, hooks, config, services: serviceContainer });
   }
-
-  const baseWebhooks = services.webhooks!;
-  const webhookWorker = new WebhookDeliveryWorker({
-    repository: new WebhooksRepository(db),
-  });
-  services.webhooks = Object.assign(baseWebhooks, {
-    async enqueueDelivery(payload: WebhookDeliveryPayload) {
-      await webhookWorker.deliver(payload);
-    },
-  });
 
   services.compensationFailures = new CompensationFailuresRepository(db);
 

@@ -10,8 +10,6 @@ export { createTestKernel } from "./test-utils/create-test-kernel.js";
 // The query log is the only honest statement counter: the PGlite logger sees every statement core
 // issues, which a proxy around a plugin's own handle cannot.
 export { createPGliteTestAdapter, type PGliteTestAdapter, type QueryLog } from "./test-utils/create-pglite-adapter.js";
-export { createTestPluginContext } from "./test-utils/create-test-plugin-context.js";
-export { createRepositoryTestHarness } from "./test-utils/create-repository-test-harness.js";
 export { createPluginTestApp, type PluginTestApp, type TestAppEnv } from "./test-utils/create-plugin-test-app.js";
 export {
   TEST_ORG_ID,
@@ -19,7 +17,6 @@ export {
   testAdminActor, testStaffActor, testCustomerActor, testNoPermActor,
   jsonHeaders,
 } from "./test-utils/test-actors.js";
-export { beforeHook, afterHook } from "./test-utils/typed-hooks.js";
 export { markOrderPaidForTest } from "./test-utils/order-test-helpers.js";
 
 // The after-commit boundary predicate, so a suite can assert that the code under test really is

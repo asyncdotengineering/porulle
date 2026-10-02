@@ -147,13 +147,13 @@ const context = createHookContext({
   services: kernel.services as ServiceContainer,
   context: { moduleName: "checkout" },
   origin: "rest",
-  kernel: { database: { db: kernel.database.db } },
+  database: { db: kernel.database.db },
 });
 ```
 
 ```ts
-// BAD — casts entire kernel through unknown
-kernel: kernel as unknown as { database: { db: PluginDb } },
+// BAD — casts the entire kernel through unknown
+database: kernel as unknown as { db: PluginDb },
 ```
 
 ## Run type checks

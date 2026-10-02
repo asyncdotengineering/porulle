@@ -248,16 +248,24 @@ const res = await app.request("http://localhost/api/my-route", {
 | `testCustomerActor` | customer | catalog:read, cart, orders:read:own |
 | `testNoPermActor` | customer | (none) |
 
-### Typed hook helpers
+For any other shape, build one with `createTestActor({ permissions, role })` — it fills the rest (test organization, a stable user id) so a test names only what it is about.
+
+### Typed hooks
+
+Type a handler with `AfterHook` / `BeforeHook` and register it by key:
 
 ```ts
-import { beforeHook, afterHook } from "@porulle/core";
+import type { AfterHook } from "@porulle/core";
 
-hooks: () => [
-  afterHook<{ id: string; grandTotal: number }>("orders.afterCreate", async ({ result, context }) => {
-    await context.jobs.enqueue("loyalty:award-points", { orderId: result.id });
-  }),
-],
+const awardPoints: AfterHook<{ id: string; grandTotal: number }> = async ({ result, context }) => {
+  await context.jobs.enqueue(
+    "loyalty:award-points",
+    { orderId: result.id },
+    { organizationId: context.actor?.organizationId ?? "" },
+  );
+};
+
+hooks: () => [{ key: "orders.afterCreate", handler: awardPoints }],
 ```
 
 ---

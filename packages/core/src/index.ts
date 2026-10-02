@@ -53,17 +53,6 @@ export {
   isUnauthenticatedActor,
   requireUserId,
 } from "./auth/permissions.js";
-export type { AccessResult, AccessContext, AccessFn, WhereClause } from "./auth/access.js";
-export {
-  accessOR,
-  accessAND,
-  conditional,
-  isAdmin,
-  isAuthenticated,
-  isDocumentOwner,
-  publicAccess,
-  denyAll,
-} from "./auth/access.js";
 
 export { HookRegistry } from "./kernel/hooks/registry.js";
 export type {
@@ -103,7 +92,7 @@ export type {
   JobProcessingOrderField,
   JobProcessingOrderRecord,
 } from "./kernel/jobs/types.js";
-export { BUILTIN_JOB_TASK_SLUGS, TaskNonRetryableError } from "./kernel/jobs/types.js";
+export { TaskNonRetryableError } from "./kernel/jobs/types.js";
 export { createPassThroughTaskStep } from "./kernel/jobs/step.js";
 export {
   staleJobReaperTask,
@@ -112,7 +101,7 @@ export {
   getJobsReaperIntervalMs,
 } from "./kernel/jobs/reaper.js";
 
-export { createLocalAPI, LocalAPI } from "./kernel/local-api.js";
+export { createLocalAPI } from "./kernel/local-api.js";
 export type { CommerceLocalAPI, LocalAPIOptions } from "./kernel/local-api.js";
 export { createCommerce } from "./runtime/commerce.js";
 export type { CommerceInstance } from "./runtime/commerce.js";
@@ -128,8 +117,6 @@ export type {
 export type { Result, PluginResult, PluginResultErr } from "./kernel/result.js";
 export { Ok, Err, PluginErr } from "./kernel/result.js";
 export type { PluginDb, PluginTxFn } from "./kernel/database/plugin-types.js";
-export type { ServiceRegistry } from "./kernel/service-registry.js";
-export { toHttpError, type HttpErrorResponse } from "./kernel/http-error.js";
 export { withTiming } from "./kernel/service-timing.js";
 
 export {
@@ -242,7 +229,6 @@ export type {
 } from "./kernel/database/tx-context.js";
 export {
   createTxContext,
-  reuseOrCreateTxContext,
   withTransaction,
   isWriteContextTransactional,
   resolveWriteContextHookContext,
@@ -260,7 +246,6 @@ export type {
 export {
   getSchema,
   buildSchema,
-  getTableNames,
   getSchemaFiles,
   pushSchema,
 } from "./kernel/database/migrate.js";
@@ -283,28 +268,11 @@ export type {
   Step,
 } from "./kernel/compensation/types.js";
 
-export { createRepository } from "./kernel/factory/repository-factory.js";
-export type {
-  BaseRepository,
-  SoftDeletableRepository,
-  RepositoryFor,
-  Filters,
-  FindOptions,
-} from "./kernel/factory/repository-factory.js";
 
 export type { CartItemMatcher } from "./modules/cart/matcher.js";
 export { defaultCartItemMatcher } from "./modules/cart/matcher.js";
-export { canAccessCart } from "./modules/cart/access.js";
 
-export { QueryRegistry } from "./kernel/query/registry.js";
-export { executeQuery } from "./kernel/query/executor.js";
-export type {
-  RelationDefinition,
-  EntityDefinition,
-} from "./kernel/query/registry.js";
-export type { QueryInput, QueryResult } from "./kernel/query/executor.js";
 
-export type { CommerceModuleTypes } from "./types/commerce-types.js";
 
 export { staleOrderCleanupTask } from "./modules/orders/stale-order-cleanup.js";
 export {

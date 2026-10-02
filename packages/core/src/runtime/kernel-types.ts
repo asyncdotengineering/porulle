@@ -27,11 +27,6 @@ import { OrganizationService } from "../modules/organization/service.js";
 import { createConsoleLogger } from "../utils/logger.js";
 import { CompensationFailuresRepository } from "../kernel/compensation/repository.js";
 
-export interface WebhookDeliveryPayload {
-  endpoint: { id: string; url: string; secret: string };
-  eventName: string;
-  payload: unknown;
-}
 
 export interface Kernel {
   config: CommerceConfig;
@@ -46,9 +41,7 @@ export interface Kernel {
     payments: PaymentsService;
     fulfillment: FulfillmentService;
     customers: CustomerService;
-    webhooks: WebhookService & {
-      enqueueDelivery(payload: WebhookDeliveryPayload): Promise<void>;
-    };
+    webhooks: WebhookService;
     analytics: AnalyticsService;
     pricing: PricingService;
     promotions: PromotionService;
