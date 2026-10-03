@@ -72,9 +72,9 @@ await fetch(`${PORULLE}/api/channels/stores`, {
 
 Credentials are stored org-scoped and **redacted on every read**. Connecting the same shop again refreshes its one row rather than adding a second. Connecting:
 
-1. Writes the store row and calls your `bindConnectedStore({ db, store, actor })` **in the same transaction** — bind the store to your owner model there, or throw to refuse the connection (nothing is written).
+1. Writes the store row and calls your `bindConnectedStore({ db, store, actor })` **in the same transaction** — bind the store to your owner model there, or throw to refuse the connection (nothing is written). `actor.claims` is what your `connectClaims(context)` resolved from the request that STARTED the connection (say, which of the user's vendors it is for); it travels in the signed OAuth state, because the callback has no session or headers of its own.
 2. For a provider that subscribes per store (WooCommerce), **registers webhooks** at an absolute address on `publicUrl`. Shopify's subscriptions are app-level instead — see *Two-way sync*.
-3. Calls your `afterStoreConnected({ store, actor, connector })` — the place to start the first import.
+3. Calls your `afterStoreConnected({ store, actor, connector, services })` — the place to start the first import.
 
 Every connector call that takes a store runs on **live credentials**: a connector with `liveCredentials` (Shopify) refreshes an expiring token before the call, and the new token is persisted with a compare-and-swap so concurrent workers never overwrite a newer refresh token. A grant the provider refuses marks the store `error` — reconnect.
 

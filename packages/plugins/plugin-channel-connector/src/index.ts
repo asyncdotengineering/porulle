@@ -238,6 +238,7 @@ export type {
   ChannelComplianceData,
   ChannelConnectorPluginOptions,
   ConfineStores,
+  ConnectClaims,
   OnStoreCatalogChanged,
   StoreConnectActor,
   StoreReadContext,
@@ -531,6 +532,8 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           // here, carried in the signed state. A caller with no user (an API key) cannot start one.
           const userId = actor?.userId;
           if (!userId) return oauthError(403, "USER_REQUIRED", "Connecting a store needs a signed-in user.");
+          const claims = await service.connectClaims({ orgId, actor, raw });
+          if (!claims.ok) return connectOutcome(oauth.postConnectRedirect, { error: claims.code ?? "CONNECT_REFUSED", message: claims.error });
           const typed = String((query as { shop?: string; store?: string }).shop ?? (query as { store?: string }).store ?? "");
           const storeDomain = connector.normalizeStoreDomain ? connector.normalizeStoreDomain(typed) : typed;
           if (!storeDomain) return connectOutcome(oauth.postConnectRedirect, { error: "INVALID_STORE_DOMAIN", message: `"${typed}" does not name a ${provider} store.` });
@@ -538,6 +541,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
             provider,
             orgId,
             userId,
+            claims: claims.value,
             shopDomain: storeDomain,
             exp: Math.floor(Date.now() / 1000) + 600,
             jti: crypto.randomUUID(),
@@ -583,7 +587,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           provider,
           storeDomain: verified.value.shopDomain,
           credentials: completed.value.credentials,
-        }, { orgId: verified.value.orgId, userId: verified.value.userId });
+        }, { orgId: verified.value.orgId, userId: verified.value.userId, claims: verified.value.claims });
         if (!connected.ok) return refused(connected.code ?? "STORE_CONNECTION_FAILED", connected.error);
         return connectOutcome(oauth.postConnectRedirect, { connected: connected.value.id });
       };
@@ -665,6 +669,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           webhookSecret: z.string().min(1).optional(),
         }))
         .handler(async ({ input, orgId, actor, raw }: ChannelRouteContext) => {
+          const claims = unwrap(await service.connectClaims({ orgId, actor, raw }));
           return unwrap(await service.connectStore(
             orgId,
             input as {
@@ -673,7 +678,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
               storeDomain: string;
               webhookSecret?: string;
             },
-            { orgId, userId: actor?.userId ?? null, raw },
+            { orgId, userId: actor?.userId ?? null, claims, raw },
           ));
         });
 

@@ -5,6 +5,8 @@ export interface OAuthStatePayload {
   orgId: string;
   /** The signed-in user who started the connection: the callback arrives with no session of its own. */
   userId: string;
+  /** The consumer's connect claims, resolved at start. */
+  claims: Record<string, string>;
   shopDomain: string;
   exp: number;
   jti: string;
@@ -86,6 +88,10 @@ export function verifyState(
     !Number.isInteger(exp)
   ) return { ok: false, error: "Malformed OAuth state payload." };
   if (exp <= now) return { ok: false, error: "OAuth state has expired." };
+  const claims: unknown = (candidate as { claims?: unknown }).claims;
+  if (typeof claims !== "object" || claims === null || Object.values(claims).some((value) => typeof value !== "string")) {
+    return { ok: false, error: "Malformed OAuth state payload." };
+  }
 
   return { ok: true, value: candidate as OAuthStatePayload };
 }
