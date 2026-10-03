@@ -1,5 +1,12 @@
 # @porulle/adapter-postgres
 
+## 0.68.0
+
+### Patch Changes
+
+- Updated dependencies [[`abb4c23`](https://github.com/asyncdotengineering/porulle/commit/abb4c23d151df9fe6f050ce91292b1829deeacc0)]:
+  - @porulle/core@0.68.0
+
 ## 0.67.0
 
 ### Patch Changes
