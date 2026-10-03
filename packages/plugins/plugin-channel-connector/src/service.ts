@@ -254,9 +254,21 @@ export type ConfineStores = (context: StoreReadContext) => Promise<readonly stri
 export interface StoreConnectActor {
   orgId: string;
   userId: string | null;
+  /**
+   * What the consumer's {@link ConnectClaims} resolved when the connection started — e.g. which of
+   * the user's vendors the store is for. Carried in the signed OAuth state, so the callback, which has
+   * no session or headers of its own, binds the store to exactly what was chosen at the start.
+   */
+  claims: Readonly<Record<string, string>>;
   /** Core's request escape hatch when the connect is a request; absent on the OAuth callback. */
   raw?: unknown;
 }
+
+/**
+ * Resolves, from the request that STARTS a connection, the facts the consumer needs to bind the store
+ * later. Throw to refuse the start. Runs for OAuth start and for `POST /stores`.
+ */
+export type ConnectClaims = (context: StoreReadContext) => Promise<Record<string, string>> | Record<string, string>;
 
 /**
  * Binds a just-connected store to whatever the consumer means by an owner, INSIDE the transaction
@@ -266,7 +278,7 @@ export interface StoreConnectActor {
 export type BindConnectedStore = (input: { db: PluginDb; store: ConnectedStore; actor: StoreConnectActor }) => Promise<void>;
 
 /** Work that follows a committed connection: the first import, provider-attested facts, keys. */
-export type AfterStoreConnected = (input: { store: ConnectedStore; actor: StoreConnectActor; connector: ChannelConnector }) => Promise<void>;
+export type AfterStoreConnected = (input: { store: ConnectedStore; actor: StoreConnectActor; connector: ChannelConnector; services: Record<string, unknown> }) => Promise<void>;
 
 /** Entities a provider webhook just created or changed, converged; the host projects them. */
 export type OnStoreCatalogChanged = (input: { orgId: string; storeId: string; entityIds: string[]; convergence: CatalogPageConvergence }) => Promise<void>;
@@ -288,6 +300,8 @@ export interface ChannelConnectorPluginOptions {
    * unaffected.
    */
   confineStores?: ConfineStores;
+  /** See {@link ConnectClaims}. Absent, a connection carries no claims. */
+  connectClaims?: ConnectClaims;
   /** See {@link BindConnectedStore}. */
   bindConnectedStore?: BindConnectedStore;
   /** See {@link AfterStoreConnected}. */
@@ -3165,7 +3179,7 @@ export class ChannelConnectorService {
     }
     if (this.options.afterStoreConnected) {
       try {
-        await this.options.afterStoreConnected({ store, actor, connector });
+        await this.options.afterStoreConnected({ store, actor, connector, services: this.services });
       } catch (error) {
         return PluginErr(error instanceof Error ? error.message : "The store connected but its follow-on work failed.", "AFTER_CONNECT_FAILED");
       }
@@ -3181,6 +3195,16 @@ export class ChannelConnectorService {
     if (!connector) return PluginErr(`No connector registered for provider "${store.provider}".`, "NOT_FOUND");
     const live = await resolveLiveCredentials(connector, this.db, store as ChannelStore);
     return live.ok ? Ok(live.value) : PluginErr(live.error.message, live.error.code);
+  }
+
+  /** The consumer's claims for a connection starting from this request. See {@link ConnectClaims}. */
+  async connectClaims(context: StoreReadContext): Promise<PluginResult<Record<string, string>>> {
+    if (!this.options.connectClaims) return Ok({});
+    try {
+      return Ok(await this.options.connectClaims(context));
+    } catch (error) {
+      return PluginErr(error instanceof Error ? error.message : "The connection could not be started.", error instanceof CommerceNotFoundError ? "NOT_FOUND" : "CONNECT_REFUSED");
+    }
   }
 
   /** The caller's allow-list, or null for unconfined. See {@link ConfineStores}. */
