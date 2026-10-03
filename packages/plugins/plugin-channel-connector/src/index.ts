@@ -47,7 +47,7 @@ type ChannelRouteContext = {
   actor: { userId: string | null } | null;
   /**
    * Core's documented request escape hatch, already present on `RouteHandlerContext` and simply
-   * never declared here. Read by `confineStoreReads` so a consumer can resolve the caller from the
+   * never declared here. Read by `confineStores` so a consumer can resolve the caller from the
    * request — core's `actor.vendorId` cannot serve that purpose: core sources it from a column on
    * `user` that this deployment never writes, and sets it to `null` outright for API-key actors.
    */
@@ -55,7 +55,8 @@ type ChannelRouteContext = {
 };
 
 export { ABSENT_ARCHIVE_FLOOR, ABSENT_ARCHIVE_FRACTION, planAbsentArchives } from "./deletion-policy.js";
-export { channelSyncHash, withDistinctVariantSkus } from "./service.js";
+export { channelOrderAddressSchema, channelSyncHash, withDistinctVariantSkus } from "./service.js";
+export { resolveLiveCredentials, withLiveCredentials } from "./live-credentials.js";
 export type { AbsentArchivePlan } from "./deletion-policy.js";
 export { mockChannelConnector } from "./mock-connector.js";
 export type { MockChannelConnectorOptions } from "./mock-connector.js";
@@ -232,8 +233,14 @@ export type {
   CatalogPushSkipReason,
   CatalogConflictState,
   CatalogWriteSettings,
+  AfterStoreConnected,
+  BindConnectedStore,
   ChannelComplianceData,
   ChannelConnectorPluginOptions,
+  ConfineStores,
+  OnStoreCatalogChanged,
+  StoreConnectActor,
+  StoreReadContext,
   ChannelStockLine,
   ExportState,
   PublicConnectedStore,
@@ -276,6 +283,18 @@ function oauthError(status: number, code: string, message: string): Response {
 
 function oauthRedirect(location: string): Response {
   return new Response(null, { status: 302, headers: { location } });
+}
+
+/** The merchant's browser lands on `postConnectRedirect` with the outcome in the query string. */
+function connectOutcome(postConnectRedirect: string, outcome: { connected: string } | { error: string; message: string }): Response {
+  const url = new URL(postConnectRedirect);
+  if ("connected" in outcome) {
+    url.searchParams.set("connected", outcome.connected);
+  } else {
+    url.searchParams.set("connect_error", outcome.error);
+    url.searchParams.set("connect_message", outcome.message);
+  }
+  return oauthRedirect(url.toString());
 }
 
 function callbackUri(raw: unknown, redirect: string, provider: string): string {
@@ -434,6 +453,23 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
       },
     },
     {
+      // One provider webhook delivery, applied off the request: Shopify gives a delivery five seconds,
+      // and a product re-read plus convergence is not bounded by that. Serialized per store, so two
+      // deliveries for one store apply in the order they were accepted.
+      slug: "channel/apply-webhook",
+      concurrency: { key: (input: Record<string, unknown>) => `webhook:${String(input.storeId)}` },
+      handler: async ({ input, ctx }: { input: Record<string, unknown>; ctx: import("@porulle/core").TaskContext }) => {
+        const service = new ChannelConnectorService(ctx.db, ctx.services, options);
+        const result = await service.handleWebhook(String(input.orgId), String(input.storeId), {
+          id: String(input.id),
+          type: String(input.topic),
+          data: input.data,
+        });
+        if (!result.ok) throw new Error(result.error);
+        return { output: { processed: true } };
+      },
+    },
+    {
       slug: "channel/reap-exports",
       handler: async ({ input, ctx }: { input: Record<string, unknown>; ctx: import("@porulle/core").TaskContext }) => {
         const service = new ChannelConnectorService(ctx.db, ctx.services, options);
@@ -450,7 +486,8 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
     version: "1.0.0",
     permissions: [
       { scope: "channels:read", description: "Read connected stores and channel export status." },
-      { scope: "channels:manage", description: "Connect stores and retry channel order exports." },
+      { scope: "channels:manage", description: "Operate every store in the organization: backfills, pushes, conflicts, exports." },
+      { scope: "channels:connect", description: "Connect, reconnect and disconnect the caller's own stores." },
     ],
     schema: () => ({
       connectedStores,
@@ -480,23 +517,29 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
 
       channels.get("/oauth/{provider}/start")
         .summary("Start channel OAuth onboarding")
-        .permission("channels:manage")
+        .permission("channels:connect")
         .params(z.object({ provider: z.string().min(1) }))
         .query(z.object({ shop: z.string().min(1).optional(), store: z.string().min(1).optional() }))
-        .handler(async ({ params, query, orgId, raw }) => {
+        .handler(async ({ params, query, orgId, actor, raw }) => {
           const oauth = options.oauth;
           if (!oauth?.stateSecret || !oauth.postConnectRedirect) return oauthError(501, "OAUTH_NOT_CONFIGURED", "Channel OAuth is not configured.");
           const provider = params.provider!;
           const connector = service.getConnector(provider);
           if (!connector) return oauthError(404, "CONNECTOR_NOT_FOUND", `No connector registered for provider "${provider}".`);
           if (!connector.buildAuthUrl) return oauthError(501, "OAUTH_UNSUPPORTED", `Connector "${provider}" does not support OAuth onboarding.`);
-          const storeDomain = String((query as { shop?: string; store?: string }).shop ?? (query as { store?: string }).store ?? "");
-          if (!storeDomain) return oauthError(400, "STORE_DOMAIN_REQUIRED", "The shop or store query parameter is required.");
+          // The callback arrives with no session of its own; the store is bound to the user who started
+          // here, carried in the signed state. A caller with no user (an API key) cannot start one.
+          const userId = actor?.userId;
+          if (!userId) return oauthError(403, "USER_REQUIRED", "Connecting a store needs a signed-in user.");
+          const typed = String((query as { shop?: string; store?: string }).shop ?? (query as { store?: string }).store ?? "");
+          const storeDomain = connector.normalizeStoreDomain ? connector.normalizeStoreDomain(typed) : typed;
+          if (!storeDomain) return connectOutcome(oauth.postConnectRedirect, { error: "INVALID_STORE_DOMAIN", message: `"${typed}" does not name a ${provider} store.` });
           const state = signState({
             provider,
             orgId,
+            userId,
             shopDomain: storeDomain,
-            exp: Math.floor(Date.now() / 1000) + 300,
+            exp: Math.floor(Date.now() / 1000) + 600,
             jti: crypto.randomUUID(),
           }, oauth.stateSecret);
           const redirect = callbackUri(raw, oauth.postConnectRedirect, provider);
@@ -507,7 +550,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
             callbackUri: redirect,
             scopes: [],
           });
-          if (!authUrl.ok) return oauthError(422, authUrl.error.code, authUrl.error.message);
+          if (!authUrl.ok) return connectOutcome(oauth.postConnectRedirect, { error: authUrl.error.code, message: authUrl.error.message });
           return oauthRedirect(authUrl.value);
         });
 
@@ -521,27 +564,28 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
         const request = (raw as { req: { raw: Request } }).req.raw;
         const requestUrl = new URL(request.url);
         const state = requestUrl.searchParams.get("state");
-        if (!state) return oauthError(403, "INVALID_OAUTH_STATE", "OAuth state is missing.");
+        const refused = (error: string, message: string): Response => connectOutcome(oauth.postConnectRedirect, { error, message });
+        if (!state) return refused("INVALID_OAUTH_STATE", "The connection was not started here, or its link was altered.");
         const landing = provider === "woocommerce" && request.method === "GET" && requestUrl.searchParams.get("return") === "1";
-        const verified = verifyState(state, oauth.stateSecret, Math.floor(Date.now() / 1000), !landing);
-        if (!verified.ok || verified.value.provider !== provider) return oauthError(403, "INVALID_OAUTH_STATE", "OAuth state is invalid or expired.");
+        const verified = verifyState(state, oauth.stateSecret, Math.floor(Date.now() / 1000));
+        if (!verified.ok || verified.value.provider !== provider) return refused("INVALID_OAUTH_STATE", "The connection link expired; start again.");
         if (landing) return oauthRedirect(oauth.postConnectRedirect);
         const [consumed] = await db.insert(processedWebhookEvents).values({
           eventId: oauthStateEventId(verified.value.jti),
           provider: `oauth:${provider}`,
           eventType: "oauth_state",
         }).onConflictDoNothing().returning({ id: processedWebhookEvents.id });
-        if (!consumed) return oauthError(403, "OAUTH_STATE_REPLAYED", "OAuth state has already been used.");
+        if (!consumed) return refused("OAUTH_STATE_REPLAYED", "This connection link was already used; start again.");
         const completed = await connector.completeAuth(request, { storeDomain: verified.value.shopDomain });
-        if (!completed.ok) return oauthError(400, completed.error.code, completed.error.message);
-        if (completed.value.storeDomain !== verified.value.shopDomain) return oauthError(400, "OAUTH_STORE_MISMATCH", "OAuth callback store does not match the signed state.");
+        if (!completed.ok) return refused(completed.error.code, completed.error.message);
+        if (completed.value.storeDomain !== verified.value.shopDomain) return refused("OAUTH_STORE_MISMATCH", "The store that answered is not the one the connection was started for.");
         const connected = await service.connectStore(verified.value.orgId, {
           provider,
           storeDomain: verified.value.shopDomain,
           credentials: completed.value.credentials,
-        });
-        if (!connected.ok) return oauthError(422, connected.code ?? "STORE_CONNECTION_FAILED", connected.error);
-        return oauthRedirect(oauth.postConnectRedirect);
+        }, { orgId: verified.value.orgId, userId: verified.value.userId });
+        if (!connected.ok) return refused(connected.code ?? "STORE_CONNECTION_FAILED", connected.error);
+        return connectOutcome(oauth.postConnectRedirect, { connected: connected.value.id });
       };
 
       channels.get("/oauth/{provider}/callback")
@@ -562,7 +606,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           const [store] = await db.select().from(connectedStores).where(eq(connectedStores.id, storeId));
           if (!store || !store.webhookSecret) return context.json({ error: { code: "UNAUTHORIZED", message: "Webhook store is not available." } }, 401);
           const connector = service.getConnector(store.provider);
-          if (!connector) return context.json({ error: { code: "UNAUTHORIZED", message: "Webhook provider is not configured." } }, 401);
+          if (!connector?.verifyWebhook) return context.json({ error: { code: "UNAUTHORIZED", message: "Webhook provider is not configured for per-store deliveries." } }, 401);
           const verified = await connector.verifyWebhook(store, context.req.raw);
           if (!verified.ok) return context.json({ error: { code: "UNAUTHORIZED", message: "Invalid webhook signature." } }, 401);
           const [inserted] = await db.insert(processedWebhookEvents).values({ eventId: verified.value.id, provider: store.provider, eventType: verified.value.type }).onConflictDoNothing().returning({ id: processedWebhookEvents.id });
@@ -576,41 +620,39 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           } });
         });
 
-      channels.post("/compliance/{provider}")
-        .summary("Receive a compliance webhook")
+      // Every delivery for a provider that signs per APP — Shopify's catalogue, stock, order, uninstall
+      // and mandatory compliance topics alike — arrives here, at the one address its app configuration
+      // declares. Verified, deduplicated on the provider's delivery id, and handed to a job per store:
+      // the answer must be quick, and the work is not.
+      channels.post("/app-webhooks/{provider}")
+        .summary("Receive a provider's app-level webhook")
         .params(z.object({ provider: z.string().min(1) }))
         .handler(async ({ params, raw }) => {
-          const context = raw as { req: { raw: Request; header(name: string): string | undefined }; json(data: unknown, status?: number): Response };
+          const context = raw as { req: { raw: Request }; json(data: unknown, status?: number): Response };
           const provider = params.provider!;
           const connector = service.getConnector(provider);
-          if (!connector) return context.json({ error: { code: "NOT_FOUND", message: `No connector registered for provider "${provider}".` } }, 404);
-          if (!connector.verifyAppWebhook) return context.json({ error: { code: "NOT_IMPLEMENTED", message: `Compliance webhook is not supported for provider "${provider}".` } }, 501);
+          if (!connector?.verifyAppWebhook) return context.json({ error: { code: "NOT_FOUND", message: `No app-level webhooks for provider "${provider}".` } }, 404);
           const verified = await connector.verifyAppWebhook(context.req.raw);
           if (!verified.ok) return context.json({ error: { code: "UNAUTHORIZED", message: verified.error.message } }, 401);
-          const request = context.req.raw;
-          const eventId = request.headers.get("x-shopify-event-id") ?? createHash("sha256").update(`${verified.value.topic}:${verified.value.shopDomain}:${JSON.stringify(verified.value.data)}`).digest("hex");
-          const [inserted] = await db.insert(processedWebhookEvents).values({ eventId, provider, eventType: verified.value.topic }).onConflictDoNothing().returning({ id: processedWebhookEvents.id });
-          if (!inserted) return context.json({ data: { received: true, duplicate: true } });
-          const stores = await service.getStoresByDomain(verified.value.shopDomain);
-          if (stores.length === 0) return context.json({ data: { received: true } });
-          let redacted = 0;
-          let redactedSeen = false;
-          let complianceData: ChannelComplianceData | undefined;
-          for (const store of stores) {
-            const handled = await service.handleWebhook(store.organizationId, store.id, { id: eventId, type: verified.value.topic, data: verified.value.data });
-            if (!handled.ok) return context.json({ error: { code: "WEBHOOK_PROCESSING_FAILED", message: handled.error } }, 422);
-            if (handled.value.redacted !== undefined) { redacted += handled.value.redacted; redactedSeen = true; }
-            if (handled.value.data) {
-              complianceData = complianceData
-                ? { customer: complianceData.customer, exports: [...complianceData.exports, ...handled.value.data.exports] }
-                : handled.value.data;
+          const event = verified.value;
+          const [marked] = await db.insert(processedWebhookEvents).values({ eventId: event.id, provider, eventType: event.topic }).onConflictDoNothing().returning({ id: processedWebhookEvents.id });
+          if (!marked) return context.json({ data: { received: true, duplicate: true } });
+          const stores = (await service.getStoresByDomain(event.shopDomain)).filter((store) => store.provider === provider);
+          const jobs = ctx.services.jobs as JobsAdapter;
+          try {
+            for (const store of stores) {
+              await jobs.enqueue("channel/apply-webhook", { orgId: store.organizationId, storeId: store.id, id: event.id, topic: event.topic, data: event.data }, {
+                organizationId: store.organizationId,
+                concurrencyKey: `webhook:${store.id}`,
+                supersedes: false,
+              });
             }
+          } catch (error) {
+            // Not accepted: forget the delivery so the provider's retry is applied, not dropped as a duplicate.
+            await db.delete(processedWebhookEvents).where(eq(processedWebhookEvents.id, marked.id));
+            return context.json({ error: { code: "WEBHOOK_NOT_ACCEPTED", message: error instanceof Error ? error.message : "The delivery could not be queued." } }, 503);
           }
-          return context.json({ data: {
-            received: true,
-            ...(complianceData ? { data: complianceData } : {}),
-            ...(redactedSeen ? { redacted } : {}),
-          } });
+          return context.json({ data: { received: true, stores: stores.length } });
         });
 
       channels.post("/stores")
@@ -622,7 +664,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           storeDomain: z.string().min(1),
           webhookSecret: z.string().min(1).optional(),
         }))
-        .handler(async ({ input, orgId }: ChannelRouteContext) => {
+        .handler(async ({ input, orgId, actor, raw }: ChannelRouteContext) => {
           return unwrap(await service.connectStore(
             orgId,
             input as {
@@ -631,6 +673,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
               storeDomain: string;
               webhookSecret?: string;
             },
+            { orgId, userId: actor?.userId ?? null, raw },
           ));
         });
 
@@ -643,7 +686,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
       channels.get("/stores/{id}")
         .summary("Get a connected channel store")
         .permission("channels:read")
-        .handler(async ({ params, orgId }: ChannelRouteContext) => unwrap(await service.getStore(orgId, params.id!)));
+        .handler(async ({ params, orgId, actor, raw }: ChannelRouteContext) => unwrap(await service.getStore(orgId, params.id!, { orgId, actor, raw })));
 
       channels.get("/stores/{storeId}/catalog-write")
         .summary("Get catalog write settings for a channel store")
@@ -667,7 +710,10 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
       channels.get("/stores/{storeId}/reconcile-status")
         .summary("Get channel reconciliation status")
         .permission("channels:read")
-        .handler(async ({ params, orgId }: ChannelRouteContext) => unwrap(await service.getReconcileStatus(orgId, params.storeId!)));
+        .handler(async ({ params, orgId, actor, raw }: ChannelRouteContext) => {
+          unwrap(await service.reachableStore(orgId, params.storeId!, { orgId, actor, raw }));
+          return unwrap(await service.getReconcileStatus(orgId, params.storeId!));
+        });
 
       channels.get("/conflicts")
         .summary("List channel catalog conflicts")
@@ -745,8 +791,8 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
 
       channels.post("/stores/{id}/disconnect")
         .summary("Disconnect a channel store")
-        .permission("channels:manage")
-        .handler(async ({ params, orgId }: ChannelRouteContext) => unwrap(await service.disconnectStore(orgId, params.id!)));
+        .permission("channels:connect")
+        .handler(async ({ params, orgId, actor, raw }: ChannelRouteContext) => unwrap(await service.disconnectStore(orgId, params.id!, { orgId, actor, raw })));
 
       channels.get("/exports/failed")
         .summary("List failed channel order exports")

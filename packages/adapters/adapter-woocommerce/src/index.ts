@@ -838,8 +838,20 @@ export function wooConnector(options: WooConnectorOptions = {}): ChannelConnecto
       if (!auth) return Err({ code: "WOO_CREDENTIALS_REQUIRED", message: "WooCommerce consumerKey and consumerSecret are required.", retriable: false });
       const url = buildWooUrl(store.storeDomain, "/wp-json/wc/v3/orders", auth.key, auth.secret, 1);
       const [firstName, ...lastParts] = slice.customer.name.trim().split(/\s+/);
-      const address = slice.customer.shippingAddress;
-      const billing = { first_name: firstName ?? "", last_name: lastParts.join(" "), email: slice.customer.email, ...address };
+      const source = slice.customer.shippingAddress;
+      // WooCommerce's order address spelling (REST v3 `shipping`/`billing`).
+      const address = {
+        first_name: source.firstName,
+        last_name: source.lastName,
+        address_1: source.line1,
+        ...(source.line2 ? { address_2: source.line2 } : {}),
+        city: source.city,
+        ...(source.region ? { state: source.region } : {}),
+        ...(source.postalCode ? { postcode: source.postalCode } : {}),
+        country: source.countryCode,
+        ...(source.phone ? { phone: source.phone } : {}),
+      };
+      const billing = { ...address, first_name: firstName ?? source.firstName, last_name: lastParts.join(" ") || source.lastName, email: slice.customer.email };
       const result = await request<{ id: number | string }>(fetchImpl, url, {
         method: "POST",
         headers: { "content-type": "application/json", "idempotency-key": `porulle:${slice.orderId}` },

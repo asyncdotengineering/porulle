@@ -78,13 +78,25 @@ Return `ChannelPushOrderResult` — `{ remoteOrderId, remoteUrl? }`. On failure,
 
 Return `ChannelOrderStatus` — `{ status: "pending" | "confirmed" | "failed" | "cancelled" | "fulfilled" }`. Map the platform's order state onto this union. The engine uses `confirmed` to advance the export, `failed`/`cancelled` to mark it failed.
 
-### `verifyWebhook(store, request)`
+### `verifyWebhook?(store, request)` (optional)
 
-Verify the signature on an inbound per-store webhook and return `ChannelWebhookEvent` — `{ id, type, data }`. Compute the HMAC over the **raw request body** (`await request.text()`, never a re-serialized object) and compare with `crypto.timingSafeEqual` against the platform header. **The signing key is platform-specific:** Shopify signs every webhook for an app with the **app client secret** (there is no per-store secret — verify against the connector's configured `clientSecret`, `x-shopify-hmac-sha256`); WooCommerce uses the **per-webhook secret** set at registration (`store.webhookSecret`, `x-wc-webhook-signature`). Both are base64 HMAC-SHA256; timing-safe comparison is required. The engine's `processed_webhook_events` table prevents replay on the inbound side; your adapter prevents forgery.
+For a provider that signs per STORE. Verify the signature on an inbound per-store webhook and return `ChannelWebhookEvent` — `{ id, type, data }`. Compute the HMAC over the **raw request body** (`await request.text()`, never a re-serialized object) and compare with `crypto.timingSafeEqual` against the platform header. WooCommerce uses the **per-webhook secret** set at registration (`store.webhookSecret`, `x-wc-webhook-signature`), base64 HMAC-SHA256 with a timing-safe comparison. Shopify signs per app and implements `verifyAppWebhook` instead. The engine's `processed_webhook_events` table prevents replay on the inbound side; your adapter prevents forgery.
 
 ### `verifyAppWebhook?(request)` (optional)
 
-Verify an **app-level** compliance webhook (e.g. Shopify's mandatory GDPR webhooks) and return `{ topic, shopDomain, data }`. These webhooks are delivered to a single app URL, signed with the **app client secret** (not a per-store `webhookSecret`), and identify the target store by `shop_domain` in the payload. The engine exposes `POST /api/channels/compliance/{provider}` as the unauthenticated ingress. Return `Err({ code, message, retriable: false })` on invalid HMAC so the engine can reply with `401` (Shopify requires this). Shopify adapters implement this; WooCommerce has no app-store equivalent and omits it.
+For a provider that signs per APP and delivers every topic for every shop to one address (Shopify: catalogue, stock, orders, `app/uninstalled` and the mandatory compliance topics). Return `{ id, topic, shopDomain, data }`, where `id` is unique per delivery and stable across the provider's retries (Shopify's `X-Shopify-Webhook-Id` — not `X-Shopify-Event-Id`, which every delivery of one merchant action shares). The engine exposes `POST /api/channels/app-webhooks/{provider}`, deduplicates on `id`, and queues `channel/apply-webhook` per store. Return `Err({ code, message, retriable: false })` on an invalid HMAC so the engine replies `401`.
+
+### `fetchCatalogItems?(store, externalIds)` (optional)
+
+The current state of the named products. A webhook is a notification, not a snapshot — its payload is the provider's wire spelling and can arrive out of order — so the engine applies a product change from this read, converging it like an import page. An id the provider no longer has is simply absent (the engine archives it).
+
+### `liveCredentials?(store)` (optional)
+
+For a provider whose grants expire. Return `null` when the stored credentials are good for the next call, or new ones after refreshing. The engine calls it before every store-taking method and persists the answer with a compare-and-swap; a non-retriable refusal marks the store `error`.
+
+### `fetchStoreProfile?(store)` / `normalizeStoreDomain?(input)` (optional)
+
+The store's `{ name, currency, storefrontHosts }` as the provider attests to them, and the canonical spelling of what a merchant typed to name their store.
 
 ### `refundExecute(store, slice, amount)`
 
@@ -92,7 +104,7 @@ Optional outbound leg for cross-boundary refunds — reflect a refund into the m
 
 ### `registerWebhooks?(store, topics, callbackUrl)` (optional)
 
-Subscribe the store's webhooks on connect. The engine calls this from the connect flow with the topics it needs and the callback URL (`/api/channels/webhooks/{storeId}`). Implement it via the platform's webhook API (Shopify `POST /admin/api/{v}/webhooks.json`, WooCommerce `POST /wp-json/wc/v3/webhooks`).
+For a provider whose subscriptions are per store (WooCommerce `POST /wp-json/wc/v3/webhooks`). The engine calls it after connect with an ABSOLUTE callback URL on the plugin's `publicUrl` (`{publicUrl}/api/channels/webhooks/{storeId}`), and refuses to connect such a provider when `publicUrl` is not configured. Shopify's subscriptions are app-level, declared in `shopify.app.toml`, and the Shopify connector does not implement this.
 
 ### `reserve?(store, lines)` (optional)
 
@@ -104,7 +116,7 @@ Drop the connector into the plugin's `connectors` array — no core changes:
 
 ```ts title="commerce.config.ts"
 channelConnectorPlugin({
-  connectors: [shopifyConnector(), wooConnector(), bigcommerceConnector()],
+  connectors: [shopifyConnector({ clientId, clientSecret }), wooConnector(), bigcommerceConnector()],
 });
 ```
 
@@ -132,17 +144,17 @@ completeAuth(
 }, ChannelConnectorError>>;
 ```
 
-The engine exposes generic `GET /api/channels/oauth/{provider}/start` and `/callback` routes. The start route requires `channels:manage`, signs a five-minute state containing the organization and store domain, and redirects to the provider. The unauthenticated callback verifies the signature and single-use state, calls `completeAuth`, then reuses `connectStore` to persist credentials, register webhooks, and enqueue catalog import. OAuth credentials have the same downstream shape as paste credentials, such as `{ accessToken }` or `{ consumerKey, consumerSecret }`.
+The engine exposes generic `GET /api/channels/oauth/{provider}/start` and `/callback` routes. The start route requires `channels:connect` and a signed-in user, signs a ten-minute state containing the organization, the user and the store domain, and redirects to the provider. The unauthenticated callback verifies the signature, records the state's single use in the database, calls `completeAuth`, then reuses `connectStore` — so the consumer's `bindConnectedStore` and `afterStoreConnected` run for the user who started the flow. OAuth credentials have the same downstream shape as paste credentials, such as `{ accessToken }` or `{ consumerKey, consumerSecret }`.
 
 Enable the routes on the engine plugin with a state secret and a fixed post-connect destination:
 
 ```ts
 channelConnectorPlugin({
   connectors: [shopifyConnector({
-    clientId: process.env.SHOPIFY_CLIENT_ID,
-    clientSecret: process.env.SHOPIFY_CLIENT_SECRET,
-    appUrl: "https://platform.example",
+    clientId: process.env.SHOPIFY_CLIENT_ID!,
+    clientSecret: process.env.SHOPIFY_CLIENT_SECRET!,
   }), wooConnector()],
+  publicUrl: "https://platform.example",
   oauth: {
     stateSecret: process.env.CHANNEL_OAUTH_SECRET!,
     postConnectRedirect: "https://platform.example/stores",

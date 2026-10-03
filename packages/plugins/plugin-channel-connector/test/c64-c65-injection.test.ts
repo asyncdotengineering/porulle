@@ -334,7 +334,7 @@ describe("channel connector c64/c65 order injection", () => {
         customer: {
           email: "slice@example.test",
           name: "Slice Customer",
-          shippingAddress: { address1: "Default", city: "Colombo" },
+          shippingAddress: { line1: "Default", city: "Colombo", countryCode: "LK" },
         },
       },
     });
@@ -347,7 +347,7 @@ describe("channel connector c64/c65 order injection", () => {
         guestCustomer: {
           email: "guest@example.test",
           name: "Guest Shopper",
-          shippingAddress: { city: "Galle", country: "LK" },
+          shippingAddress: { firstName: "Address", lastName: "Shopper", line1: "3 Guest Road", city: "Galle", countryCode: "LK" },
         },
       },
     });
@@ -405,20 +405,20 @@ describe("channel connector c64/c65 order injection", () => {
     };
 
     // A1: typed at checkout, different from every saved address.
-    const typed = await seedOrder({ customerId, lines: [{ entityId: product.entityId }], metadata: { shippingAddress: { address1: "9 Typed At Checkout", city: "Galle", country: "LK" } } });
-    expect(await addressOf(typed)).toMatchObject({ address1: "9 Typed At Checkout", city: "Galle" });
+    const typed = await seedOrder({ customerId, lines: [{ entityId: product.entityId }], metadata: { shippingAddress: { firstName: "Address", lastName: "Shopper", line1: "9 Typed At Checkout", city: "Galle", countryCode: "LK" } } });
+    expect(await addressOf(typed)).toMatchObject({ line1: "9 Typed At Checkout", city: "Galle" });
 
     // A2: a NON-default saved address picked at checkout, carried on the order.
-    const picked = await seedOrder({ customerId, lines: [{ entityId: product.entityId }], metadata: { shippingAddress: { address1: "2 Saved Other Lane", city: "Kandy", country: "LK" } } });
-    expect(await addressOf(picked)).toMatchObject({ address1: "2 Saved Other Lane", city: "Kandy" });
+    const picked = await seedOrder({ customerId, lines: [{ entityId: product.entityId }], metadata: { shippingAddress: { firstName: "Address", lastName: "Shopper", line1: "2 Saved Other Lane", city: "Kandy", countryCode: "LK" } } });
+    expect(await addressOf(picked)).toMatchObject({ line1: "2 Saved Other Lane", city: "Kandy" });
 
     // A3: no address on the order: the saved default is the fallback.
     const bare = await seedOrder({ customerId, lines: [{ entityId: product.entityId }] });
-    expect(await addressOf(bare)).toMatchObject({ address1: "1 Saved Default Road", city: "Colombo" });
+    expect(await addressOf(bare)).toMatchObject({ line1: "1 Saved Default Road", city: "Colombo" });
 
     // A4: guest checkout carries its address on guestCustomer.
-    const guest = await seedOrder({ lines: [{ entityId: product.entityId }], metadata: { guestCustomer: { email: "g@example.test", name: "G", shippingAddress: { address1: "7 Guest Street", city: "Matara" } } } });
-    expect(await addressOf(guest)).toMatchObject({ address1: "7 Guest Street" });
+    const guest = await seedOrder({ lines: [{ entityId: product.entityId }], metadata: { guestCustomer: { email: "g@example.test", name: "G", shippingAddress: { firstName: "Address", lastName: "Shopper", line1: "7 Guest Street", city: "Matara", countryCode: "LK" } } } });
+    expect(await addressOf(guest)).toMatchObject({ line1: "7 Guest Street" });
 
     // A5: neither: a definitive refusal, never a push without an address.
     const nothing = await seedOrder({ lines: [{ entityId: product.entityId }], metadata: { customer: { email: "n@example.test", name: "N" } } });
@@ -439,7 +439,7 @@ describe("channel connector c64/c65 order injection", () => {
       ],
       metadata: {
         customer: { email: "job@example.test", name: "Job Shopper" },
-        shippingAddress: { city: "Colombo", country: "LK" },
+        shippingAddress: { firstName: "Address", lastName: "Shopper", line1: "4 Job Road", city: "Colombo", countryCode: "LK" },
       },
     });
     const jobs = (

@@ -3,6 +3,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 export interface OAuthStatePayload {
   provider: string;
   orgId: string;
+  /** The signed-in user who started the connection: the callback arrives with no session of its own. */
+  userId: string;
   shopDomain: string;
   exp: number;
   jti: string;
@@ -11,8 +13,6 @@ export interface OAuthStatePayload {
 export type OAuthStateResult =
   | { ok: true; value: OAuthStatePayload }
   | { ok: false; error: string };
-
-const consumedJtis = new Map<string, number>();
 
 function encodeText(value: string): string {
   return Buffer.from(value, "utf8").toString("base64url");
@@ -40,11 +40,15 @@ export function signState(payload: OAuthStatePayload, secret: string): string {
   return `${encodedPayload}.${encodeBytes(signature(encodedPayload, secret))}`;
 }
 
+/**
+ * Checks the signature and expiry. Single use is NOT decided here: an in-memory record of used states
+ * would forget on every Worker isolate, so the callback records each state's `jti` in the database and
+ * refuses a second use there.
+ */
 export function verifyState(
   state: string,
   secret: string,
   now = Math.floor(Date.now() / 1000),
-  consume = true,
 ): OAuthStateResult {
   if (!secret) return { ok: false, error: "OAuth state secret is required." };
   const parts = state.split(".");
@@ -75,17 +79,13 @@ export function verifyState(
   if (
     typeof candidate.provider !== "string" ||
     typeof candidate.orgId !== "string" ||
+    typeof candidate.userId !== "string" ||
     typeof candidate.shopDomain !== "string" ||
     typeof candidate.jti !== "string" ||
     typeof exp !== "number" ||
     !Number.isInteger(exp)
   ) return { ok: false, error: "Malformed OAuth state payload." };
   if (exp <= now) return { ok: false, error: "OAuth state has expired." };
-  for (const [jti, expiresAt] of consumedJtis) {
-    if (expiresAt <= now) consumedJtis.delete(jti);
-  }
-  if (consume && consumedJtis.has(candidate.jti)) return { ok: false, error: "OAuth state has already been used." };
-  if (consume) consumedJtis.set(candidate.jti, exp);
 
   return { ok: true, value: candidate as OAuthStatePayload };
 }

@@ -10,7 +10,7 @@ import {
   uuid,
   sql,
 } from "@porulle/core/drizzle";
-import type { ChannelPushCatalogItem, FieldPath } from "@porulle/core";
+import type { ChannelOrderAddress, ChannelPushCatalogItem, FieldPath } from "@porulle/core";
 import { sellableEntities } from "@porulle/core/schema";
 import type { CatalogFieldMapping } from "./catalog-field-mapping.js";
 
@@ -144,7 +144,7 @@ export const channelOrderExports = pgTable(
     customerData: jsonb("customer_data").$type<{
       name: string;
       email: string;
-      shippingAddress: Record<string, unknown>;
+      shippingAddress: ChannelOrderAddress;
     }>(),
     state: text("state", { enum: ["pending", "exported", "confirmed", "failed", "abandoned"] })
       .notNull()

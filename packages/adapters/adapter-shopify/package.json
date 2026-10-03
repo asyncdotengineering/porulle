@@ -21,13 +21,15 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@porulle/core": "workspace:*"
+    "@porulle/core": "workspace:*",
+    "zod": "^4.1.11"
   },
   "devDependencies": {
     "@porulle/eslint-config": "workspace:*",
     "@porulle/typescript-config": "workspace:*",
     "@types/node": "^24.5.2",
     "eslint": "^9.39.1",
+    "graphql": "^16.11.0",
     "typescript": "5.9.2",
     "vitest": "^3.2.4"
   },

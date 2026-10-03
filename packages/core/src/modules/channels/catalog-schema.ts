@@ -77,6 +77,7 @@ export const channelCatalogItemSchema = z.object({
   brand: z.string().exactOptional(),
   categories: z.array(z.string()).exactOptional(),
   status: z.enum(["draft", "active", "archived", "discontinued"]).exactOptional(),
+  storefrontUrl: z.string().exactOptional(),
 });
 
 export const channelInventoryLevelSchema = z.object({

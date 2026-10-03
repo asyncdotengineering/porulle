@@ -185,7 +185,10 @@ export type {
   ChannelPushOrderResult,
   ChannelRefundResult,
   ChannelReservation,
+  ChannelAppWebhookEvent,
+  ChannelOrderAddress,
   ChannelStore,
+  ChannelStoreProfile,
   ChannelWebhookEvent,
 } from "./modules/channels/adapter.js";
 export type { StorageAdapter } from "./modules/media/adapter.js";

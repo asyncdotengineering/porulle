@@ -14,7 +14,7 @@ const slice = (orderId: string): ChannelOrderSlice => ({
   currency: "LKR",
   grandTotal: 1000,
   lines: [{ externalVariantId: "v-1", title: "Linen shirt", quantity: 1, unitPrice: 1000, totalPrice: 1000 }],
-  customer: { name: "Shopper", email: "shopper@test.local", shippingAddress: { address1: "1 Road", city: "Colombo" } },
+  customer: { name: "Shopper", email: "shopper@test.local", shippingAddress: { firstName: "Shop", lastName: "Per", line1: "1 Road", city: "Colombo", countryCode: "LK" } },
 });
 
 async function remoteIdOf(orderId: string): Promise<string> {

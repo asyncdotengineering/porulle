@@ -47,9 +47,20 @@ function oauthConnector(provider: "shopify" | "woocommerce") {
   };
 }
 
+/** The outcome query a callback lands the merchant's browser on. */
+function outcome(response: Response): URLSearchParams {
+  expect(response.status).toBe(302);
+  const location = new URL(response.headers.get("location") ?? "");
+  expect(`${location.origin}${location.pathname}`).toBe(REDIRECT);
+  return location.searchParams;
+}
+
 describe("channel connector OAuth routes", () => {
   let built: Awaited<ReturnType<typeof createPluginTestApp>>;
   let withoutOAuth: Awaited<ReturnType<typeof createPluginTestApp>>;
+  /** Every binding the host was asked for, and a switch to make it refuse. */
+  const bindings: Array<{ storeId: string; userId: string | null }> = [];
+  let refuseBinding = false;
 
   beforeAll(async () => {
     const shopify = oauthConnector("shopify");
@@ -57,10 +68,14 @@ describe("channel connector OAuth routes", () => {
     const pluginOptions = {
       connectors: [shopify, woo],
       oauth: { stateSecret: STATE_SECRET, postConnectRedirect: REDIRECT },
+      bindConnectedStore: async ({ store, actor }: { store: { id: string }; actor: { userId: string | null } }) => {
+        if (refuseBinding) throw new Error("This user is not a member of any vendor.");
+        bindings.push({ storeId: store.id, userId: actor.userId });
+      },
     };
     built = await createPluginTestApp(channelConnectorPlugin(pluginOptions));
     withoutOAuth = await createPluginTestApp(channelConnectorPlugin({ connectors: [shopify] }));
-  }, 30_000);
+  }, 120_000);
 
   it("builds Shopify start URLs and completes the callback through connectStore", async () => {
     const start = await built.app.request("http://localhost/api/channels/oauth/shopify/start?shop=acme.myshopify.com", {
@@ -74,10 +89,11 @@ describe("channel connector OAuth routes", () => {
     const state = location.searchParams.get("state")!;
 
     const callback = await built.app.request(shopifyCallbackUrl(state));
-    expect(callback.status).toBe(302);
-    expect(callback.headers.get("location")).toBe(REDIRECT);
     const stores = await built.db.select().from(connectedStores).where(eq(connectedStores.storeDomain, "acme.myshopify.com"));
     expect(stores).toHaveLength(1);
+    expect(outcome(callback).get("connected")).toBe(stores[0]?.id);
+    // Bound to the user who STARTED the connection — the callback itself carries no session.
+    expect(bindings).toContainEqual({ storeId: stores[0]?.id, userId: testAdminActor.userId });
     expect(stores[0]?.credentials).toEqual({ accessToken: "oauth-token" });
     // The OAuth connect starts no import either; the host's operator route does.
     const jobsRaw = await built.db.execute(sql`
@@ -91,18 +107,46 @@ describe("channel connector OAuth routes", () => {
     const start = await built.app.request("http://localhost/api/channels/oauth/shopify/start?shop=second.myshopify.com", {
       headers: jsonHeaders(testAdminActor),
     });
-    const state = new URL(start.headers.get("location")!).searchParams.get("state")!;
-    expect((await built.app.request(shopifyCallbackUrl(state))).status).toBe(302);
-    expect((await built.app.request(shopifyCallbackUrl(state))).status).toBe(403);
+    const state = new URL(start.headers.get("location") ?? "").searchParams.get("state") ?? "";
+    expect(outcome(await built.app.request(shopifyCallbackUrl(state))).get("connected")).toBeTruthy();
+    expect(outcome(await built.app.request(shopifyCallbackUrl(state))).get("connect_error")).toBe("OAUTH_STATE_REPLAYED");
 
     const expired = signState({
       provider: "shopify",
-      orgId: testAdminActor.organizationId!,
+      orgId: testAdminActor.organizationId ?? "",
+      userId: testAdminActor.userId ?? "",
       shopDomain: "expired.myshopify.com",
       exp: Math.floor(Date.now() / 1000) - 1,
       jti: crypto.randomUUID(),
     }, STATE_SECRET);
-    expect((await built.app.request(shopifyCallbackUrl(expired))).status).toBe(403);
+    expect(outcome(await built.app.request(shopifyCallbackUrl(expired))).get("connect_error")).toBe("INVALID_OAUTH_STATE");
+  });
+
+  it("writes no store when the host refuses to bind it, and says why", async () => {
+    refuseBinding = true;
+    try {
+      const start = await built.app.request("http://localhost/api/channels/oauth/shopify/start?shop=unbound.myshopify.com", { headers: jsonHeaders(testAdminActor) });
+      const state = new URL(start.headers.get("location") ?? "").searchParams.get("state") ?? "";
+      const url = new URL(shopifyCallbackUrl(state));
+      url.searchParams.set("shop", "unbound.myshopify.com");
+      const landed = outcome(await built.app.request(url.toString()));
+      expect(landed.get("connect_error")).toBe("STORE_CONNECTION_REFUSED");
+      expect(landed.get("connect_message")).toContain("not a member of any vendor");
+      expect(await built.db.select().from(connectedStores).where(eq(connectedStores.storeDomain, "unbound.myshopify.com"))).toHaveLength(0);
+    } finally {
+      refuseBinding = false;
+    }
+  });
+
+  it("reconnecting a shop refreshes its one row instead of adding a second", async () => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const start = await built.app.request("http://localhost/api/channels/oauth/shopify/start?shop=twice.myshopify.com", { headers: jsonHeaders(testAdminActor) });
+      const state = new URL(start.headers.get("location") ?? "").searchParams.get("state") ?? "";
+      const url = new URL(shopifyCallbackUrl(state));
+      url.searchParams.set("shop", "twice.myshopify.com");
+      expect(outcome(await built.app.request(url.toString())).get("connected")).toBeTruthy();
+    }
+    expect(await built.db.select().from(connectedStores).where(eq(connectedStores.storeDomain, "twice.myshopify.com"))).toHaveLength(1);
   });
 
   it("builds Woo URLs with dual state-bearing callbacks and completes the server POST", async () => {
@@ -122,8 +166,7 @@ describe("channel connector OAuth routes", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ consumer_key: "ck_oauth", consumer_secret: "cs_oauth" }),
     });
-    expect(callback.status).toBe(302);
-    expect(callback.headers.get("location")).toBe(REDIRECT);
+    expect(outcome(callback).get("connected")).toBeTruthy();
     const landing = await built.app.request(returnUrl.toString());
     expect(landing.status).toBe(302);
     expect(landing.headers.get("location")).toBe(REDIRECT);
@@ -140,9 +183,9 @@ describe("channel connector OAuth routes", () => {
   });
 
   it("keeps the state helper timing-safe and signs payloads for the callback", () => {
-    const state = signState({ provider: "shopify", orgId: "org-1", shopDomain: "acme.myshopify.com", exp: Math.floor(Date.now() / 1000) + 60, jti: "jti-1" }, STATE_SECRET);
+    const state = signState({ provider: "shopify", orgId: "org-1", userId: "user-1", shopDomain: "acme.myshopify.com", exp: Math.floor(Date.now() / 1000) + 60, jti: "jti-1" }, STATE_SECRET);
     expect(state.split(".")).toHaveLength(2);
     expect(verifyState(state, STATE_SECRET).ok).toBe(true);
-    expect(verifyState(state, STATE_SECRET).ok).toBe(false);
+    expect(verifyState(`${state}x`, STATE_SECRET).ok).toBe(false);
   });
 });

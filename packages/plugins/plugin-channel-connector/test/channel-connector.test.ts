@@ -37,7 +37,7 @@ function channelActor(organizationId: string): Actor {
     vendorId: null,
     organizationId,
     role: "admin",
-    permissions: ["channels:read", "channels:manage"],
+    permissions: ["channels:read", "channels:manage", "channels:connect"],
   };
 }
 
@@ -318,7 +318,7 @@ describe("plugin-channel-connector foundations", () => {
       customer: {
         name: "Priya Shopper",
         email: "priya@example.test",
-        shippingAddress: { city: "Colombo", country: "LK" },
+        shippingAddress: { firstName: "Priya", lastName: "Shopper", line1: "1 Main Street", city: "Colombo", countryCode: "LK" },
       },
     };
     const exported = await service.exportOrder(TEST_ORG_ID, store.id, slice, systemActor);
