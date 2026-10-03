@@ -659,12 +659,18 @@ importers:
       '@types/node':
         specifier: ^24.5.2
         version: 24.13.2
+      esbuild:
+        specifier: 0.25.12
+        version: 0.25.12
       eslint:
         specifier: ^9.39.1
         version: 9.39.4
       graphql:
         specifier: ^16.11.0
         version: 16.14.2
+      miniflare:
+        specifier: 4.20260722.1
+        version: 4.20260722.1
       typescript:
         specifier: 5.9.2
         version: 5.9.2

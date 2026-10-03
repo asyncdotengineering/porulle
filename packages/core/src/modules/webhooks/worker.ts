@@ -116,8 +116,10 @@ export class WebhookDeliveryWorker {
 
     const signature = signWebhookPayload(args.endpoint.secret, args.payload);
 
+    // Unbound: workerd's global `fetch` throws "Illegal invocation" when called as a method.
+    const fetchImpl = this.fetchImpl;
     try {
-      const response = await this.fetchImpl(args.endpoint.url, {
+      const response = await fetchImpl(args.endpoint.url, {
         method: "POST",
         headers: {
           "content-type": "application/json",
