@@ -1,4 +1,4 @@
-import { Err, Ok } from "@porulle/core";
+import { CHANNEL_CREDENTIALS_REJECTED, Err, Ok } from "@porulle/core";
 import type { ChannelConnectorError, Result } from "@porulle/core";
 import { z } from "zod";
 
@@ -90,7 +90,7 @@ export async function shopifyGraphql<T>(
       return Err({ code: "SHOPIFY_API_FAILED", message: error instanceof Error ? error.message : "Shopify API request failed.", retriable: true });
     }
     if (response.status === 401 || response.status === 403) {
-      return Err({ code: "SHOPIFY_UNAUTHORIZED", message: `Shopify refused the access token (${response.status}); the store must be reconnected.`, retriable: false });
+      return Err({ code: CHANNEL_CREDENTIALS_REJECTED, message: `Shopify refused the access token (${response.status}).`, retriable: false });
     }
     if (response.status !== 429 && !response.ok) {
       return Err({ code: "SHOPIFY_API_FAILED", message: `Shopify API request failed (${response.status}).`, retriable: response.status >= 500 });

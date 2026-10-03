@@ -152,10 +152,10 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
       if (!credentials.ok) return credentials;
       return Ok({ credentials: { ...credentials.value }, storeDomain: shop });
     },
-    async liveCredentials(store) {
+    async liveCredentials(store, refresh) {
       const credentials = parseShopifyCredentials(store.credentials);
       if (!credentials) return Err(credentialsRequired);
-      const refreshed = await refreshIfExpiring({ fetchImpl, origin: origin(store.storeDomain), clientId: options.clientId, clientSecret: options.clientSecret, credentials, now: Date.now() });
+      const refreshed = await refreshIfExpiring({ fetchImpl, origin: origin(store.storeDomain), clientId: options.clientId, clientSecret: options.clientSecret, credentials, now: Date.now(), ...(refresh?.force === true ? { force: true } : {}) });
       if (!refreshed.ok) return refreshed;
       return Ok(refreshed.value === null ? null : { ...refreshed.value });
     },

@@ -181,11 +181,15 @@ export async function refreshIfExpiring(params: {
   clientSecret: string;
   credentials: ShopifyCredentials;
   now: number;
+  /** Refresh even though the stated expiry is far off: Shopify just rejected the token. */
+  force?: boolean;
 }): Promise<Result<ShopifyCredentials | null, ChannelConnectorError>> {
   const { credentials } = params;
-  if (credentials.accessTokenExpiresAt === undefined) return Ok(null);
-  const expiresAt = Date.parse(credentials.accessTokenExpiresAt);
-  if (Number.isFinite(expiresAt) && expiresAt - params.now > ACCESS_TOKEN_REFRESH_MARGIN_MS) return Ok(null);
+  if (params.force !== true) {
+    if (credentials.accessTokenExpiresAt === undefined) return Ok(null);
+    const expiresAt = Date.parse(credentials.accessTokenExpiresAt);
+    if (Number.isFinite(expiresAt) && expiresAt - params.now > ACCESS_TOKEN_REFRESH_MARGIN_MS) return Ok(null);
+  }
   if (credentials.refreshToken === undefined) return oauthError("SHOPIFY_REAUTHORIZATION_REQUIRED", "The store's access token expired and no refresh token is held; the store must be reconnected.");
   const token = await postTokenEndpoint(params.fetchImpl, params.origin, {
     client_id: params.clientId,

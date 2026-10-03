@@ -266,9 +266,12 @@ export interface StoreConnectActor {
 
 /**
  * Resolves, from the request that STARTS a connection, the facts the consumer needs to bind the store
- * later. Throw to refuse the start. Runs for OAuth start and for `POST /stores`.
+ * later. Throw to refuse the start — before the merchant is sent to the provider, which matters: a
+ * provider such as Shopify retires a shop's other grants the moment a new one is issued, so a
+ * connection refused only at the callback has already broken the shop's existing one. `storeDomain` is
+ * the store being connected, canonicalised. Runs for OAuth start and for `POST /stores`.
  */
-export type ConnectClaims = (context: StoreReadContext) => Promise<Record<string, string>> | Record<string, string>;
+export type ConnectClaims = (context: StoreReadContext & { storeDomain: string }) => Promise<Record<string, string>> | Record<string, string>;
 
 /**
  * Binds a just-connected store to whatever the consumer means by an owner, INSIDE the transaction
@@ -2057,6 +2060,16 @@ export class ChannelConnectorService {
         continue;
       }
       variantIds.set(sourceVariant.externalId, variantId);
+      // The provider's per-variant facts (the inventory item a stock webhook names, the weight shipping
+      // prices by) merge into the variant per key, as entity metadata does: the source's keys overwrite
+      // their own and nothing else. The import fast path writes them at creation; without this the
+      // editor path — every reconcile — left them off, and a stock webhook could not find its variant.
+      const sourceMetadata = sourceVariant.metadata ?? {};
+      if (Object.keys(sourceMetadata).length > 0) {
+        await this.db.update(variants)
+          .set({ metadata: sql`coalesce(${variants.metadata}, '{}'::jsonb) || ${JSON.stringify(sourceMetadata)}::jsonb` })
+          .where(and(eq(variants.id, variantId), sql`not (coalesce(${variants.metadata}, '{}'::jsonb) @> ${JSON.stringify(sourceMetadata)}::jsonb)`));
+      }
       if (applyOptionValues) {
         const desiredOptionValueIds = Object.entries(sourceVariant.optionValues ?? {})
           .map(([name, value]) => optionValueIds.get(name)?.get(value))
@@ -3198,7 +3211,7 @@ export class ChannelConnectorService {
   }
 
   /** The consumer's claims for a connection starting from this request. See {@link ConnectClaims}. */
-  async connectClaims(context: StoreReadContext): Promise<PluginResult<Record<string, string>>> {
+  async connectClaims(context: StoreReadContext & { storeDomain: string }): Promise<PluginResult<Record<string, string>>> {
     if (!this.options.connectClaims) return Ok({});
     try {
       return Ok(await this.options.connectClaims(context));
@@ -4546,7 +4559,14 @@ export class ChannelConnectorService {
       }
     }
 
-    const inventory = await connector.fetchInventory(store as ChannelStore, mappings.map((mapping) => mapping.externalId));
+    // Stock is levelled against the mappings as they stand AFTER convergence. Read before it, as the
+    // archive plan above must be, a first import walked an empty list and left every product it had
+    // just created with no inventory level at all. Re-read only when convergence wrote something: an
+    // unchanged reconcile creates no mapping and keeps its statement budget.
+    const levelled = converged.value.imported + converged.value.converged > 0
+      ? await this.db.select().from(channelEntityMap).where(and(eq(channelEntityMap.organizationId, orgId), eq(channelEntityMap.storeId, storeId)))
+      : mappings;
+    const inventory = await connector.fetchInventory(store as ChannelStore, levelled.map((mapping) => mapping.externalId));
     if (!inventory.ok) return PluginErr(inventory.error.message);
     const existingLevels = await this.db.select().from(inventoryLevels).where(eq(inventoryLevels.organizationId, orgId));
     const inventoryService = this.services.inventory as {
@@ -4554,7 +4574,7 @@ export class ChannelConnectorService {
     };
     let inventoryUpdated = 0;
     for (const level of inventory.value) {
-      const mapping = mappings.find((entry) => entry.externalId === level.externalId);
+      const mapping = levelled.find((entry) => entry.externalId === level.externalId);
       if (!mapping) continue;
       const current = existingLevels.find((entry) => entry.entityId === mapping.entityId && entry.variantId === (mapping.variantId ?? null));
       // Stock cannot sit below zero here, so negative remote stock compares as the zero it is stored as.

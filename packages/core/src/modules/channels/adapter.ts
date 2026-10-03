@@ -6,6 +6,14 @@ export interface ChannelConnectorError {
   retriable?: boolean;
 }
 
+/**
+ * The code a connector answers when the provider REJECTED the credentials a call presented — an
+ * access token revoked, rotated, or retired before its stated expiry. The channel service answers it
+ * with one forced `liveCredentials` refresh and one retry; only when that fails is the store marked
+ * for reconnection.
+ */
+export const CHANNEL_CREDENTIALS_REJECTED = "CHANNEL_CREDENTIALS_REJECTED";
+
 export interface ChannelConnectorCapabilities {
   readonly importCatalog: boolean;
   readonly importInventory: boolean;
@@ -259,7 +267,7 @@ export interface ChannelConnector {
    * call that takes a store and persists what it returns, so no call starts on a lapsed token. A
    * non-retriable error means the grant is gone and the merchant must reconnect.
    */
-  liveCredentials?(store: ChannelStore): Promise<Result<Record<string, unknown> | null, ChannelConnectorError>>;
+  liveCredentials?(store: ChannelStore, options?: { force?: boolean }): Promise<Result<Record<string, unknown> | null, ChannelConnectorError>>;
   fetchStoreProfile?(store: ChannelStore): Promise<Result<ChannelStoreProfile, ChannelConnectorError>>;
   importCatalog(store: ChannelStore, cursor?: string): Promise<Result<ChannelCatalogPage>>;
   /**
