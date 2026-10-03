@@ -1,4 +1,4 @@
-import { Err, Ok } from "@porulle/core";
+import { CHANNEL_CREDENTIALS_REJECTED, Err, Ok } from "@porulle/core";
 import type { ChannelConnector, ChannelConnectorError, ChannelStore, PluginDb, Result } from "@porulle/core";
 import { and, eq, sql } from "@porulle/core/drizzle";
 import { connectedStores } from "./schema.js";
@@ -19,9 +19,9 @@ import { connectedStores } from "./schema.js";
  * token lapsed. The store is then marked `error`, so it reads as "reconnect" instead of failing every
  * later call with a credential error nobody is shown.
  */
-export async function resolveLiveCredentials(connector: ChannelConnector, db: PluginDb, store: ChannelStore): Promise<Result<ChannelStore, ChannelConnectorError>> {
+export async function resolveLiveCredentials(connector: ChannelConnector, db: PluginDb, store: ChannelStore, options: { force?: boolean } = {}): Promise<Result<ChannelStore, ChannelConnectorError>> {
   if (!connector.liveCredentials) return Ok(store);
-  const answer = await connector.liveCredentials(store);
+  const answer = await connector.liveCredentials(store, options);
   if (!answer.ok) {
     if (answer.error.retriable !== true) {
       await db.update(connectedStores).set({ status: "error", updatedAt: new Date() }).where(eq(connectedStores.id, store.id));
@@ -45,13 +45,20 @@ type StoreCall<A extends unknown[], T> = (store: ChannelStore, ...args: A) => Pr
  * The connector with every store-taking method routed through {@link resolveLiveCredentials}, so no
  * call site can start on a lapsed token by forgetting to ask. Returned unchanged when the connector's
  * credentials never expire.
+ *
+ * A call the provider answers with {@link CHANNEL_CREDENTIALS_REJECTED} — a token retired before its
+ * stated expiry — is retried ONCE on credentials refreshed by force. A second rejection is the answer.
  */
 export function withLiveCredentials(connector: ChannelConnector, db: PluginDb): ChannelConnector {
   if (!connector.liveCredentials) return connector;
   const around = <A extends unknown[], T>(call: StoreCall<A, T>): StoreCall<A, T> => async (store, ...args) => {
     const current = await resolveLiveCredentials(connector, db, store);
     if (!current.ok) return current;
-    return call.call(connector, current.value, ...args);
+    const first = await call.call(connector, current.value, ...args);
+    if (first.ok || first.error.code !== CHANNEL_CREDENTIALS_REJECTED) return first;
+    const refreshed = await resolveLiveCredentials(connector, db, current.value, { force: true });
+    if (!refreshed.ok) return refreshed;
+    return call.call(connector, refreshed.value, ...args);
   };
   return {
     ...connector,
