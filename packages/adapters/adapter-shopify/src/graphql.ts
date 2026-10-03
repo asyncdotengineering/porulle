@@ -73,6 +73,10 @@ export async function shopifyGraphql<T>(
   schema: z.ZodType<T>,
 ): Promise<Result<T, ChannelConnectorError>> {
   const sleep = target.sleep ?? defaultSleep;
+  // Called unbound, never as `target.fetchImpl(...)`: workerd's global `fetch` refuses any `this`
+  // but the global scope ("Illegal invocation"), and Node's does not, so a method call passes on
+  // Node and fails every Admin API call on a Worker. test/workerd-fetch.e2e.test.ts holds it.
+  const { fetchImpl } = target;
   const url = `${target.origin}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
   let waited = 0;
   for (let attempt = 0; ; attempt += 1) {
@@ -80,7 +84,7 @@ export async function shopifyGraphql<T>(
     try {
       // `manual`, never `error`: workerd implements only `follow` and `manual` and throws on `error`
       // from the Request constructor. A 3xx is then simply not ok, which refuses the redirect.
-      response = await target.fetchImpl(url, {
+      response = await fetchImpl(url, {
         method: "POST",
         redirect: "manual",
         headers: { accept: "application/json", "content-type": "application/json", "x-shopify-access-token": target.accessToken },
