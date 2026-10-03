@@ -252,6 +252,9 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
           lineItems: slice.lines.map((line) => ({
             variantId: shopifyGid("ProductVariant", line.externalVariantId),
             quantity: line.quantity,
+            // Defaults to false in orderCreate, which shows the order as "Shipping not required"
+            // although it carries the shopper's address. Every slice has one, so every line ships.
+            requiresShipping: true,
             priceSet: money(line.unitPrice, slice.currency),
           })),
           transactions: [{ kind: "SALE", status: "SUCCESS", gateway: SOURCE_NAME, amountSet: money(slice.grandTotal, slice.currency) }],
