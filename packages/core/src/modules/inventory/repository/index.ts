@@ -6,6 +6,7 @@ import type {
   DbOrTx,
 } from "../../../kernel/database/drizzle-db.js";
 import { warehouses, inventoryLevels, inventoryMovements } from "../schema.js";
+import { sellableEntities } from "../../catalog/schema.js";
 
 // Infer types from Drizzle schema
 export type Warehouse = typeof warehouses.$inferSelect;
@@ -170,6 +171,16 @@ export class InventoryRepository {
         ),
       );
     return rows[0];
+  }
+
+  /** True when the entity was imported from a connected store, whose stock sync owns its count. */
+  async isStockOwnedByStore(organizationId: string, entityId: string, ctx?: TxContext): Promise<boolean> {
+    const rows = await this.getDb(ctx)
+      .select({ sourceStoreId: sellableEntities.sourceStoreId })
+      .from(sellableEntities)
+      .where(and(eq(sellableEntities.organizationId, organizationId), eq(sellableEntities.id, entityId)))
+      .limit(1);
+    return rows[0]?.sourceStoreId != null;
   }
 
   async findLevelByKey(

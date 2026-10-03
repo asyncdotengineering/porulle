@@ -641,6 +641,11 @@ export class InventoryService {
    * Net effect when paired with release():
    *   Before: on_hand=100, reserved=5, available=95
    *   After deduct+release: on_hand=95, reserved=0, available=95
+   *
+   * Stock imported from a connected store is NOT deducted: its count mirrors the store's available,
+   * which the store already lowered when it accepted the order and does not lower again when it
+   * ships. Deducting here took a second unit off the mirror for every sale (found on a real Shopify
+   * store). The caller still releases the reservation.
    */
   async deductForFulfillment(
     input: {
@@ -659,6 +664,8 @@ export class InventoryService {
     const warehouseId =
       input.warehouseId ?? (await this.pickWarehouse(null, ctx, orgId));
     const variantId = input.variantId ?? null;
+
+    if (await this.repo.isStockOwnedByStore(orgId, input.entityId, ctx)) return Ok(undefined);
 
     const level = await this.repo.findLevelByKey(
       orgId,
