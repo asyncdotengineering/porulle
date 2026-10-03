@@ -21,11 +21,14 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { Miniflare, type Request as MiniflareRequest } from "miniflare";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { z } from "zod";
+
+const graphqlBodySchema = z.object({ query: z.string() }).passthrough();
 
 const ENTRY = `
 import { shopifyConnector } from "./src/index.ts";
 export default {
-  async fetch() {
+  async fetch(request) {
     const connector = shopifyConnector({ clientId: "workerd", clientSecret: "workerd", shopOrigin: () => "https://runvae-dev.myshopify.com" });
     const store = {
       id: "workerd-store",
@@ -36,12 +39,26 @@ export default {
       status: "connected",
       webhookSecret: null,
     };
+    if (new URL(request.url).pathname === "/order") {
+      return Response.json(await connector.pushOrder(store, {
+        orderId: "order-workerd-1",
+        currency: "LKR",
+        grandTotal: 980000,
+        lines: [{ externalVariantId: "4242", title: "Handloom Cotton Shirt", quantity: 1, unitPrice: 980000, totalPrice: 980000 }],
+        customer: {
+          name: "Nimali Perera",
+          email: "nimali@example.com",
+          shippingAddress: { firstName: "Nimali", lastName: "Perera", line1: "12 Galle Road", city: "Colombo", countryCode: "LK", phone: "+94771234567" },
+        },
+      }));
+    }
     return Response.json(await connector.fetchStoreProfile(store));
   },
 };
 `;
 
 const seen: string[] = [];
+const bodies: unknown[] = [];
 let mf: Miniflare;
 
 beforeAll(async () => {
@@ -74,6 +91,10 @@ beforeAll(async () => {
     compatibilityFlags: ["nodejs_compat"],
     outboundService: async (request: MiniflareRequest) => {
       seen.push(`${request.method} ${request.url}`);
+      const body = graphqlBodySchema.parse(await request.json());
+      bodies.push(body);
+      if (body.query.includes("PorulleOrderBySource")) return Response.json({ data: { orders: { nodes: [] } } });
+      if (body.query.includes("PorulleOrderCreate")) return Response.json({ data: { orderCreate: { order: { legacyResourceId: "1001" }, userErrors: [] } } });
       return Response.json({
         data: { shop: { name: "runvae dev", currencyCode: "LKR", myshopifyDomain: "runvae-dev.myshopify.com", primaryDomain: { host: "runvae-dev.myshopify.com" } } },
       });
@@ -87,6 +108,7 @@ afterAll(async () => {
 
 describe("shopifyConnector on workerd with the runtime's own fetch", () => {
   it("reads the store profile", async () => {
+    seen.length = 0;
     const response = await mf.dispatchFetch("https://worker.test/");
     const result: unknown = await response.json();
     expect(result).toEqual({
@@ -94,5 +116,19 @@ describe("shopifyConnector on workerd with the runtime's own fetch", () => {
       value: { name: "runvae dev", currency: "LKR", storefrontHosts: ["runvae-dev.myshopify.com"] },
     });
     expect(seen).toEqual(["POST https://runvae-dev.myshopify.com/admin/api/2026-10/graphql.json"]);
+  });
+
+  // orderCreate's `requiresShipping` defaults to FALSE (Shopify's OrderCreateLineItemInput). Left
+  // out, a real store showed the first exported order as "Shipping not required" although it carried
+  // the shopper's address, so the merchant could not ship it the normal way. Every marketplace order
+  // carries a shipping address, so every line ships.
+  it("pushes an order whose every line requires shipping", async () => {
+    bodies.length = 0;
+    const response = await mf.dispatchFetch("https://worker.test/order");
+    expect(await response.json()).toEqual({ ok: true, value: { remoteOrderId: "1001" } });
+    const create = bodies.find((body): body is { variables: { order: { lineItems: { requiresShipping?: unknown }[] } } } =>
+      typeof body === "object" && body !== null && "query" in body && String(body.query).includes("PorulleOrderCreate"));
+    expect(create?.variables.order.lineItems).toHaveLength(1);
+    expect(create?.variables.order.lineItems.map((line) => line.requiresShipping)).toEqual([true]);
   });
 });
