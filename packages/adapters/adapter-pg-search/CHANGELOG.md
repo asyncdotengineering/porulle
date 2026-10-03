@@ -1,5 +1,12 @@
 # @porulle/adapter-pg-search
 
+## 0.68.2
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.68.2
+
 ## 0.68.1
 
 ### Patch Changes

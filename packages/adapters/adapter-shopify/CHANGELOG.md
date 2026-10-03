@@ -1,5 +1,14 @@
 # @porulle/adapter-shopify
 
+## 0.68.2
+
+### Patch Changes
+
+- [#166](https://github.com/asyncdotengineering/porulle/pull/166) [`6b1e062`](https://github.com/asyncdotengineering/porulle/commit/6b1e06204fb31ae69401571730dae798de9168d8) Thanks [@octalpixel](https://github.com/octalpixel)! - Mark every exported order line `requiresShipping: true`. Shopify's `orderCreate` defaults it to false, so a real store showed each pushed order as "Shipping not required" although it carried the shopper's address, and the merchant could not ship it the normal way. The workerd test now pushes an order and asserts what Shopify receives.
+
+- Updated dependencies []:
+  - @porulle/core@0.68.2
+
 ## 0.68.1
 
 ### Patch Changes
