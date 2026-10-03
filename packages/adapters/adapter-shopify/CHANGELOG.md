@@ -1,5 +1,14 @@
 # @porulle/adapter-shopify
 
+## 0.68.1
+
+### Patch Changes
+
+- [#165](https://github.com/asyncdotengineering/porulle/pull/165) [`73ea076`](https://github.com/asyncdotengineering/porulle/commit/73ea0768eec7d525f245eb44ce95d8a8b499fc50) Thanks [@octalpixel](https://github.com/octalpixel)! - Call `fetch` unbound on Cloudflare Workers. The Shopify adapter called its fetch as `target.fetchImpl(...)` and core's webhook delivery as `this.fetchImpl(...)`; workerd's global `fetch` throws "Illegal invocation" for any `this` but the global scope, so every Admin API call (store profile, import, orders) failed on a Worker while every Node test passed. The adapter now carries a workerd test that runs it with the runtime's own `fetch`.
+
+- Updated dependencies [[`73ea076`](https://github.com/asyncdotengineering/porulle/commit/73ea0768eec7d525f245eb44ce95d8a8b499fc50)]:
+  - @porulle/core@0.68.1
+
 ## 0.68.0
 
 ### Minor Changes

@@ -1,5 +1,12 @@
 # @porulle/adapter-pglite
 
+## 0.68.1
+
+### Patch Changes
+
+- Updated dependencies [[`73ea076`](https://github.com/asyncdotengineering/porulle/commit/73ea0768eec7d525f245eb44ce95d8a8b499fc50)]:
+  - @porulle/core@0.68.1
+
 ## 0.68.0
 
 ### Patch Changes
