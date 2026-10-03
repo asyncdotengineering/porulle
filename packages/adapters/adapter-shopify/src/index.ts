@@ -1,255 +1,114 @@
-import { defineChannelConnector, Err, Ok, toMinorUnits } from "@porulle/core";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { defineChannelConnector, Err, Ok } from "@porulle/core";
 import type {
-  ChannelCatalogPage,
-  ChannelCatalogPrice,
   ChannelConnector,
   ChannelConnectorError,
   ChannelInventoryLevel,
-  ChannelPushCatalogItem,
-  ChannelPushCatalogResult,
-  ChannelStore,
   ChannelOrderSlice,
   ChannelOrderStatus,
+  ChannelStore,
+  ChannelStoreProfile,
   Result,
 } from "@porulle/core";
+import { z } from "zod";
+import { readCatalogItems, readCatalogPage } from "./catalog.js";
+import { shopifyGid, shopifyGraphql } from "./graphql.js";
+import type { ShopifyGraphqlTarget } from "./graphql.js";
 import {
-  pushCatalog as executePushCatalog,
-} from "./push-catalog.js";
+  REQUIRED_SCOPES,
+  buildAuthorizeUrl,
+  exchangeCallback,
+  normalizeShopDomain,
+  parseShopifyCredentials,
+  refreshIfExpiring,
+  validShopDomain,
+} from "./oauth.js";
 
-export {
-  PORULLE_METAFIELD_NAMESPACE,
-  PUSH_CATALOG_SCOPE,
-  SHOPIFY_NATIVE_PRODUCT_FIELDS,
-  SHOPIFY_NATIVE_VARIANT_FIELDS,
-  shopifyGrantedScopes,
-  shopifyPushCatalogEnabled,
-  shopifyWriteProductsScopeMissingError,
-} from "./push-catalog.js";
+export { SHOPIFY_API_VERSION } from "./graphql.js";
+export { CATALOG_ITEMS_QUERY, CATALOG_PAGE_QUERY, VARIANTS_PAGE_QUERY } from "./catalog.js";
+export { REQUIRED_SCOPES, normalizeShopDomain, parseShopifyCredentials } from "./oauth.js";
+export type { ShopifyCredentials } from "./oauth.js";
 
 export interface ShopifyConnectorOptions {
+  clientId: string;
+  clientSecret: string;
   fetchImpl?: typeof fetch;
-  apiVersion?: string;
-  clientId?: string;
-  clientSecret?: string;
-  appUrl?: string;
-  scopes?: string[];
   /**
-   * Origin override for every Shopify call — the Admin API and both OAuth endpoints.
-   *
-   * ABSENT IN PRODUCTION, where it resolves to `https://{store.storeDomain}` and the request is
-   * byte-identical to the one this adapter has always made. Present, it points the same code at a
-   * local stand-in built from Shopify's documentation, so that a missing app credential stops
-   * blocking development.
-   *
-   * It is an ORIGIN and not a base URL because Shopify's host is per-store: the shop still rides
-   * inside the path the adapter appends. A caller pointing at a mock passes
-   * `http://127.0.0.1:<port>/shopify`, the adapter appends `/admin/api/{version}/products.json`,
-   * and the stand-in serves Shopify's own address table unprefixed.
-   *
-   * There is deliberately NO `mock` flag and no URL rewriting inside `fetchImpl`. The shipped path
-   * must be the tested path; a branch inside the adapter means the code exercised by a test is not
-   * the code that runs, and reaching a stand-in by rewriting URLs inside an injected fetch is the
-   * same failure wearing a hook.
+   * Where a shop's Admin API lives. Production omits it: `https://{shop}`. A test points it at a
+   * stand-in that serves every shop under its own path — `(shop) => \`${mock}/shopify/${shop}\`` —
+   * so the shop's identity still rides in the request exactly as it does in production, and the
+   * code exercised by a test is the code that runs. There is no mock flag inside this adapter.
    */
-  baseUrl?: string;
+  shopOrigin?: (shopDomain: string) => string;
 }
 
-export const REQUIRED_SCOPES = [
-  "read_products",
-  "read_inventory",
-  "read_orders",
-  "write_orders",
-  "read_fulfillments",
-  "write_products",
-] as const;
+export const INVENTORY_QUERY = `query PorulleInventoryPage($after: String) {
+  productVariants(first: 250, after: $after, sortKey: ID) { pageInfo { hasNextPage endCursor } nodes { legacyResourceId inventoryQuantity } }
+}`;
 
-type ShopifyProduct = {
-  id: number | string;
-  title: string;
-  handle?: string;
-  body_html?: string;
-  vendor?: string | null;
-  product_type?: string | null;
-  tags?: string | null;
-  status?: string | null;
-  images?: Array<{
-    id: number | string;
-    src: string;
-    alt?: string | null;
-    position?: number | null;
-    variant_ids?: Array<number | string> | null;
-  }>;
-  options?: Array<{
-    name: string;
-    position?: number | null;
-    values?: string[];
-  }>;
-  variants?: Array<{
-    id: number | string;
-    sku?: string | null;
-    barcode?: string | null;
-    price?: string | null;
-    compare_at_price?: string | null;
-    option1?: string | null;
-    option2?: string | null;
-    option3?: string | null;
-    grams?: number | null;
-    weight?: number | null;
-    weight_unit?: string | null;
-    /** Read-only aggregate available across ALL the shop's locations (Shopify's ProductVariant). */
-    inventory_quantity?: number | null;
-    /** Shopify's inventory item: what `inventory_levels/update` webhooks name, never the variant id. */
-    inventory_item_id?: number | string | null;
-  }>;
-};
+export const VARIANT_INVENTORY_QUERY = `query PorulleVariantInventory($ids: [ID!]!) {
+  nodes(ids: $ids) { ... on ProductVariant { legacyResourceId inventoryQuantity } }
+}`;
 
-function normalizeCurrency(value: unknown): string | undefined {
-  if (typeof value !== "string" || value.trim() === "") return undefined;
-  return value.trim().toUpperCase();
+export const STORE_PROFILE_QUERY = `query PorulleStoreProfile {
+  shop { name currencyCode myshopifyDomain primaryDomain { host } }
+}`;
+
+export const ORDER_CREATE_MUTATION = `mutation PorulleOrderCreate($order: OrderCreateOrderInput!, $options: OrderCreateOptionsInput) {
+  orderCreate(order: $order, options: $options) { order { legacyResourceId } userErrors { field message } }
+}`;
+
+export const ORDER_BY_SOURCE_QUERY = `query PorulleOrderBySource($query: String!) {
+  orders(first: 1, query: $query) { nodes { legacyResourceId } }
+}`;
+
+export const ORDER_STATUS_QUERY = `query PorulleOrderStatus($id: ID!) {
+  order(id: $id) { cancelledAt displayFinancialStatus displayFulfillmentStatus }
+}`;
+
+const inventoryLevelSchema = z.object({ legacyResourceId: z.string(), inventoryQuantity: z.number().nullable() });
+const inventoryPageSchema = z.object({
+  productVariants: z.object({ pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }), nodes: z.array(inventoryLevelSchema) }),
+});
+const variantInventorySchema = z.object({ nodes: z.array(z.union([inventoryLevelSchema, z.object({}).strict(), z.null()])) });
+const storeProfileSchema = z.object({
+  shop: z.object({ name: z.string(), currencyCode: z.string(), myshopifyDomain: z.string(), primaryDomain: z.object({ host: z.string() }) }),
+});
+const orderCreateSchema = z.object({
+  orderCreate: z.object({
+    order: z.object({ legacyResourceId: z.string() }).nullable(),
+    userErrors: z.array(z.object({ field: z.array(z.string()).nullable(), message: z.string() })),
+  }),
+});
+const orderBySourceSchema = z.object({ orders: z.object({ nodes: z.array(z.object({ legacyResourceId: z.string() })) }) });
+const orderStatusSchema = z.object({
+  order: z.object({ cancelledAt: z.string().nullable(), displayFinancialStatus: z.string().nullable(), displayFulfillmentStatus: z.string() }).nullable(),
+});
+
+const SOURCE_NAME = "porulle";
+
+type VariantLevel = z.infer<typeof inventoryLevelSchema>;
+
+/** `nodes` answers null for a deleted id and `{}` for an id of another type; neither is a level. */
+function isVariantLevel(node: VariantLevel | Record<string, never> | null): node is VariantLevel {
+  return node !== null && typeof node.legacyResourceId === "string";
 }
 
-function pricesForVariant(
-  variant: NonNullable<ShopifyProduct["variants"]>[number],
-  currency: string | undefined,
-): ChannelCatalogPrice[] | undefined {
-  if (!currency) return undefined;
-  const amount = toMinorUnits(variant.price, currency);
-  if (amount === undefined) return undefined;
-  const compareAtAmount = toMinorUnits(variant.compare_at_price, currency);
-  return [{
-    currency,
-    amount,
-    ...(compareAtAmount !== undefined && compareAtAmount !== amount ? { compareAtAmount } : {}),
-  }];
+/** Stock is never negative here: an oversold variant reads as none available. */
+function level(node: z.infer<typeof inventoryLevelSchema>): ChannelInventoryLevel {
+  return { externalId: node.legacyResourceId, available: Math.max(0, node.inventoryQuantity ?? 0) };
 }
 
-/**
- * Shopify carries a variant's weight twice: `grams`, which it normalises itself,
- * and `weight` with a `weight_unit`. Prefer `grams`; fall back to converting
- * `weight` only when `grams` is absent or zero.
- *
- * Returns `undefined` — never `0` — when no weight is known, so the caller omits
- * the key entirely. A written `0` is indistinguishable from a genuinely
- * weightless item and would defeat a downstream default-parcel substitution.
- *
- * An unrecognised `weight_unit` is refused rather than assumed to be grams:
- * reading "lbs" (a spelling Shopify does not use, but a proxy might) as grams
- * under-prices a parcel by a factor of 453.
- */
-function weightGramsForVariant(
-  variant: NonNullable<ShopifyProduct["variants"]>[number],
-): number | undefined {
-  const { grams, weight, weight_unit: weightUnit } = variant;
-
-  if (typeof grams === "number" && Number.isFinite(grams) && grams > 0) {
-    return Math.round(grams);
-  }
-
-  if (typeof weight === "number" && Number.isFinite(weight) && weight > 0) {
-    switch (weightUnit ?? "g") {
-      case "g":
-        return Math.round(weight);
-      case "kg":
-        return Math.round(weight * 1000);
-      case "oz":
-        return Math.round(weight * 28.349523125);
-      case "lb":
-        return Math.round(weight * 453.59237);
-      default:
-        return undefined;
-    }
-  }
-
-  return undefined;
+function money(minor: number, currency: string): { shopMoney: { amount: string; currencyCode: string } } {
+  return { shopMoney: { amount: (minor / 100).toFixed(2), currencyCode: currency } };
 }
 
-function catalogStatus(value: string | null | undefined): "draft" | "active" | "archived" | undefined {
-  return value === "draft" || value === "active" || value === "archived" ? value : undefined;
-}
-
-function slugify(value: string): string {
-  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-}
-
-async function fetchShopCurrency(fetchImpl: typeof fetch, url: string, accessToken: string): Promise<string | undefined> {
-  const result = await request<{ shop?: { currency?: string | null } }>(fetchImpl, url, accessToken);
-  return result.ok ? normalizeCurrency(result.value.data.shop?.currency) : undefined;
-}
-
-/** `baseUrl` when given, else the store's own origin. The single place that choice is made. */
-function shopOrigin(storeDomain: string, baseUrl: string | undefined): string {
-  if (baseUrl !== undefined && baseUrl !== "") return baseUrl.replace(/\/$/, "");
-  return `https://${storeDomain.replace(/^https?:\/\//, "").replace(/\/$/, "")}`;
-}
-
-function apiBase(store: ChannelStore, version: string, baseUrl?: string): string {
-  return `${shopOrigin(store.storeDomain, baseUrl)}/admin/api/${version}`;
-}
-
-function shopifyOAuthStartUrl(appUrl: string, storeDomain: string): string | undefined {
-  try {
-    const url = new URL("/api/channels/oauth/shopify/start", appUrl);
-    url.searchParams.set("shop", storeDomain);
-    return url.toString();
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * The `rel="next"` target of a REST response's `Link` header, or null on the last page.
- *
- * RFC 8288 permits the relation as a quoted string OR a bare token, and this reads both. It read
- * only `rel="next"` once, and the asymmetry is the argument rather than the likelihood: a reader
- * that accepts only the quoted form and meets `rel=next` does not throw — it finds no next link,
- * ends the walk, and reports a SUCCESSFUL walk of a partial list. Silent truncation. Accepting both
- * cannot make a malformed header parse as a valid one, so the permissive direction has no cost.
- */
-function nextPageUrl(response: Response): string | null {
-  const link = response.headers.get("link") ?? "";
-  return link.match(/<([^>]+)>;\s*rel=(?:"next"|next)(?:\s*(?:,|$))/)?.[1] ?? null;
-}
-
-/** The `{ variant: { id, inventory_quantity } }` a `variants/{id}.json` answers, read without a cast. */
-function variantInventoryOf(body: unknown): { id: number | string; inventory_quantity: number | null } | undefined {
-  if (typeof body !== "object" || body === null || !("variant" in body)) return undefined;
-  const variant: unknown = body.variant;
-  if (typeof variant !== "object" || variant === null || !("id" in variant)) return undefined;
-  const id: unknown = variant.id;
-  if (typeof id !== "number" && typeof id !== "string") return undefined;
-  const quantity: unknown = "inventory_quantity" in variant ? variant.inventory_quantity : null;
-  return { id, inventory_quantity: typeof quantity === "number" ? quantity : null };
-}
-
-/** Up to this many variant ids are read one `variants/{id}.json` each (the order-time check);
- *  more are answered from one walk of the catalogue. */
-const PER_VARIANT_INVENTORY_READS = 25;
-
-async function request<T>(fetchImpl: typeof fetch, url: string, accessToken: string, init?: RequestInit): Promise<Result<{ data: T; response: Response }>> {
-  try {
-    const response = await fetchImpl(url, {
-      ...init,
-      headers: { accept: "application/json", ...(init?.headers ?? {}), "x-shopify-access-token": accessToken },
-    });
-    if (!response.ok) return Err({ code: "SHOPIFY_API_FAILED", message: `Shopify API request failed (${response.status}) for ${url}.`, retriable: response.status >= 500 });
-    return Ok({ data: await response.json() as T, response });
-  } catch (error) {
-    return Err({ code: "SHOPIFY_API_FAILED", message: error instanceof Error ? error.message : "Shopify API request failed.", retriable: true });
-  }
-}
-
-function shopifyStatus(order: { financial_status?: string | null; fulfillment_status?: string | null; cancelled_at?: string | null }): ChannelOrderStatus {
-  if (order.cancelled_at) return { status: "cancelled" };
-  if (order.fulfillment_status === "fulfilled") return { status: "fulfilled" };
-  if (order.financial_status === "paid" || order.financial_status === "partially_paid") return { status: "confirmed" };
-  if (order.financial_status === "refunded" || order.financial_status === "voided") return { status: "failed" };
+function orderStatus(order: NonNullable<z.infer<typeof orderStatusSchema>["order"]>): ChannelOrderStatus {
+  if (order.cancelledAt) return { status: "cancelled" };
+  if (order.displayFulfillmentStatus === "FULFILLED") return { status: "fulfilled" };
+  if (order.displayFinancialStatus === "PAID" || order.displayFinancialStatus === "PARTIALLY_PAID") return { status: "confirmed" };
+  if (order.displayFinancialStatus === "REFUNDED" || order.displayFinancialStatus === "VOIDED") return { status: "failed" };
   return { status: "pending" };
-}
-
-function credentials(store: ChannelStore): string | undefined {
-  const accessToken = store.credentials.accessToken;
-  return typeof accessToken === "string" && accessToken.length > 0 ? accessToken : undefined;
 }
 
 function validBase64Hmac(secret: string, body: string, signature: string | null): boolean {
@@ -259,337 +118,197 @@ function validBase64Hmac(secret: string, body: string, signature: string | null)
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-function validShopDomain(value: string): boolean {
-  return /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.myshopify\.com$/i.test(value);
-}
+const credentialsRequired: ChannelConnectorError = { code: "SHOPIFY_CREDENTIALS_REQUIRED", message: "The store holds no Shopify access token; it must be reconnected.", retriable: false };
 
-function oauthHmacMessage(searchParams: URLSearchParams): string {
-  return [...searchParams.entries()]
-    .filter(([key]) => key !== "hmac")
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => `${key}=${value}`)
-    .join("&");
-}
-
-function validOAuthHmac(searchParams: URLSearchParams, secret: string): boolean {
-  const provided = searchParams.get("hmac");
-  if (!provided || !/^[a-f0-9]+$/i.test(provided)) return false;
-  const expected = createHmac("sha256", secret).update(oauthHmacMessage(searchParams)).digest();
-  const actual = Buffer.from(provided, "hex");
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
-}
-
-function oauthError(code: string, message: string): Result<never, ChannelConnectorError> {
-  return Err({ code, message, retriable: false });
-}
-
-export function shopifyReauthorizeUrl(
-  options: ShopifyConnectorOptions,
-  params: {
-    storeDomain: string;
-    state: string;
-    redirectUri: string;
-    callbackUri: string;
-    scopes?: string[];
-  },
-): Result<string, ChannelConnectorError> {
-  return shopifyConnector(options).buildAuthUrl!({
-    ...params,
-    scopes: params.scopes ?? [],
-  });
-}
-
-export function shopifyConnector(options: ShopifyConnectorOptions = {}): ChannelConnector {
+export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConnector {
   const fetchImpl = options.fetchImpl ?? fetch;
-  /** One `products.json` page of variant stock (`inventory_quantity`, all locations summed), keyed by variant id. */
-  const inventoryPage = async (store: ChannelStore, cursor: string | null): Promise<Result<{ levels: ChannelInventoryLevel[]; nextCursor: string | null }>> => {
-    const token = credentials(store);
-    if (!token) return Err({ code: "SHOPIFY_CREDENTIALS_REQUIRED", message: "Shopify accessToken is required." });
-    const url = cursor ?? `${apiBase(store, version, options.baseUrl)}/products.json?limit=250&fields=id,variants`;
-    const result = await request<{ products: ShopifyProduct[] }>(fetchImpl, url, token);
-    if (!result.ok) return result;
-    const levels = result.value.data.products.flatMap((product) => (product.variants ?? [])
-      .map((variant): ChannelInventoryLevel => ({ externalId: String(variant.id), available: Math.max(0, variant.inventory_quantity ?? 0) })));
-    return Ok({ levels, nextCursor: nextPageUrl(result.value.response) });
+  const origin = (shopDomain: string): string => options.shopOrigin?.(shopDomain) ?? `https://${shopDomain}`;
+  const target = (store: ChannelStore): ShopifyGraphqlTarget | undefined => {
+    const credentials = parseShopifyCredentials(store.credentials);
+    return credentials ? { fetchImpl, origin: origin(store.storeDomain), accessToken: credentials.accessToken } : undefined;
   };
-  const version = options.apiVersion ?? "2024-10";
-  const currencyCache = new Map<string, Promise<string | undefined>>();
+
   return defineChannelConnector({
     providerId: "shopify",
-    capabilities: { importCatalog: true, importInventory: true, pushOrder: true, pushCatalog: true, receiveWebhooks: true },
+    capabilities: { importCatalog: true, importInventory: true, pushOrder: true, receiveWebhooks: true },
+    normalizeStoreDomain: normalizeShopDomain,
     buildAuthUrl(params) {
-      if (!options.clientId || !options.clientSecret || !options.appUrl) {
-        return oauthError("SHOPIFY_OAUTH_NOT_CONFIGURED", "Shopify OAuth requires clientId, clientSecret, and appUrl.");
-      }
-      const shopDomain = params.storeDomain.toLowerCase();
-      if (!validShopDomain(shopDomain)) return oauthError("SHOPIFY_INVALID_STORE_DOMAIN", "Shopify storeDomain must be a *.myshopify.com domain.");
-      const scopes = [...new Set([...REQUIRED_SCOPES, ...(options.scopes ?? []), ...params.scopes])];
-      const url = new URL(`${shopOrigin(shopDomain, options.baseUrl)}/admin/oauth/authorize`);
-      url.searchParams.set("client_id", options.clientId);
-      url.searchParams.set("scope", scopes.join(","));
-      url.searchParams.set("redirect_uri", params.redirectUri);
-      url.searchParams.set("state", params.state);
-      return Ok(url.toString());
+      const shop = params.storeDomain.toLowerCase();
+      if (!validShopDomain(shop)) return Err({ code: "SHOPIFY_INVALID_STORE_DOMAIN", message: "A Shopify store is named by its *.myshopify.com domain.", retriable: false });
+      return Ok(buildAuthorizeUrl({ origin: origin(shop), clientId: options.clientId, scopes: REQUIRED_SCOPES, redirectUri: params.redirectUri, state: params.state }));
     },
     async completeAuth(request, ctx) {
-      if (!options.clientId || !options.clientSecret || !options.appUrl) {
-        return oauthError("SHOPIFY_OAUTH_NOT_CONFIGURED", "Shopify OAuth requires clientId, clientSecret, and appUrl.");
-      }
-      const url = new URL(request.url);
-      const shopDomain = ctx.storeDomain.toLowerCase();
-      const callbackShop = url.searchParams.get("shop")?.toLowerCase();
-      if (!validShopDomain(shopDomain) || callbackShop !== shopDomain) {
-        return oauthError("SHOPIFY_INVALID_STORE_DOMAIN", "Shopify storeDomain must be a *.myshopify.com domain.");
-      }
-      if (!validOAuthHmac(url.searchParams, options.clientSecret)) {
-        return oauthError("SHOPIFY_INVALID_OAUTH_HMAC", "Shopify OAuth callback HMAC is invalid.");
-      }
-      const timestamp = Number(url.searchParams.get("timestamp"));
-      if (!Number.isInteger(timestamp) || Math.abs(Math.floor(Date.now() / 1000) - timestamp) > 300) {
-        return oauthError("SHOPIFY_STALE_OAUTH_CALLBACK", "Shopify OAuth callback timestamp is stale.");
-      }
-      const code = url.searchParams.get("code");
-      if (!code) return oauthError("SHOPIFY_OAUTH_CODE_REQUIRED", "Shopify OAuth callback code is required.");
-      try {
-        const response = await fetchImpl(`${shopOrigin(shopDomain, options.baseUrl)}/admin/oauth/access_token`, {
-          method: "POST",
-          headers: { accept: "application/json", "content-type": "application/json" },
-          body: JSON.stringify({ client_id: options.clientId, client_secret: options.clientSecret, code }),
-        });
-        if (!response.ok) return oauthError("SHOPIFY_TOKEN_EXCHANGE_FAILED", `Shopify token exchange failed (${response.status}).`);
-        const body = await response.json() as { access_token?: unknown; scope?: unknown };
-        if (typeof body.access_token !== "string" || !body.access_token) return oauthError("SHOPIFY_TOKEN_INVALID", "Shopify token exchange did not return an access token.");
-        const grantedScopes = typeof body.scope === "string"
-          ? body.scope.split(",").map((scope) => scope.trim()).filter(Boolean)
-          : [];
-        return Ok({ credentials: { accessToken: body.access_token, grantedScopes }, storeDomain: shopDomain });
-      } catch (error) {
-        return Err({ code: "SHOPIFY_TOKEN_EXCHANGE_FAILED", message: error instanceof Error ? error.message : "Shopify token exchange failed.", retriable: true });
-      }
-    },
-    async importCatalog(store, cursor): Promise<Result<ChannelCatalogPage>> {
-      const token = credentials(store);
-      if (!token) return Err({ code: "SHOPIFY_CREDENTIALS_REQUIRED", message: "Shopify accessToken is required." });
-      const currencyUrl = `${apiBase(store, version, options.baseUrl)}/shop.json`;
-      const currencyKey = apiBase(store, version, options.baseUrl);
-      let currencyPromise = currencyCache.get(currencyKey);
-      if (!currencyPromise) {
-        currencyPromise = fetchShopCurrency(fetchImpl, currencyUrl, token);
-        currencyCache.set(currencyKey, currencyPromise);
-      }
-      const currency = await currencyPromise;
-      const url = cursor ?? `${apiBase(store, version, options.baseUrl)}/products.json?limit=250`;
-      const result = await request<{ products: ShopifyProduct[] }>(fetchImpl, url, token);
-      if (!result.ok) return result;
-      const next = nextPageUrl(result.value.response);
-      return Ok({
-        items: result.value.data.products.map((product) => {
-          const options = product.options?.map((option, index) => ({
-            name: option.name,
-            displayName: option.name,
-            ...(option.position != null ? { sortOrder: option.position } : { sortOrder: index }),
-            values: (option.values ?? []).map((value, valueIndex) => ({ value, displayValue: value, sortOrder: valueIndex })),
-          }));
-          const variants = (product.variants ?? []).map((variant) => {
-            const selectors = [variant.option1, variant.option2, variant.option3];
-            const optionValues = Object.fromEntries((product.options ?? []).slice(0, 3).flatMap((option, index) => {
-              const value = selectors[index];
-              return value != null && value !== "" ? [[option.name, value] as const] : [];
-            }));
-            const prices = pricesForVariant(variant, currency);
-            const weightGrams = weightGramsForVariant(variant);
-            return {
-              externalId: String(variant.id),
-              ...(variant.sku ? { sku: variant.sku } : {}),
-              ...(variant.barcode ? { barcode: variant.barcode } : {}),
-              ...(Object.keys(optionValues).length > 0 ? { optionValues } : {}),
-              ...(prices ? { prices } : {}),
-              // The inventory item id lets a stock webhook, which names only the item, find this variant.
-              ...(weightGrams !== undefined || (variant.inventory_item_id !== undefined && variant.inventory_item_id !== null)
-                ? { metadata: {
-                    ...(weightGrams !== undefined ? { weightGrams } : {}),
-                    ...(variant.inventory_item_id !== undefined && variant.inventory_item_id !== null ? { inventoryItemId: String(variant.inventory_item_id) } : {}),
-                  } }
-                : {}),
-            };
-          });
-          const category = product.product_type ? slugify(product.product_type) : "";
-          const status = catalogStatus(product.status);
-          return {
-            externalId: String(product.id),
-            slug: product.handle ?? String(product.id),
-            title: product.title,
-            attributes: [{ locale: "en", title: product.title, ...(product.body_html != null ? { description: product.body_html } : {}) }],
-            variants,
-            ...(product.images ? {
-              images: product.images.map((image, index) => ({
-                externalId: String(image.id),
-                url: image.src,
-                ...(image.alt != null ? { alt: image.alt } : {}),
-                role: index === 0 ? "primary" as const : "gallery" as const,
-                ...(image.position != null ? { sortOrder: image.position } : {}),
-                ...(image.variant_ids != null ? { variantExternalIds: image.variant_ids.map(String) } : {}),
-              })),
-            } : {}),
-            ...(options ? { options } : {}),
-            ...(product.tags != null ? { tags: product.tags.split(",").map((tag) => tag.trim()).filter(Boolean) } : {}),
-            ...(product.vendor ? { brand: product.vendor } : {}),
-            ...(category ? { categories: [category] } : {}),
-            ...(status ? { status } : {}),
-          };
-        }),
-        nextCursor: next,
+      const shop = ctx.storeDomain.toLowerCase();
+      const credentials = await exchangeCallback({
+        fetchImpl,
+        origin: origin(shop),
+        clientId: options.clientId,
+        clientSecret: options.clientSecret,
+        callbackUrl: new URL(request.url),
+        expectedShop: shop,
+        requiredScopes: REQUIRED_SCOPES,
+        now: Date.now(),
       });
+      if (!credentials.ok) return credentials;
+      return Ok({ credentials: { ...credentials.value }, storeDomain: shop });
+    },
+    async liveCredentials(store) {
+      const credentials = parseShopifyCredentials(store.credentials);
+      if (!credentials) return Err(credentialsRequired);
+      const refreshed = await refreshIfExpiring({ fetchImpl, origin: origin(store.storeDomain), clientId: options.clientId, clientSecret: options.clientSecret, credentials, now: Date.now() });
+      if (!refreshed.ok) return refreshed;
+      return Ok(refreshed.value === null ? null : { ...refreshed.value });
+    },
+    async fetchStoreProfile(store): Promise<Result<ChannelStoreProfile, ChannelConnectorError>> {
+      const shop = target(store);
+      if (!shop) return Err(credentialsRequired);
+      const profile = await shopifyGraphql(shop, STORE_PROFILE_QUERY, {}, storeProfileSchema);
+      if (!profile.ok) return profile;
+      const { name, currencyCode, myshopifyDomain, primaryDomain } = profile.value.shop;
+      // Both hosts serve the shop's own storefront, and Shopify attests to both by answering this
+      // query for the token the merchant granted: no separate proof of ownership is needed.
+      return Ok({ name, currency: currencyCode, storefrontHosts: [...new Set([myshopifyDomain.toLowerCase(), primaryDomain.host.toLowerCase()])] });
+    },
+    async importCatalog(store, cursor) {
+      const shop = target(store);
+      if (!shop) return Err(credentialsRequired);
+      return readCatalogPage(shop, cursor);
+    },
+    async fetchCatalogItems(store, externalIds) {
+      const shop = target(store);
+      if (!shop) return Err(credentialsRequired);
+      return readCatalogItems(shop, externalIds);
     },
     /**
-     * Stock per VARIANT, keyed by the variant id every connector call site matches on.
-     *
-     * Read from the variant's `inventory_quantity`, never from `inventory_levels.json`: that
-     * endpoint requires `inventory_item_ids` or `location_ids`, takes at most 50 ids, and keys
-     * levels by INVENTORY ITEM id, which is not the variant id — so it answered a real store
-     * nothing the connector could match, and the sim (whose mock was laxer) one 250-row page.
-     * https://shopify.dev/docs/api/admin-rest/latest/resources/inventorylevel
-     *
-     * `inventory_quantity` sums ALL locations, so a store with a non-selling location overstates
-     * sellable stock; per-location stock would need InventoryLevel by location. Negative stock
-     * (oversold) reads as 0, as it is stored.
-     *
-     * A few ids (the order-time check) cost one `variants/{id}.json` each; a variant Shopify no
-     * longer has is omitted, which the caller treats as unconfirmed. More ids, or none (a full
-     * sync), are answered from one walk of `products.json`, every page: ceil(products / 250).
+     * Stock per VARIANT (the id every connector call site matches on), from `inventoryQuantity`:
+     * available summed over every location, so a store with a non-selling location overstates
+     * sellable stock. A few ids (the order-time check) are one `nodes` read; a variant Shopify no
+     * longer has is omitted, which the caller treats as unconfirmed. More or none walk every page.
      */
-    async fetchInventory(store, ids): Promise<Result<ChannelInventoryLevel[]>> {
-      const token = credentials(store);
-      if (!token) return Err({ code: "SHOPIFY_CREDENTIALS_REQUIRED", message: "Shopify accessToken is required." });
-      const base = apiBase(store, version, options.baseUrl);
-      const level = (variant: { id: number | string; inventory_quantity?: number | null }): ChannelInventoryLevel =>
-        ({ externalId: String(variant.id), available: Math.max(0, variant.inventory_quantity ?? 0) });
-
-      if (ids !== undefined && ids.length <= PER_VARIANT_INVENTORY_READS) {
-        const levels: ChannelInventoryLevel[] = [];
-        for (const id of ids) {
-          const url = `${base}/variants/${encodeURIComponent(id)}.json`;
-          let response: Response;
-          try {
-            response = await fetchImpl(url, { headers: { accept: "application/json", "x-shopify-access-token": token } });
-          } catch (error) {
-            return Err({ code: "SHOPIFY_API_FAILED", message: error instanceof Error ? error.message : "Shopify API request failed.", retriable: true });
-          }
-          // Gone upstream: omitted, so the caller refuses the line as unconfirmed rather than failing
-          // every other line of the order with it.
-          if (response.status === 404) continue;
-          if (!response.ok) return Err({ code: "SHOPIFY_API_FAILED", message: `Shopify API request failed (${response.status}) for ${url}.`, retriable: response.status >= 500 });
-          const variant = variantInventoryOf(await response.json());
-          if (variant === undefined) return Err({ code: "SHOPIFY_API_FAILED", message: `Shopify answered no variant for ${url}.` });
-          levels.push(level(variant));
-        }
-        return Ok(levels);
+    async fetchInventory(store, ids) {
+      const shop = target(store);
+      if (!shop) return Err(credentialsRequired);
+      if (ids !== undefined && ids.length <= 250) {
+        if (ids.length === 0) return Ok([]);
+        const read = await shopifyGraphql(shop, VARIANT_INVENTORY_QUERY, { ids: ids.map((id) => shopifyGid("ProductVariant", id)) }, variantInventorySchema);
+        if (!read.ok) return read;
+        return Ok(read.value.nodes.filter(isVariantLevel).map(level));
       }
-
       const wanted = ids === undefined ? undefined : new Set(ids);
       const levels: ChannelInventoryLevel[] = [];
       let cursor: string | null = null;
-      const seen = new Set<string>();
       do {
-        const page = await inventoryPage(store, cursor);
+        const page: Result<{ levels: ChannelInventoryLevel[]; nextCursor: string | null }, ChannelConnectorError> = await inventoryPage(shop, cursor);
         if (!page.ok) return page;
         levels.push(...page.value.levels.filter((entry) => wanted === undefined || wanted.has(entry.externalId)));
         cursor = page.value.nextCursor;
-        if (cursor !== null && seen.has(cursor)) return Err({ code: "SHOPIFY_API_FAILED", message: "Shopify pagination repeated a page." });
-        if (cursor !== null) seen.add(cursor);
       } while (cursor !== null);
       return Ok(levels);
     },
-    /** One `products.json` page (250 products) of variant stock; the cursor is Shopify's next-page URL. */
-    fetchInventoryPage: (store, cursor) => inventoryPage(store, cursor),
-    async pushCatalog(store: ChannelStore, items: ChannelPushCatalogItem[], opts?: { dryRun?: boolean }): Promise<Result<ChannelPushCatalogResult, ChannelConnectorError>> {
-      const oauthStartUrl = options.appUrl ? shopifyOAuthStartUrl(options.appUrl, store.storeDomain) : undefined;
-      return executePushCatalog({
-        fetchImpl,
-        apiBase: (target) => apiBase(target, version),
-        credentials,
-      }, store, items, {
-        ...(opts?.dryRun === true ? { dryRun: true } : {}),
-        ...(oauthStartUrl ? { reauthorizeUrl: oauthStartUrl } : {}),
-      });
+    async fetchInventoryPage(store, cursor) {
+      const shop = target(store);
+      if (!shop) return Err(credentialsRequired);
+      return inventoryPage(shop, cursor);
     },
+    /**
+     * Creates the paid order in the store. The platform's order id rides as `sourceIdentifier`, and
+     * an order already carrying it is answered instead of created again: a retry after a lost
+     * response must not put a second paid order in front of the merchant.
+     */
     async pushOrder(store, slice: ChannelOrderSlice) {
-      const token = credentials(store);
-      if (!token) return Err({ code: "SHOPIFY_CREDENTIALS_REQUIRED", message: "Shopify accessToken is required.", retriable: false });
-      const [firstName, ...lastParts] = slice.customer.name.trim().split(/\s+/);
-      const result = await request<{ order: { id: number | string; admin_graphql_api_id?: string } }>(fetchImpl, `${apiBase(store, version, options.baseUrl)}/orders.json`, token, {
-        method: "POST",
-        headers: { "content-type": "application/json", "idempotency-key": `porulle:${slice.orderId}` },
-        body: JSON.stringify({ order: {
-          financial_status: "paid",
-          line_items: slice.lines.map((line) => ({ variant_id: line.externalVariantId, quantity: line.quantity, price: line.unitPrice / 100 })),
-          customer: { email: slice.customer.email, first_name: firstName ?? "", last_name: lastParts.join(" ") },
-          shipping_address: slice.customer.shippingAddress,
-          transactions: [{ kind: "sale", status: "success", amount: slice.grandTotal / 100 }],
-        } }),
-      });
-      if (!result.ok) return result;
-      const id = String(result.value.data.order.id);
-      return Ok({ remoteOrderId: id, remoteUrl: `${apiBase(store, version, options.baseUrl)}/orders/${id}.json` });
+      const shop = target(store);
+      if (!shop) return Err(credentialsRequired);
+      const existing = await shopifyGraphql(shop, ORDER_BY_SOURCE_QUERY, { query: `source_identifier:${JSON.stringify(slice.orderId)}` }, orderBySourceSchema);
+      if (!existing.ok) return existing;
+      const already = existing.value.orders.nodes[0];
+      if (already) return Ok({ remoteOrderId: already.legacyResourceId });
+      const [firstName, ...rest] = slice.customer.name.trim().split(/\s+/);
+      const address = slice.customer.shippingAddress;
+      // Shopify takes a province as its CODE. A region the shopper typed as a name is kept for the
+      // courier on the second address line rather than sent where Shopify would reject it.
+      const provinceCode = address.region !== undefined && /^[A-Z0-9]{1,3}$/.test(address.region) ? address.region : undefined;
+      const regionText = address.region !== undefined && provinceCode === undefined ? address.region : undefined;
+      const address2 = [address.line2, regionText].filter((part) => part !== undefined && part !== "").join(", ");
+      const shippingAddress = {
+        firstName: address.firstName,
+        lastName: address.lastName,
+        address1: address.line1,
+        ...(address2 ? { address2 } : {}),
+        city: address.city,
+        ...(provinceCode ? { provinceCode } : {}),
+        ...(address.postalCode ? { zip: address.postalCode } : {}),
+        countryCode: address.countryCode,
+        ...(address.phone ? { phone: address.phone } : {}),
+      };
+      const created = await shopifyGraphql(shop, ORDER_CREATE_MUTATION, {
+        order: {
+          sourceName: SOURCE_NAME,
+          sourceIdentifier: slice.orderId,
+          currency: slice.currency,
+          email: slice.customer.email,
+          financialStatus: "PAID",
+          customer: { toUpsert: { email: slice.customer.email, firstName: firstName ?? "", lastName: rest.join(" ") } },
+          shippingAddress,
+          lineItems: slice.lines.map((line) => ({
+            variantId: shopifyGid("ProductVariant", line.externalVariantId),
+            quantity: line.quantity,
+            priceSet: money(line.unitPrice, slice.currency),
+          })),
+          transactions: [{ kind: "SALE", status: "SUCCESS", gateway: SOURCE_NAME, amountSet: money(slice.grandTotal, slice.currency) }],
+        },
+        options: { inventoryBehaviour: "DECREMENT_OBEYING_POLICY", sendReceipt: false, sendFulfillmentReceipt: false },
+      }, orderCreateSchema);
+      if (!created.ok) return created;
+      const { order, userErrors } = created.value.orderCreate;
+      if (userErrors.length > 0 || !order) {
+        return Err({ code: "SHOPIFY_ORDER_REJECTED", message: `Shopify refused the order: ${userErrors.map((error) => error.message).join("; ") || "no order returned"}.`, retriable: false });
+      }
+      return Ok({ remoteOrderId: order.legacyResourceId });
     },
     async fetchOrderStatus(store, remoteId) {
-      const token = credentials(store);
-      if (!token) return Err({ code: "SHOPIFY_CREDENTIALS_REQUIRED", message: "Shopify accessToken is required.", retriable: false });
-      const result = await request<{ order: { financial_status?: string | null; fulfillment_status?: string | null; cancelled_at?: string | null } }>(fetchImpl, `${apiBase(store, version, options.baseUrl)}/orders/${encodeURIComponent(remoteId)}.json`, token);
-      return result.ok ? Ok(shopifyStatus(result.value.data.order)) : result;
+      const shop = target(store);
+      if (!shop) return Err(credentialsRequired);
+      const read = await shopifyGraphql(shop, ORDER_STATUS_QUERY, { id: `gid://shopify/Order/${remoteId}` }, orderStatusSchema);
+      if (!read.ok) return read;
+      if (!read.value.order) return Err({ code: "SHOPIFY_ORDER_NOT_FOUND", message: `Shopify has no order ${remoteId}.`, retriable: false });
+      return Ok(orderStatus(read.value.order));
     },
-    async verifyWebhook(_store, request) {
-      const body = await request.text();
-      // Shopify signs every webhook for an app with the app CLIENT SECRET — there is no
-      // per-store/per-subscription secret (unlike WooCommerce). Verify against clientSecret.
-      if (!options.clientSecret) {
-        return Err({ code: "SHOPIFY_CLIENT_SECRET_MISSING", message: "Shopify clientSecret is required to verify webhooks." });
-      }
-      if (!validBase64Hmac(options.clientSecret, body, request.headers.get("x-shopify-hmac-sha256"))) {
-        return Err({ code: "INVALID_WEBHOOK_SIGNATURE", message: "Invalid Shopify webhook signature." });
-      }
-      try {
-        const data = JSON.parse(body) as unknown;
-        const id = request.headers.get("x-shopify-event-id");
-        const type = request.headers.get("x-shopify-topic");
-        if (!id || !type) return Err({ code: "INVALID_WEBHOOK", message: "Shopify webhook headers are incomplete." });
-        return Ok({ id, type, data });
-      } catch {
-        return Err({ code: "INVALID_WEBHOOK", message: "Shopify webhook body must be valid JSON." });
-      }
-    },
+    /**
+     * Every Shopify delivery — catalogue, stock, orders, uninstall and the mandatory compliance topics —
+     * arrives at ONE app-level address declared in `shopify.app.toml`, signed with the app's client
+     * secret (Shopify has no per-store webhook secret). The shop is named by a header, and a delivery
+     * is identified by `X-Shopify-Webhook-Id`: `X-Shopify-Event-Id` is shared by every delivery one
+     * merchant action produces, so deduplicating on it would drop a second topic as a "duplicate".
+     */
     async verifyAppWebhook(request) {
-      if (!options.clientSecret) {
-        return Err({ code: "SHOPIFY_CLIENT_SECRET_MISSING", message: "Shopify clientSecret is required to verify app webhooks.", retriable: false });
-      }
       const body = await request.text();
       if (!validBase64Hmac(options.clientSecret, body, request.headers.get("x-shopify-hmac-sha256"))) {
-        return Err({ code: "INVALID_APP_WEBHOOK_SIGNATURE", message: "Invalid Shopify app webhook signature.", retriable: false });
+        return Err({ code: "INVALID_APP_WEBHOOK_SIGNATURE", message: "Invalid Shopify webhook signature.", retriable: false });
       }
+      const topic = request.headers.get("x-shopify-topic");
+      const shopDomain = request.headers.get("x-shopify-shop-domain")?.toLowerCase();
+      const id = request.headers.get("x-shopify-webhook-id");
+      if (!topic || !shopDomain || !id) return Err({ code: "INVALID_APP_WEBHOOK", message: "Shopify webhook headers are incomplete.", retriable: false });
+      let data: unknown;
       try {
-        const data = JSON.parse(body) as unknown;
-        const payload = data as Record<string, unknown>;
-        const topic = request.headers.get("x-shopify-topic");
-        const shopDomain = typeof payload.shop_domain === "string" ? payload.shop_domain : "";
-        if (!topic) return Err({ code: "INVALID_APP_WEBHOOK", message: "Shopify app webhook topic header is missing.", retriable: false });
-        return Ok({ topic, shopDomain, data });
+        data = JSON.parse(body);
       } catch {
-        return Err({ code: "INVALID_APP_WEBHOOK", message: "Shopify app webhook body must be valid JSON.", retriable: false });
+        return Err({ code: "INVALID_APP_WEBHOOK", message: "Shopify webhook body must be valid JSON.", retriable: false });
       }
+      return Ok({ id, topic, shopDomain, data });
     },
-    async registerWebhooks(store: ChannelStore, topics: string[], callbackUrl: string) {
-      const token = credentials(store);
-      if (!token) return Err({ code: "SHOPIFY_CREDENTIALS_REQUIRED", message: "Shopify accessToken is required." });
-      for (const topic of topics) {
-        const result = await request<{ webhook: unknown }>(fetchImpl, `${apiBase(store, version, options.baseUrl)}/webhooks.json`, token, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ webhook: { topic, address: callbackUrl, format: "json" } }),
-        });
-        if (!result.ok) return result;
-      }
-      return Ok({ registered: topics.length });
+    async refundExecute() {
+      return Err({ code: "NOT_IMPLEMENTED", message: "Refunds are issued by the platform, not executed in the Shopify store." });
     },
-    async refundExecute() { return Err({ code: "NOT_IMPLEMENTED", message: "Shopify refund execution is not implemented in this slice." }); },
   });
+
+  async function inventoryPage(shop: ShopifyGraphqlTarget, cursor: string | null): Promise<Result<{ levels: ChannelInventoryLevel[]; nextCursor: string | null }, ChannelConnectorError>> {
+    const page = await shopifyGraphql(shop, INVENTORY_QUERY, { after: cursor }, inventoryPageSchema);
+    if (!page.ok) return page;
+    const { pageInfo, nodes } = page.value.productVariants;
+    if (pageInfo.hasNextPage && (!pageInfo.endCursor || pageInfo.endCursor === cursor)) {
+      return Err({ code: "SHOPIFY_PAGINATION_STUCK", message: "Shopify answered an inventory page that does not advance.", retriable: false });
+    }
+    return Ok({ levels: nodes.map(level), nextCursor: pageInfo.hasNextPage ? pageInfo.endCursor : null });
+  }
 }

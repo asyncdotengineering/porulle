@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
+import { z } from "zod";
 import {
   CommerceInvalidTransitionError,
+  CommerceNotFoundError,
   CommerceValidationError,
   Ok,
   PluginErr,
@@ -15,6 +17,7 @@ import type {
   EntityLinkRows,
   ChannelCatalogItem,
   ChannelConnector,
+  ChannelOrderAddress,
   ChannelOrderSlice,
   ChannelPushCatalogField,
   ChannelPushCatalogImage,
@@ -37,6 +40,7 @@ import { isValidFieldPath, requireUserId } from "@porulle/core";
 import type { FieldOwner, FieldPath } from "@porulle/core";
 import type { JobsAdapter } from "@porulle/core";
 import { CHANNEL_CONVERGENCE_CTX } from "./catalog-push-trigger.js";
+import { resolveLiveCredentials, withLiveCredentials } from "./live-credentials.js";
 import { and, desc, eq, inArray, isNull, lte, or, sql, type SQL } from "@porulle/core/drizzle";
 import {
   brands,
@@ -232,18 +236,40 @@ export interface ChannelComplianceData {
 }
 
 /**
- * What a consumer is allowed to read, resolved per request.
+ * Which stores the caller may see and act on, resolved per request.
  *
  * Returning `null` means "do not confine" and is the default — every existing consumer keeps the
- * organization-wide behaviour. An array is the complete set of store ids this caller may see, and
- * **`[]` means none**, not "no filter".
+ * organization-wide behaviour. An array is the complete set of store ids this caller may reach, and
+ * **`[]` means none**, not "no filter". Applied to the list AND to every route that names one store,
+ * where a store outside the set answers NOT_FOUND — a refusal must not confirm the store exists.
  *
  * It takes IDS rather than a tenant, deliberately. `vendor`, `seller`, `team` are models a consumer
  * owns; this package is generic commerce and acquiring one of them here would push a marketplace
  * concept into every deployment that has no such thing. The consumer resolves the meaning and hands
  * back the answer.
  */
-export type ConfineStoreReads = (context: StoreReadContext) => Promise<readonly string[] | null> | readonly string[] | null;
+export type ConfineStores = (context: StoreReadContext) => Promise<readonly string[] | null> | readonly string[] | null;
+
+/** Who connected a store: the signed-in user who started OAuth, or the caller of `POST /stores`. */
+export interface StoreConnectActor {
+  orgId: string;
+  userId: string | null;
+  /** Core's request escape hatch when the connect is a request; absent on the OAuth callback. */
+  raw?: unknown;
+}
+
+/**
+ * Binds a just-connected store to whatever the consumer means by an owner, INSIDE the transaction
+ * that wrote the store row — so a store and its binding commit together or not at all. Throw to
+ * refuse the connection; the store row is rolled back with it.
+ */
+export type BindConnectedStore = (input: { db: PluginDb; store: ConnectedStore; actor: StoreConnectActor }) => Promise<void>;
+
+/** Work that follows a committed connection: the first import, provider-attested facts, keys. */
+export type AfterStoreConnected = (input: { store: ConnectedStore; actor: StoreConnectActor; connector: ChannelConnector }) => Promise<void>;
+
+/** Entities a provider webhook just created or changed, converged; the host projects them. */
+export type OnStoreCatalogChanged = (input: { orgId: string; storeId: string; entityIds: string[]; convergence: CatalogPageConvergence }) => Promise<void>;
 
 /** What a consumer needs to resolve the caller. `raw` is core's documented request escape hatch. */
 export interface StoreReadContext {
@@ -255,13 +281,28 @@ export interface StoreReadContext {
 export interface ChannelConnectorPluginOptions {
   connectors?: ChannelConnector[];
   /**
-   * Confines store reads to a set the consumer chooses. See {@link ConfineStoreReads}.
+   * Confines stores to a set the consumer chooses. See {@link ConfineStores}.
    *
    * Absent by default, because narrowing an existing read for every deployment would be a breaking
    * change to a published package. A consumer that needs confinement opts in; one that does not is
    * unaffected.
    */
-  confineStoreReads?: ConfineStoreReads;
+  confineStores?: ConfineStores;
+  /** See {@link BindConnectedStore}. */
+  bindConnectedStore?: BindConnectedStore;
+  /** See {@link AfterStoreConnected}. */
+  afterStoreConnected?: AfterStoreConnected;
+  /** See {@link OnStoreCatalogChanged}. Absent, a webhook's products converge and nothing else runs. */
+  onStoreCatalogChanged?: OnStoreCatalogChanged;
+  /**
+   * This deployment's public origin. Required for a connector that registers webhooks per store: a
+   * provider delivers to an ABSOLUTE address, and a relative one is refused at connect.
+   */
+  publicUrl?: string;
+  /**
+   * `postConnectRedirect` is where the merchant's browser lands after OAuth, with `connected=<storeId>`
+   * or `connect_error=<code>` appended — a browser flow ends on a page, never on a JSON error.
+   */
   oauth?: { stateSecret: string; postConnectRedirect: string };
   inventoryTimeoutMs?: number;
   jobs?: JobsAdapter;
@@ -997,6 +1038,30 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   }
 }
 
+/** What a host writes as an order's `metadata.shippingAddress`, in {@link ChannelOrderAddress}'s spelling. */
+export const channelOrderAddressSchema = z.object({
+  firstName: z.string(),
+  lastName: z.string(),
+  line1: z.string().min(1),
+  line2: z.string().optional(),
+  city: z.string().min(1),
+  region: z.string().optional(),
+  postalCode: z.string().optional(),
+  countryCode: z.string().regex(/^[A-Z]{2}$/, "countryCode must be ISO 3166-1 alpha-2"),
+  phone: z.string().optional(),
+});
+
+function withoutUndefined(address: z.infer<typeof channelOrderAddressSchema>): ChannelOrderAddress {
+  const { line2, region, postalCode, phone, ...required } = address;
+  return {
+    ...required,
+    ...(line2 !== undefined ? { line2 } : {}),
+    ...(region !== undefined ? { region } : {}),
+    ...(postalCode !== undefined ? { postalCode } : {}),
+    ...(phone !== undefined ? { phone } : {}),
+  };
+}
+
 function redactStore(store: ConnectedStore): PublicConnectedStore {
   return {
     id: store.id,
@@ -1200,7 +1265,7 @@ export class ChannelConnectorService {
       if (this.connectors.has(connector.providerId)) {
         throw new Error(`Duplicate channel connector providerId: ${connector.providerId}`);
       }
-      this.connectors.set(connector.providerId, connector);
+      this.connectors.set(connector.providerId, withLiveCredentials(connector, db));
     }
     this.jobs = options.jobs ?? (services.jobs as JobsAdapter | undefined);
     this.transact = transaction ?? ((fn) => this.db.transaction(fn));
@@ -3025,6 +3090,15 @@ export class ChannelConnectorService {
     return this.getCatalogWriteSettings(orgId, storeId);
   }
 
+  /**
+   * Connects a store, or refreshes the grant of one this organization already holds for the same
+   * provider and domain (a reconnect after an uninstall, or a re-authorization) — never a second row
+   * for the same shop, which would import it twice.
+   *
+   * The row and the consumer's binding of it ({@link BindConnectedStore}) are one transaction. A
+   * provider that subscribes per store is registered after commit, at an absolute address; the
+   * consumer's follow-on work ({@link AfterStoreConnected}) runs after that.
+   */
   async connectStore(
     orgId: string,
     input: {
@@ -3033,64 +3107,98 @@ export class ChannelConnectorService {
       storeDomain: string;
       webhookSecret?: string;
     },
+    actor: StoreConnectActor,
   ): Promise<PluginResult<PublicConnectedStore>> {
-    if (!this.connectors.has(input.provider)) {
-      return PluginErr(`No connector registered for provider "${input.provider}".`, "NOT_FOUND");
+    const connector = this.connectors.get(input.provider);
+    if (!connector) return PluginErr(`No connector registered for provider "${input.provider}".`, "NOT_FOUND");
+    const storeDomain = connector.normalizeStoreDomain ? connector.normalizeStoreDomain(input.storeDomain) : input.storeDomain;
+    if (!storeDomain) return PluginErr(`"${input.storeDomain}" does not name a ${input.provider} store.`, "INVALID_STORE_DOMAIN");
+    if (connector.registerWebhooks && !this.options.publicUrl) {
+      return PluginErr(`Connector "${input.provider}" subscribes per store and needs the plugin's publicUrl to give it an absolute address.`, "PUBLIC_URL_REQUIRED");
     }
-    const existingRows = await this.db
-      .select()
-      .from(connectedStores)
-      .where(and(
-        eq(connectedStores.organizationId, orgId),
-        eq(connectedStores.provider, input.provider),
-        eq(connectedStores.storeDomain, input.storeDomain),
-      ));
-    const reconnect = existingRows.find((row) => row.status !== "connected");
-    const rows = reconnect
-      ? await this.db
-        .update(connectedStores)
-        .set({
-          credentials: input.credentials,
-          status: "connected",
-          catalogWriteEnabled: false,
-          webhookSecret: input.webhookSecret ?? crypto.randomUUID(),
-          updatedAt: new Date(),
-        })
-        .where(eq(connectedStores.id, reconnect.id))
-        .returning()
-      : await this.db
-        .insert(connectedStores)
-        .values({
-          organizationId: orgId,
-          provider: input.provider,
-          credentials: input.credentials,
-          storeDomain: input.storeDomain,
-          webhookSecret: input.webhookSecret ?? crypto.randomUUID(),
-        })
-        .returning();
-    const connector = this.connectors.get(input.provider)!;
-    const store = rows[0] as ConnectedStore;
-    if (connector.registerWebhooks) {
+    let store: ConnectedStore;
+    try {
+      store = await this.transact(async (tx) => {
+        const [existing] = await tx.select().from(connectedStores).where(and(
+          eq(connectedStores.organizationId, orgId),
+          eq(connectedStores.provider, input.provider),
+          eq(connectedStores.storeDomain, storeDomain),
+        ));
+        const rows = existing
+          ? await tx.update(connectedStores).set({
+            credentials: input.credentials,
+            status: "connected",
+            ...(existing.status !== "connected" ? { catalogWriteEnabled: false } : {}),
+            webhookSecret: input.webhookSecret ?? existing.webhookSecret ?? crypto.randomUUID(),
+            updatedAt: new Date(),
+          }).where(eq(connectedStores.id, existing.id)).returning()
+          : await tx.insert(connectedStores).values({
+            organizationId: orgId,
+            provider: input.provider,
+            credentials: input.credentials,
+            storeDomain,
+            webhookSecret: input.webhookSecret ?? crypto.randomUUID(),
+          }).returning();
+        const written = rows[0] as ConnectedStore | undefined;
+        if (!written) throw new Error("The connected store row was not written.");
+        await this.options.bindConnectedStore?.({ db: tx, store: written, actor });
+        return written;
+      });
+    } catch (error) {
+      return PluginErr(error instanceof Error ? error.message : "The store could not be connected.", error instanceof CommerceNotFoundError ? "NOT_FOUND" : "STORE_CONNECTION_REFUSED");
+    }
+    if (connector.registerWebhooks && this.options.publicUrl) {
+      const callbackUrl = new URL(`/api/channels/webhooks/${store.id}`, this.options.publicUrl).toString();
       const registration = await connector.registerWebhooks(store as ChannelStore, [
+        "products/create",
         "products/update",
         "products/delete",
         "inventory_levels/update",
         "orders/fulfilled",
         "orders/cancelled",
-        "refunds/create",
         "app/uninstalled",
-      ], `/api/channels/webhooks/${store.id}`);
+      ], callbackUrl);
       if (!registration.ok) {
         await this.db.update(connectedStores).set({ status: "error", updatedAt: new Date() }).where(eq(connectedStores.id, store.id));
         return PluginErr(registration.error.message, "CONNECTOR_REGISTRATION_FAILED");
       }
     }
-    // Connecting starts no import. The host's operator route starts one (and levels inventory after
-    // it); connect used to enqueue a second, sequential walk that ran beside the host's own.
+    if (this.options.afterStoreConnected) {
+      try {
+        await this.options.afterStoreConnected({ store, actor, connector });
+      } catch (error) {
+        return PluginErr(error instanceof Error ? error.message : "The store connected but its follow-on work failed.", "AFTER_CONNECT_FAILED");
+      }
+    }
     return Ok(redactStore(store));
   }
 
-  async disconnectStore(orgId: string, id: string): Promise<PluginResult<PublicConnectedStore>> {
+  /** The store with credentials good for a call the host makes itself, e.g. its own Admin API write. */
+  async liveStore(orgId: string, storeId: string): Promise<PluginResult<ChannelStore>> {
+    const store = await this.getStoreRecord(orgId, storeId);
+    if (!store || store.status !== "connected") return PluginErr("Connected store not found.", "NOT_FOUND");
+    const connector = this.connectors.get(store.provider);
+    if (!connector) return PluginErr(`No connector registered for provider "${store.provider}".`, "NOT_FOUND");
+    const live = await resolveLiveCredentials(connector, this.db, store as ChannelStore);
+    return live.ok ? Ok(live.value) : PluginErr(live.error.message, live.error.code);
+  }
+
+  /** The caller's allow-list, or null for unconfined. See {@link ConfineStores}. */
+  private async allowedStores(orgId: string, context: StoreReadContext | undefined): Promise<readonly string[] | null> {
+    return this.options.confineStores ? await this.options.confineStores(context ?? { orgId, actor: null, raw: undefined }) : null;
+  }
+
+  /** NOT_FOUND for a store outside the caller's set, exactly as for one that does not exist. */
+  async reachableStore(orgId: string, id: string, context: StoreReadContext | undefined): Promise<PluginResult<ConnectedStore>> {
+    const allowed = await this.allowedStores(orgId, context);
+    if (allowed !== null && !allowed.includes(id)) return PluginErr("Connected store not found.", "NOT_FOUND");
+    const store = await this.getStoreRecord(orgId, id);
+    return store ? Ok(store) : PluginErr("Connected store not found.", "NOT_FOUND");
+  }
+
+  async disconnectStore(orgId: string, id: string, context?: StoreReadContext): Promise<PluginResult<PublicConnectedStore>> {
+    const store = await this.reachableStore(orgId, id, context);
+    if (!store.ok) return store;
     return this.disconnectStoreSystem(orgId, id);
   }
 
@@ -3111,16 +3219,13 @@ export class ChannelConnectorService {
     return Ok(redactStore(store));
   }
 
-  async getStore(orgId: string, id: string): Promise<PluginResult<PublicConnectedStore>> {
-    const store = await this.getStoreRecord(orgId, id);
-    if (!store) return PluginErr("Connected store not found.", "NOT_FOUND");
-    return Ok(redactStore(store));
+  async getStore(orgId: string, id: string, context?: StoreReadContext): Promise<PluginResult<PublicConnectedStore>> {
+    const store = await this.reachableStore(orgId, id, context);
+    return store.ok ? Ok(redactStore(store.value)) : store;
   }
 
   async listStores(orgId: string, context?: StoreReadContext): Promise<PluginResult<PublicConnectedStore[]>> {
-    const allowed = this.options.confineStoreReads
-      ? await this.options.confineStoreReads(context ?? { orgId, actor: null, raw: undefined })
-      : null;
+    const allowed = await this.allowedStores(orgId, context);
     // An empty allow-list means the caller may read NOTHING, stated here rather than left to the
     // query builder.
     //
@@ -4767,7 +4872,32 @@ export class ChannelConnectorService {
     let skipped: CatalogFieldSkip[] = [];
     let conflicts: CatalogFieldConflict[] = [];
     let warnings: string[] = [];
-    if (event.type === "products/update") {
+    const connector = this.connectors.get(store.provider);
+    if ((event.type === "products/create" || event.type === "products/update") && connector?.fetchCatalogItems) {
+      // A webhook is a notification, not a snapshot: its payload is the provider's wire spelling and
+      // may be stale or out of order. The product is read fresh and converged exactly as an import
+      // page would be — creating it when this store has never mapped it.
+      const externalId = String(data.id ?? data.product_id ?? "");
+      if (!externalId) return PluginErr(`A ${event.type} delivery named no product.`, "INVALID_WEBHOOK");
+      const read = await connector.fetchCatalogItems(store as ChannelStore, [externalId]);
+      if (!read.ok) return PluginErr(read.error.message, read.error.code);
+      const [item] = read.value;
+      if (item === undefined) {
+        // Gone between the delivery and the read: the same as a delete.
+        const archived = await this.archiveMappedProduct(orgId, storeId, externalId, actor);
+        if (!archived.ok) return archived;
+        skipped = archived.value;
+      } else {
+        const converged = await this.convergeCatalogPage(orgId, storeId, [item], actor);
+        if (!converged.ok) return converged;
+        const [failure] = converged.value.failures;
+        if (failure) return PluginErr(`Product ${failure.externalId} could not be converged: ${failure.error}`, "CONVERGENCE_FAILED");
+        warnings = [...converged.value.warnings];
+        if (converged.value.entityIds.length > 0) {
+          await this.options.onStoreCatalogChanged?.({ orgId, storeId, entityIds: [...converged.value.entityIds], convergence: converged.value });
+        }
+      }
+    } else if (event.type === "products/update") {
       const productId = String(data.id ?? data.product_id ?? "");
       const mapping = await this.db.select().from(channelEntityMap).where(and(eq(channelEntityMap.organizationId, orgId), eq(channelEntityMap.storeId, storeId), eq(channelEntityMap.kind, "entity"), eq(channelEntityMap.externalId, productId)));
       if (mapping[0]) {
@@ -4778,17 +4908,9 @@ export class ChannelConnectorService {
         warnings = converged.value.warnings;
       }
     } else if (event.type === "products/delete") {
-      const productId = String(data.id ?? data.product_id ?? "");
-      const mapping = await this.db.select().from(channelEntityMap).where(and(eq(channelEntityMap.organizationId, orgId), eq(channelEntityMap.storeId, storeId), eq(channelEntityMap.kind, "entity"), eq(channelEntityMap.externalId, productId)));
-      if (mapping[0]) {
-        const owners = await this.catalog.resolveFieldOwners(mapping[0].entityId, storeId);
-        if (owners.get("entity.status") === "platform") {
-          skipped.push({ entityId: mapping[0].entityId, fieldPath: "entity.status" });
-        } else {
-          const archived = await this.catalog.archive(mapping[0].entityId, actor);
-          if (!archived.ok) return PluginErr(archived.error.message);
-        }
-      }
+      const archived = await this.archiveMappedProduct(orgId, storeId, String(data.id ?? data.product_id ?? ""), actor);
+      if (!archived.ok) return archived;
+      skipped = archived.value;
     } else if (event.type === "inventory_levels/update") {
       const available = Number(data.available ?? data.stock_quantity ?? 0);
       // Shopify names an INVENTORY ITEM, whose id is not the variant id the channel map is keyed by;
@@ -4798,7 +4920,16 @@ export class ChannelConnectorService {
       const inventoryItemId = data.inventory_item_id !== undefined && data.inventory_item_id !== null ? String(data.inventory_item_id) : null;
       const byInventoryItem = inventoryItemId === null ? null : await this.variantForInventoryItem(orgId, storeId, inventoryItemId);
       if (byInventoryItem !== null) {
-        await this.setInventoryLevel(byInventoryItem.entityId, byInventoryItem.variantId, available, actor);
+        // The delivery's `available` is ONE location's count. The variant's stock is the sum the
+        // connector reads, so it is read fresh rather than taken from the payload.
+        let quantity = available;
+        if (connector) {
+          const levels = await connector.fetchInventory(store as ChannelStore, [byInventoryItem.externalId]);
+          if (!levels.ok) return PluginErr(levels.error.message, levels.error.code);
+          const fresh = levels.value.find((entry) => entry.externalId === byInventoryItem.externalId);
+          if (fresh) quantity = fresh.available;
+        }
+        await this.setInventoryLevel(byInventoryItem.entityId, byInventoryItem.variantId, quantity, actor);
       } else {
         const externalId = String(data.variation_id ?? data.product_id ?? inventoryItemId ?? "");
         await this.setMappedInventory(orgId, storeId, externalId, available, actor);
@@ -4907,9 +5038,20 @@ export class ChannelConnectorService {
 
   private async resolveOrderId(orgId: string, storeId: string, data: Record<string, unknown>): Promise<string | undefined> {
     const nestedOrder = data.order && typeof data.order === "object" ? data.order as Record<string, unknown> : undefined;
-    const remoteOrderId = String(data.order_id ?? data.orderId ?? nestedOrder?.id ?? "");
+    // An `orders/*` payload IS the order, so its own `id` names it; a refund names its order in `order_id`.
+    const remoteOrderId = String(data.order_id ?? data.orderId ?? nestedOrder?.id ?? data.id ?? "");
     const rows = await this.db.select({ orderId: channelOrderExports.orderId }).from(channelOrderExports).where(and(eq(channelOrderExports.organizationId, orgId), eq(channelOrderExports.storeId, storeId), eq(channelOrderExports.remoteOrderId, remoteOrderId)));
     return rows[0]?.orderId;
+  }
+
+  /** Archives this store's product mapped to `externalId`, unless the platform owns its status. */
+  private async archiveMappedProduct(orgId: string, storeId: string, externalId: string, actor: Actor): Promise<PluginResult<CatalogFieldSkip[]>> {
+    const [mapping] = await this.db.select().from(channelEntityMap).where(and(eq(channelEntityMap.organizationId, orgId), eq(channelEntityMap.storeId, storeId), eq(channelEntityMap.kind, "entity"), eq(channelEntityMap.externalId, externalId)));
+    if (!mapping) return Ok([]);
+    const owners = await this.catalog.resolveFieldOwners(mapping.entityId, storeId);
+    if (owners.get("entity.status") === "platform") return Ok([{ entityId: mapping.entityId, fieldPath: "entity.status" }]);
+    const archived = await this.catalog.archive(mapping.entityId, actor);
+    return archived.ok ? Ok([]) : PluginErr(archived.error.message);
   }
 
   private async setMappedInventory(orgId: string, storeId: string, externalId: string, quantity: number, actor: Actor): Promise<void> {
@@ -4924,8 +5066,8 @@ export class ChannelConnectorService {
   }
 
   /** This store's mapped variant whose import recorded `metadata.inventoryItemId`; null when none, or when two claim it. */
-  private async variantForInventoryItem(orgId: string, storeId: string, inventoryItemId: string): Promise<{ entityId: string; variantId: string } | null> {
-    const rows = await this.db.select({ entityId: channelEntityMap.entityId, variantId: channelEntityMap.variantId }).from(channelEntityMap)
+  private async variantForInventoryItem(orgId: string, storeId: string, inventoryItemId: string): Promise<{ entityId: string; variantId: string; externalId: string } | null> {
+    const rows = await this.db.select({ entityId: channelEntityMap.entityId, variantId: channelEntityMap.variantId, externalId: channelEntityMap.externalId }).from(channelEntityMap)
       .innerJoin(variants, eq(variants.id, channelEntityMap.variantId))
       .where(and(
         eq(channelEntityMap.organizationId, orgId),
@@ -4935,7 +5077,7 @@ export class ChannelConnectorService {
       ))
       .limit(2);
     const [only] = rows;
-    return rows.length === 1 && only !== undefined && only.variantId !== null ? { entityId: only.entityId, variantId: only.variantId } : null;
+    return rows.length === 1 && only !== undefined && only.variantId !== null ? { entityId: only.entityId, variantId: only.variantId, externalId: only.externalId } : null;
   }
 
   private async convergeCatalogItem(
@@ -5360,7 +5502,7 @@ export class ChannelConnectorService {
 
     let email: string | null = null;
     let name = "";
-    let shippingAddress: Record<string, unknown> | null = null;
+    let shippingAddress: ChannelOrderAddress | null = null;
     if (order.customerId) {
       const [customer] = await this.db.select().from(customers).where(and(eq(customers.organizationId, orgId), eq(customers.id, order.customerId)));
       if (customer) {
@@ -5371,7 +5513,19 @@ export class ChannelConnectorService {
         // shipped to their default. The order's address is applied below and wins.
         const addresses = await this.db.select().from(customerAddresses).where(and(eq(customerAddresses.customerId, customer.id), eq(customerAddresses.type, "shipping")));
         const address = addresses.find((item) => item.isDefault) ?? addresses[0];
-        if (address) shippingAddress = { first_name: address.firstName, last_name: address.lastName, address1: address.line1, ...(address.line2 ? { address2: address.line2 } : {}), city: address.city, ...(address.state ? { state: address.state } : {}), ...(address.postalCode ? { zip: address.postalCode } : {}), country: address.country, ...(address.phone ? { phone: address.phone } : {}) };
+        if (address) {
+          shippingAddress = {
+            firstName: address.firstName ?? "",
+            lastName: address.lastName ?? "",
+            line1: address.line1,
+            ...(address.line2 ? { line2: address.line2 } : {}),
+            city: address.city,
+            ...(address.state ? { region: address.state } : {}),
+            ...(address.postalCode ? { postalCode: address.postalCode } : {}),
+            countryCode: address.country,
+            ...(address.phone ? { phone: address.phone } : {}),
+          };
+        }
       }
     }
     const metadata = order.metadata ?? {};
@@ -5379,7 +5533,11 @@ export class ChannelConnectorService {
     email ??= typeof guest.email === "string" ? guest.email : null;
     name ||= typeof guest.name === "string" ? guest.name : `${typeof guest.firstName === "string" ? guest.firstName : ""} ${typeof guest.lastName === "string" ? guest.lastName : ""}`.trim();
     const orderShipping = metadata.shippingAddress ?? metadata.guestShippingAddress ?? (typeof metadata.guestCustomer === "object" && metadata.guestCustomer ? (metadata.guestCustomer as Record<string, unknown>).shippingAddress : undefined);
-    if (orderShipping && typeof orderShipping === "object") shippingAddress = orderShipping as Record<string, unknown>;
+    if (orderShipping !== undefined) {
+      const parsed = channelOrderAddressSchema.safeParse(orderShipping);
+      if (!parsed.success) return PluginErr(`The order's shipping address is not a channel order address: ${parsed.error.issues[0]?.message ?? "invalid"}.`, "CUSTOMER_DATA_MISSING");
+      shippingAddress = withoutUndefined(parsed.data);
+    }
     if (!email || !shippingAddress) return PluginErr("Customer email and shipping address are required for channel order export.", "CUSTOMER_DATA_MISSING");
     return Ok({ orderId, currency: order.currency, grandTotal: lines.reduce((sum, line) => sum + line.totalPrice, 0), lines, customer: { name, email, shippingAddress } });
   }

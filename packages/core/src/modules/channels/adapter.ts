@@ -84,6 +84,8 @@ export interface ChannelCatalogItem {
   brand?: string;
   categories?: string[];
   status?: "draft" | "active" | "archived" | "discontinued";
+  /** The product's page on the merchant's own storefront, as the provider reports it. Never inferred. */
+  storefrontUrl?: string;
 }
 
 export interface ChannelCatalogPage {
@@ -105,6 +107,21 @@ export interface ChannelOrderLine {
   totalPrice: number;
 }
 
+/** Where an order ships, in no provider's spelling; each connector maps it to its own. */
+export interface ChannelOrderAddress {
+  firstName: string;
+  lastName: string;
+  line1: string;
+  line2?: string;
+  city: string;
+  /** A province or state: its code where the shopper's country has one, else as typed. */
+  region?: string;
+  postalCode?: string;
+  /** ISO 3166-1 alpha-2. */
+  countryCode: string;
+  phone?: string;
+}
+
 export interface ChannelOrderSlice {
   orderId: string;
   currency: string;
@@ -113,7 +130,7 @@ export interface ChannelOrderSlice {
   customer: {
     name: string;
     email: string;
-    shippingAddress: Record<string, unknown>;
+    shippingAddress: ChannelOrderAddress;
   };
 }
 
@@ -189,6 +206,24 @@ export interface ChannelWebhookEvent {
   data: unknown;
 }
 
+/** A delivery to the provider's ONE app-level webhook address, naming the store it concerns. */
+export interface ChannelAppWebhookEvent {
+  /** Unique per delivery and stable across the provider's retries of it: the deduplication key. */
+  id: string;
+  topic: string;
+  shopDomain: string;
+  data: unknown;
+}
+
+/** What the provider says about the store itself, read with the credentials the merchant granted. */
+export interface ChannelStoreProfile {
+  name: string;
+  /** ISO 4217: the currency the store prices its catalogue in. */
+  currency: string;
+  /** Hosts that serve this store's own storefront, attested by the provider. Lower-case. */
+  storefrontHosts: string[];
+}
+
 export interface ChannelReservation {
   id: string;
   expiresAt?: Date;
@@ -213,7 +248,26 @@ export interface ChannelConnector {
     request: Request,
     ctx: { storeDomain: string },
   ): Promise<Result<{ credentials: Record<string, unknown>; storeDomain: string }, ChannelConnectorError>>;
+  /**
+   * The canonical spelling of what a merchant typed to name their store, or undefined when it cannot
+   * name one. OAuth start runs the input through this before anything is signed or redirected.
+   */
+  normalizeStoreDomain?(input: string): string | undefined;
+  /**
+   * Credentials good for the next call: `null` when the stored ones are, new ones when the
+   * connector refreshed an expiring grant. The channel service calls this before every connector
+   * call that takes a store and persists what it returns, so no call starts on a lapsed token. A
+   * non-retriable error means the grant is gone and the merchant must reconnect.
+   */
+  liveCredentials?(store: ChannelStore): Promise<Result<Record<string, unknown> | null, ChannelConnectorError>>;
+  fetchStoreProfile?(store: ChannelStore): Promise<Result<ChannelStoreProfile, ChannelConnectorError>>;
   importCatalog(store: ChannelStore, cursor?: string): Promise<Result<ChannelCatalogPage>>;
+  /**
+   * The current state of the named products, read fresh. A webhook is a notification, not a
+   * snapshot: its payload is in the provider's wire spelling and can arrive out of order, so a
+   * product change is applied from this read. An id the provider no longer has is absent.
+   */
+  fetchCatalogItems?(store: ChannelStore, externalIds: string[]): Promise<Result<ChannelCatalogItem[], ChannelConnectorError>>;
   fetchInventory(store: ChannelStore, ids?: string[]): Promise<Result<ChannelInventoryLevel[]>>;
   /**
    * One page of the store's inventory, starting at `cursor` (null for the first page), with the
@@ -229,10 +283,11 @@ export interface ChannelConnector {
     opts?: { dryRun?: boolean },
   ): Promise<Result<ChannelPushCatalogResult, ChannelConnectorError>>;
   fetchOrderStatus(store: ChannelStore, remoteId: string): Promise<Result<ChannelOrderStatus, ChannelConnectorError>>;
-  verifyWebhook(store: ChannelStore, request: Request): Promise<Result<ChannelWebhookEvent>>;
-  verifyAppWebhook?(
-    request: Request,
-  ): Promise<Result<{ topic: string; shopDomain: string; data: unknown }, ChannelConnectorError>>;
+  /** A delivery to the per-store address, for providers that sign per store (WooCommerce). */
+  verifyWebhook?(store: ChannelStore, request: Request): Promise<Result<ChannelWebhookEvent>>;
+  /** A delivery to the provider-wide address, for providers that sign per app (Shopify). */
+  verifyAppWebhook?(request: Request): Promise<Result<ChannelAppWebhookEvent, ChannelConnectorError>>;
+  /** Called on connect with an ABSOLUTE callback URL, for providers that subscribe each store separately. */
   registerWebhooks?(
     store: ChannelStore,
     topics: string[],

@@ -166,14 +166,19 @@ describe("woocommerce connector", () => {
       currency: "USD",
       grandTotal: 2500,
       lines: [{ externalVariantId: "11", title: "Lamp", quantity: 2, unitPrice: 1250, totalPrice: 2500 }],
-      customer: { name: "Priya Shopper", email: "priya@example.test", shippingAddress: { address1: "1 Main St", city: "Colombo", country: "LK" } },
+      customer: { name: "Priya Shopper", email: "priya@example.test", shippingAddress: { firstName: "Priya", lastName: "Shopper", line1: "1 Main St", city: "Colombo", countryCode: "LK" } },
     });
     expect(pushed).toEqual({ ok: true, value: { remoteOrderId: "42", remoteUrl: expect.stringContaining("post.php") } });
-    expect(JSON.parse(body)).toMatchObject({ set_paid: true, line_items: [{ variation_id: "11", total: 25 }], billing: { email: "priya@example.test" } });
+    expect(JSON.parse(body)).toMatchObject({
+      set_paid: true,
+      line_items: [{ variation_id: "11", total: 25 }],
+      billing: { email: "priya@example.test", address_1: "1 Main St", country: "LK" },
+      shipping: { first_name: "Priya", last_name: "Shopper", address_1: "1 Main St", city: "Colombo", country: "LK" },
+    });
     const status = wooConnector({ fetchImpl: async () => new Response(JSON.stringify({ status: "completed" })) });
     expect(await status.fetchOrderStatus(store, "42")).toEqual({ ok: true, value: { status: "fulfilled" } });
     const failed = wooConnector({ fetchImpl: async () => new Response("", { status: 500 }) });
-    const error = await failed.pushOrder(store, { orderId: "order-1", currency: "USD", grandTotal: 0, lines: [], customer: { name: "", email: "a@test", shippingAddress: {} } });
+    const error = await failed.pushOrder(store, { orderId: "order-1", currency: "USD", grandTotal: 0, lines: [], customer: { name: "", email: "a@test", shippingAddress: { firstName: "Priya", lastName: "Shopper", line1: "1 Main St", city: "Colombo", countryCode: "LK" } } });
     expect(error.ok).toBe(false);
     if (!error.ok) expect(error.error.retriable).toBe(true);
   });
@@ -338,7 +343,7 @@ describe("woocommerce connector", () => {
       currency: "USD",
       grandTotal: 0,
       lines: [],
-      customer: { name: "", email: "a@test", shippingAddress: {} },
+      customer: { name: "", email: "a@test", shippingAddress: { firstName: "Priya", lastName: "Shopper", line1: "1 Main St", city: "Colombo", countryCode: "LK" } },
     });
     const catalog = await connector.pushCatalog!(store, [{
       externalId: "501",
@@ -487,8 +492,8 @@ describe("woocommerce connector", () => {
       expect(JSON.parse(String(init?.body))).toMatchObject({ topic: "refunds/create", delivery_url: "/api/channels/webhooks/store-1", secret: "webhook-secret" });
       return new Response(JSON.stringify({ id: 1 }));
     } });
-    expect(await connector.verifyWebhook(store, new Request("http://test", { method: "POST", body, headers: { "x-wc-webhook-signature": signature, "x-wc-webhook-id": "evt-1", "x-wc-webhook-topic": "refunds/create" } }))).toEqual({ ok: true, value: { id: "evt-1", type: "refunds/create", data: { id: 1 } } });
-    expect((await connector.verifyWebhook(store, new Request("http://test", { method: "POST", body: `${body}x`, headers: { "x-wc-webhook-signature": signature, "x-wc-webhook-id": "evt-1", "x-wc-webhook-topic": "refunds/create" } }))).ok).toBe(false);
+    expect(await connector.verifyWebhook?.(store, new Request("http://test", { method: "POST", body, headers: { "x-wc-webhook-signature": signature, "x-wc-webhook-id": "evt-1", "x-wc-webhook-topic": "refunds/create" } }))).toEqual({ ok: true, value: { id: "evt-1", type: "refunds/create", data: { id: 1 } } });
+    expect((await connector.verifyWebhook?.(store, new Request("http://test", { method: "POST", body: `${body}x`, headers: { "x-wc-webhook-signature": signature, "x-wc-webhook-id": "evt-1", "x-wc-webhook-topic": "refunds/create" } })))?.ok).toBe(false);
     expect(await connector.registerWebhooks!(store, ["refunds/create"], "/api/channels/webhooks/store-1")).toEqual({ ok: true, value: { registered: 1 } });
   });
 });

@@ -25,7 +25,11 @@ import { wooConnector } from "@porulle/adapter-woocommerce";
 export default defineConfig({
   plugins: [
     channelConnectorPlugin({
-      connectors: [shopifyConnector(), wooConnector()],
+      connectors: [
+        shopifyConnector({ clientId: process.env.SHOPIFY_CLIENT_ID!, clientSecret: process.env.SHOPIFY_CLIENT_SECRET! }),
+        wooConnector(),
+      ],
+      publicUrl: "https://platform.example",
     }),
   ],
 });
@@ -51,7 +55,7 @@ bunx drizzle-kit push --config drizzle.config.ts
 
 ## Connect a store: two front doors
 
-A merchant provides credentials once — a Shopify Admin API access token, or a WooCommerce consumer key + secret. Your onboarding backend makes one call:
+A merchant connects once. For Shopify that is OAuth (below): Shopify no longer issues pasteable Admin API tokens to new apps, and a public app must hold an **expiring** offline token, which the connector refreshes itself. `POST /api/channels/stores` takes credentials directly — a WooCommerce consumer key + secret, or a test token:
 
 ```ts
 await fetch(`${PORULLE}/api/channels/stores`, {
@@ -60,19 +64,19 @@ await fetch(`${PORULLE}/api/channels/stores`, {
   body: JSON.stringify({
     provider: "shopify",
     storeDomain: "acme.myshopify.com",
-    credentials: { accessToken: "shpat_..." },
+    credentials: { accessToken: "shpat_...", grantedScopes: [] },
   }),
 });
 // → 201 { id, provider, status: "connected", credentials: "[redacted]" }
 ```
 
-Credentials are stored org-scoped and **redacted on every read**. Connecting a store automatically:
+Credentials are stored org-scoped and **redacted on every read**. Connecting the same shop again refreshes its one row rather than adding a second. Connecting:
 
-1. **Imports the catalog** — the store's products land in `sellable_entities`, each with a `channel_entity_map` row linking it to its external id, and `sourceStoreId` marking it channel-owned.
-2. **Mirrors inventory** in *external-owns-stock* mode (the store is the source of truth; level-set writes).
-3. **Registers webhooks** on the store (product / inventory / order / refund events) pointing at Porulle.
+1. Writes the store row and calls your `bindConnectedStore({ db, store, actor })` **in the same transaction** — bind the store to your owner model there, or throw to refuse the connection (nothing is written).
+2. For a provider that subscribes per store (WooCommerce), **registers webhooks** at an absolute address on `publicUrl`. Shopify's subscriptions are app-level instead — see *Two-way sync*.
+3. Calls your `afterStoreConnected({ store, actor, connector })` — the place to start the first import.
 
-Both catalog import and inventory sync run as durable jobs, keyed per store.
+Every connector call that takes a store runs on **live credentials**: a connector with `liveCredentials` (Shopify) refreshes an expiring token before the call, and the new token is persisted with a compare-and-swap so concurrent workers never overwrite a newer refresh token. A grant the provider refuses marks the store `error` — reconnect.
 
 For one-click onboarding, configure OAuth on the same plugin and register the provider adapters with their OAuth options:
 
@@ -80,12 +84,12 @@ For one-click onboarding, configure OAuth on the same plugin and register the pr
 channelConnectorPlugin({
   connectors: [
     shopifyConnector({
-      clientId: process.env.SHOPIFY_CLIENT_ID,
-      clientSecret: process.env.SHOPIFY_CLIENT_SECRET,
-      appUrl: "https://platform.example",
+      clientId: process.env.SHOPIFY_CLIENT_ID!,
+      clientSecret: process.env.SHOPIFY_CLIENT_SECRET!,
     }),
     wooConnector(),
   ],
+  publicUrl: "https://platform.example",
   oauth: {
     stateSecret: process.env.CHANNEL_OAUTH_SECRET!,
     postConnectRedirect: "https://platform.example/stores",
@@ -93,7 +97,13 @@ channelConnectorPlugin({
 });
 ```
 
-The `GET /api/channels/oauth/{provider}/start` route requires `channels:manage`, accepts `shop` for Shopify or `store` for WooCommerce, and redirects to the provider's approval screen. The unauthenticated GET/POST callback verifies the signed, single-use state and calls the connector's optional `completeAuth(request, { storeDomain })`. Shopify exchanges its callback code; WooCommerce receives `{ consumer_key, consumer_secret }` in the server-to-server POST callback. Both then call the same `connectStore` pipeline shown above, so imports, webhook registration, and credential redaction behave identically to paste onboarding.
+The `GET /api/channels/oauth/{provider}/start` route requires `channels:connect` and a signed-in user, accepts `shop` for Shopify (`acme`, `acme.myshopify.com` or the admin URL all normalise to one shop) or `store` for WooCommerce, and redirects to the provider's approval screen. The unauthenticated callback verifies the signed state (single use is recorded in the database), calls the connector's `completeAuth(request, { storeDomain })`, and connects the store for the **user who started** the flow — the state carries them, because the callback has no session of its own. The browser always lands on `postConnectRedirect`, with `?connected=<storeId>` or `?connect_error=<code>&connect_message=<text>`.
+
+Shopify's connector uses the authorization code grant with `expiring=1`, refuses a grant missing a required scope (`read_products`, `write_products`, `read_inventory`, `write_orders`), and talks only to the GraphQL Admin API (`SHOPIFY_API_VERSION`, 2026-10). For a test stand-in, pass a `shopOrigin` that maps a shop to the stand-in's per-shop origin — the shop still rides in the request, exactly as it does in production:
+
+```ts
+shopifyConnector({ clientId, clientSecret, shopOrigin: (shop) => `http://127.0.0.1:4030/shopify/${shop}` });
+```
 
 The adapter contract for this capability is:
 
@@ -142,9 +152,10 @@ await fetch(`${PORULLE}/api/channels/exports/${id}/retry`, { method: "POST" });
 
 ## Two-way sync
 
-Inbound webhooks (per-store HMAC-verified, deduped) keep Porulle current:
+Inbound webhooks keep Porulle current. A provider that signs per **app** (Shopify) delivers every topic for every shop to `POST /api/channels/app-webhooks/{provider}` — declare that address in your `shopify.app.toml` `[[webhooks.subscriptions]]` (including the mandatory compliance topics); the route verifies the app-secret HMAC, deduplicates on `X-Shopify-Webhook-Id`, and queues `channel/apply-webhook` per store so the answer is immediate. A provider that signs per store (WooCommerce) delivers to `POST /api/channels/webhooks/{storeId}`.
 
-- **Catalog / inventory** changes converge the mirror (level-set; a deleted product is soft-archived, never hard-deleted, so order history survives).
+- **Catalog** changes are applied from a **fresh read** (`fetchCatalogItems`), never from the payload, and converge exactly like an import page — a `products/create` for a product the store never sent creates it. Your `onStoreCatalogChanged({ entityIds })` hears about every product a webhook changed.
+- **Inventory**: a stock webhook names one location's count; the variant's summed stock is read fresh. A deleted product is soft-archived, never hard-deleted, so order history survives.
 - **Fulfilment / tracking** lands on the order timeline.
 - **Store-side refunds** drive a **cross-boundary refund**: a verified `refunds/create` webhook triggers a platform-side refund computed from what the customer actually paid, executed through the hardened refund engine. Small, clean refunds auto-execute; large / new-merchant / divergent ones queue for **operator approval**:
 
@@ -189,10 +200,10 @@ Backfill also promotes legacy metadata-held `title`/`description` into `en` attr
 |---|---|
 | `POST /api/channels/stores` | Connect a store |
 | `GET /api/channels/stores` · `/{id}` | List / get stores (credentials redacted) |
-| `POST /api/channels/stores/{id}/disconnect` | Disconnect (clears credentials) |
+| `POST /api/channels/stores/{id}/disconnect` | Disconnect (clears credentials); `channels:connect`, confined by `confineStores` |
 | `GET /api/channels/exports?state=failed` · `POST …/{id}/retry` | Failed order exports + re-trigger |
 | `POST /api/channels/webhooks/{storeId}` | Inbound per-store webhooks (HMAC) |
-| `POST /api/channels/compliance/{provider}` | Inbound app-level compliance webhooks (GDPR) |
+| `POST /api/channels/app-webhooks/{provider}` | Inbound app-level webhooks: catalogue, stock, orders, uninstall, compliance |
 | `GET /api/channels/refund-requests` · `POST …/{id}/approve` | Cross-boundary refund approval queue |
 | `GET /api/channels/stores/{storeId}/reconcile-status` | Per-store sync health + drift report |
 | `POST /api/channels/stores/{storeId}/backfill` | Re-converge an already-imported catalog (dry-run inline, else durable job) |

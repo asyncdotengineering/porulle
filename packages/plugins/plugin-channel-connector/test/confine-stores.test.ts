@@ -52,7 +52,7 @@ describe("listStores applies the consumer's read predicate", () => {
     confinement.ids = ids;
     confinement.calls = 0;
     const service = new ChannelConnectorService(built.db, {}, {
-      confineStoreReads: async () => {
+      confineStores: async () => {
         confinement.calls += 1;
         return confinement.ids;
       },
