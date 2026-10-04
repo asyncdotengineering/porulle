@@ -99,6 +99,24 @@ describe("channel connector c66 two-way sync and refunds", () => {
     expect(line?.refundedQuantity).toBe(1);
   });
 
+  // Shopify's REST refund body names its lines in `refund_line_items`, each carrying the order line it
+  // refunds under `line_item` (with that line's `variant_id`) — not a flat `line_items`. Read wrongly,
+  // every real refund maps no line and waits for an operator with an amount of 0.
+  it("reads Shopify's refund body: refund_line_items naming each refunded line's variant", async () => {
+    const store = await connect("shape");
+    const seeded = await seedMappedPaidOrder(store.id, "shape");
+    const response = await webhook(store.id, "refund-shape", {
+      id: 9001,
+      order_id: "remote-order-shape",
+      refund_line_items: [{ id: 1, line_item_id: 77, quantity: 1, subtotal: 10, line_item: { id: 77, variant_id: "remote-variant-shape", quantity: 1 } }],
+    });
+    expect(response.status).toBe(200);
+    const [request] = await built.db.select().from(channelRefundRequests).where(and(eq(channelRefundRequests.storeId, store.id), eq(channelRefundRequests.remoteRefundId, "9001")));
+    expect({ state: request?.state, amount: request?.amount }).toEqual({ state: "executed", amount: 1000 });
+    const refunds = await built.db.select().from(orderRefunds).where(eq(orderRefunds.orderId, seeded.orderId));
+    expect(refunds.map((refund) => refund.amount)).toEqual([1000]);
+  });
+
   it("queues an over-threshold refund without moving money, then approval executes it", async () => {
     const store = await connect("approval");
     const seeded = await seedMappedPaidOrder(store.id, "approval", 2000);

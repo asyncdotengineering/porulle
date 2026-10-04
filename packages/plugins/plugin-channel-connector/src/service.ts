@@ -3203,6 +3203,7 @@ export class ChannelConnectorService {
         "orders/fulfilled",
         "orders/partially_fulfilled",
         "orders/cancelled",
+        "refunds/create",
         "app/uninstalled",
       ], callbackUrl);
       if (!registration.ok) {
@@ -5313,7 +5314,15 @@ export class ChannelConnectorService {
     if (!remoteRefundId || !orderId) return PluginErr("Refund webhook is missing a mapped order or refund id.", "REFUND_MAPPING_MISSING");
     const existing = await this.db.select().from(channelRefundRequests).where(and(eq(channelRefundRequests.storeId, store.id), eq(channelRefundRequests.remoteRefundId, remoteRefundId)));
     if (existing[0]) return Ok(existing[0] as ChannelRefundRequest);
-    const lineData = Array.isArray(data.line_items) ? data.line_items : Array.isArray(data.lineItems) ? data.lineItems : [];
+    // Shopify names the refunded lines in `refund_line_items`, each with its order line under
+    // `line_item`; other providers send a flat `line_items`. Both reduce to { variant_id, quantity }.
+    const lineData = Array.isArray(data.refund_line_items)
+      ? data.refund_line_items.map((raw) => {
+        const entry = (raw ?? {}) as Record<string, unknown>;
+        const orderLine = (entry.line_item ?? {}) as Record<string, unknown>;
+        return { variant_id: orderLine.variant_id, product_id: orderLine.product_id, quantity: entry.quantity };
+      })
+      : Array.isArray(data.line_items) ? data.line_items : Array.isArray(data.lineItems) ? data.lineItems : [];
     const orderLines = await this.db.select().from(orderLineItems).where(eq(orderLineItems.orderId, orderId));
     const mappings = await this.db.select().from(channelEntityMap).where(and(eq(channelEntityMap.organizationId, orgId), eq(channelEntityMap.storeId, store.id)));
     const refundLines: Array<{ lineItemId: string; quantity: number }> = [];
