@@ -14,6 +14,7 @@ import {
 } from "@porulle/core";
 import type {
   Actor,
+  ChannelCancelOrderInput,
   EntityLinkRows,
   ChannelCatalogItem,
   ChannelConnector,
@@ -122,6 +123,12 @@ export const CATALOG_PUSH_MAX_ATTEMPTS = 8;
  * nine-hour one that discards everything if it fails.
  */
 export const CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION = 20;
+
+/**
+ * The reason a platform order is cancelled under when its STORE cancelled it. The cancel hook skips
+ * cancelling at the store for exactly this reason, so the two directions cannot loop.
+ */
+export const CHANNEL_ORDER_CANCELLED_REASON = "channel_order_cancelled";
 
 const CATALOG_PUSH_RETRY_BASE_MS = 60_000;
 const CATALOG_PUSH_RETRY_MAX_MS = 60 * 60 * 1000;
@@ -4981,9 +4988,18 @@ export class ChannelConnectorService {
     } else if (event.type === "orders/fulfilled" || event.type === "orders/cancelled") {
       const orderId = await this.resolveOrderId(orgId, storeId, data);
       if (orderId) {
-        const ordersService = this.services.orders as { addNote(orderId: string, input: { body: string }, actor: Actor): Promise<{ ok: boolean; error?: { message: string } }>; changeStatus(input: { orderId: string; newStatus: "processing" | "fulfilled"; reason: string }, actor: Actor): Promise<{ ok: boolean }> };
+        const ordersService = this.services.orders as { addNote(orderId: string, input: { body: string }, actor: Actor): Promise<{ ok: boolean; error?: { message: string } }>; changeStatus(input: { orderId: string; newStatus: "processing" | "fulfilled" | "cancelled"; reason: string }, actor: Actor): Promise<{ ok: boolean }> };
         const note = await ordersService.addNote(orderId, { body: `Channel ${event.type}: ${String(data.id ?? data.order_id ?? "remote order")}.` }, actor);
         if (!note.ok) return PluginErr(note.error?.message ?? "Could not add channel order note.");
+        if (event.type === "orders/cancelled") {
+          // The store cancelled: the platform follows, under a reason the cancel hook recognises, so
+          // it does not turn round and cancel at the store again. An order already closed, or one the
+          // machine cannot cancel (shipped), keeps its status; the note above records the delivery.
+          const [order] = await this.db.select({ status: orders.status }).from(orders).where(and(eq(orders.organizationId, orgId), eq(orders.id, orderId)));
+          if (order && !["cancelled", "refunded"].includes(order.status)) {
+            await ordersService.changeStatus({ orderId, newStatus: "cancelled", reason: CHANNEL_ORDER_CANCELLED_REASON }, actor);
+          }
+        }
         if (event.type === "orders/fulfilled") {
           const [order] = await this.db.select({ status: orders.status }).from(orders).where(and(eq(orders.organizationId, orgId), eq(orders.id, orderId)));
           if (order?.status === "confirmed") await ordersService.changeStatus({ orderId, newStatus: "processing", reason: "channel_order_fulfilled" }, actor);
@@ -5427,6 +5443,37 @@ export class ChannelConnectorService {
       });
       return Ok(updated);
     });
+  }
+
+  /**
+   * Cancels this order at every store it was pushed to. Any refusal is returned as the error, so the
+   * caller can refuse its own cancel: a store that has shipped must not see the marketplace refund
+   * goods already on their way. A store with no connector able to cancel is left to its merchant.
+   */
+  async cancelRemoteOrders(orgId: string, orderId: string, input: ChannelCancelOrderInput): Promise<PluginResult<number>> {
+    const exports = await this.db
+      .select({ storeId: channelOrderExports.storeId, remoteOrderId: channelOrderExports.remoteOrderId })
+      .from(channelOrderExports)
+      .where(and(eq(channelOrderExports.organizationId, orgId), eq(channelOrderExports.orderId, orderId)));
+    let cancelled = 0;
+    for (const exported of exports) {
+      if (exported.remoteOrderId === null) continue;
+      const store = await this.getStoreRecord(orgId, exported.storeId);
+      if (!store || store.status !== "connected") continue;
+      // ponytail: a provider without cancelOrder is skipped silently; refuse instead if one ever ships without it.
+      const connector = this.connectors.get(store.provider);
+      if (!connector?.cancelOrder) continue;
+      const result = await connector.cancelOrder(store as ChannelStore, exported.remoteOrderId, input);
+      if (!result.ok) return PluginErr(result.error.message, result.error.code);
+      cancelled += 1;
+    }
+    return Ok(cancelled);
+  }
+
+  /** A cancelled or refunded order: nothing to push to a store, ever again. */
+  async isOrderClosed(orgId: string, orderId: string): Promise<boolean> {
+    const [order] = await this.db.select({ status: orders.status }).from(orders).where(and(eq(orders.organizationId, orgId), eq(orders.id, orderId)));
+    return order?.status === "cancelled" || order?.status === "refunded";
   }
 
   async exportOrder(

@@ -214,6 +214,22 @@ export interface ChannelOrderStatus {
   status: "pending" | "confirmed" | "failed" | "cancelled" | "fulfilled";
 }
 
+/** Why an order is being cancelled at the provider. Providers that keep no reason ignore it. */
+export type ChannelCancelReason = "customer" | "inventory" | "declined" | "fraud" | "staff" | "other";
+
+export interface ChannelCancelOrderInput {
+  reason: ChannelCancelReason;
+  /** Shown to the merchant's staff, never to the customer. */
+  staffNote?: string;
+}
+
+/**
+ * The code a connector answers when the provider REFUSED to cancel — typically because the order has
+ * already shipped. It is the merchant's answer, not a fault, so the caller must not cancel its own
+ * side either.
+ */
+export const CHANNEL_CANCEL_REFUSED = "CHANNEL_CANCEL_REFUSED";
+
 export interface ChannelWebhookEvent {
   id: string;
   type: string;
@@ -297,6 +313,12 @@ export interface ChannelConnector {
     opts?: { dryRun?: boolean },
   ): Promise<Result<ChannelPushCatalogResult, ChannelConnectorError>>;
   fetchOrderStatus(store: ChannelStore, remoteId: string): Promise<Result<ChannelOrderStatus, ChannelConnectorError>>;
+  /**
+   * Cancel an order this connector pushed, restocking it at the store and refunding nothing there:
+   * the marketplace holds the shopper's payment and refunds it itself. A provider that refuses
+   * answers `CHANNEL_CANCEL_REFUSED`; an order already cancelled at the provider is success.
+   */
+  cancelOrder?(store: ChannelStore, remoteId: string, input: ChannelCancelOrderInput): Promise<Result<void, ChannelConnectorError>>;
   /** A delivery to the per-store address, for providers that sign per store (WooCommerce). */
   verifyWebhook?(store: ChannelStore, request: Request): Promise<Result<ChannelWebhookEvent>>;
   /** A delivery to the provider-wide address, for providers that sign per app (Shopify). */

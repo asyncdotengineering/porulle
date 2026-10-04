@@ -1,6 +1,7 @@
-import { resolveOrgIdForCommerce } from "@porulle/core";
+import { CommerceValidationError, resolveOrgIdForCommerce } from "@porulle/core";
 import type {
   Actor,
+  ChannelCancelReason,
   CommerceConfig,
   HookContext,
   PluginHookRegistration,
@@ -8,6 +9,7 @@ import type {
 import { and, eq, inArray } from "@porulle/core/drizzle";
 import { sellableEntities } from "@porulle/core/schema";
 import {
+  CHANNEL_ORDER_CANCELLED_REASON,
   ChannelConnectorService,
   type ChannelConnectorPluginOptions,
   type ChannelPushTrigger,
@@ -202,8 +204,58 @@ function pushHooks(mode: ChannelPushTrigger): PluginHookRegistration[] {
   }
 }
 
+/** The cancel a status change asks for, on `orders.beforeStatusChange`. */
+interface CancelRequest {
+  orderId: string;
+  reason: string | undefined;
+}
+
+function parseCancelRequest(args: unknown): CancelRequest | null {
+  if (!isRecord(args)) return null;
+  const { data } = args;
+  if (!isRecord(data)) return null;
+  const { orderId, newStatus, reason } = data;
+  if (typeof orderId !== "string" || newStatus !== "cancelled") return null;
+  return { orderId, reason: typeof reason === "string" ? reason : undefined };
+}
+
+/** The store's reason, read loosely from the platform's free-text one. */
+function storeCancelReason(reason: string | undefined): ChannelCancelReason {
+  if (reason === undefined) return "other";
+  if (/customer|shopper/i.test(reason)) return "customer";
+  if (/stock|inventory/i.test(reason)) return "inventory";
+  return "other";
+}
+
+/**
+ * Cancel at the store BEFORE the platform cancels, so a store that refuses — it has shipped — blocks
+ * the platform's cancel instead of the shopper being refunded for goods on their way. A cancel the
+ * store itself started is not sent back to it.
+ */
+function cancelAtStoreHook(options: ChannelConnectorPluginOptions): PluginHookRegistration {
+  return {
+    key: "orders.beforeStatusChange",
+    async handler(args: unknown) {
+      // A before-hook's return value REPLACES the data, so every path hands it back unchanged.
+      if (!isRecord(args)) throw new Error("orders.beforeStatusChange delivered no payload.");
+      const { data } = args;
+      const request = parseCancelRequest(args);
+      if (request === null || request.reason === CHANNEL_ORDER_CANCELLED_REASON || !hasHookContext(args)) return data;
+      const { context } = args;
+      const service = new ChannelConnectorService(context.db, context.services, options);
+      const cancelled = await service.cancelRemoteOrders(
+        resolveOrgIdForCommerce(context.actor, context.commerceConfig),
+        request.orderId,
+        { reason: storeCancelReason(request.reason), staffNote: `Cancelled on the marketplace${request.reason ? ` (${request.reason})` : ""}.` },
+      );
+      if (!cancelled.ok) throw new CommerceValidationError(`The store would not cancel this order: ${cancelled.error}`);
+      return data;
+    },
+  };
+}
+
 export function buildHooks(options: ChannelConnectorPluginOptions): PluginHookRegistration[] {
-  return [{
+  return [cancelAtStoreHook(options), {
     key: "checkout.beforePayment",
     async handler(args: unknown) {
       const { data, context } = args as {

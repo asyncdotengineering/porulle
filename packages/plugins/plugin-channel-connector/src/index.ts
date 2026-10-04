@@ -409,6 +409,8 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
         const orgId = String(input.orgId);
         const storeId = String(input.storeId);
         const orderId = String(input.orderId);
+        // Cancelled before this ran: the store must never receive an order nobody is paying for.
+        if (await service.isOrderClosed(orgId, orderId)) return { output: { state: "skipped", reason: "order closed" } };
         const existing = await service.createExport(orgId, storeId, orderId);
         if (!existing.ok) throw new Error(existing.error);
         const slice = await service.buildOrderSlice(orgId, storeId, orderId);
