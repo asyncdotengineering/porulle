@@ -95,7 +95,19 @@ describe.skipIf(!live)("a real WooCommerce store", { timeout: 180_000 }, () => {
       expect(item.variants.map((variant) => variant.externalId)).toEqual([item.externalId]);
       expect(item.variants[0]?.prices?.[0]?.amount).toBeGreaterThan(0);
     }
-    expect(byId.get("31")?.variants[0]?.prices).toEqual([{ currency: "LKR", amount: 1800, compareAtAmount: 2000 }]);
+    // The platform converges a variant only if each of its option values is one of its product's
+    // options. A store whose variations use a global attribute the product does not list (or name its
+    // value by the term slug, "blue", where the product lists "Blue") must still satisfy that.
+    for (const item of items) {
+      for (const variant of item.variants) {
+        for (const [name, value] of Object.entries(variant.optionValues ?? {})) {
+          const option = item.options?.find((candidate) => candidate.name === name);
+          expect(option?.values.map((entry) => entry.value), `${item.title} ${variant.externalId} ${name}=${value}`).toContain(value);
+        }
+      }
+    }
+    expect(byId.get("10")?.options?.map((option) => option.name)).toEqual(["Color"]);
+    expect(byId.get("31")?.variants[0]?.prices).toEqual([{ currency: "LKR", amount: 450000, compareAtAmount: 500000 }]);
     expect(byId.get("31")?.storefrontUrl).toMatch(new RegExp(`^${url}/`));
   });
 
