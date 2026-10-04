@@ -133,7 +133,7 @@ export interface ChannelOrderAddress {
 export interface ChannelOrderSlice {
   orderId: string;
   currency: string;
-  /** What the shopper paid for this slice: its lines, plus `shipping` when present. */
+  /** What the shopper paid for this slice: its lines, plus `shipping`, minus `discount`, when present. */
   grandTotal: number;
   lines: ChannelOrderLine[];
   /**
@@ -141,6 +141,12 @@ export interface ChannelOrderSlice {
    * above zero. An order split across stores carries none: one charge cannot be divided honestly.
    */
   shipping?: { title: string; amount: number };
+  /**
+   * The order's discount, present only when the slice is the whole order and the discount is above
+   * zero, named by the code the shopper used (or `DISCOUNT` for one applied without a code). The
+   * slice's `grandTotal` already has it taken off, so the store's total is what the shopper paid.
+   */
+  discount?: { code: string; amount: number };
   customer: {
     name: string;
     email: string;
