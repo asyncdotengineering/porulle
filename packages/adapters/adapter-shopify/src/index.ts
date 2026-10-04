@@ -326,7 +326,9 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
       }, orderCreateSchema);
       if (!created.ok) return created;
       const { order, userErrors } = created.value.orderCreate;
-      if (userErrors.some((error) => error.code === "INVENTORY_CLAIM_FAILED")) {
+      // Live Shopify (2026-10, measured) refuses stock as `INVALID` on `["order","lineItems"]` with "Line items
+      // Unable to reserve inventory", not the documented `INVENTORY_CLAIM_FAILED`; both are read as out of stock.
+      if (userErrors.some((error) => error.code === "INVENTORY_CLAIM_FAILED" || /unable to reserve inventory/i.test(error.message))) {
         return Err({ code: CHANNEL_OUT_OF_STOCK, message: `The store does not have the stock: ${userErrors.map((error) => error.message).join("; ")}.`, retriable: false });
       }
       if (userErrors.length > 0 || !order) {
