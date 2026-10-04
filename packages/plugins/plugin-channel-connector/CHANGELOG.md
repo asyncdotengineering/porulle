@@ -1,5 +1,16 @@
 # @porulle/plugin-channel-connector
 
+## 0.70.0
+
+### Minor Changes
+
+- [#170](https://github.com/asyncdotengineering/porulle/pull/170) [`ef6f8ad`](https://github.com/asyncdotengineering/porulle/commit/ef6f8ad10509f931b01292db5c69a73125afbb22) Thanks [@octalpixel](https://github.com/octalpixel)! - Record a store's shipments as tracking. `orders/fulfilled` and the newly handled `orders/partially_fulfilled` turn each store fulfilment in the order body into one core fulfilment record (carrier, tracking number and link, the lines it shipped), keyed on the store's fulfilment id so a replay records nothing twice, and before the order moves so what the move announces can read it. A partial shipment leaves the order `partially_fulfilled`; a cancelled store fulfilment is not a parcel.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.70.0
+
 ## 0.69.0
 
 ### Minor Changes

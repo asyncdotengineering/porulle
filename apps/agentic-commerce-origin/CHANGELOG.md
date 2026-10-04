@@ -1,5 +1,15 @@
 # agentic-commerce-origin
 
+## 0.1.79
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/adapter-postgres@0.70.0
+  - @porulle/adapter-neon@0.70.0
+  - @porulle/adapter-stripe@0.70.0
+  - @porulle/core@0.70.0
+
 ## 0.1.78
 
 ### Patch Changes
