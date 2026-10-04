@@ -148,7 +148,7 @@ export type {
   PaymentWebhookEvent,
   CreatePaymentIntentParams,
 } from "./modules/payments/adapter.js";
-export { CHANNEL_CANCEL_REFUSED, CHANNEL_CREDENTIALS_REJECTED, defineChannelConnector } from "./modules/channels/adapter.js";
+export { CHANNEL_CANCEL_REFUSED, CHANNEL_CREDENTIALS_REJECTED, CHANNEL_OUT_OF_STOCK, defineChannelConnector } from "./modules/channels/adapter.js";
 export {
   channelCatalogImageSchema,
   channelCatalogItemSchema,

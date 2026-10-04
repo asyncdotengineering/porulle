@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
+  CHANNEL_OUT_OF_STOCK,
   CommerceInvalidTransitionError,
   CommerceNotFoundError,
   CommerceValidationError,
@@ -5613,7 +5614,7 @@ export class ChannelConnectorService {
 
     const pushed = await connector.pushOrder(store as ChannelStore, slice);
     if (!pushed.ok) {
-      return this.transitionExport(
+      const failed = await this.transitionExport(
         orgId,
         created.value.id,
         "failed",
@@ -5621,6 +5622,13 @@ export class ChannelConnectorService {
         pushed.error.message,
         pushed.error.retriable === true ? "transient" : "definitive",
       );
+      if (pushed.error.code === CHANNEL_OUT_OF_STOCK) {
+        // The store has said nobody will send these goods: cancel, and let the host's cancel path
+        // refund the shopper. Any other refusal can be fixed and retried, so it waits for an operator.
+        const ordersService = this.services.orders as { changeStatus(input: { orderId: string; newStatus: "cancelled"; reason: string }, actor: Actor): Promise<{ ok: boolean }> };
+        await ordersService.changeStatus({ orderId: slice.orderId, newStatus: "cancelled", reason: "channel_out_of_stock" }, actor);
+      }
+      return failed;
     }
 
     await this.db
