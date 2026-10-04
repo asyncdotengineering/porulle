@@ -6,7 +6,7 @@ import { pushCatalog, pushCaches } from "./catalog-push.js";
 import { discoverStore, normalizeStoreDomain, probeStore, refusedStoreUrl, wooClient, wooCredentialsSchema } from "./client.js";
 import type { WooClient, WooTransportOptions } from "./client.js";
 import { inventoryFor, inventoryPage } from "./inventory.js";
-import { cancelOrder, orderStatus, pushOrder } from "./orders.js";
+import { cancelOrder, orderStatus, pushOrder, recordRefund } from "./orders.js";
 import { decodeDelivery, orderEvents, registerWebhooks, unregisterWebhooks, verifyDelivery, webhookHealth, WOO_WEBHOOK_TOPICS } from "./webhooks.js";
 
 export { normalizeStoreDomain, probeStore, refusedStoreUrl, WOO_BLOCKED_BY_FIREWALL } from "./client.js";
@@ -163,6 +163,9 @@ export function wooConnector(options: WooConnectorOptions = {}): ChannelConnecto
     },
     async cancelOrder(store, remoteId, input) {
       return withClient(store, (client) => cancelOrder(client, remoteId, input));
+    },
+    async recordRefund(store, remoteId, input) {
+      return withClient(store, (client) => recordRefund(client, remoteId, input));
     },
     async pushCatalog(store, items, opts) {
       return withClient(store, (client) => pushCatalog(client, store, items, opts, caches));

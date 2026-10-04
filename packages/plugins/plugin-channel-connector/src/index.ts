@@ -259,6 +259,7 @@ export type {
   ChannelOrderExport,
   ChannelRefundEvent,
   ChannelRefundRequest,
+  ChannelReturn,
   ConnectedStore,
   StoreHealth,
 } from "./schema.js";
@@ -908,6 +909,21 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
         .summary("Reject a channel refund request")
         .permission("channels:manage")
         .handler(async ({ params, orgId, actor }: ChannelRouteContext) => unwrap(await service.rejectRefund(orgId, params.id!, { userId: requireUserId(actor) })));
+
+      channels.get("/returns")
+        .summary("List the returns held on the platform that wait for their merchant")
+        .permission("channels:connect")
+        .handler(async ({ orgId, actor, raw }: ChannelRouteContext) => unwrap(await service.listReturns(orgId, { orgId, actor, raw })));
+
+      channels.post("/returns/{id}/approve")
+        .summary("Approve a held return: pay the shopper back and book the refund at the store")
+        .permission("channels:connect")
+        .handler(async ({ params, orgId, actor, raw }: ChannelRouteContext) => unwrap(await service.approveReturn(orgId, params.id!, { orgId, actor, raw })));
+
+      channels.post("/returns/{id}/decline")
+        .summary("Decline a held return")
+        .permission("channels:connect")
+        .handler(async ({ params, orgId, actor, raw }: ChannelRouteContext) => unwrap(await service.declineReturn(orgId, params.id!, { orgId, actor, raw })));
 
       channels.post("/exports/{id}/retry")
         .summary("Retry a failed channel order export")

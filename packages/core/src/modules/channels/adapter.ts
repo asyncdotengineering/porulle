@@ -252,6 +252,17 @@ export interface ChannelReturnInput {
   note?: string;
 }
 
+/**
+ * A refund the marketplace already paid the shopper, booked at the store so its books and stock match
+ * (a return the platform approved for a store with no returns of its own). Money is minor units.
+ */
+export interface ChannelRefundRecord {
+  lines: Array<{ externalVariantId: string; quantity: number; amount: number }>;
+  amount: number;
+  reason: string;
+  restock: boolean;
+}
+
 export interface ChannelReturnResult {
   /** The provider's id for the return: what its return webhooks name. */
   remoteReturnId: string;
@@ -411,6 +422,11 @@ export interface ChannelConnector {
   cancelOrder?(store: ChannelStore, remoteId: string, input: ChannelCancelOrderInput): Promise<Result<void, ChannelConnectorError>>;
   /** Ask the store to take items of a pushed order back. The store then approves or declines it. */
   requestReturn?(store: ChannelStore, remoteOrderId: string, input: ChannelReturnInput): Promise<Result<ChannelReturnResult, ChannelConnectorError>>;
+  /**
+   * Book a refund the marketplace paid at the store, moving no money there. A connector with this and
+   * no `requestReturn` gets returns held on the platform and approved by the merchant there.
+   */
+  recordRefund?(store: ChannelStore, remoteOrderId: string, input: ChannelRefundRecord): Promise<Result<{ remoteRefundId: string }, ChannelConnectorError>>;
   /**
    * A delivery to the per-store address, for providers that sign per store (WooCommerce). `Ok(null)`
    * is a delivery that carries nothing to act on and must be answered 200 without verification,

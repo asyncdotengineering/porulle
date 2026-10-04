@@ -1,5 +1,5 @@
 import { CHANNEL_CANCEL_REFUSED, CHANNEL_OUT_OF_STOCK, CHANNEL_TOTAL_MISMATCH, currencyExponent, Err, Ok, toMinorUnits } from "@porulle/core";
-import type { ChannelCancelOrderInput, ChannelConnectorError, ChannelOrderSlice, ChannelOrderStatus, ChannelPushOrderResult, Result } from "@porulle/core";
+import type { ChannelCancelOrderInput, ChannelConnectorError, ChannelRefundRecord, ChannelOrderSlice, ChannelOrderStatus, ChannelPushOrderResult, Result } from "@porulle/core";
 import { z } from "zod";
 import type { WooClient } from "./client.js";
 import { available } from "./inventory.js";
@@ -198,6 +198,34 @@ export async function cancelOrder(client: WooClient, remoteId: string, input: Ch
   }
   const cancelled = await cancel(client, remoteId, `Runvae: cancelled (${input.reason})${input.staffNote ? `: ${input.staffNote}` : ""}.`);
   return cancelled.ok ? Ok(undefined) : cancelled;
+}
+
+/**
+ * Books at the store a refund the marketplace already paid the shopper: `api_refund: false` moves no
+ * money, `api_restock` puts the stock back, and each line is the store's own order line for the variant.
+ */
+export async function recordRefund(client: WooClient, remoteId: string, input: ChannelRefundRecord): Promise<Result<{ remoteRefundId: string }, ChannelConnectorError>> {
+  const read = await client.get(`/wc/v3/orders/${encodeURIComponent(remoteId)}`, wooOrderSchema);
+  if (!read.ok) return read;
+  const order = read.value.data;
+  const currency = order.currency ?? client.credentials.currency;
+  if (!currency) return Err({ code: "WOO_CURRENCY_UNKNOWN", message: `Order ${remoteId} names no currency.`, retriable: false });
+  const decimals = client.credentials.priceDecimals;
+  const lineItems: Array<{ id: string; quantity: number; refund_total: string }> = [];
+  for (const line of input.lines) {
+    const storeLine = order.line_items.find((candidate) => (candidate.variation_id !== "0" ? candidate.variation_id : candidate.product_id) === line.externalVariantId);
+    if (!storeLine) return Err({ code: "CHANNEL_MAPPING_MISSING", message: `Order ${remoteId} has no line for ${line.externalVariantId}.`, retriable: false });
+    lineItems.push({ id: storeLine.id, quantity: line.quantity, refund_total: moneyString(line.amount, currency, decimals) });
+  }
+  const created = await client.send("POST", `/wc/v3/orders/${encodeURIComponent(remoteId)}/refunds`, {
+    amount: moneyString(input.amount, currency, decimals),
+    reason: input.reason,
+    api_refund: false,
+    api_restock: input.restock,
+    line_items: lineItems,
+  }, z.object({ id: z.union([z.number(), z.string()]).transform(String) }));
+  if (!created.ok) return Err({ code: created.error.code, message: `The store would not record the refund: ${created.error.message}`, retriable: created.error.retriable === true });
+  return Ok({ remoteRefundId: created.value.id });
 }
 
 export async function orderStatus(client: WooClient, remoteId: string): Promise<Result<ChannelOrderStatus, ChannelConnectorError>> {
