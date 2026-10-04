@@ -5350,7 +5350,12 @@ export class ChannelConnectorService {
     await this.db.insert(channelRefundEvents).values({ organizationId: orgId, requestId: request.id, fromState: null, toState: request.state, reason: auto ? "Automatic guarded refund" : "Operator approval required", changedBy: requireUserId(actor) });
     if (auto) {
       const result = await this.executeRefund(request, refundLines, actor);
-      if (!result.ok) return PluginErr(result.error);
+      if (!result.ok) {
+        // Nothing moved: an operator decides instead, rather than the request sticking as approved.
+        await this.db.update(channelRefundRequests).set({ state: "requested", approvedBy: null, updatedAt: new Date() }).where(and(eq(channelRefundRequests.organizationId, orgId), eq(channelRefundRequests.id, request.id), eq(channelRefundRequests.state, "approved")));
+        await this.db.insert(channelRefundEvents).values({ organizationId: orgId, requestId: request.id, fromState: "approved", toState: "requested", reason: `Automatic refund failed: ${result.error}`, changedBy: requireUserId(actor) });
+        return Ok({ ...request, state: "requested" });
+      }
     }
     return Ok(request);
   }
@@ -5372,7 +5377,13 @@ export class ChannelConnectorService {
     const [request] = await this.db.update(channelRefundRequests).set({ state: "approved", approvedBy: actor.userId, updatedAt: new Date() }).where(and(eq(channelRefundRequests.organizationId, orgId), eq(channelRefundRequests.id, id), eq(channelRefundRequests.state, "requested"))).returning();
     if (!request) return PluginErr("Refund request not found or already handled.", "NOT_FOUND");
     const lines = await this.refundLinesForRequest(request as ChannelRefundRequest);
-    return this.executeRefund(request as ChannelRefundRequest, lines, createSystemActor(orgId));
+    const executed = await this.executeRefund(request as ChannelRefundRequest, lines, createSystemActor(orgId));
+    if (!executed.ok) {
+      // Nothing moved: back to `requested`, so the operator can approve again once the cause is fixed.
+      await this.db.update(channelRefundRequests).set({ state: "requested", approvedBy: null, updatedAt: new Date() }).where(and(eq(channelRefundRequests.organizationId, orgId), eq(channelRefundRequests.id, id), eq(channelRefundRequests.state, "approved")));
+      await this.db.insert(channelRefundEvents).values({ organizationId: orgId, requestId: id, fromState: "approved", toState: "requested", reason: `Execution failed: ${executed.error}`, changedBy: actor.userId });
+    }
+    return executed;
   }
 
   async rejectRefund(orgId: string, id: string, actor: { userId: string }): Promise<PluginResult<ChannelRefundRequest>> {
