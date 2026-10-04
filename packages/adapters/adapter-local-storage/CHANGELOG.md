@@ -1,5 +1,12 @@
 # @porulle/adapter-local-storage
 
+## 0.74.2
+
+### Patch Changes
+
+- Updated dependencies [[`162c4ad`](https://github.com/asyncdotengineering/porulle/commit/162c4ad92de86515f838fa9ff51b8c7cc275c3be)]:
+  - @porulle/core@0.74.2
+
 ## 0.74.1
 
 ### Patch Changes
