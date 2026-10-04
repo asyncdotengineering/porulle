@@ -117,6 +117,34 @@ describe("channel connector c66 two-way sync and refunds", () => {
     expect(refunds.map((refund) => refund.amount)).toEqual([1000]);
   });
 
+  // Approval marks the request approved BEFORE executing. If the execution then fails, a request left
+  // `approved` can never be approved again ("already handled") and the money never moves.
+  it("an approval whose execution fails leaves the request approvable again", async () => {
+    const store = await connect("retry");
+    const seeded = await seedMappedPaidOrder(store.id, "retry", 2000);
+    expect((await webhook(store.id, "refund-retry", { id: "remote-refund-retry", order_id: "remote-order-retry", line_items: [{ variant_id: "remote-variant-retry", quantity: 1 }] })).status).toBe(200);
+    const [request] = await built.db.select().from(channelRefundRequests).where(and(eq(channelRefundRequests.storeId, store.id), eq(channelRefundRequests.remoteRefundId, "remote-refund-retry")));
+    // A cancelled order refuses a line refund: the execution fails.
+    await built.db.update(orders).set({ status: "cancelled" }).where(eq(orders.id, seeded.orderId));
+    const failed = await built.app.request(`http://localhost/api/channels/refund-requests/${request!.id}/approve`, { method: "POST", headers: { "x-test-actor": JSON.stringify(actor) } });
+    expect(failed.status).toBeGreaterThanOrEqual(400);
+    const [after] = await built.db.select().from(channelRefundRequests).where(eq(channelRefundRequests.id, request!.id));
+    expect(after?.state).toBe("requested");
+    await built.db.update(orders).set({ status: "confirmed" }).where(eq(orders.id, seeded.orderId));
+    const retried = await built.app.request(`http://localhost/api/channels/refund-requests/${request!.id}/approve`, { method: "POST", headers: { "x-test-actor": JSON.stringify(actor) } });
+    expect(retried.status).toBe(201);
+    expect(await built.db.select().from(orderRefunds).where(eq(orderRefunds.orderId, seeded.orderId))).toHaveLength(1);
+  });
+
+  it("an automatic refund whose execution fails waits for an operator instead of sticking as approved", async () => {
+    const store = await connect("autofail");
+    const seeded = await seedMappedPaidOrder(store.id, "autofail");
+    await built.db.update(orders).set({ status: "cancelled" }).where(eq(orders.id, seeded.orderId));
+    await webhook(store.id, "refund-autofail", { id: "remote-refund-autofail", order_id: "remote-order-autofail", line_items: [{ variant_id: "remote-variant-autofail", quantity: 1 }] });
+    const [request] = await built.db.select().from(channelRefundRequests).where(and(eq(channelRefundRequests.storeId, store.id), eq(channelRefundRequests.remoteRefundId, "remote-refund-autofail")));
+    expect(request?.state).toBe("requested");
+  });
+
   it("queues an over-threshold refund without moving money, then approval executes it", async () => {
     const store = await connect("approval");
     const seeded = await seedMappedPaidOrder(store.id, "approval", 2000);
