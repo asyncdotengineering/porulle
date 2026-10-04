@@ -1,5 +1,14 @@
 # @porulle/adapter-woocommerce
 
+## 0.74.1
+
+### Patch Changes
+
+- [#180](https://github.com/asyncdotengineering/porulle/pull/180) [`b00ab8d`](https://github.com/asyncdotengineering/porulle/commit/b00ab8d6b7fef07fe69b3a46b5723a3f9dd950d0) Thanks [@octalpixel](https://github.com/octalpixel)! - A store is probed at OAuth start, and refused there with the connector's reason. `ChannelConnector.probeStore` (optional) checks what the merchant typed before they are sent anywhere; the WooCommerce adapter answers "must be https", "not a public website", "a firewall is blocking us", "turn on pretty permalinks" or "not WooCommerce" instead of sending the merchant to a broken page on their own site. The WooCommerce adapter takes an http callback only for a store on this machine (`allowPrivateHosts`), as WooCommerce itself refuses one.
+
+- Updated dependencies [[`b00ab8d`](https://github.com/asyncdotengineering/porulle/commit/b00ab8d6b7fef07fe69b3a46b5723a3f9dd950d0)]:
+  - @porulle/core@0.74.1
+
 ## 0.74.0
 
 ### Minor Changes
