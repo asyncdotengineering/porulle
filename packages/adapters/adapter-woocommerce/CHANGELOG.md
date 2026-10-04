@@ -1,5 +1,14 @@
 # @porulle/adapter-woocommerce
 
+## 0.74.4
+
+### Patch Changes
+
+- [#183](https://github.com/asyncdotengineering/porulle/pull/183) [`8a7354e`](https://github.com/asyncdotengineering/porulle/commit/8a7354ee22b36a5cdbc800e08a332a6cc4662a59) Thanks [@octalpixel](https://github.com/octalpixel)! - Two WooCommerce deliveries inside one second are both applied. A delivery is identified by its topic and whole signed body, not by `date_modified_gmt`, which is to the second — two stock changes in one second were read as one delivery and the second was dropped.
+
+- Updated dependencies []:
+  - @porulle/core@0.74.4
+
 ## 0.74.3
 
 ### Patch Changes
