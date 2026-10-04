@@ -13,13 +13,6 @@ export const WOO_WEBHOOK_TOPICS = ["product.created", "product.updated", "produc
 
 const id = z.union([z.number(), z.string()]).transform(String);
 
-/** Fields of a delivery body that identify the change it reports. */
-const deliveryBody = z.object({
-  id: id.optional(),
-  status: z.string().nullish(),
-  date_modified_gmt: z.string().nullish(),
-});
-
 function validSignature(secret: string, body: string, signature: string | null): boolean {
   if (!signature || !secret) return false;
   const expected = createHmac("sha256", secret).update(body, "utf8").digest();
@@ -32,8 +25,9 @@ function validSignature(secret: string, body: string, signature: string | null):
  * (form body `webhook_id=N`, unsigned) is `Ok(null)`. Everything else must carry a valid signature.
  *
  * The id is ours: `X-WC-Webhook-Delivery-ID` hashes the subscription id and the current SECOND, so two
- * deliveries in one second collide. The change itself — topic, resource, status, modification time —
- * identifies a delivery and its replays.
+ * deliveries in one second collide. So does `date_modified_gmt`, which is also to the second: two stock
+ * changes inside one second differ only in the stock. The topic and the whole signed body identify a
+ * delivery: a replay is the same bytes, and any other state is a change to apply.
  */
 export async function verifyDelivery(store: ChannelStore, request: Request): Promise<Result<ChannelWebhookEvent | null, ChannelConnectorError>> {
   const body = await request.text();
@@ -49,9 +43,7 @@ export async function verifyDelivery(store: ChannelStore, request: Request): Pro
   } catch {
     return Err({ code: "INVALID_WEBHOOK", message: "A WooCommerce delivery body was not JSON.", retriable: false });
   }
-  const fields = deliveryBody.safeParse(data);
-  const change = fields.success ? [topic, fields.data.id ?? "", fields.data.status ?? "", fields.data.date_modified_gmt ?? ""] : [topic, body];
-  return Ok({ id: createHash("sha256").update(change.join("|")).digest("hex"), type: topic, data });
+  return Ok({ id: createHash("sha256").update(`${topic}|${body}`).digest("hex"), type: topic, data });
 }
 
 const variationNudge = z.object({ id, type: z.string().optional(), parent_id: id.nullish() });
