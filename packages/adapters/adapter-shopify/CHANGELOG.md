@@ -1,5 +1,14 @@
 # @porulle/adapter-shopify
 
+## 0.73.2
+
+### Patch Changes
+
+- [#177](https://github.com/asyncdotengineering/porulle/pull/177) [`80be680`](https://github.com/asyncdotengineering/porulle/commit/80be680ea5cd587230a7a61ad73f5f26cf1c3f84) Thanks [@octalpixel](https://github.com/octalpixel)! - Shopify returns carry a reason. Live Shopify (2026-10) refuses a `returnRequest` line with no reason ("Return reason can't be blank") although the schema marks it optional. `requestReturn` now resolves the shopper's reason to Shopify's reason library by handle ("Too small" → `too-small`), falling back to `other-reason`, and sends it as `returnReasonDefinitionId` on every line.
+
+- Updated dependencies []:
+  - @porulle/core@0.73.2
+
 ## 0.73.1
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @porulle/jobs-inngest
 
+## 0.73.2
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.73.2
+
 ## 0.73.1
 
 ### Patch Changes
