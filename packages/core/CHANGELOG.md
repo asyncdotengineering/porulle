@@ -1,5 +1,11 @@
 # @porulle/core
 
+## 0.73.0
+
+### Minor Changes
+
+- [#175](https://github.com/asyncdotengineering/porulle/pull/175) [`740dd11`](https://github.com/asyncdotengineering/porulle/commit/740dd11e8552eb346380a6fe4b5f008ebfa6e891) Thanks [@octalpixel](https://github.com/octalpixel)! - Returns. Connectors gain an optional `requestReturn` (Shopify: the order's fulfilment lines are matched by variant and `returnRequest` asks the store to take them back, with the shopper's reason as the customer note). The channel connector's `requestReturn(orgId, orderId, { lines, reason, note })` names each line by the store's own variant id, refuses a line the store has no record of before asking anything, and records the return in `channel_returns`; `returns/approve|decline|close|cancel|reopen` move it. The refund arrives on `refunds/create` as before.
+
 ## 0.72.0
 
 ### Minor Changes
