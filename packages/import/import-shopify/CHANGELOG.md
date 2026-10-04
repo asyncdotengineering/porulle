@@ -1,5 +1,12 @@
 # @porulle/import-shopify
 
+## 0.72.0
+
+### Patch Changes
+
+- Updated dependencies [[`df5b5f7`](https://github.com/asyncdotengineering/porulle/commit/df5b5f78a831a0622c5acf955bd794ce07ceb280)]:
+  - @porulle/core@0.72.0
+
 ## 0.71.0
 
 ### Patch Changes

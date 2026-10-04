@@ -1,5 +1,16 @@
 # @porulle/adapter-shopify
 
+## 0.72.0
+
+### Minor Changes
+
+- [`df5b5f7`](https://github.com/asyncdotengineering/porulle/commit/df5b5f78a831a0622c5acf955bd794ce07ceb280) Thanks [@octalpixel](https://github.com/octalpixel)! - Send a discounted order's discount to the store. `ChannelOrderSlice.discount` carries the code the shopper used (`DISCOUNT` when none was typed) and the amount, when the slice is the whole order, and the slice total has it taken off. Shopify receives it as `discountCode.itemFixedDiscountCode`, so the store's total equals what the shopper paid.
+
+### Patch Changes
+
+- Updated dependencies [[`df5b5f7`](https://github.com/asyncdotengineering/porulle/commit/df5b5f78a831a0622c5acf955bd794ce07ceb280)]:
+  - @porulle/core@0.72.0
+
 ## 0.71.0
 
 ### Minor Changes
