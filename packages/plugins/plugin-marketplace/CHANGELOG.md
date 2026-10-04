@@ -1,5 +1,12 @@
 # @porulle/plugin-marketplace
 
+## 0.70.2
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.70.2
+
 ## 0.70.1
 
 ### Patch Changes

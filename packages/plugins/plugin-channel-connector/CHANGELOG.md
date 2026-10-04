@@ -1,5 +1,14 @@
 # @porulle/plugin-channel-connector
 
+## 0.70.2
+
+### Patch Changes
+
+- [#172](https://github.com/asyncdotengineering/porulle/pull/172) [`69bf4f6`](https://github.com/asyncdotengineering/porulle/commit/69bf4f6ddf99b518a57142479e22eeabfee9d8c0) Thanks [@octalpixel](https://github.com/octalpixel)! - A channel refund whose execution fails no longer sticks as `approved`. An operator approval that fails returns the request to `requested` so it can be approved again, and an automatic refund that fails waits for an operator instead; both write a refund event naming the failure.
+
+- Updated dependencies []:
+  - @porulle/core@0.70.2
+
 ## 0.70.1
 
 ### Patch Changes
