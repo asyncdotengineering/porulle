@@ -12,9 +12,10 @@
  *  - a forged delivery is queued and only fails later → 401 AND no job row.
  */
 import { createHmac } from "node:crypto";
+import { z } from "zod";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Ok, runPendingJobs } from "@porulle/core";
-import type { ChannelCatalogItem, ChannelStore } from "@porulle/core";
+import type { ChannelCatalogItem, ChannelEvent, ChannelStore, ChannelWebhookEvent } from "@porulle/core";
 import { createPluginTestApp, jsonHeaders, testAdminActor } from "@porulle/core/testing";
 import { and, eq } from "@porulle/core/drizzle";
 import { commerceJobs, sellableAttributes, sellableEntities } from "@porulle/core/schema";
@@ -61,6 +62,17 @@ function appConnector() {
         shopDomain: request.headers.get("x-shopify-shop-domain") ?? "",
         data: JSON.parse(body) as unknown,
       });
+    },
+    /** The few topics these rows deliver, decoded as a provider adapter decodes its own. */
+    async decodeWebhook(_store: ChannelStore, event: ChannelWebhookEvent) {
+      const data = z.record(z.string(), z.unknown()).parse(event.data);
+      const id = String(data.id ?? "");
+      const events: ChannelEvent[] = event.type === "products/create" || event.type === "products/update" ? [{ kind: "product.changed", externalIds: [id] }]
+        : event.type === "products/delete" ? [{ kind: "product.deleted", externalIds: [id] }]
+          : event.type === "customers/redact" ? [{ kind: "compliance.request", request: "customer_redact", data }]
+            : event.type === "app/uninstalled" ? [{ kind: "connection.revoked" }]
+              : [];
+      return Ok(events);
     },
   };
 }
@@ -160,6 +172,20 @@ describe("app-level webhooks (Shopify's single address)", { timeout: 120_000 }, 
     expect(first.status).toBe(200);
     await runJobs();
     expect(changed).toHaveLength(1);
+  });
+
+  // A topic the connector does not act on must not read as applied: the job records it unprocessed
+  // and nothing in the catalogue or the store moves.
+  it("acknowledges a delivery its connector does not map, records it unprocessed, and changes nothing", async () => {
+    const [storeBefore] = await built.db.select().from(connectedStores).where(eq(connectedStores.id, storeId));
+    const response = await deliver("orders/edited", { id: 77 }, { id: "delivery-unmapped" });
+    expect(response.status).toBe(200);
+    await runJobs();
+    const jobs = await built.db.select({ status: commerceJobs.status, output: commerceJobs.output }).from(commerceJobs).where(eq(commerceJobs.taskSlug, "channel/apply-webhook"));
+    expect(jobs).toEqual([{ status: "succeeded", output: { processed: false } }]);
+    expect(changed).toEqual([]);
+    const [storeAfter] = await built.db.select().from(connectedStores).where(eq(connectedStores.id, storeId));
+    expect({ status: storeAfter?.status, report: storeAfter?.lastReconcileReport }).toEqual({ status: storeBefore?.status, report: storeBefore?.lastReconcileReport });
   });
 
   it("refuses a forged delivery with 401 and queues nothing", async () => {

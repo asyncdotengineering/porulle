@@ -102,11 +102,11 @@ describe("a shopper's return", () => {
     if (!requested.ok) throw new Error(requested.error);
     const remote = requested.value.remoteReturnId;
     const statusOf = async () => (await built.db.select({ status: channelReturns.status }).from(channelReturns).where(eq(channelReturns.remoteReturnId, remote)))[0]?.status;
-    expect((await service.handleWebhook(TEST_ORG_ID, storeId, { id: `evt-approve-${remote}`, type: "returns/approve", data: { id: Number(remote) } })).ok).toBe(true);
+    expect((await service.handleWebhook(TEST_ORG_ID, storeId, { id: `evt-approve-${remote}`, type: "returns/approve", data: { kind: "return.updated", remoteReturnId: remote, status: "approved" } })).ok).toBe(true);
     expect(await statusOf()).toBe("approved");
-    expect((await service.handleWebhook(TEST_ORG_ID, storeId, { id: `evt-close-${remote}`, type: "returns/close", data: { id: Number(remote) } })).ok).toBe(true);
+    expect((await service.handleWebhook(TEST_ORG_ID, storeId, { id: `evt-close-${remote}`, type: "returns/close", data: { kind: "return.updated", remoteReturnId: remote, status: "closed" } })).ok).toBe(true);
     expect(await statusOf()).toBe("closed");
-    expect((await service.handleWebhook(TEST_ORG_ID, storeId, { id: "evt-decline-unknown", type: "returns/decline", data: { id: 999999 } })).ok).toBe(true);
+    expect((await service.handleWebhook(TEST_ORG_ID, storeId, { id: "evt-decline-unknown", type: "returns/decline", data: { kind: "return.updated", remoteReturnId: "999999", status: "declined" } })).ok).toBe(true);
     expect(await statusOf()).toBe("closed");
   });
 });

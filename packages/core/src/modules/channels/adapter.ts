@@ -29,7 +29,8 @@ export interface ChannelStore {
   provider: string;
   credentials: Record<string, unknown>;
   storeDomain: string;
-  status: "connected" | "disconnected" | "error";
+  /** `connecting`: credentials are stored and the follow-on work (verify, subscribe, first import) is still running. */
+  status: "connecting" | "connected" | "disconnected" | "error";
   webhookSecret: string | null;
 }
 
@@ -257,9 +258,61 @@ export interface ChannelReturnResult {
 }
 
 export interface ChannelWebhookEvent {
+  /**
+   * The connector's idempotency key for this delivery, unique within one store and stable across
+   * the provider's retries of it. The plugin deduplicates on it per store, never across stores.
+   */
   id: string;
   type: string;
   data: unknown;
+}
+
+/** One parcel the store shipped, in no provider's spelling. */
+export interface ChannelShipment {
+  /** The store's id for the parcel: recording the same parcel twice records it once. */
+  remoteId: string;
+  carrier?: string;
+  trackingNumber?: string;
+  trackingUrl?: string;
+  /** What the parcel holds, by the store's variant id. Empty when the store does not say. */
+  lines: Array<{ externalVariantId: string; quantity: number }>;
+  /** Where the tracking was read, for a provider with more than one source. */
+  source?: string;
+}
+
+/**
+ * What a store delivery MEANS, decoded by the connector that speaks the provider's language. The
+ * channel plugin acts on these and on nothing provider-shaped: a topic string or a payload field
+ * never reaches it. A connector reads fresh from the store where the delivery is only a nudge, so
+ * every event carries the store's current state, not a stale payload.
+ */
+export type ChannelEvent =
+  | { kind: "product.changed"; externalIds: string[] }
+  | { kind: "product.deleted"; externalIds: string[] }
+  /** Stock read fresh from the store, per variant id (a simple product's own id when it has no variants). */
+  | { kind: "inventory.changed"; levels: ChannelInventoryLevel[] }
+  | { kind: "order.cancelled"; remoteOrderId: string }
+  | { kind: "order.fulfilled"; remoteOrderId: string; partial: boolean; shipments: ChannelShipment[] }
+  /** Lines the merchant refunded at the store; the platform prices them from its own order. */
+  | { kind: "refund.created"; remoteOrderId: string; remoteRefundId: string; lines: Array<{ externalVariantId: string; quantity: number }> }
+  | { kind: "return.updated"; remoteReturnId: string; status: "approved" | "declined" | "closed" | "cancelled" }
+  | { kind: "connection.revoked" }
+  | { kind: "compliance.request"; request: "customer_data" | "customer_redact" | "shop_redact"; data: Record<string, unknown> };
+
+/**
+ * The code a connector answers when the store accepted an order at a total other than what the
+ * shopper paid. The connector has already cancelled that store order; the export fails visibly.
+ */
+export const CHANNEL_TOTAL_MISMATCH = "CHANNEL_TOTAL_MISMATCH";
+
+/** What a connector found when it checked a store's webhook subscriptions, after repairing what it could. */
+export interface ChannelWebhookHealth {
+  /** Every expected topic is subscribed and active now (after repair). */
+  healthy: boolean;
+  /** Subscriptions recreated because they were missing, paused or disabled. */
+  repaired: number;
+  /** Topics still not subscribed after the attempt. */
+  missing: string[];
 }
 
 /** A delivery to the provider's ONE app-level webhook address, naming the store it concerns. */
@@ -302,7 +355,8 @@ export interface ChannelConnector {
   }): Result<string, ChannelConnectorError>;
   completeAuth?(
     request: Request,
-    ctx: { storeDomain: string },
+    /** `state` is the value `buildAuthUrl` was given, for a provider that echoes it back in the callback body. */
+    ctx: { storeDomain: string; state: string },
   ): Promise<Result<{ credentials: Record<string, unknown>; storeDomain: string }, ChannelConnectorError>>;
   /**
    * The canonical spelling of what a merchant typed to name their store, or undefined when it cannot
@@ -347,8 +401,32 @@ export interface ChannelConnector {
   cancelOrder?(store: ChannelStore, remoteId: string, input: ChannelCancelOrderInput): Promise<Result<void, ChannelConnectorError>>;
   /** Ask the store to take items of a pushed order back. The store then approves or declines it. */
   requestReturn?(store: ChannelStore, remoteOrderId: string, input: ChannelReturnInput): Promise<Result<ChannelReturnResult, ChannelConnectorError>>;
-  /** A delivery to the per-store address, for providers that sign per store (WooCommerce). */
-  verifyWebhook?(store: ChannelStore, request: Request): Promise<Result<ChannelWebhookEvent>>;
+  /**
+   * A delivery to the per-store address, for providers that sign per store (WooCommerce). `Ok(null)`
+   * is a delivery that carries nothing to act on and must be answered 200 without verification,
+   * such as the unsigned ping a provider sends when a subscription is created.
+   */
+  verifyWebhook?(store: ChannelStore, request: Request): Promise<Result<ChannelWebhookEvent | null>>;
+  /**
+   * What a verified delivery means. May read the store (a delivery is a nudge, not a snapshot). An
+   * empty list is a delivery this connector does not act on; the plugin logs it as unmapped.
+   */
+  decodeWebhook?(store: ChannelStore, event: ChannelWebhookEvent): Promise<Result<ChannelEvent[], ChannelConnectorError>>;
+  /** The topics `registerWebhooks` subscribes a store to, in the provider's own spelling. */
+  readonly webhookTopics?: readonly string[];
+  /**
+   * The store's current state of an order this connector pushed, as the events a delivery about it
+   * would decode to. A read point uses it to catch up an order whose delivery never arrived.
+   */
+  orderEvents?(store: ChannelStore, remoteOrderId: string): Promise<Result<ChannelEvent[], ChannelConnectorError>>;
+  /** Removes every subscription this connector made for the store at `callbackUrl`. Best effort on disconnect. */
+  unregisterWebhooks?(store: ChannelStore, callbackUrl: string): Promise<Result<{ removed: number }, ChannelConnectorError>>;
+  /**
+   * Checks the store's subscriptions to `callbackUrl` against `webhookTopics` and recreates any that
+   * are missing, paused or disabled, signed with the store's existing secret. A rejected credential
+   * answers `CHANNEL_CREDENTIALS_REJECTED`.
+   */
+  webhookHealth?(store: ChannelStore, callbackUrl: string): Promise<Result<ChannelWebhookHealth, ChannelConnectorError>>;
   /** A delivery to the provider-wide address, for providers that sign per app (Shopify). */
   verifyAppWebhook?(request: Request): Promise<Result<ChannelAppWebhookEvent, ChannelConnectorError>>;
   /** Called on connect with an ABSOLUTE callback URL, for providers that subscribe each store separately. */

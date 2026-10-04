@@ -127,6 +127,6 @@ export async function shopifyGraphql<T>(
 }
 
 /** `gid://shopify/<Type>/<id>` for a numeric id; the adapter keys everything by the numeric id. */
-export function shopifyGid(type: "Product" | "ProductVariant", id: string): string {
+export function shopifyGid(type: "Product" | "ProductVariant" | "InventoryItem" | "Order", id: string): string {
   return `gid://shopify/${type}/${id}`;
 }

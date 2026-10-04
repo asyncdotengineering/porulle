@@ -10,7 +10,9 @@ import { channelEntityMap, connectedStores } from "../src/schema.js";
 const itemHash = channelSyncHash;
 
 async function createScenario(item: ChannelCatalogItem) {
-  const connector = mockChannelConnector({ catalog: [item] });
+  /** The store's current catalogue: a row changes it, then delivers `product.changed`. */
+  const catalog = [item];
+  const connector = mockChannelConnector({ catalog });
   const built = await createPluginTestApp(channelConnectorPlugin({ connectors: [connector] }));
   const service = new ChannelConnectorService(
     built.db,
@@ -28,7 +30,7 @@ async function createScenario(item: ChannelCatalogItem) {
   expect(imported).toMatchObject({ ok: true, value: { imported: 1 } });
   const [entity] = await built.db.select().from(sellableEntities).where(eq(sellableEntities.slug, item.slug));
   expect(entity).toBeDefined();
-  return { built, service, storeId, entityId: entity!.id };
+  return { built, service, storeId, entityId: entity!.id, catalog };
 }
 
 describe("channel connector field ownership convergence", () => {
@@ -142,18 +144,19 @@ describe("channel connector field ownership convergence", () => {
       attributes: [{ locale: "en", title: "Webhook Product", description: "Original description" }],
       variants: [],
     };
-    const { built, service, storeId, entityId } = await createScenario(item);
+    const { built, service, storeId, entityId, catalog } = await createScenario(item);
     await built.kernel.services.catalog.setFieldOwner(entityId, "attributes.en.title", storeId, "platform", testAdminActor);
     await built.kernel.services.catalog.setFieldOwner(entityId, "entity.metadata.protectedKey", storeId, "platform", testAdminActor);
+    catalog[0] = {
+      ...item,
+      title: "Webhook Remote Title",
+      attributes: [{ locale: "en", title: "Webhook Remote Title", description: "Webhook Remote Description" }],
+      metadata: { protectedKey: "remote", webhookKey: "remote-value" },
+    };
     const handled = await service.handleWebhook(TEST_ORG_ID, storeId, {
       id: "webhook-event",
       type: "products/update",
-      data: {
-        id: item.externalId,
-        title: "Webhook Remote Title",
-        description: "Webhook Remote Description",
-        metadata: { protectedKey: "remote", webhookKey: "remote-value" },
-      },
+      data: { kind: "product.changed", externalIds: [item.externalId] },
     });
     expect(handled).toEqual({ ok: true, value: { processed: true } });
     const [entity] = await built.db.select().from(sellableEntities).where(eq(sellableEntities.id, entityId));
@@ -173,20 +176,15 @@ describe("channel connector field ownership convergence", () => {
       attributes: [{ locale: "en", title: "Webhook Shared Product" }],
       variants: [],
     };
-    const { built, service, storeId, entityId } = await createScenario(item);
+    const { built, service, storeId, entityId, catalog } = await createScenario(item);
     await built.kernel.services.catalog.setFieldOwner(entityId, "attributes.en.title", storeId, "shared", testAdminActor);
     await built.kernel.services.catalog.setAttributes(entityId, "en", { title: "Webhook Local Change" }, testAdminActor);
-    const first = await service.handleWebhook(TEST_ORG_ID, storeId, {
-      id: "webhook-shared-1",
-      type: "products/update",
-      data: { id: item.externalId, title: "Webhook Remote Change" },
-    });
+    const changed = { kind: "product.changed", externalIds: [item.externalId] } as const;
+    catalog[0] = { ...item, title: "Webhook Remote Change", attributes: [{ locale: "en", title: "Webhook Remote Change" }] };
+    const first = await service.handleWebhook(TEST_ORG_ID, storeId, { id: "webhook-shared-1", type: "products/update", data: changed });
     expect(first.ok).toBe(true);
-    const second = await service.handleWebhook(TEST_ORG_ID, storeId, {
-      id: "webhook-shared-2",
-      type: "products/update",
-      data: { id: item.externalId, title: "Webhook Remote Later Change" },
-    });
+    catalog[0] = { ...item, title: "Webhook Remote Later Change", attributes: [{ locale: "en", title: "Webhook Remote Later Change" }] };
+    const second = await service.handleWebhook(TEST_ORG_ID, storeId, { id: "webhook-shared-2", type: "products/update", data: changed });
     expect(second.ok).toBe(true);
     const [attribute] = await built.db.select({ title: sellableAttributes.title }).from(sellableAttributes).where(eq(sellableAttributes.entityId, entityId));
     expect(attribute?.title).toBe("Webhook Local Change");
@@ -256,7 +254,7 @@ describe("channel connector field ownership convergence", () => {
     const deleted = await service.handleWebhook(TEST_ORG_ID, storeId, {
       id: "delete-event",
       type: "products/delete",
-      data: { id: item.externalId },
+      data: { kind: "product.deleted", externalIds: [item.externalId] },
     });
     expect(deleted.ok).toBe(true);
     const [entity] = await built.db.select({ status: sellableEntities.status }).from(sellableEntities).where(eq(sellableEntities.id, entityId));

@@ -14,6 +14,17 @@ import type { ChannelOrderAddress, ChannelPushCatalogItem, FieldPath } from "@po
 import { sellableEntities } from "@porulle/core/schema";
 import type { CatalogFieldMapping } from "./catalog-field-mapping.js";
 
+/** What the last on-visit check found. `webhooks`: subscriptions all active, recreated, or still failing. */
+export interface StoreHealth {
+  checkedAt: string;
+  webhooks: "ok" | "repaired" | "failing" | "not_applicable";
+  repaired: number;
+  missing: string[];
+  keyValid: boolean;
+  /** Why the check could not finish, when it could not. */
+  error?: string;
+}
+
 export const connectedStores = pgTable(
   "connected_stores",
   {
@@ -22,9 +33,15 @@ export const connectedStores = pgTable(
     provider: text("provider").notNull(),
     credentials: jsonb("credentials").$type<Record<string, unknown>>().notNull(),
     storeDomain: text("store_domain").notNull(),
-    status: text("status", { enum: ["connected", "disconnected", "error"] })
+    status: text("status", { enum: ["connecting", "connected", "disconnected", "error"] })
       .notNull()
       .default("connected"),
+    /** Why the store is in `error`, in words the merchant can act on. Null in every other status. */
+    statusReason: text("status_reason"),
+    /** The last check of the store's webhooks and key, made on a merchant's visit (never on a schedule). */
+    health: jsonb("health").$type<StoreHealth>(),
+    /** When the store last delivered a webhook we accepted. */
+    lastEventAt: timestamp("last_event_at", { withTimezone: true }),
     catalogWriteEnabled: boolean("catalog_write_enabled").notNull().default(false),
     catalogFieldMapping: jsonb("catalog_field_mapping").$type<CatalogFieldMapping>().notNull().default([]),
     catalogCursor: text("catalog_cursor"),
@@ -152,6 +169,8 @@ export const channelOrderExports = pgTable(
     failureKind: text("failure_kind", { enum: ["definitive", "transient"] }),
     remoteOrderId: text("remote_order_id"),
     remoteUrl: text("remote_url"),
+    /** When the store's side of the order was last read by a read point catching up a missed delivery. */
+    remoteCheckedAt: timestamp("remote_checked_at", { withTimezone: true }),
     attempts: integer("attempts").notNull().default(0),
     lastError: text("last_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

@@ -340,10 +340,11 @@ describe("channel catalog conflicts", () => {
     // The new conflict arrives through the webhook path, not a full reconcile.
     // That path writes heldFieldPaths too and must revoke the stale force.
     await built.kernel.services.catalog.setAttributes(entityId, "en", { title: "Local title 2" }, testAdminActor);
+    item.attributes = [{ locale: "en", title: "Remote title 2" }];
     const hook = await service.handleWebhook(TEST_ORG_ID, storeId, {
       id: "conflict-webhook-revoke",
       type: "products/update",
-      data: { id: item.externalId, title: "Remote title 2" },
+      data: { kind: "product.changed", externalIds: [item.externalId] },
     });
     expect(hook).toEqual({ ok: true, value: { processed: true } });
 

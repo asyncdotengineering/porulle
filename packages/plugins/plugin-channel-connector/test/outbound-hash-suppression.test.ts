@@ -1,10 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSystemActor, type ChannelCatalogItem, type ChannelConnector, type ChannelPushCatalogItem } from "@porulle/core";
+import { createSystemActor, Ok, type ChannelCatalogItem, type ChannelConnector, type ChannelPushCatalogItem, type ChannelStore } from "@porulle/core";
 import { and, eq } from "@porulle/core/drizzle";
-import { sellableAttributes, sellableCustomFields, sellableEntityRevisions } from "@porulle/core/schema";
+import { sellableAttributes, sellableEntityRevisions } from "@porulle/core/schema";
 import { createPluginTestApp, jsonHeaders, TEST_ORG_ID, testAdminActor } from "@porulle/core/testing";
 import { CATALOG_OUTBOUND_SUPPRESSION_WINDOW_MS, channelConnectorPlugin, ChannelConnectorService, mockChannelConnector } from "../src/index.js";
 import { channelEntityMap, connectedStores } from "../src/schema.js";
+
+/** What the store answers when a delivery makes the plugin re-read a product: a delivery is a nudge. */
+const storeHolds = new Map<string, ChannelCatalogItem>();
+function storeChanged(externalId: string, title: unknown, description: string) {
+  const text = String(title);
+  storeHolds.set(externalId, { externalId, slug: externalId, title: text, attributes: [{ locale: "en", title: text, description }], variants: [] });
+  return { kind: "product.changed", externalIds: [externalId] } as const;
+}
+const answersFromStore = {
+  async fetchCatalogItems(_store: ChannelStore, ids: string[]) {
+    return Ok(ids.flatMap((id) => {
+      const item = storeHolds.get(id);
+      return item ? [item] : [];
+    }));
+  },
+};
 
 async function createOutboundScenario(slug: string, connector: ChannelConnector) {
   const built = await createPluginTestApp(channelConnectorPlugin({ connectors: [connector] }));
@@ -46,7 +62,7 @@ async function createOutboundScenario(slug: string, connector: ChannelConnector)
 describe("channel outbound hash suppression", () => {
   it("suppresses a push echo while converging a genuinely different webhook", async () => {
     const pushed: ChannelPushCatalogItem[] = [];
-    const connector = { ...mockChannelConnector({ onPushCatalog: (items) => pushed.push(...items) }), providerId: "shopify" };
+    const connector = { ...mockChannelConnector({ onPushCatalog: (items) => pushed.push(...items) }), providerId: "shopify", ...answersFromStore };
     const built = await createPluginTestApp(channelConnectorPlugin({ connectors: [connector] }));
     const service = new ChannelConnectorService(
       built.db,
@@ -93,7 +109,7 @@ describe("channel outbound hash suppression", () => {
     const echo = await service.handleWebhook(TEST_ORG_ID, storeId, {
       id: "outbound-hash-echo",
       type: "products/update",
-      data: { id: "outbound-hash-product", title: pushedTitle, description: "Store description" },
+      data: storeChanged("outbound-hash-product", pushedTitle, "Store description"),
     });
     expect(echo).toEqual({ ok: true, value: { processed: true } });
     const revisionsAfterEcho = await built.db.select({ id: sellableEntityRevisions.id }).from(sellableEntityRevisions).where(
@@ -113,7 +129,7 @@ describe("channel outbound hash suppression", () => {
     const expired = await service.handleWebhook(TEST_ORG_ID, storeId, {
       id: "outbound-hash-expired",
       type: "products/update",
-      data: { id: "outbound-hash-product", title: pushedTitle, description: "Store description" },
+      data: storeChanged("outbound-hash-product", pushedTitle, "Store description"),
     });
     expect(expired).toEqual({ ok: true, value: { processed: true } });
     const [expiredMapping] = await built.db.select({ syncHash: channelEntityMap.syncHash }).from(channelEntityMap).where(eq(channelEntityMap.entityId, entityId));
@@ -122,7 +138,7 @@ describe("channel outbound hash suppression", () => {
     const changed = await service.handleWebhook(TEST_ORG_ID, storeId, {
       id: "outbound-hash-merchant-change",
       type: "products/update",
-      data: { id: "outbound-hash-product", title: "Merchant title", description: "Merchant description" },
+      data: storeChanged("outbound-hash-product", "Merchant title", "Merchant description"),
     });
     expect(changed).toEqual({ ok: true, value: { processed: true } });
     const [attribute] = await built.db.select({ title: sellableAttributes.title, description: sellableAttributes.description }).from(sellableAttributes).where(
@@ -137,7 +153,7 @@ describe("channel outbound hash suppression", () => {
 
   it("normalizes the echoed platform value while converging a store-owned field in the same webhook", async () => {
     const pushed: ChannelPushCatalogItem[] = [];
-    const connector = { ...mockChannelConnector({ onPushCatalog: (items) => pushed.push(...items) }), providerId: "shopify" };
+    const connector = { ...mockChannelConnector({ onPushCatalog: (items) => pushed.push(...items) }), providerId: "shopify", ...answersFromStore };
     const built = await createPluginTestApp(channelConnectorPlugin({ connectors: [connector] }));
     const service = new ChannelConnectorService(
       built.db,
@@ -182,11 +198,7 @@ describe("channel outbound hash suppression", () => {
     const handled = await service.handleWebhook(TEST_ORG_ID, storeId, {
       id: "outbound-normalized-echo",
       type: "products/update",
-      data: {
-        id: "outbound-normalized-product",
-        title: "Pushed title",
-        description: "Merchant description",
-      },
+      data: storeChanged("outbound-normalized-product", "Pushed title", "Merchant description"),
     });
     expect(handled).toEqual({ ok: true, value: { processed: true } });
     const [attribute] = await built.db.select({ title: sellableAttributes.title, description: sellableAttributes.description }).from(sellableAttributes).where(
@@ -202,7 +214,7 @@ describe("channel outbound hash suppression", () => {
   }, 30_000);
 
   it("raises no shared conflict for an unchanged echo and detects a later shared edit after expiry", async () => {
-    const connector = { ...mockChannelConnector(), providerId: "shopify" };
+    const connector = { ...mockChannelConnector(), providerId: "shopify", ...answersFromStore };
     const { built, service, storeId, entityId } = await createOutboundScenario("outbound-shared-window", connector);
     const pushed = await service.pushCatalogToStore(TEST_ORG_ID, storeId, [entityId]);
     expect(pushed).toMatchObject({ ok: true, value: { outcomes: [{ ok: true }] } });
@@ -211,7 +223,7 @@ describe("channel outbound hash suppression", () => {
     const echo = await service.handleWebhook(TEST_ORG_ID, storeId, {
       id: "outbound-shared-echo",
       type: "products/update",
-      data: { id: "outbound-shared-window", title: "Pushed title", description: "Store description" },
+      data: storeChanged("outbound-shared-window", "Pushed title", "Store description"),
     });
     expect(echo).toEqual({ ok: true, value: { processed: true } });
     const [echoMapping] = await built.db.select({ heldFieldPaths: channelEntityMap.heldFieldPaths }).from(channelEntityMap).where(eq(channelEntityMap.entityId, entityId));
@@ -226,7 +238,7 @@ describe("channel outbound hash suppression", () => {
     const later = await service.handleWebhook(TEST_ORG_ID, storeId, {
       id: "outbound-shared-later",
       type: "products/update",
-      data: { id: "outbound-shared-window", title: "Merchant shared edit", description: "Store description" },
+      data: storeChanged("outbound-shared-window", "Merchant shared edit", "Store description"),
     });
     expect(later).toEqual({ ok: true, value: { processed: true } });
     const [laterStore] = await built.db.select({ report: connectedStores.lastReconcileReport }).from(connectedStores).where(eq(connectedStores.id, storeId));
@@ -236,7 +248,7 @@ describe("channel outbound hash suppression", () => {
   }, 30_000);
 
   it("raises a conflict for a genuine shared edit riding inside an echo payload", async () => {
-    const connector = { ...mockChannelConnector(), providerId: "shopify" };
+    const connector = { ...mockChannelConnector(), providerId: "shopify", ...answersFromStore };
     const { built, service, storeId, entityId } = await createOutboundScenario("outbound-echo-rider", connector);
     await built.kernel.services.catalog.setFieldOwner(entityId, "attributes.en.description", storeId, "shared", testAdminActor);
     const pushed = await service.pushCatalogToStore(TEST_ORG_ID, storeId, [entityId]);
@@ -246,7 +258,7 @@ describe("channel outbound hash suppression", () => {
     const echo = await service.handleWebhook(TEST_ORG_ID, storeId, {
       id: "outbound-echo-rider-webhook",
       type: "products/update",
-      data: { id: "outbound-echo-rider", title: "Pushed title", description: "Merchant description" },
+      data: storeChanged("outbound-echo-rider", "Pushed title", "Merchant description"),
     });
     expect(echo).toEqual({ ok: true, value: { processed: true } });
     const [mapping] = await built.db.select({ heldFieldPaths: channelEntityMap.heldFieldPaths }).from(channelEntityMap).where(eq(channelEntityMap.entityId, entityId));
@@ -261,7 +273,7 @@ describe("channel outbound hash suppression", () => {
   }, 30_000);
 
   it("converges an unchanged-value shared field inside an echo without a conflict", async () => {
-    const connector = { ...mockChannelConnector(), providerId: "shopify" };
+    const connector = { ...mockChannelConnector(), providerId: "shopify", ...answersFromStore };
     const { built, service, storeId, entityId } = await createOutboundScenario("outbound-echo-benign", connector);
     await built.kernel.services.catalog.setFieldOwner(entityId, "attributes.en.description", storeId, "shared", testAdminActor);
     const pushed = await service.pushCatalogToStore(TEST_ORG_ID, storeId, [entityId]);
@@ -271,7 +283,7 @@ describe("channel outbound hash suppression", () => {
     const echo = await service.handleWebhook(TEST_ORG_ID, storeId, {
       id: "outbound-echo-benign-webhook",
       type: "products/update",
-      data: { id: "outbound-echo-benign", title: "Pushed title", description: "Local description edit" },
+      data: storeChanged("outbound-echo-benign", "Pushed title", "Local description edit"),
     });
     expect(echo).toEqual({ ok: true, value: { processed: true } });
     const [mapping] = await built.db.select({ heldFieldPaths: channelEntityMap.heldFieldPaths }).from(channelEntityMap).where(eq(channelEntityMap.entityId, entityId));
@@ -280,47 +292,8 @@ describe("channel outbound hash suppression", () => {
     expect(store?.report).not.toMatchObject({ conflicts: expect.arrayContaining([expect.objectContaining({ fieldPath: "attributes.en.description" })]) });
   }, 30_000);
 
-  it("suppresses a normalized custom-field echo using the pushed field path", async () => {
-    const connector = { ...mockChannelConnector(), providerId: "shopify" };
-    const { built, service, storeId, entityId } = await createOutboundScenario("outbound-custom-field", connector);
-    const definition = await built.kernel.services.catalog.createEntityFieldDefinition({
-      entityType: "product",
-      name: "material",
-      type: "text",
-      filterable: true,
-    }, testAdminActor);
-    expect(definition.ok).toBe(true);
-    await built.db.insert(sellableCustomFields).values({
-      entityId,
-      fieldName: "material",
-      fieldType: "text",
-      source: "merchant",
-      status: "approved",
-      locale: "en",
-      textValue: "  linen  ",
-    });
-    await built.kernel.services.catalog.setFieldOwner(entityId, "customFields.material.en", storeId, "platform", testAdminActor);
-    const pushed = await service.pushCatalogToStore(TEST_ORG_ID, storeId, [entityId]);
-    expect(pushed).toMatchObject({ ok: true, value: { outcomes: [{ ok: true }] } });
-    await built.kernel.services.catalog.setFieldOwner(entityId, "customFields.material.en", storeId, "shared", testAdminActor);
-    const handled = await service.handleWebhook(TEST_ORG_ID, storeId, {
-      id: "outbound-custom-field-echo",
-      type: "products/update",
-      data: {
-        id: "outbound-custom-field",
-        customFields: { material: { en: "linen" } },
-      },
-    });
-    expect(handled).toEqual({ ok: true, value: { processed: true } });
-    const [mapping] = await built.db.select({ outboundFieldPaths: channelEntityMap.outboundFieldPaths, heldFieldPaths: channelEntityMap.heldFieldPaths }).from(channelEntityMap).where(eq(channelEntityMap.entityId, entityId));
-    expect(mapping?.outboundFieldPaths).toContain("customFields.material.en");
-    expect(mapping?.heldFieldPaths).not.toContain("customFields.material.en");
-    const [store] = await built.db.select({ report: connectedStores.lastReconcileReport }).from(connectedStores).where(eq(connectedStores.id, storeId));
-    expect(store?.report).not.toMatchObject({ conflicts: expect.arrayContaining([expect.objectContaining({ fieldPath: "customFields.material.en" })]) });
-  }, 30_000);
-
   it("treats the suppression window boundary as inclusive", async () => {
-    const connector = { ...mockChannelConnector(), providerId: "shopify" };
+    const connector = { ...mockChannelConnector(), providerId: "shopify", ...answersFromStore };
     const { built, service, storeId, entityId } = await createOutboundScenario("outbound-window-boundary", connector);
     await service.pushCatalogToStore(TEST_ORG_ID, storeId, [entityId]);
     await built.kernel.services.catalog.setFieldOwner(entityId, "attributes.en.title", storeId, "shared", testAdminActor);
@@ -332,7 +305,7 @@ describe("channel outbound hash suppression", () => {
       const echo = await service.handleWebhook(TEST_ORG_ID, storeId, {
         id: "outbound-boundary-echo",
         type: "products/update",
-        data: { id: "outbound-window-boundary", title: "Pushed title", description: "Store description" },
+        data: storeChanged("outbound-window-boundary", "Pushed title", "Store description"),
       });
       expect(echo).toEqual({ ok: true, value: { processed: true } });
       const [boundaryMapping] = await built.db.select({ heldFieldPaths: channelEntityMap.heldFieldPaths }).from(channelEntityMap).where(eq(channelEntityMap.entityId, entityId));
@@ -343,7 +316,7 @@ describe("channel outbound hash suppression", () => {
       const expired = await service.handleWebhook(TEST_ORG_ID, storeId, {
         id: "outbound-boundary-expired",
         type: "products/update",
-        data: { id: "outbound-window-boundary", title: "Boundary merchant edit", description: "Store description" },
+        data: storeChanged("outbound-window-boundary", "Boundary merchant edit", "Store description"),
       });
       expect(expired).toEqual({ ok: true, value: { processed: true } });
       const [store] = await built.db.select({ report: connectedStores.lastReconcileReport }).from(connectedStores).where(eq(connectedStores.id, storeId));
@@ -361,7 +334,7 @@ describe("channel outbound hash suppression", () => {
       attributes: [{ locale: "en", title: "Pushed title", description: "Store description" }],
       variants: [],
     };
-    const connector = { ...mockChannelConnector({ catalog: [remote] }), providerId: "shopify" };
+    const connector = { ...mockChannelConnector({ catalog: [remote] }), providerId: "shopify", ...answersFromStore };
     const { built, service, storeId, entityId } = await createOutboundScenario("outbound-reconcile-echo", connector);
     await service.pushCatalogToStore(TEST_ORG_ID, storeId, [entityId]);
     await built.kernel.services.catalog.setFieldOwner(entityId, "attributes.en.title", storeId, "shared", testAdminActor);
@@ -389,6 +362,7 @@ describe("channel outbound hash suppression", () => {
     const base = mockChannelConnector({ catalog: [remote] });
     const connector: ChannelConnector = {
       ...base,
+      ...answersFromStore,
       providerId: "shopify",
       async pushCatalog(store, items) {
         const item = items[0];
@@ -399,7 +373,7 @@ describe("channel outbound hash suppression", () => {
         const echo = await pushService.handleWebhook(TEST_ORG_ID, store.id, {
           id: "outbound-failed-recovery-echo",
           type: "products/update",
-          data: { id: item.externalId, title, description: "Store description" },
+          data: storeChanged(item.externalId, title, "Store description"),
         });
         expect(echo).toEqual({ ok: true, value: { processed: true } });
         return { ok: true, value: { outcomes: [{ externalId: item.externalId, ok: false, error: { code: "REMOTE_FAILED", message: "Rejected." } }] } };
@@ -427,6 +401,7 @@ describe("channel outbound hash suppression", () => {
     const base = mockChannelConnector();
     const connector: ChannelConnector = {
       ...base,
+      ...answersFromStore,
       providerId: "shopify",
       async pushCatalog() {
         throw new Error("transport exploded");

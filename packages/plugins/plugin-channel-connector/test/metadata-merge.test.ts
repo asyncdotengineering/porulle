@@ -19,7 +19,8 @@ describe("channel connector catalog metadata convergence", () => {
     },
     variants: [{ externalId: "metadata-variant", sku: "METADATA-SKU" }],
   };
-  const mock = mockChannelConnector({ catalog: [remoteItem] });
+  const catalog = [remoteItem];
+  const mock = mockChannelConnector({ catalog });
   let built: Awaited<ReturnType<typeof createPluginTestApp>>;
   let service: ChannelConnectorService;
   let storeId: string;
@@ -108,16 +109,16 @@ describe("channel connector catalog metadata convergence", () => {
     );
     expect(patched.ok).toBe(true);
 
+    catalog[0] = {
+      ...remoteItem,
+      title: "Webhook remote title",
+      description: "Webhook remote description",
+      metadata: { webhookRemoteKey: "webhook-remote-value" },
+    };
     const handled = await service.handleWebhook(TEST_ORG_ID, storeId, {
       id: "metadata-webhook-event",
       type: "products/update",
-      data: {
-        id: remoteItem.externalId,
-        title: "Webhook remote title",
-        description: "Webhook remote description",
-        metadata: { webhookRemoteKey: "webhook-remote-value" },
-        variants: [],
-      },
+      data: { kind: "product.changed", externalIds: [remoteItem.externalId] },
     });
     expect(handled).toEqual({ ok: true, value: { processed: true } });
 

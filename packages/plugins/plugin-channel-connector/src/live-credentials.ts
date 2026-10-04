@@ -41,24 +41,37 @@ export async function resolveLiveCredentials(connector: ChannelConnector, db: Pl
 
 type StoreCall<A extends unknown[], T> = (store: ChannelStore, ...args: A) => Promise<Result<T, ChannelConnectorError>>;
 
+/** Why a store whose key the provider refused is in `error`. */
+export const CREDENTIALS_REJECTED_REASON = "The store no longer accepts the key it gave us (it was revoked, or the user who approved it was removed). Reconnect the store.";
+
+async function markCredentialsRejected(db: PluginDb, storeId: string): Promise<void> {
+  await db.update(connectedStores).set({ status: "error", statusReason: CREDENTIALS_REJECTED_REASON, updatedAt: new Date() }).where(eq(connectedStores.id, storeId));
+}
+
 /**
  * The connector with every store-taking method routed through {@link resolveLiveCredentials}, so no
- * call site can start on a lapsed token by forgetting to ask. Returned unchanged when the connector's
- * credentials never expire.
+ * call site can start on a lapsed token by forgetting to ask.
  *
  * A call the provider answers with {@link CHANNEL_CREDENTIALS_REJECTED} — a token retired before its
- * stated expiry — is retried ONCE on credentials refreshed by force. A second rejection is the answer.
+ * stated expiry — is retried ONCE on credentials refreshed by force, for a connector that can refresh.
+ * A rejection that cannot be refreshed away (a second one, or a connector whose keys never expire,
+ * such as WooCommerce's) marks the store `error` so it reads as "reconnect".
  */
 export function withLiveCredentials(connector: ChannelConnector, db: PluginDb): ChannelConnector {
-  if (!connector.liveCredentials) return connector;
   const around = <A extends unknown[], T>(call: StoreCall<A, T>): StoreCall<A, T> => async (store, ...args) => {
     const current = await resolveLiveCredentials(connector, db, store);
     if (!current.ok) return current;
     const first = await call.call(connector, current.value, ...args);
     if (first.ok || first.error.code !== CHANNEL_CREDENTIALS_REJECTED) return first;
+    if (!connector.liveCredentials) {
+      await markCredentialsRejected(db, store.id);
+      return first;
+    }
     const refreshed = await resolveLiveCredentials(connector, db, current.value, { force: true });
     if (!refreshed.ok) return refreshed;
-    return call.call(connector, refreshed.value, ...args);
+    const second = await call.call(connector, refreshed.value, ...args);
+    if (!second.ok && second.error.code === CHANNEL_CREDENTIALS_REJECTED) await markCredentialsRejected(db, store.id);
+    return second;
   };
   return {
     ...connector,
@@ -73,6 +86,11 @@ export function withLiveCredentials(connector: ChannelConnector, db: PluginDb): 
     ...(connector.pushCatalog ? { pushCatalog: around(connector.pushCatalog) } : {}),
     ...(connector.reserve ? { reserve: around(connector.reserve) } : {}),
     ...(connector.registerWebhooks ? { registerWebhooks: around(connector.registerWebhooks) } : {}),
+    ...(connector.unregisterWebhooks ? { unregisterWebhooks: around(connector.unregisterWebhooks) } : {}),
+    ...(connector.webhookHealth ? { webhookHealth: around(connector.webhookHealth) } : {}),
+    ...(connector.decodeWebhook ? { decodeWebhook: around(connector.decodeWebhook) } : {}),
+    ...(connector.orderEvents ? { orderEvents: around(connector.orderEvents) } : {}),
     ...(connector.cancelOrder ? { cancelOrder: around(connector.cancelOrder) } : {}),
+    ...(connector.requestReturn ? { requestReturn: around(connector.requestReturn) } : {}),
   };
 }

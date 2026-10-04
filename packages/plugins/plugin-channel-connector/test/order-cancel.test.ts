@@ -131,14 +131,14 @@ describe("cancelling an order that was pushed to a store", () => {
     const remoteOrderId = await exported(orderId);
     cancelCalls.length = 0;
     const service = new ChannelConnectorService(built.db, built.kernel.services, { connectors: [connector] });
-    const handled = await service.handleWebhook(TEST_ORG_ID, storeId, { id: `evt-${remoteOrderId}`, type: "orders/cancelled", data: { id: Number(remoteOrderId) } });
+    const handled = await service.handleWebhook(TEST_ORG_ID, storeId, { id: `evt-${remoteOrderId}`, type: "orders/cancelled", data: { kind: "order.cancelled", remoteOrderId } });
     expect(handled.ok).toBe(true);
     expect(await status(orderId)).toBe("cancelled");
     expect(cancelCalls).toEqual([]);
 
     // C4: delivered again (or after a platform cancel), it changes nothing and fails nothing.
     const historyBefore = await built.db.select().from(orderStatusHistory).where(and(eq(orderStatusHistory.orderId, orderId), eq(orderStatusHistory.toStatus, "cancelled")));
-    const replay = await service.handleWebhook(TEST_ORG_ID, storeId, { id: `evt-${remoteOrderId}-again`, type: "orders/cancelled", data: { id: Number(remoteOrderId) } });
+    const replay = await service.handleWebhook(TEST_ORG_ID, storeId, { id: `evt-${remoteOrderId}-again`, type: "orders/cancelled", data: { kind: "order.cancelled", remoteOrderId } });
     expect(replay.ok).toBe(true);
     const historyAfter = await built.db.select().from(orderStatusHistory).where(and(eq(orderStatusHistory.orderId, orderId), eq(orderStatusHistory.toStatus, "cancelled")));
     expect(historyAfter.length).toBe(historyBefore.length);
