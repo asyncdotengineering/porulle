@@ -4698,7 +4698,9 @@ export class ChannelConnectorService {
     };
     let inventoryUpdated = 0;
     for (const level of inventory.value) {
-      const mapping = levelled.find((entry) => entry.externalId === level.externalId);
+      // A product and its only variant can share an id (a WooCommerce simple product): stock is the variant's.
+      const mapping = levelled.find((entry) => entry.externalId === level.externalId && entry.kind === "variant")
+        ?? levelled.find((entry) => entry.externalId === level.externalId);
       if (!mapping) continue;
       const current = existingLevels.find((entry) => entry.entityId === mapping.entityId && entry.variantId === (mapping.variantId ?? null));
       // Stock cannot sit below zero here, so negative remote stock compares as the zero it is stored as.
@@ -5289,8 +5291,14 @@ export class ChannelConnectorService {
     return archived.ok ? Ok([]) : PluginErr(archived.error.message);
   }
 
+  /**
+   * Stock is a variant's. A provider can name a product and its only variant by the same id (a
+   * WooCommerce simple product is both), so the variant mapping wins over the entity one, as the
+   * paged sync's does; an entity mapping alone (a product imported with no variants) still takes it.
+   */
   private async setMappedInventory(orgId: string, storeId: string, externalId: string, quantity: number, actor: Actor): Promise<void> {
-    const [mapping] = await this.db.select().from(channelEntityMap).where(and(eq(channelEntityMap.organizationId, orgId), eq(channelEntityMap.storeId, storeId), eq(channelEntityMap.externalId, externalId)));
+    const rows = await this.db.select().from(channelEntityMap).where(and(eq(channelEntityMap.organizationId, orgId), eq(channelEntityMap.storeId, storeId), eq(channelEntityMap.externalId, externalId)));
+    const mapping = rows.find((row) => row.kind === "variant") ?? rows[0];
     if (!mapping) return;
     await this.setInventoryLevel(mapping.entityId, mapping.variantId, quantity, actor);
   }
@@ -5818,12 +5826,23 @@ export class ChannelConnectorService {
     return Ok(rows as ChannelOrderExport[]);
   }
 
-  retryExport(
+  /**
+   * The operator's retry of a failed export: it runs the push again, as a job. The connector looks for
+   * an order it may already have created before creating one (an unclear first answer is exactly what
+   * left the export failed), so a retry never puts a second order in the store.
+   */
+  async retryExport(
     orgId: string,
     exportId: string,
     changedBy: string,
   ): Promise<PluginResult<ChannelOrderExport>> {
-    return this.transitionExport(orgId, exportId, "exported", changedBy, "Manual retry requested.");
+    const moved = await this.transitionExport(orgId, exportId, "exported", changedBy, "Manual retry requested.");
+    if (!moved.ok) return moved;
+    const jobs = this.services.jobs as JobsAdapter | undefined;
+    if (!jobs) return PluginErr("No jobs adapter is configured, so the retry cannot run.", "JOBS_UNAVAILABLE");
+    const { storeId, orderId } = moved.value;
+    await jobs.enqueue("channel/push-order", { orgId, storeId, orderId }, { organizationId: orgId, concurrencyKey: `push:${orderId}:${storeId}`, supersedes: true });
+    return moved;
   }
 
   abandonExport(

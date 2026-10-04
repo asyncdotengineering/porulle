@@ -204,11 +204,19 @@ export async function createServer(config: CommerceConfig) {
       ? trustedOrigins
       : (process.env.NODE_ENV === "production" ? [] : ["http://localhost:*"]),
   });
+  //
+  // The same reasoning covers a request that carries NO credential at all: with no cookie there is
+  // nothing ambient for a forged request to ride on. A store's webhook is exactly that — WooCommerce
+  // pings a new subscription with a cookieless, Origin-less form POST and refuses to create the
+  // subscription unless it is answered 2xx. The one cookieless forgery that matters is login CSRF
+  // (signing a victim into the attacker's account), so the auth routes keep the check regardless.
   app.use("/api/*", async (c, next) => {
     const authenticatedByKey =
       !!c.req.header("x-api-key") ||
       /^Bearer\s+/i.test(c.req.header("authorization") ?? "");
     if (authenticatedByKey) return next();
+    const ambientCredential = !!c.req.header("cookie");
+    if (!ambientCredential && !c.req.path.startsWith("/api/auth/")) return next();
 
     // Run only the CSRF origin check here; invoke the real downstream afterwards
     // so a genuine 403 from a route handler can't be misattributed to CSRF.

@@ -16,8 +16,9 @@ describe("Issue #34 — CSRF vs API-key requests", () => {
     app = server.app;
   });
 
-  it("blocks a bodyless browser-style POST (no Origin, no key) with a distinguishable CSRF code", async () => {
-    const res = await app.request(target, { method: "POST" });
+  // A forged request rides the victim's cookie: that is what the guard is for.
+  it("blocks a bodyless browser-style POST (a session cookie, no Origin, no key) with a distinguishable CSRF code", async () => {
+    const res = await app.request(target, { method: "POST", headers: { cookie: "better-auth.session_token=victim" } });
     expect(res.status).toBe(403);
     const json = await res.json();
     expect(json.error.code).toBe("CSRF_ORIGIN_REJECTED");
@@ -41,5 +42,29 @@ describe("Issue #34 — CSRF vs API-key requests", () => {
     });
     const json = await res.json().catch(() => ({}));
     expect(json.error?.code).not.toBe("CSRF_ORIGIN_REJECTED");
+  });
+
+  // A store's webhook carries no credential at all (WooCommerce pings a new subscription with a
+  // cookieless form POST, and refuses the subscription unless it is answered 2xx): nothing ambient
+  // to forge, so the guard lets it through to the route's own verification.
+  it("does NOT CSRF-reject a cookieless form POST (a webhook ping)", async () => {
+    const res = await app.request("http://localhost/api/channels/webhooks/00000000-0000-4000-8000-000000000001", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "webhook_id=7",
+    });
+    const json = await res.json().catch(() => ({}));
+    expect(json.error?.code).not.toBe("CSRF_ORIGIN_REJECTED");
+  });
+
+  // Login CSRF needs no cookie: signing a victim into the attacker's account. The auth routes keep the check.
+  it("still CSRF-rejects a cookieless form POST to the auth routes", async () => {
+    const res = await app.request("http://localhost/api/auth/sign-in/email", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "email=a%40b.c&password=x",
+    });
+    expect(res.status).toBe(403);
+    expect((await res.json()).error.code).toBe("CSRF_ORIGIN_REJECTED");
   });
 });
