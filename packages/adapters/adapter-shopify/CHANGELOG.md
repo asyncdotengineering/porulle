@@ -1,5 +1,16 @@
 # @porulle/adapter-shopify
 
+## 0.71.0
+
+### Minor Changes
+
+- [#173](https://github.com/asyncdotengineering/porulle/pull/173) [`7b19139`](https://github.com/asyncdotengineering/porulle/commit/7b191394ea3a81759e29311c644b0293df0b3d2d) Thanks [@octalpixel](https://github.com/octalpixel)! - A store refusing an order for stock now cancels the platform order. Connectors answer `CHANNEL_OUT_OF_STOCK` for that refusal (Shopify: `orderCreate`'s `INVENTORY_CLAIM_FAILED`); the channel connector fails the export for good and cancels the order, so the host's cancel path refunds the shopper. Any other refusal still waits for an operator.
+
+### Patch Changes
+
+- Updated dependencies [[`7b19139`](https://github.com/asyncdotengineering/porulle/commit/7b191394ea3a81759e29311c644b0293df0b3d2d)]:
+  - @porulle/core@0.71.0
+
 ## 0.70.2
 
 ### Patch Changes
