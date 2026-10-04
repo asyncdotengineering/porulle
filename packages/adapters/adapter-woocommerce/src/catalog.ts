@@ -66,8 +66,51 @@ function status(value: string | null | undefined): ChannelCatalogItem["status"] 
   return undefined;
 }
 
-function variant(row: WooVariation, currency: string | undefined): ChannelCatalogVariant {
-  const optionValues = Object.fromEntries(row.attributes.flatMap((attribute) => (attribute.option ? [[attribute.name, attribute.option] as const] : [])));
+/** "pa_color", "Color" and "color" are one attribute; "Blue" and the term slug "blue" one value. */
+function attributeKey(value: string): string {
+  return value.trim().toLowerCase().replace(/^pa_/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+interface OptionAxis {
+  name: string;
+  values: string[];
+}
+
+/**
+ * The option axes a variable product sells along. WooCommerce lets a variation use a global
+ * attribute (`pa_color`) by its term SLUG ("blue") while the product lists the term NAME ("Blue") —
+ * or does not list that attribute at all (measured on WooCommerce's own sample catalogue). The axes
+ * are the product's declared variation attributes plus any its variations use, and each value is
+ * spelled as the product spells it where it declares one, so every variant's values are among them.
+ */
+function optionAxes(product: WooProduct, variations: WooVariation[]): { axes: OptionAxis[]; resolve: (name: string, option: string) => { name: string; value: string } } {
+  const axes = new Map<string, OptionAxis>();
+  for (const attribute of product.attributes.filter((candidate) => candidate.variation === true)) {
+    axes.set(attributeKey(attribute.name), { name: attribute.name, values: [...attribute.options] });
+  }
+  const resolve = (name: string, option: string): { name: string; value: string } => {
+    const key = attributeKey(name);
+    let axis = axes.get(key);
+    if (!axis) {
+      axis = { name: name.replace(/^pa_/, "").replace(/^./, (first) => first.toUpperCase()), values: [] };
+      axes.set(key, axis);
+    }
+    const declared = axis.values.find((value) => attributeKey(value) === attributeKey(option));
+    if (declared) return { name: axis.name, value: declared };
+    const shown = option.replace(/^./, (first) => first.toUpperCase());
+    axis.values.push(shown);
+    return { name: axis.name, value: shown };
+  };
+  for (const row of variations) for (const attribute of row.attributes) if (attribute.option) resolve(attribute.name, attribute.option);
+  return { axes: [...axes.values()], resolve };
+}
+
+function variant(row: WooVariation, currency: string | undefined, resolve: (name: string, option: string) => { name: string; value: string }): ChannelCatalogVariant {
+  const optionValues = Object.fromEntries(row.attributes.flatMap((attribute) => {
+    if (!attribute.option) return [];
+    const resolved = resolve(attribute.name, attribute.option);
+    return [[resolved.name, resolved.value] as const];
+  }));
   const rowPrices = prices(row, currency);
   return {
     externalId: row.id,
@@ -100,15 +143,17 @@ export function catalogItem(product: WooProduct, variations: WooVariation[], cur
       images.push({ externalId: row.image.id, url: row.image.src, ...(row.image.alt ? { alt: row.image.alt } : {}), role: "gallery", sortOrder: images.length, variantExternalIds: [row.id] });
     }
   }
-  const options = product.attributes.filter((attribute) => attribute.variation === true).map((attribute, index) => ({
-    name: attribute.name,
-    displayName: attribute.name,
-    sortOrder: attribute.position ?? index,
-    values: attribute.options.map((value, valueIndex) => ({ value, displayValue: value, sortOrder: valueIndex })),
-  }));
+  const sellable = product.type === "simple" ? [] : variations.filter((row) => row.status !== "private");
+  const { axes, resolve } = optionAxes(product, sellable);
   const variants = product.type === "simple"
-    ? [variant({ id: product.id, sku: product.sku, price: product.price, regular_price: product.regular_price, sale_price: product.sale_price, attributes: [] }, currency)]
-    : variations.filter((row) => row.status !== "private").map((row) => variant(row, currency));
+    ? [variant({ id: product.id, sku: product.sku, price: product.price, regular_price: product.regular_price, sale_price: product.sale_price, attributes: [] }, currency, resolve)]
+    : sellable.map((row) => variant(row, currency, resolve));
+  const options = product.type === "simple" ? [] : axes.map((axis, index) => ({
+    name: axis.name,
+    displayName: axis.name,
+    sortOrder: index,
+    values: axis.values.map((value, valueIndex) => ({ value, displayValue: value, sortOrder: valueIndex })),
+  }));
   const itemStatus = status(product.status);
   return {
     externalId: product.id,
