@@ -1,5 +1,13 @@
 # @porulle/plugin-pos-restaurant
 
+## 0.74.0
+
+### Patch Changes
+
+- Updated dependencies [[`5234288`](https://github.com/asyncdotengineering/porulle/commit/52342881291d7998c5f23b8c43d0e521836bc3b3)]:
+  - @porulle/core@0.74.0
+  - @porulle/plugin-pos@0.74.0
+
 ## 0.73.3
 
 ### Patch Changes

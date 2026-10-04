@@ -1,5 +1,16 @@
 # @porulle/core
 
+## 0.74.0
+
+### Minor Changes
+
+- [#179](https://github.com/asyncdotengineering/porulle/pull/179) [`5234288`](https://github.com/asyncdotengineering/porulle/commit/52342881291d7998c5f23b8c43d0e521836bc3b3) Thanks [@octalpixel](https://github.com/octalpixel)! - Real WooCommerce stores, and store webhooks decoded by their connector.
+
+  - **Core channels contract.** A connector now decodes its own deliveries into provider-neutral `ChannelEvent`s (`decodeWebhook`), declares the topics it subscribes a store to (`webhookTopics`), can remove its subscriptions (`unregisterWebhooks`), check and repair them (`webhookHealth`), and answer an order's current state as events (`orderEvents`). `verifyWebhook` may answer `Ok(null)` for a delivery to acknowledge without acting on (a subscription ping). `completeAuth` receives the `state` it was started with. New code `CHANNEL_TOTAL_MISMATCH`; store status `connecting`.
+  - **Channel plugin.** `handleWebhook` acts on `ChannelEvent`s only — no Shopify topic or payload field reaches it — and reports a delivery its connector does not map as `processed: false`. The per-store webhook route answers 200 for anything verified and applies it as a `channel/apply-webhook` job, deduplicated per store. A WooCommerce key callback is saved and answered at once and finished by `channel/complete-connect`; the browser's return lands on the store, and a merchant's "deny" on a message saying so. Disconnect removes the store's subscriptions. New: `POST /stores/{id}/health` (on a merchant's visit, at most every 10 minutes), `refreshStaleRemoteOrders` + `channel/refresh-order` for read points, store columns `status_reason`, `health`, `last_event_at`, export column `remote_checked_at`. A product change read fresh now reports skipped and conflicting fields in the store's reconcile report (it reported only warnings). The payload-converge webhook path, which no real connector reached, is removed.
+  - **Shopify adapter.** Decodes its own webhooks (`decodeWebhook`); a stock delivery's inventory item is resolved to its variant and summed stock by `inventoryItem { variant }`.
+  - **WooCommerce adapter, rewritten against WooCommerce 11.1.2.** https-only store URLs (sub-directory installs kept, private hosts refused), Basic-header auth with query-string fallback learned once and persisted, firewall pages and revoked keys classified, every answer parsed. Imports simple products as one priced variant with sale/compare-at prices, permalinks and variation images; skips grouped and external products; reads stock per variation including untracked products. Orders go in at exactly the shopper's total (zero-rate lines, discount allocated, delivery as a shipping line), are found by our meta key before any create (no duplicates on retry), are refused when the store lacks the stock, and are cancelled again if the store oversold or totalled them differently. Store cancels, fulfilments with tracking (native fulfilments, Shipment Tracking, meta, or status only) and refunds decode to events; a cancel at the store restocks.
+
 ## 0.73.3
 
 ## 0.73.2
