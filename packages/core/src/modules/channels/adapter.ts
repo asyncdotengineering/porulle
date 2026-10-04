@@ -243,6 +243,19 @@ export const CHANNEL_CANCEL_REFUSED = "CHANNEL_CANCEL_REFUSED";
  */
 export const CHANNEL_OUT_OF_STOCK = "CHANNEL_OUT_OF_STOCK";
 
+/** A shopper asking the store to take items back, each named by the store's own variant id. */
+export interface ChannelReturnInput {
+  lines: Array<{ externalVariantId: string; quantity: number }>;
+  /** Why, in the shopper's words. Providers that keep a reason code receive it as a note. */
+  reason: string;
+  note?: string;
+}
+
+export interface ChannelReturnResult {
+  /** The provider's id for the return: what its return webhooks name. */
+  remoteReturnId: string;
+}
+
 export interface ChannelWebhookEvent {
   id: string;
   type: string;
@@ -332,6 +345,8 @@ export interface ChannelConnector {
    * answers `CHANNEL_CANCEL_REFUSED`; an order already cancelled at the provider is success.
    */
   cancelOrder?(store: ChannelStore, remoteId: string, input: ChannelCancelOrderInput): Promise<Result<void, ChannelConnectorError>>;
+  /** Ask the store to take items of a pushed order back. The store then approves or declines it. */
+  requestReturn?(store: ChannelStore, remoteOrderId: string, input: ChannelReturnInput): Promise<Result<ChannelReturnResult, ChannelConnectorError>>;
   /** A delivery to the per-store address, for providers that sign per store (WooCommerce). */
   verifyWebhook?(store: ChannelStore, request: Request): Promise<Result<ChannelWebhookEvent>>;
   /** A delivery to the provider-wide address, for providers that sign per app (Shopify). */

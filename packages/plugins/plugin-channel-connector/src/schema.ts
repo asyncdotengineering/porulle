@@ -234,6 +234,31 @@ export const channelExportEvents = pgTable(
   }),
 );
 
+/**
+ * A return the marketplace asked a store to take, and the store's answer so far. The refund for it
+ * arrives separately, on the store's own refund webhook.
+ */
+export const channelReturns = pgTable(
+  "channel_returns",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id").notNull(),
+    storeId: uuid("store_id").references(() => connectedStores.id, { onDelete: "cascade" }).notNull(),
+    orderId: uuid("order_id").notNull(),
+    remoteReturnId: text("remote_return_id").notNull(),
+    status: text("status", { enum: ["requested", "approved", "declined", "closed", "cancelled"] }).notNull().default("requested"),
+    lines: jsonb("lines").$type<Array<{ orderLineItemId: string; quantity: number }>>().notNull(),
+    reason: text("reason").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    orderIdx: index("idx_channel_returns_order").on(table.organizationId, table.orderId),
+    remoteUnique: uniqueIndex("channel_returns_store_remote_unique").on(table.storeId, table.remoteReturnId),
+  }),
+);
+
 export const channelRefundRequests = pgTable(
   "channel_refund_requests",
   {
