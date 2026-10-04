@@ -328,4 +328,5 @@ export type ChannelCatalogPushEvent = typeof channelCatalogPushEvents.$inferSele
 export type ChannelOrderExport = typeof channelOrderExports.$inferSelect;
 export type ChannelExportEvent = typeof channelExportEvents.$inferSelect;
 export type ChannelRefundRequest = typeof channelRefundRequests.$inferSelect;
+export type ChannelReturn = typeof channelReturns.$inferSelect;
 export type ChannelRefundEvent = typeof channelRefundEvents.$inferSelect;

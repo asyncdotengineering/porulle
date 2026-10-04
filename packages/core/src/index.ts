@@ -184,6 +184,7 @@ export type {
   ChannelOrderStatus,
   ChannelCancelOrderInput,
   ChannelCancelReason,
+  ChannelRefundRecord,
   ChannelReturnInput,
   ChannelReturnResult,
   ChannelPushOrderResult,
