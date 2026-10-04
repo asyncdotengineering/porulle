@@ -572,7 +572,16 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           const userId = actor?.userId;
           if (!userId) return oauthError(403, "USER_REQUIRED", "Connecting a store needs a signed-in user.");
           const typed = String((query as { shop?: string; store?: string }).shop ?? (query as { store?: string }).store ?? "");
-          const storeDomain = connector.normalizeStoreDomain ? connector.normalizeStoreDomain(typed) : typed;
+          // A connector that can look at the store first does, so the merchant is told what is wrong
+          // here rather than landing on a broken page at their own site.
+          let storeDomain: string | undefined;
+          if (connector.probeStore) {
+            const probed = await connector.probeStore(typed);
+            if (!probed.ok) return connectOutcome(oauth.postConnectRedirect, { error: probed.error.code, message: probed.error.message });
+            storeDomain = probed.value.storeDomain;
+          } else {
+            storeDomain = connector.normalizeStoreDomain ? connector.normalizeStoreDomain(typed) : typed;
+          }
           if (!storeDomain) return connectOutcome(oauth.postConnectRedirect, { error: "INVALID_STORE_DOMAIN", message: `"${typed}" does not name a ${provider} store.` });
           // Refused HERE, before the merchant reaches the provider: a grant issued for a shop retires
           // that shop's other grants, so a refusal at the callback would already have broken them.

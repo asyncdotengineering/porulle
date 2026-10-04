@@ -359,6 +359,12 @@ export interface ChannelConnector {
     ctx: { storeDomain: string; state: string },
   ): Promise<Result<{ credentials: Record<string, unknown>; storeDomain: string }, ChannelConnectorError>>;
   /**
+   * Checks, before the merchant is sent anywhere, that what they typed is a store this connector can
+   * connect — and says precisely what is wrong when it is not (not https, not this platform, a
+   * firewall in front of it, its API switched off). Answers the canonical store address on success.
+   */
+  probeStore?(input: string): Promise<Result<{ storeDomain: string; name: string }, ChannelConnectorError>>;
+  /**
    * The canonical spelling of what a merchant typed to name their store, or undefined when it cannot
    * name one. OAuth start runs the input through this before anything is signed or redirected.
    */
