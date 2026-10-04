@@ -38,6 +38,8 @@ export const wooProductSchema = z.object({
   attributes: z.array(z.object({ name: z.string(), position: z.number().nullish(), variation: z.boolean().nullish(), options: z.array(z.string()).default([]) })).default([]),
   tags: z.array(z.object({ slug: z.string().nullish() })).default([]),
   categories: z.array(z.object({ slug: z.string().nullish() })).default([]),
+  /** Core since WooCommerce 9.6; absent on older stores. */
+  brands: z.array(z.object({ name: z.string() })).default([]),
   variations: z.array(id).default([]),
   manage_stock: z.boolean().nullish(),
   stock_quantity: z.number().nullish(),
@@ -166,6 +168,7 @@ export function catalogItem(product: WooProduct, variations: WooVariation[], cur
     ...(options.length > 0 ? { options } : {}),
     tags: product.tags.flatMap((tag) => (tag.slug ? [tag.slug] : [])),
     categories: product.categories.flatMap((category) => (category.slug ? [category.slug] : [])),
+    ...(product.brands[0] ? { brand: product.brands[0].name } : {}),
     ...(itemStatus ? { status: itemStatus } : {}),
     ...(product.permalink ? { storefrontUrl: product.permalink } : {}),
   };

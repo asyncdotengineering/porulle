@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { catalogItem, wooProductSchema } from "../src/catalog.js";
 import { wooConnector } from "../src/index.js";
 
 const store = { id: "store-1", organizationId: "org-1", provider: "woocommerce", credentials: { consumerKey: `ck_${"a".repeat(40)}`, consumerSecret: `cs_${"b".repeat(40)}`, authMode: "header", restRoute: "pretty", currency: "USD", priceDecimals: 2 }, storeDomain: "https://shop.example", status: "connected" as const, webhookSecret: "webhook-secret" };
@@ -325,5 +326,19 @@ describe("woocommerce connector: delivery identity", () => {
   it("gives a replay of one delivery the same id", async () => {
     const body = { id: 31, status: "publish", date_modified_gmt: "2026-10-04T13:05:18", stock_quantity: 3 };
     expect(await deliver(body)).toBe(await deliver(body));
+  });
+});
+
+describe("woocommerce connector: brand", () => {
+  const product = (brands: unknown) => wooProductSchema.parse({ id: 31, name: "Beanie", type: "simple", price: "4500", regular_price: "4500", sale_price: "", ...(brands === undefined ? {} : { brands }) });
+
+  // WooCommerce 9.6+ ships Brands in core and lists them on the product; Shopify's equivalent is `vendor`.
+  it("imports the product's first brand by name", () => {
+    expect(catalogItem(product([{ id: 4, name: "Colombo Threads", slug: "colombo-threads" }]), [], "LKR").brand).toBe("Colombo Threads");
+  });
+
+  it("names no brand when the product has none, or the store predates Brands", () => {
+    expect("brand" in catalogItem(product([]), [], "LKR")).toBe(false);
+    expect("brand" in catalogItem(product(undefined), [], "LKR")).toBe(false);
   });
 });
