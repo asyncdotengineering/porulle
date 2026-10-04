@@ -26,6 +26,7 @@ import {
   channelOrderExports,
   channelRefundEvents,
   channelRefundRequests,
+  channelReturns,
   connectedStores,
 } from "./schema.js";
 import {
@@ -503,6 +504,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
       channelOrderExports,
       channelExportEvents,
       channelRefundRequests,
+      channelReturns,
       channelRefundEvents,
     }),
     hooks: () => buildHooks(options),

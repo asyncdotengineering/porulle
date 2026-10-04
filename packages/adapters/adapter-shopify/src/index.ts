@@ -67,6 +67,15 @@ export const ORDER_CANCEL_MUTATION = `mutation PorulleOrderCancel($orderId: ID!,
   orderCancel(orderId: $orderId, reason: $reason, restock: true, notifyCustomer: false, staffNote: $staffNote) { orderCancelUserErrors { code message } }
 }`;
 
+/** The order's shipped lines: a return names what it takes back by fulfilment line, not order line. */
+export const ORDER_FULFILLMENT_LINES_QUERY = `query PorulleOrderFulfillmentLines($id: ID!) {
+  order(id: $id) { fulfillments(first: 20) { fulfillmentLineItems(first: 50) { nodes { id quantity lineItem { variant { legacyResourceId } } } } } }
+}`;
+
+export const RETURN_REQUEST_MUTATION = `mutation PorulleReturnRequest($input: ReturnRequestInput!) {
+  returnRequest(input: $input) { return { id } userErrors { code message } }
+}`;
+
 export const ORDER_BY_SOURCE_QUERY = `query PorulleOrderBySource($query: String!) {
   orders(first: 1, query: $query) { nodes { legacyResourceId } }
 }`;
@@ -100,6 +109,16 @@ const CANCEL_REASON: Record<ChannelCancelReason, string> = {
   staff: "STAFF",
   other: "OTHER",
 };
+const fulfillmentLinesSchema = z.object({
+  order: z.object({
+    fulfillments: z.array(z.object({
+      fulfillmentLineItems: z.object({ nodes: z.array(z.object({ id: z.string(), quantity: z.number(), lineItem: z.object({ variant: z.object({ legacyResourceId: z.string() }).nullable() }) })) }),
+    })),
+  }).nullable(),
+});
+const returnRequestSchema = z.object({
+  returnRequest: z.object({ return: z.object({ id: z.string() }).nullable(), userErrors: z.array(z.object({ code: z.string().nullable(), message: z.string() })) }),
+});
 const orderBySourceSchema = z.object({ orders: z.object({ nodes: z.array(z.object({ legacyResourceId: z.string() })) }) });
 const orderStatusSchema = z.object({
   order: z.object({ cancelledAt: z.string().nullable(), displayFinancialStatus: z.string().nullable(), displayFulfillmentStatus: z.string() }).nullable(),
@@ -319,6 +338,32 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
       const read = await shopifyGraphql(shop, ORDER_STATUS_QUERY, { id: orderId }, orderStatusSchema);
       if (read.ok && read.value.order?.cancelledAt) return Ok(undefined);
       return Err({ code: CHANNEL_CANCEL_REFUSED, message: `Shopify refused to cancel the order: ${refusals.map((error) => error.message).join("; ")}.`, retriable: false });
+    },
+    async requestReturn(store, remoteOrderId, input) {
+      const shop = target(store);
+      if (!shop) return Err(credentialsRequired);
+      const shipped = await shopifyGraphql(shop, ORDER_FULFILLMENT_LINES_QUERY, { id: `gid://shopify/Order/${remoteOrderId}` }, fulfillmentLinesSchema);
+      if (!shipped.ok) return shipped;
+      const fulfilmentLines = (shipped.value.order?.fulfillments ?? []).flatMap((fulfillment) => fulfillment.fulfillmentLineItems.nodes);
+      const returnLineItems: Array<{ fulfillmentLineItemId: string; quantity: number; customerNote: string }> = [];
+      const note = [input.reason, input.note].filter((part) => part !== undefined && part !== "").join(" — ").slice(0, 300);
+      for (const wanted of input.lines) {
+        let remaining = wanted.quantity;
+        for (const line of fulfilmentLines.filter((candidate) => candidate.lineItem.variant?.legacyResourceId === wanted.externalVariantId)) {
+          if (remaining === 0) break;
+          const take = Math.min(remaining, line.quantity);
+          returnLineItems.push({ fulfillmentLineItemId: line.id, quantity: take, customerNote: note });
+          remaining -= take;
+        }
+        if (remaining > 0) return Err({ code: "SHOPIFY_RETURN_NOT_SHIPPED", message: `Shopify has not shipped ${remaining} of variant ${wanted.externalVariantId}, so it cannot take them back.`, retriable: false });
+      }
+      const requested = await shopifyGraphql(shop, RETURN_REQUEST_MUTATION, { input: { orderId: `gid://shopify/Order/${remoteOrderId}`, returnLineItems } }, returnRequestSchema);
+      if (!requested.ok) return requested;
+      const { return: created, userErrors } = requested.value.returnRequest;
+      if (userErrors.length > 0 || !created) {
+        return Err({ code: "SHOPIFY_RETURN_REFUSED", message: `Shopify refused the return: ${userErrors.map((error) => error.message).join("; ") || "no return created"}.`, retriable: false });
+      }
+      return Ok({ remoteReturnId: created.id.split("/").pop() ?? created.id });
     },
     /**
      * Every Shopify delivery — catalogue, stock, orders, uninstall and the mandatory compliance topics —

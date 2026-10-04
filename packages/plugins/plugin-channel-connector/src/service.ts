@@ -85,6 +85,7 @@ import {
   connectedStores,
   channelRefundEvents,
   channelRefundRequests,
+  channelReturns,
   type ChannelCatalogPush,
   type ChannelCatalogConflict,
   type ChannelOrderExport,
@@ -132,6 +133,15 @@ export const CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION = 20;
  * cancelling at the store for exactly this reason, so the two directions cannot loop.
  */
 export const CHANNEL_ORDER_CANCELLED_REASON = "channel_order_cancelled";
+
+/** What each store return webhook says about the return. */
+const RETURN_WEBHOOK_STATUS: Partial<Record<string, "approved" | "declined" | "closed" | "cancelled" | "requested">> = {
+  "returns/approve": "approved",
+  "returns/decline": "declined",
+  "returns/close": "closed",
+  "returns/cancel": "cancelled",
+  "returns/reopen": "approved",
+};
 
 /** The slice of a store order body's `fulfillments` (Shopify's REST spelling) a parcel is read from. */
 const channelFulfillmentsSchema = z.array(z.object({
@@ -3205,6 +3215,10 @@ export class ChannelConnectorService {
         "orders/partially_fulfilled",
         "orders/cancelled",
         "refunds/create",
+        "returns/approve",
+        "returns/decline",
+        "returns/close",
+        "returns/cancel",
         "app/uninstalled",
       ], callbackUrl);
       if (!registration.ok) {
@@ -5028,6 +5042,13 @@ export class ChannelConnectorService {
           }
         }
       }
+    } else if (RETURN_WEBHOOK_STATUS[event.type] !== undefined) {
+      // The store's answer to a return the marketplace asked for. A return it never asked for is ignored.
+      const status = RETURN_WEBHOOK_STATUS[event.type];
+      const remoteReturnId = String(data.id ?? "");
+      if (status !== undefined && remoteReturnId !== "") {
+        await this.db.update(channelReturns).set({ status, updatedAt: new Date() }).where(and(eq(channelReturns.organizationId, orgId), eq(channelReturns.storeId, storeId), eq(channelReturns.remoteReturnId, remoteReturnId)));
+      }
     } else if (event.type === "refunds/create") {
       const refund = await this.createRefundRequest(orgId, store, data, actor);
       if (!refund.ok) return refund;
@@ -5569,6 +5590,59 @@ export class ChannelConnectorService {
       const remaining = line.quantity - (shippedBy.get(line.id) ?? 0);
       return remaining > 0 ? [{ orderLineItemId: line.id, quantity: remaining }] : [];
     });
+  }
+
+  /**
+   * Asks the store this order was pushed to to take lines back. Each line is named to the store by its
+   * own variant id; a line the store has no record of is refused before the store is asked anything.
+   * The return is recorded as `requested`; the store's `returns/*` webhooks move it from there.
+   */
+  async requestReturn(
+    orgId: string,
+    orderId: string,
+    input: { lines: Array<{ orderLineItemId: string; quantity: number }>; reason: string; note?: string },
+  ): Promise<PluginResult<{ id: string; remoteReturnId: string; status: string }>> {
+    if (input.lines.length === 0) return PluginErr("Name at least one line to return.", "VALIDATION_FAILED");
+    const [exported] = await this.db
+      .select({ storeId: channelOrderExports.storeId, remoteOrderId: channelOrderExports.remoteOrderId })
+      .from(channelOrderExports)
+      .where(and(eq(channelOrderExports.organizationId, orgId), eq(channelOrderExports.orderId, orderId)));
+    if (!exported || exported.remoteOrderId === null) return PluginErr("This order never reached a store, so there is nothing to return there.", "NOT_FOUND");
+    const store = await this.getStoreRecord(orgId, exported.storeId);
+    if (!store || store.status !== "connected") return PluginErr("The store this order went to is not connected.", "NOT_FOUND");
+    const connector = this.connectors.get(store.provider);
+    if (!connector?.requestReturn) return PluginErr(`Returns are not available for ${store.provider} stores.`, "NOT_IMPLEMENTED");
+
+    const lines = await this.db.select({ id: orderLineItems.id, variantId: orderLineItems.variantId, quantity: orderLineItems.quantity }).from(orderLineItems).where(eq(orderLineItems.orderId, orderId));
+    const variantIds = lines.flatMap((line) => (line.variantId === null ? [] : [line.variantId]));
+    const mapped = variantIds.length === 0 ? [] : await this.db
+      .select({ variantId: channelEntityMap.variantId, externalId: channelEntityMap.externalId })
+      .from(channelEntityMap)
+      .where(and(eq(channelEntityMap.organizationId, orgId), eq(channelEntityMap.storeId, store.id), eq(channelEntityMap.kind, "variant"), inArray(channelEntityMap.variantId, variantIds)));
+    const remote: Array<{ externalVariantId: string; quantity: number }> = [];
+    for (const wanted of input.lines) {
+      const line = lines.find((candidate) => candidate.id === wanted.orderLineItemId);
+      if (!line) return PluginErr(`Line ${wanted.orderLineItemId} is not on this order.`, "VALIDATION_FAILED");
+      if (!Number.isInteger(wanted.quantity) || wanted.quantity < 1 || wanted.quantity > line.quantity) return PluginErr(`Line ${wanted.orderLineItemId} has ${line.quantity} to return; asked for ${wanted.quantity}.`, "VALIDATION_FAILED");
+      const externalId = mapped.find((entry) => entry.variantId === line.variantId)?.externalId;
+      if (!externalId) return PluginErr(`The store has no record of line ${wanted.orderLineItemId}, so it cannot take it back.`, "CHANNEL_MAPPING_MISSING");
+      remote.push({ externalVariantId: externalId, quantity: wanted.quantity });
+    }
+
+    const asked = await connector.requestReturn(store as ChannelStore, exported.remoteOrderId, { lines: remote, reason: input.reason, ...(input.note ? { note: input.note } : {}) });
+    if (!asked.ok) return PluginErr(asked.error.message, asked.error.code);
+    const [row] = await this.db.insert(channelReturns).values({
+      organizationId: orgId,
+      storeId: store.id,
+      orderId,
+      remoteReturnId: asked.value.remoteReturnId,
+      status: "requested",
+      lines: input.lines,
+      reason: input.reason,
+      note: input.note ?? null,
+    }).returning({ id: channelReturns.id, remoteReturnId: channelReturns.remoteReturnId, status: channelReturns.status });
+    if (!row) return PluginErr("The return could not be recorded.");
+    return Ok(row);
   }
 
   /** A cancelled or refunded order: nothing to push to a store, ever again. */
