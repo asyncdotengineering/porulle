@@ -72,6 +72,22 @@ export const ORDER_FULFILLMENT_LINES_QUERY = `query PorulleOrderFulfillmentLines
   order(id: $id) { fulfillments(first: 20) { fulfillmentLineItems(first: 50) { nodes { id quantity lineItem { variant { legacyResourceId } } } } } }
 }`;
 
+/**
+ * Shopify's reason library, by handle. Live Shopify refuses a return line with no reason ("Return reason
+ * can't be blank") although the schema marks both reason fields optional.
+ */
+export const RETURN_REASON_QUERY = `query PorulleReturnReasons($handles: [String!]) {
+  returnReasonDefinitions(first: 2, handles: $handles) { nodes { id handle } }
+}`;
+
+/** Shopify's catch-all, for a reason its library has no handle for. */
+const OTHER_RETURN_REASON = "other-reason";
+
+/** "Too small" → "too-small": Shopify's handles are its reason names, lower-cased and hyphenated. */
+function returnReasonHandle(reason: string): string {
+  return reason.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
 export const RETURN_REQUEST_MUTATION = `mutation PorulleReturnRequest($input: ReturnRequestInput!) {
   returnRequest(input: $input) { return { id } userErrors { code message } }
 }`;
@@ -116,6 +132,10 @@ const fulfillmentLinesSchema = z.object({
     })),
   }).nullable(),
 });
+const returnReasonSchema = z.object({
+  returnReasonDefinitions: z.object({ nodes: z.array(z.object({ id: z.string(), handle: z.string() })) }),
+});
+
 const returnRequestSchema = z.object({
   returnRequest: z.object({ return: z.object({ id: z.string() }).nullable(), userErrors: z.array(z.object({ code: z.string().nullable(), message: z.string() })) }),
 });
@@ -345,14 +365,20 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
       const shipped = await shopifyGraphql(shop, ORDER_FULFILLMENT_LINES_QUERY, { id: `gid://shopify/Order/${remoteOrderId}` }, fulfillmentLinesSchema);
       if (!shipped.ok) return shipped;
       const fulfilmentLines = (shipped.value.order?.fulfillments ?? []).flatMap((fulfillment) => fulfillment.fulfillmentLineItems.nodes);
-      const returnLineItems: Array<{ fulfillmentLineItemId: string; quantity: number; customerNote: string }> = [];
+      const handle = returnReasonHandle(input.reason);
+      const reasons = await shopifyGraphql(shop, RETURN_REASON_QUERY, { handles: [handle, OTHER_RETURN_REASON] }, returnReasonSchema);
+      if (!reasons.ok) return reasons;
+      const definitions = reasons.value.returnReasonDefinitions.nodes;
+      const reason = definitions.find((definition) => definition.handle === handle) ?? definitions.find((definition) => definition.handle === OTHER_RETURN_REASON);
+      if (!reason) return Err({ code: "SHOPIFY_RETURN_REASON_MISSING", message: `Shopify has no return reason "${handle}" and no "${OTHER_RETURN_REASON}".`, retriable: false });
+      const returnLineItems: Array<{ fulfillmentLineItemId: string; quantity: number; customerNote: string; returnReasonDefinitionId: string }> = [];
       const note = [input.reason, input.note].filter((part) => part !== undefined && part !== "").join(" — ").slice(0, 300);
       for (const wanted of input.lines) {
         let remaining = wanted.quantity;
         for (const line of fulfilmentLines.filter((candidate) => candidate.lineItem.variant?.legacyResourceId === wanted.externalVariantId)) {
           if (remaining === 0) break;
           const take = Math.min(remaining, line.quantity);
-          returnLineItems.push({ fulfillmentLineItemId: line.id, quantity: take, customerNote: note });
+          returnLineItems.push({ fulfillmentLineItemId: line.id, quantity: take, customerNote: note, returnReasonDefinitionId: reason.id });
           remaining -= take;
         }
         if (remaining > 0) return Err({ code: "SHOPIFY_RETURN_NOT_SHIPPED", message: `Shopify has not shipped ${remaining} of variant ${wanted.externalVariantId}, so it cannot take them back.`, retriable: false });
