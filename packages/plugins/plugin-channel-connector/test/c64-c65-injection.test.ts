@@ -125,6 +125,7 @@ describe("channel connector c64/c65 order injection", () => {
     customerId?: string;
     metadata?: Record<string, unknown>;
     status?: string;
+    shippingTotal?: number;
   }) {
     const orderId = crypto.randomUUID();
     const total = input.lines.reduce(
@@ -138,8 +139,8 @@ describe("channel connector c64/c65 order injection", () => {
       currency: "USD",
       subtotal: total,
       taxTotal: 0,
-      shippingTotal: 0,
-      grandTotal: total,
+      shippingTotal: input.shippingTotal ?? 0,
+      grandTotal: total + (input.shippingTotal ?? 0),
       status: input.status ?? "pending",
       ...(input.customerId ? { customerId: input.customerId } : {}),
       metadata: input.metadata ?? {},
@@ -382,6 +383,36 @@ describe("channel connector c64/c65 order injection", () => {
   // non-default saved address they picked. The customer's saved default was set first and the order's
   // address read only when it was missing, so a store was sent the default: a wrong-address
   // fulfilment (found on the deployed checkout, 2026-09-25). The default is only a fallback.
+  // Found on a real Shopify store: a shopper paid Rs 24,900 + Rs 350 delivery, and the merchant's
+  // order read Rs 24,900 with no shipping line, because the slice total was the sum of its lines.
+  it("carries the order's delivery charge when the slice is the whole order, and only then", async () => {
+    const store = await connect("shipping");
+    const other = await connect("shipping-other");
+    const product = await seedEntity(store.id, "shipping-product");
+    const elsewhere = await seedEntity(other.id, "shipping-elsewhere");
+    await mapEntity(store.id, product.entityId, "shipping-external");
+    await mapEntity(other.id, elsewhere.entityId, "shipping-elsewhere-external");
+    const metadata = { customer: { email: "ship@example.test", name: "Ship Shopper" }, shippingAddress: { firstName: "Ship", lastName: "Shopper", line1: "45 Flower Road", city: "Colombo", countryCode: "LK" } };
+
+    // S1: one store's whole order, with delivery: the slice carries it and its total includes it.
+    const whole = await seedOrder({ lines: [{ entityId: product.entityId, totalPrice: 24900 }], shippingTotal: 350, metadata });
+    const wholeSlice = await service.buildOrderSlice(TEST_ORG_ID, store.id, whole);
+    expect(wholeSlice).toMatchObject({ ok: true, value: { grandTotal: 25250, shipping: { title: "Shipping", amount: 350 } } });
+
+    // S2: no delivery charge: no shipping on the slice, total unchanged.
+    const free = await seedOrder({ lines: [{ entityId: product.entityId, totalPrice: 24900 }], metadata });
+    const freeSlice = await service.buildOrderSlice(TEST_ORG_ID, store.id, free);
+    expect(freeSlice.ok && freeSlice.value.grandTotal).toBe(24900);
+    expect(freeSlice.ok && "shipping" in freeSlice.value).toBe(false);
+
+    // S3: an order spanning two stores: one charge cannot be split honestly, so neither slice
+    // claims it and each total is its own lines.
+    const split = await seedOrder({ lines: [{ entityId: product.entityId, totalPrice: 24900 }, { entityId: elsewhere.entityId, totalPrice: 1000 }], shippingTotal: 350, metadata });
+    const splitSlice = await service.buildOrderSlice(TEST_ORG_ID, store.id, split);
+    expect(splitSlice.ok && splitSlice.value.grandTotal).toBe(24900);
+    expect(splitSlice.ok && "shipping" in splitSlice.value).toBe(false);
+  });
+
   it("sends the store the ORDER's shipping address, falling back to the saved default only when the order has none", async () => {
     const store = await connect("address");
     const product = await seedEntity(store.id, "address-product");

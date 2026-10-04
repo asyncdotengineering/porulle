@@ -39,11 +39,14 @@ export default {
       status: "connected",
       webhookSecret: null,
     };
-    if (new URL(request.url).pathname === "/order") {
+    const path = new URL(request.url).pathname;
+    if (path === "/order" || path === "/order-with-shipping") {
+      const shipping = path === "/order-with-shipping" ? { shipping: { title: "Shipping", amount: 35000 } } : {};
       return Response.json(await connector.pushOrder(store, {
         orderId: "order-workerd-1",
         currency: "LKR",
-        grandTotal: 980000,
+        grandTotal: path === "/order-with-shipping" ? 1015000 : 980000,
+        ...shipping,
         lines: [{ externalVariantId: "4242", title: "Handloom Cotton Shirt", quantity: 1, unitPrice: 980000, totalPrice: 980000 }],
         customer: {
           name: "Nimali Perera",
@@ -130,5 +133,19 @@ describe("shopifyConnector on workerd with the runtime's own fetch", () => {
       typeof body === "object" && body !== null && "query" in body && String(body.query).includes("PorulleOrderCreate"));
     expect(create?.variables.order.lineItems).toHaveLength(1);
     expect(create?.variables.order.lineItems.map((line) => line.requiresShipping)).toEqual([true]);
+  });
+
+  // A real shopper paid Rs 24,900 + Rs 350 delivery; Shopify recorded Rs 24,900 and no shipping
+  // line, so the merchant's order understated what their part of the sale was worth.
+  it("sends the delivery charge as a shipping line and charges the full total", async () => {
+    bodies.length = 0;
+    const response = await mf.dispatchFetch("https://worker.test/order-with-shipping");
+    expect(await response.json()).toEqual({ ok: true, value: { remoteOrderId: "1001" } });
+    const create = bodies.find((body): body is { variables: { order: { shippingLines?: unknown; transactions: { amountSet: unknown }[] } } } =>
+      typeof body === "object" && body !== null && "query" in body && String(body.query).includes("PorulleOrderCreate"));
+    expect(create?.variables.order.shippingLines).toEqual([
+      { title: "Shipping", priceSet: { shopMoney: { amount: "350.00", currencyCode: "LKR" } } },
+    ]);
+    expect(create?.variables.order.transactions[0]?.amountSet).toEqual({ shopMoney: { amount: "10150.00", currencyCode: "LKR" } });
   });
 });
