@@ -279,6 +279,8 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
           })),
           // The delivery the shopper paid this seller, so the order total matches the payment below.
           ...(slice.shipping ? { shippingLines: [{ title: slice.shipping.title, priceSet: money(slice.shipping.amount, slice.currency) }] } : {}),
+          // The shopper's discount as a fixed amount off the items, so the store's total is what was paid.
+          ...(slice.discount ? { discountCode: { itemFixedDiscountCode: { code: slice.discount.code, amountSet: money(slice.discount.amount, slice.currency) } } } : {}),
           transactions: [{ kind: "SALE", status: "SUCCESS", gateway: SOURCE_NAME, amountSet: money(slice.grandTotal, slice.currency) }],
         },
         options: { inventoryBehaviour: "DECREMENT_OBEYING_POLICY", sendReceipt: false, sendFulfillmentReceipt: false },

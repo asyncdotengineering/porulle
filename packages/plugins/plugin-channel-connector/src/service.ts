@@ -5741,7 +5741,10 @@ export class ChannelConnectorService {
     const linesTotal = lines.reduce((sum, line) => sum + line.totalPrice, 0);
     // ponytail: a multi-store order sends no shipping to any store; apportion it when such orders exist.
     const shipping = selected.length === lineItems.length && order.shippingTotal > 0 ? { title: "Shipping", amount: order.shippingTotal } : null;
-    return Ok({ orderId, currency: order.currency, grandTotal: linesTotal + (shipping?.amount ?? 0), lines, ...(shipping ? { shipping } : {}), customer: { name, email, shippingAddress } });
+    // ponytail: like delivery, a discount is sent only with the whole order; apportion it when multi-store orders exist.
+    const discountCode = typeof metadata.promotionCode === "string" && metadata.promotionCode.trim() !== "" ? metadata.promotionCode.trim() : "DISCOUNT";
+    const discount = selected.length === lineItems.length && order.discountTotal > 0 ? { code: discountCode, amount: order.discountTotal } : null;
+    return Ok({ orderId, currency: order.currency, grandTotal: linesTotal + (shipping?.amount ?? 0) - (discount?.amount ?? 0), lines, ...(shipping ? { shipping } : {}), ...(discount ? { discount } : {}), customer: { name, email, shippingAddress } });
   }
 
   async reapExports(input: { definitiveMs: number; transientMs: number }): Promise<{ abandonedCount: number; refundedOrderIds: string[] }> {

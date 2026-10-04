@@ -126,6 +126,7 @@ describe("channel connector c64/c65 order injection", () => {
     metadata?: Record<string, unknown>;
     status?: string;
     shippingTotal?: number;
+    discountTotal?: number;
   }) {
     const orderId = crypto.randomUUID();
     const total = input.lines.reduce(
@@ -140,7 +141,8 @@ describe("channel connector c64/c65 order injection", () => {
       subtotal: total,
       taxTotal: 0,
       shippingTotal: input.shippingTotal ?? 0,
-      grandTotal: total + (input.shippingTotal ?? 0),
+      discountTotal: input.discountTotal ?? 0,
+      grandTotal: total + (input.shippingTotal ?? 0) - (input.discountTotal ?? 0),
       status: input.status ?? "pending",
       ...(input.customerId ? { customerId: input.customerId } : {}),
       metadata: input.metadata ?? {},
@@ -411,6 +413,35 @@ describe("channel connector c64/c65 order injection", () => {
     const splitSlice = await service.buildOrderSlice(TEST_ORG_ID, store.id, split);
     expect(splitSlice.ok && splitSlice.value.grandTotal).toBe(24900);
     expect(splitSlice.ok && "shipping" in splitSlice.value).toBe(false);
+  });
+
+  // A shopper who used a promo code paid less than the lines and delivery. Without the discount on
+  // the slice the store's order reads more than was paid, and its total never matches the payment.
+  it("carries the order's discount and its code when the slice is the whole order, and only then", async () => {
+    const store = await connect("discount");
+    const other = await connect("discount-other");
+    const product = await seedEntity(store.id, "discount-product");
+    const elsewhere = await seedEntity(other.id, "discount-elsewhere");
+    await mapEntity(store.id, product.entityId, "discount-external");
+    await mapEntity(other.id, elsewhere.entityId, "discount-elsewhere-external");
+    const address = { customer: { email: "save@example.test", name: "Save Shopper" }, shippingAddress: { firstName: "Save", lastName: "Shopper", line1: "45 Flower Road", city: "Colombo", countryCode: "LK" } };
+
+    // D1: the whole order, discounted by a code: the slice says which code and how much, and its
+    // total is what the shopper paid — lines plus delivery, minus the discount.
+    const coded = await seedOrder({ lines: [{ entityId: product.entityId, totalPrice: 24900 }], shippingTotal: 350, discountTotal: 2490, metadata: { ...address, promotionCode: "SAVE10" } });
+    const codedSlice = await service.buildOrderSlice(TEST_ORG_ID, store.id, coded);
+    expect(codedSlice).toMatchObject({ ok: true, value: { grandTotal: 22760, discount: { code: "SAVE10", amount: 2490 } } });
+
+    // D2: a discount nobody typed a code for (an automatic promotion) still reaches the store, named.
+    const automatic = await seedOrder({ lines: [{ entityId: product.entityId, totalPrice: 24900 }], discountTotal: 900, metadata: address });
+    const automaticSlice = await service.buildOrderSlice(TEST_ORG_ID, store.id, automatic);
+    expect(automaticSlice).toMatchObject({ ok: true, value: { grandTotal: 24000, discount: { code: "DISCOUNT", amount: 900 } } });
+
+    // D3: an order spanning two stores: one discount cannot be split honestly, so neither slice claims it.
+    const split = await seedOrder({ lines: [{ entityId: product.entityId, totalPrice: 24900 }, { entityId: elsewhere.entityId, totalPrice: 1000 }], discountTotal: 2590, metadata: { ...address, promotionCode: "SAVE10" } });
+    const splitSlice = await service.buildOrderSlice(TEST_ORG_ID, store.id, split);
+    expect(splitSlice.ok && splitSlice.value.grandTotal).toBe(24900);
+    expect(splitSlice.ok && "discount" in splitSlice.value).toBe(false);
   });
 
   it("sends the store the ORDER's shipping address, falling back to the saved default only when the order has none", async () => {
