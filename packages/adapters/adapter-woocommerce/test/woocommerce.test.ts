@@ -300,3 +300,30 @@ describe("woocommerce connector: catalogue push", () => {
     expect(await blocked.pushCatalog!(store, [item])).toMatchObject({ ok: true, value: { outcomes: [{ externalId: "501", ok: false, error: { code: "WOO_BLOCKED_BY_FIREWALL", retriable: true } }] } });
   });
 });
+
+describe("woocommerce connector: delivery identity", () => {
+  async function deliver(body: Record<string, unknown>) {
+    const { createHmac } = await import("node:crypto");
+    const text = JSON.stringify(body);
+    const request = new Request("https://platform.example/api/channels/webhooks/store-1", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-wc-webhook-topic": "product.updated", "x-wc-webhook-signature": createHmac("sha256", store.webhookSecret).update(text, "utf8").digest("base64") },
+      body: text,
+    });
+    const verified = await wooConnector().verifyWebhook!(store, request);
+    if (!verified.ok || verified.value === null) throw new Error("delivery did not verify");
+    return verified.value.id;
+  }
+
+  // date_modified_gmt is to the second: two stock changes inside one second (two orders, two edits)
+  // report the same topic, id, status and time, and differ only in what changed.
+  it("gives two changes in one second different ids", async () => {
+    const at = { id: 31, status: "publish", date_modified_gmt: "2026-10-04T13:05:18" };
+    expect(await deliver({ ...at, stock_quantity: 3 })).not.toBe(await deliver({ ...at, stock_quantity: 4 }));
+  });
+
+  it("gives a replay of one delivery the same id", async () => {
+    const body = { id: 31, status: "publish", date_modified_gmt: "2026-10-04T13:05:18", stock_quantity: 3 };
+    expect(await deliver(body)).toBe(await deliver(body));
+  });
+});
