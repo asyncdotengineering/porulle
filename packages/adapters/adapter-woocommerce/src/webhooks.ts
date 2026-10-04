@@ -1,5 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { Err, Ok } from "@porulle/core";
+import { Err, Ok, toMinorUnits } from "@porulle/core";
 import type { ChannelConnectorError, ChannelEvent, ChannelShipment, ChannelStore, ChannelWebhookEvent, ChannelWebhookHealth, Result } from "@porulle/core";
 import { z } from "zod";
 import { wooProductSchema, wooVariationSchema } from "./catalog.js";
@@ -94,6 +94,8 @@ const trackingItem = z.object({
 });
 const refundSchema = z.object({
   id,
+  /** What the merchant refunded, positive, in the store's currency: part of a line is less than the line. */
+  amount: z.string().nullish(),
   line_items: z.array(z.object({ product_id: id, variation_id: id, quantity: z.number() })).default([]),
 });
 
@@ -171,6 +173,8 @@ export async function orderEvents(client: WooClient, remoteOrderId: string): Pro
   for (const summary of order.refunds) {
     const refund = await client.get(`/wc/v3/orders/${encodeURIComponent(order.id)}/refunds/${encodeURIComponent(summary.id)}`, refundSchema);
     if (!refund.ok) return refund;
+    const currency = order.currency ?? client.credentials.currency;
+    const amount = currency ? toMinorUnits(refund.value.data.amount, currency) : undefined;
     events.push({
       kind: "refund.created",
       remoteOrderId: order.id,
@@ -179,6 +183,7 @@ export async function orderEvents(client: WooClient, remoteOrderId: string): Pro
         const quantity = Math.abs(line.quantity);
         return quantity > 0 ? [{ externalVariantId: line.variation_id !== "0" ? line.variation_id : line.product_id, quantity }] : [];
       }),
+      ...(amount === undefined ? {} : { amount: Math.abs(amount) }),
     });
   }
   return Ok(events);

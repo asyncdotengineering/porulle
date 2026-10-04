@@ -287,6 +287,8 @@ export const channelRefundRequests = pgTable(
     orderId: uuid("order_id").notNull(),
     remoteRefundId: text("remote_refund_id").notNull(),
     amount: integer("amount").notNull(),
+    /** The order lines the store refunded. Null on requests made before it was kept. */
+    lines: jsonb("lines").$type<Array<{ lineItemId: string; quantity: number }>>(),
     state: text("state", { enum: ["requested", "approved", "rejected", "executed"] }).notNull().default("requested"),
     approvedBy: text("approved_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

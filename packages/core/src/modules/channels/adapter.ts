@@ -293,8 +293,12 @@ export type ChannelEvent =
   | { kind: "inventory.changed"; levels: ChannelInventoryLevel[] }
   | { kind: "order.cancelled"; remoteOrderId: string }
   | { kind: "order.fulfilled"; remoteOrderId: string; partial: boolean; shipments: ChannelShipment[] }
-  /** Lines the merchant refunded at the store; the platform prices them from its own order. */
-  | { kind: "refund.created"; remoteOrderId: string; remoteRefundId: string; lines: Array<{ externalVariantId: string; quantity: number }> }
+  /**
+   * Lines the merchant refunded at the store; the platform prices them from its own order. `amount` is
+   * what the store says it refunded, in minor units, when it says: a refund for PART of a line, or a line
+   * the store discounted, is less than the platform's price, and the platform never pays back more.
+   */
+  | { kind: "refund.created"; remoteOrderId: string; remoteRefundId: string; lines: Array<{ externalVariantId: string; quantity: number }>; amount?: number }
   | { kind: "return.updated"; remoteReturnId: string; status: "approved" | "declined" | "closed" | "cancelled" }
   | { kind: "connection.revoked" }
   | { kind: "compliance.request"; request: "customer_data" | "customer_redact" | "shop_redact"; data: Record<string, unknown> };

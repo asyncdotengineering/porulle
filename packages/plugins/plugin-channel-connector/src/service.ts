@@ -5327,16 +5327,20 @@ export class ChannelConnectorService {
       if (!orderLine || !Number.isInteger(quantity) || quantity < 1 || quantity > orderLine.quantity - orderLine.refundedQuantity) clean = false;
       else refundLines.push({ lineItemId: orderLine.id, quantity });
     }
-    const amount = refundLines.reduce((sum, line) => {
+    const priced = refundLines.reduce((sum, line) => {
       const item = orderLines.find((candidate) => candidate.id === line.lineItemId)!;
       return sum + Math.round((item.totalPrice + item.taxAmount - item.discountAmount) * line.quantity / item.quantity);
     }, 0);
+    // What the store refunded, when it says, and never more than the platform's own price for the lines:
+    // a store can refund part of a line, or a line it discounted, but cannot claim more than it sold.
+    const amount = event.amount === undefined ? priced : Math.min(Math.max(0, event.amount), priced);
     const [order] = await this.db.select().from(orders).where(and(eq(orders.organizationId, orgId), eq(orders.id, orderId)));
     if (!order) return PluginErr("Order not found.", "NOT_FOUND");
     const max = this.options.refundAutoMax ?? order.amountCaptured ?? order.grandTotal;
     const ageOk = Date.now() - store.createdAt.getTime() >= (this.options.newStoreDays ?? 7) * 86_400_000;
-    const auto = clean && amount > 0 && ageOk && amount <= max;
-    const rows = await this.db.insert(channelRefundRequests).values({ organizationId: orgId, storeId: store.id, orderId, remoteRefundId, amount, state: auto ? "approved" : "requested", approvedBy: auto ? requireUserId(actor) : null }).returning();
+    // Only a whole-line refund is automatic; any other amount is a person's call.
+    const auto = clean && amount > 0 && amount === priced && ageOk && amount <= max;
+    const rows = await this.db.insert(channelRefundRequests).values({ organizationId: orgId, storeId: store.id, orderId, remoteRefundId, amount, lines: clean ? refundLines : null, state: auto ? "approved" : "requested", approvedBy: auto ? requireUserId(actor) : null }).returning();
     const request = rows[0] as ChannelRefundRequest;
     await this.db.insert(channelRefundEvents).values({ organizationId: orgId, requestId: request.id, fromState: null, toState: request.state, reason: auto ? "Automatic guarded refund" : "Operator approval required", changedBy: requireUserId(actor) });
     if (auto) {
@@ -5352,8 +5356,9 @@ export class ChannelConnectorService {
   }
 
   private async executeRefund(request: ChannelRefundRequest, lines: Array<{ lineItemId: string; quantity: number }>, actor: Actor): Promise<PluginResult<ChannelRefundRequest>> {
-    const ordersService = this.services.orders as { refundLines(orderId: string, input: { lines: Array<{ lineItemId: string; quantity: number }>; reason?: string }, actor: Actor): Promise<{ ok: boolean; error?: { message: string } }> };
-    const result = await ordersService.refundLines(request.orderId, { lines, reason: `Channel refund ${request.remoteRefundId}` }, actor);
+    const ordersService = this.services.orders as { refundLines(orderId: string, input: { lines: Array<{ lineItemId: string; quantity: number }>; reason?: string; amount?: number }, actor: Actor): Promise<{ ok: boolean; error?: { message: string } }> };
+    // A request that kept its lines pays back its own amount; an older one is priced from the lines rebuilt for it.
+    const result = await ordersService.refundLines(request.orderId, { lines, reason: `Channel refund ${request.remoteRefundId}`, ...(request.lines ? { amount: request.amount } : {}) }, actor);
     if (!result.ok) return PluginErr(result.error?.message ?? "Refund execution failed.");
     const [updated] = await this.db.update(channelRefundRequests).set({ state: "executed", updatedAt: new Date() }).where(and(eq(channelRefundRequests.organizationId, request.organizationId), eq(channelRefundRequests.id, request.id), eq(channelRefundRequests.state, "approved"))).returning();
     await this.db.insert(channelRefundEvents).values({ organizationId: request.organizationId, requestId: request.id, fromState: "approved", toState: "executed", reason: "Platform refund executed", changedBy: requireUserId(actor) });
@@ -5367,7 +5372,7 @@ export class ChannelConnectorService {
   async approveRefund(orgId: string, id: string, actor: { userId: string }): Promise<PluginResult<ChannelRefundRequest>> {
     const [request] = await this.db.update(channelRefundRequests).set({ state: "approved", approvedBy: actor.userId, updatedAt: new Date() }).where(and(eq(channelRefundRequests.organizationId, orgId), eq(channelRefundRequests.id, id), eq(channelRefundRequests.state, "requested"))).returning();
     if (!request) return PluginErr("Refund request not found or already handled.", "NOT_FOUND");
-    const lines = await this.refundLinesForRequest(request as ChannelRefundRequest);
+    const lines = request.lines ?? await this.refundLinesForRequest(request as ChannelRefundRequest);
     const executed = await this.executeRefund(request as ChannelRefundRequest, lines, createSystemActor(orgId));
     if (!executed.ok) {
       // Nothing moved: back to `requested`, so the operator can approve again once the cause is fixed.

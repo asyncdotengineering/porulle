@@ -94,7 +94,7 @@ const channelEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("inventory.changed"), levels: z.array(level) }),
   z.object({ kind: z.literal("order.cancelled"), remoteOrderId: z.string() }),
   z.object({ kind: z.literal("order.fulfilled"), remoteOrderId: z.string(), partial: z.boolean(), shipments: z.array(shipment) }),
-  z.object({ kind: z.literal("refund.created"), remoteOrderId: z.string(), remoteRefundId: z.string(), lines: z.array(z.object({ externalVariantId: z.string(), quantity: z.number().int() })) }),
+  z.object({ kind: z.literal("refund.created"), remoteOrderId: z.string(), remoteRefundId: z.string(), lines: z.array(z.object({ externalVariantId: z.string(), quantity: z.number().int() })), amount: z.number().int().exactOptional() }),
   z.object({ kind: z.literal("return.updated"), remoteReturnId: z.string(), status: z.enum(["approved", "declined", "closed", "cancelled"]) }),
   z.object({ kind: z.literal("connection.revoked") }),
   z.object({ kind: z.literal("compliance.request"), request: z.enum(["customer_data", "customer_redact", "shop_redact"]), data: z.record(z.string(), z.unknown()) }),

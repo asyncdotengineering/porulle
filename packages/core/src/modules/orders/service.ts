@@ -1312,7 +1312,12 @@ export class OrderService {
    */
   async refundLines(
     orderId: string,
-    input: { lines: Array<{ lineItemId: string; quantity: number }>; reason?: string | undefined },
+    input: {
+      lines: Array<{ lineItemId: string; quantity: number }>;
+      reason?: string | undefined;
+      /** Pay back less than the lines' value (a partial refund agreed elsewhere); never more. */
+      amount?: number | undefined;
+    },
     actor: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<{ order: HydratedOrder; refund: OrderRefund }>> {
@@ -1371,7 +1376,19 @@ export class OrderService {
       const amount = Math.round((lineValue * line.quantity) / lineItem.quantity);
       refundLines.push({ lineItemId: lineItem.id, quantity: line.quantity, amount });
     }
-    const totalAmount = refundLines.reduce((sum, l) => sum + l.amount, 0);
+    const linesValue = refundLines.reduce((sum, l) => sum + l.amount, 0);
+    if (input.amount !== undefined && (!Number.isInteger(input.amount) || input.amount < 1 || input.amount > linesValue)) {
+      return Err(new CommerceValidationError(`Refund amount must be a whole number from 1 to the lines' value (${linesValue}).`));
+    }
+    const totalAmount = input.amount ?? linesValue;
+    if (totalAmount < linesValue) {
+      // Each line's share of a partial refund, the remainder on the last, so the ledger lines sum to it.
+      let left = totalAmount;
+      refundLines.forEach((line, index) => {
+        line.amount = index === refundLines.length - 1 ? left : Math.floor((line.amount * totalAmount) / linesValue);
+        left -= line.amount;
+      });
+    }
 
     const performedBy = actor?.userId ?? "system";
     const policies = await this.refundPolicies(orgId, ctx);
