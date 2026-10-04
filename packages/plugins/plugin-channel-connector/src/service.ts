@@ -56,6 +56,8 @@ import {
   mediaAssets,
   optionTypes,
   optionValues,
+  fulfillmentLineItems,
+  fulfillmentRecords,
   orderLineItems,
   orders,
   prices,
@@ -129,6 +131,16 @@ export const CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION = 20;
  * cancelling at the store for exactly this reason, so the two directions cannot loop.
  */
 export const CHANNEL_ORDER_CANCELLED_REASON = "channel_order_cancelled";
+
+/** The slice of a store order body's `fulfillments` (Shopify's REST spelling) a parcel is read from. */
+const channelFulfillmentsSchema = z.array(z.object({
+  id: z.union([z.string(), z.number()]),
+  status: z.string().nullish(),
+  tracking_company: z.string().nullish(),
+  tracking_number: z.string().nullish(),
+  tracking_url: z.string().nullish(),
+  line_items: z.array(z.object({ variant_id: z.union([z.string(), z.number()]).nullish(), quantity: z.number().int().positive() })).default([]),
+}));
 
 const CATALOG_PUSH_RETRY_BASE_MS = 60_000;
 const CATALOG_PUSH_RETRY_MAX_MS = 60 * 60 * 1000;
@@ -3189,6 +3201,7 @@ export class ChannelConnectorService {
         "products/delete",
         "inventory_levels/update",
         "orders/fulfilled",
+        "orders/partially_fulfilled",
         "orders/cancelled",
         "app/uninstalled",
       ], callbackUrl);
@@ -4985,10 +4998,10 @@ export class ChannelConnectorService {
         const externalId = String(data.variation_id ?? data.product_id ?? inventoryItemId ?? "");
         await this.setMappedInventory(orgId, storeId, externalId, available, actor);
       }
-    } else if (event.type === "orders/fulfilled" || event.type === "orders/cancelled") {
+    } else if (event.type === "orders/fulfilled" || event.type === "orders/partially_fulfilled" || event.type === "orders/cancelled") {
       const orderId = await this.resolveOrderId(orgId, storeId, data);
       if (orderId) {
-        const ordersService = this.services.orders as { addNote(orderId: string, input: { body: string }, actor: Actor): Promise<{ ok: boolean; error?: { message: string } }>; changeStatus(input: { orderId: string; newStatus: "processing" | "fulfilled" | "cancelled"; reason: string }, actor: Actor): Promise<{ ok: boolean }> };
+        const ordersService = this.services.orders as { addNote(orderId: string, input: { body: string }, actor: Actor): Promise<{ ok: boolean; error?: { message: string } }>; changeStatus(input: { orderId: string; newStatus: "processing" | "fulfilled" | "partially_fulfilled" | "cancelled"; reason: string }, actor: Actor): Promise<{ ok: boolean }> };
         const note = await ordersService.addNote(orderId, { body: `Channel ${event.type}: ${String(data.id ?? data.order_id ?? "remote order")}.` }, actor);
         if (!note.ok) return PluginErr(note.error?.message ?? "Could not add channel order note.");
         if (event.type === "orders/cancelled") {
@@ -5000,11 +5013,17 @@ export class ChannelConnectorService {
             await ordersService.changeStatus({ orderId, newStatus: "cancelled", reason: CHANNEL_ORDER_CANCELLED_REASON }, actor);
           }
         }
-        if (event.type === "orders/fulfilled") {
+        if (event.type === "orders/fulfilled" || event.type === "orders/partially_fulfilled") {
+          // The parcels first, so whatever the status move announces (a shipped email) can read them.
+          const recorded = await this.recordChannelFulfillments(orgId, storeId, orderId, data, actor);
+          if (!recorded.ok) return recorded;
+          const target = event.type === "orders/fulfilled" ? "fulfilled" : "partially_fulfilled";
           const [order] = await this.db.select({ status: orders.status }).from(orders).where(and(eq(orders.organizationId, orgId), eq(orders.id, orderId)));
           if (order?.status === "confirmed") await ordersService.changeStatus({ orderId, newStatus: "processing", reason: "channel_order_fulfilled" }, actor);
           const [after] = await this.db.select({ status: orders.status }).from(orders).where(and(eq(orders.organizationId, orgId), eq(orders.id, orderId)));
-          if (after?.status === "processing") await ordersService.changeStatus({ orderId, newStatus: "fulfilled", reason: "channel_order_fulfilled" }, actor);
+          if (after?.status === "processing" || (target === "fulfilled" && after?.status === "partially_fulfilled")) {
+            await ordersService.changeStatus({ orderId, newStatus: target, reason: "channel_order_fulfilled" }, actor);
+          }
         }
       }
     } else if (event.type === "refunds/create") {
@@ -5468,6 +5487,67 @@ export class ChannelConnectorService {
       cancelled += 1;
     }
     return Ok(cancelled);
+  }
+
+  /**
+   * One core fulfilment record per store fulfilment the order body carries, keyed on the store's
+   * fulfilment id (`metadata.channelFulfillmentId`) so a replay records nothing twice. Each records
+   * the lines it shipped, matched by the store's variant id; one whose lines cannot be matched
+   * records every line not yet fulfilled. A fulfilment the store cancelled is not a parcel.
+   */
+  private async recordChannelFulfillments(orgId: string, storeId: string, orderId: string, data: Record<string, unknown>, actor: Actor): Promise<PluginResult<number>> {
+    const parsed = channelFulfillmentsSchema.safeParse(data.fulfillments ?? []);
+    if (!parsed.success) return PluginErr(`Channel order fulfilments did not parse: ${parsed.error.message}`);
+    const existing = await this.db.select({ metadata: fulfillmentRecords.metadata }).from(fulfillmentRecords).where(eq(fulfillmentRecords.orderId, orderId));
+    const recorded = new Set(existing.map((row) => String(row.metadata?.channelFulfillmentId ?? "")));
+    const lines = await this.db.select({ id: orderLineItems.id, variantId: orderLineItems.variantId, quantity: orderLineItems.quantity }).from(orderLineItems).where(eq(orderLineItems.orderId, orderId));
+    const fulfillment = this.services.fulfillment as { createFulfillment(input: { orderId: string; lineItems: Array<{ orderLineItemId: string; quantity: number }>; carrier?: string; trackingNumber?: string; trackingUrl?: string; status?: string; metadata?: Record<string, unknown> }, actor: Actor): Promise<{ ok: boolean; error?: { message: string } }> };
+    let created = 0;
+    for (const parcel of parsed.data) {
+      const parcelId = String(parcel.id);
+      if (recorded.has(parcelId) || parcel.status === "cancelled" || parcel.status === "error" || parcel.status === "failure") continue;
+      const externalIds = parcel.line_items.flatMap((line) => (line.variant_id == null ? [] : [String(line.variant_id)]));
+      const mapped = externalIds.length === 0 ? [] : await this.db
+        .select({ externalId: channelEntityMap.externalId, variantId: channelEntityMap.variantId })
+        .from(channelEntityMap)
+        .where(and(eq(channelEntityMap.organizationId, orgId), eq(channelEntityMap.storeId, storeId), eq(channelEntityMap.kind, "variant"), inArray(channelEntityMap.externalId, externalIds)));
+      const variantFor = new Map(mapped.map((row) => [row.externalId, row.variantId]));
+      const matched = parcel.line_items.flatMap((line) => {
+        const variantId = line.variant_id == null ? undefined : variantFor.get(String(line.variant_id));
+        const orderLine = variantId == null ? undefined : lines.find((candidate) => candidate.variantId === variantId);
+        return orderLine ? [{ orderLineItemId: orderLine.id, quantity: line.quantity }] : [];
+      });
+      const lineItems = matched.length > 0 ? matched : await this.unfulfilledLines(lines);
+      if (lineItems.length === 0) continue;
+      const result = await fulfillment.createFulfillment({
+        orderId,
+        lineItems,
+        ...(parcel.tracking_company ? { carrier: parcel.tracking_company } : {}),
+        ...(parcel.tracking_number ? { trackingNumber: parcel.tracking_number } : {}),
+        ...(parcel.tracking_url ? { trackingUrl: parcel.tracking_url } : {}),
+        status: "shipped",
+        metadata: { channelFulfillmentId: parcelId, storeId },
+      }, actor);
+      if (!result.ok) return PluginErr(result.error?.message ?? "Could not record the store's fulfilment.");
+      recorded.add(parcelId);
+      created += 1;
+    }
+    return Ok(created);
+  }
+
+  /** Every line with quantity still to ship, for a parcel whose own lines could not be matched. */
+  private async unfulfilledLines(lines: Array<{ id: string; quantity: number }>): Promise<Array<{ orderLineItemId: string; quantity: number }>> {
+    const ids = lines.map((line) => line.id);
+    const shipped = ids.length === 0 ? [] : await this.db
+      .select({ lineId: fulfillmentLineItems.orderLineItemId, quantity: sql<number>`coalesce(sum(${fulfillmentLineItems.quantity}), 0)::int` })
+      .from(fulfillmentLineItems)
+      .where(inArray(fulfillmentLineItems.orderLineItemId, ids))
+      .groupBy(fulfillmentLineItems.orderLineItemId);
+    const shippedBy = new Map(shipped.map((row) => [row.lineId, row.quantity]));
+    return lines.flatMap((line) => {
+      const remaining = line.quantity - (shippedBy.get(line.id) ?? 0);
+      return remaining > 0 ? [{ orderLineItemId: line.id, quantity: remaining }] : [];
+    });
   }
 
   /** A cancelled or refunded order: nothing to push to a store, ever again. */
