@@ -1,5 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import {createPluginTestApp, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
+import { runPendingJobs } from "@porulle/core";
+import type { ChannelEvent } from "@porulle/core";
+import { createPluginTestApp, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
 import { and, eq } from "@porulle/core/drizzle";
 import { inventoryLevels, orderLineItems, orderRefunds, orders, sellableEntities, variants } from "@porulle/core/schema";
 import { channelConnectorPlugin, mockChannelConnector, ChannelConnectorService } from "../src/index.js";
@@ -52,19 +54,30 @@ describe("channel connector c66 two-way sync and refunds", () => {
     return { orderId, lineId: line!.id, entityId, variantId };
   }
 
-  async function webhook(storeId: string, eventId: string, data: Record<string, unknown>, type = "refunds/create", signature = "c66-secret") {
-    return built.app.request(`http://localhost/api/channels/webhooks/${storeId}`, {
+  /** Delivers to the per-store address, then runs the job the delivery queued. */
+  async function webhook(storeId: string, eventId: string, data: ChannelEvent | Record<string, never>, signature = "c66-secret") {
+    const response = await built.app.request(`http://localhost/api/channels/webhooks/${storeId}`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-mock-signature": signature },
-      body: JSON.stringify({ id: eventId, type, data }),
+      body: JSON.stringify({ id: eventId, type: "kind" in data ? data.kind : "empty", data }),
     });
+    await runPendingJobs({
+      db: built.kernel.database.db as Parameters<typeof runPendingJobs>[0]["db"],
+      tasks: new Map((built.kernel.config.jobs?.tasks ?? []).map((task) => [task.slug, task])),
+      logger: built.kernel.logger,
+      services: built.kernel.services,
+      limit: 100,
+    });
+    return response;
   }
+  const refund = (suffix: string): ChannelEvent => ({ kind: "refund.created", remoteOrderId: `remote-order-${suffix}`, remoteRefundId: `remote-refund-${suffix}`, lines: [{ externalVariantId: `remote-variant-${suffix}`, quantity: 1 }] });
 
   it("rejects bad HMAC, accepts a valid webhook, and deduplicates replay", async () => {
     const store = await connect("hmac");
-    expect((await webhook(store.id, "bad-1", {}, "products/delete", "wrong")).status).toBe(401);
-    expect((await webhook(store.id, "good-1", {}, "products/delete")).status).toBe(200);
-    const duplicate = await webhook(store.id, "good-1", {}, "products/delete");
+    const deletion: ChannelEvent = { kind: "product.deleted", externalIds: ["none"] };
+    expect((await webhook(store.id, "bad-1", deletion, "wrong")).status).toBe(401);
+    expect((await webhook(store.id, "good-1", deletion)).status).toBe(200);
+    const duplicate = await webhook(store.id, "good-1", deletion);
     expect(await duplicate.json()).toEqual({ data: { received: true, duplicate: true } });
   });
 
@@ -73,16 +86,15 @@ describe("channel connector c66 two-way sync and refunds", () => {
     const entityId = crypto.randomUUID();
     await built.db.insert(sellableEntities).values({ id: entityId, organizationId: TEST_ORG_ID, sourceStoreId: store.id, type: "product", slug: "c66-delete", status: "active", isVisible: true });
     await built.db.insert(channelEntityMap).values({ organizationId: TEST_ORG_ID, storeId: store.id, kind: "entity", externalId: "remote-delete", entityId, syncHash: "delete" });
-    expect((await webhook(store.id, "delete-1", { id: "remote-delete" }, "products/delete")).status).toBe(200);
+    expect((await webhook(store.id, "delete-1", { kind: "product.deleted", externalIds: ["remote-delete"] })).status).toBe(200);
     const [entity] = await built.db.select({ status: sellableEntities.status }).from(sellableEntities).where(eq(sellableEntities.id, entityId));
     expect(entity?.status).toBe("archived");
   });
 
-  it("level-sets a mapped inventory quantity from a product update webhook", async () => {
+  it("level-sets a mapped variant's stock from an inventory change", async () => {
     const store = await connect("update");
     const seeded = await seedMappedPaidOrder(store.id, "update");
-    await built.db.insert(channelEntityMap).values({ organizationId: TEST_ORG_ID, storeId: store.id, kind: "entity", externalId: "remote-product-update", entityId: seeded.entityId, syncHash: "product" });
-    expect((await webhook(store.id, "update-1", { id: "remote-product-update", variants: [{ id: "remote-variant-update", inventory_quantity: 7 }] }, "products/update")).status).toBe(200);
+    expect((await webhook(store.id, "update-1", { kind: "inventory.changed", levels: [{ externalId: "remote-variant-update", available: 7 }] })).status).toBe(200);
     const [level] = await built.db.select({ quantity: inventoryLevels.quantityOnHand }).from(inventoryLevels).where(and(eq(inventoryLevels.entityId, seeded.entityId), eq(inventoryLevels.variantId, seeded.variantId)));
     expect(level?.quantity).toBe(7);
   });
@@ -90,7 +102,7 @@ describe("channel connector c66 two-way sync and refunds", () => {
   it("executes a verified refund through the real order refund ledger", async () => {
     const store = await connect("auto");
     const seeded = await seedMappedPaidOrder(store.id, "auto");
-    const response = await webhook(store.id, "refund-auto", { id: "remote-refund-auto", order_id: "remote-order-auto", line_items: [{ variant_id: "remote-variant-auto", quantity: 1 }] });
+    const response = await webhook(store.id, "refund-auto", refund("auto"));
     expect(response.status).toBe(200);
     const refunds = await built.db.select().from(orderRefunds).where(eq(orderRefunds.orderId, seeded.orderId));
     expect(refunds).toHaveLength(1);
@@ -99,30 +111,12 @@ describe("channel connector c66 two-way sync and refunds", () => {
     expect(line?.refundedQuantity).toBe(1);
   });
 
-  // Shopify's REST refund body names its lines in `refund_line_items`, each carrying the order line it
-  // refunds under `line_item` (with that line's `variant_id`) — not a flat `line_items`. Read wrongly,
-  // every real refund maps no line and waits for an operator with an amount of 0.
-  it("reads Shopify's refund body: refund_line_items naming each refunded line's variant", async () => {
-    const store = await connect("shape");
-    const seeded = await seedMappedPaidOrder(store.id, "shape");
-    const response = await webhook(store.id, "refund-shape", {
-      id: 9001,
-      order_id: "remote-order-shape",
-      refund_line_items: [{ id: 1, line_item_id: 77, quantity: 1, subtotal: 10, line_item: { id: 77, variant_id: "remote-variant-shape", quantity: 1 } }],
-    });
-    expect(response.status).toBe(200);
-    const [request] = await built.db.select().from(channelRefundRequests).where(and(eq(channelRefundRequests.storeId, store.id), eq(channelRefundRequests.remoteRefundId, "9001")));
-    expect({ state: request?.state, amount: request?.amount }).toEqual({ state: "executed", amount: 1000 });
-    const refunds = await built.db.select().from(orderRefunds).where(eq(orderRefunds.orderId, seeded.orderId));
-    expect(refunds.map((refund) => refund.amount)).toEqual([1000]);
-  });
-
   // Approval marks the request approved BEFORE executing. If the execution then fails, a request left
   // `approved` can never be approved again ("already handled") and the money never moves.
   it("an approval whose execution fails leaves the request approvable again", async () => {
     const store = await connect("retry");
     const seeded = await seedMappedPaidOrder(store.id, "retry", 2000);
-    expect((await webhook(store.id, "refund-retry", { id: "remote-refund-retry", order_id: "remote-order-retry", line_items: [{ variant_id: "remote-variant-retry", quantity: 1 }] })).status).toBe(200);
+    expect((await webhook(store.id, "refund-retry", refund("retry"))).status).toBe(200);
     const [request] = await built.db.select().from(channelRefundRequests).where(and(eq(channelRefundRequests.storeId, store.id), eq(channelRefundRequests.remoteRefundId, "remote-refund-retry")));
     // A cancelled order refuses a line refund: the execution fails.
     await built.db.update(orders).set({ status: "cancelled" }).where(eq(orders.id, seeded.orderId));
@@ -140,7 +134,7 @@ describe("channel connector c66 two-way sync and refunds", () => {
     const store = await connect("autofail");
     const seeded = await seedMappedPaidOrder(store.id, "autofail");
     await built.db.update(orders).set({ status: "cancelled" }).where(eq(orders.id, seeded.orderId));
-    await webhook(store.id, "refund-autofail", { id: "remote-refund-autofail", order_id: "remote-order-autofail", line_items: [{ variant_id: "remote-variant-autofail", quantity: 1 }] });
+    await webhook(store.id, "refund-autofail", refund("autofail"));
     const [request] = await built.db.select().from(channelRefundRequests).where(and(eq(channelRefundRequests.storeId, store.id), eq(channelRefundRequests.remoteRefundId, "remote-refund-autofail")));
     expect(request?.state).toBe("requested");
   });
@@ -148,7 +142,7 @@ describe("channel connector c66 two-way sync and refunds", () => {
   it("queues an over-threshold refund without moving money, then approval executes it", async () => {
     const store = await connect("approval");
     const seeded = await seedMappedPaidOrder(store.id, "approval", 2000);
-    expect((await webhook(store.id, "refund-approval", { id: "remote-refund-approval", order_id: "remote-order-approval", line_items: [{ variant_id: "remote-variant-approval", quantity: 1 }] })).status).toBe(200);
+    expect((await webhook(store.id, "refund-approval", refund("approval"))).status).toBe(200);
     const [request] = await built.db.select().from(channelRefundRequests).where(and(eq(channelRefundRequests.storeId, store.id), eq(channelRefundRequests.remoteRefundId, "remote-refund-approval")));
     expect(request?.state).toBe("requested");
     expect(await built.db.select().from(orderRefunds).where(eq(orderRefunds.orderId, seeded.orderId))).toHaveLength(0);

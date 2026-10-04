@@ -260,6 +260,7 @@ export type {
   ChannelRefundEvent,
   ChannelRefundRequest,
   ConnectedStore,
+  StoreHealth,
 } from "./schema.js";
 
 function unwrap<T>(result: PluginResult<T>): T {
@@ -311,6 +312,14 @@ function callbackUri(raw: unknown, redirect: string, provider: string): string {
   }
   return new URL(`/api/channels/oauth/${provider}/callback`, origin).toString();
 }
+
+const refreshOrderInput = z.object({ orgId: z.string(), storeId: z.string(), remoteOrderId: z.string() });
+
+const completeConnectInput = z.object({
+  orgId: z.string(),
+  storeId: z.string(),
+  actor: z.object({ orgId: z.string(), userId: z.string(), claims: z.record(z.string(), z.string()) }),
+});
 
 export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = {}) {
   const jobs: TaskDefinition[] = [
@@ -470,7 +479,33 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           data: input.data,
         });
         if (!result.ok) throw new Error(result.error);
-        return { output: { processed: true } };
+        return { output: { processed: result.value.processed } };
+      },
+    },
+    {
+      // A read point found a store order not read for a while; its current state is applied as if
+      // the delivery for it had arrived. Serialized with that store's deliveries.
+      slug: "channel/refresh-order",
+      concurrency: { key: (input: Record<string, unknown>) => `webhook:${String(input.storeId)}` },
+      handler: async ({ input, ctx }: { input: Record<string, unknown>; ctx: import("@porulle/core").TaskContext }) => {
+        const parsed = refreshOrderInput.parse(input);
+        const service = new ChannelConnectorService(ctx.db, ctx.services, options);
+        const result = await service.refreshRemoteOrder(parsed.orgId, parsed.storeId, parsed.remoteOrderId);
+        if (!result.ok) throw new Error(result.error);
+        return { output: result.value };
+      },
+    },
+    {
+      // The second half of a connect whose callback had to be answered at once (WooCommerce's): subscribe
+      // the store and start its first import. Not retried: a failure leaves the store in `error` with
+      // the reason the merchant reads, and reconnecting is the retry.
+      slug: "channel/complete-connect",
+      concurrency: { key: (input: Record<string, unknown>) => `connect:${String(input.storeId)}` },
+      handler: async ({ input, ctx }: { input: Record<string, unknown>; ctx: import("@porulle/core").TaskContext }) => {
+        const parsed = completeConnectInput.parse(input);
+        const service = new ChannelConnectorService(ctx.db, ctx.services, options);
+        const result = await service.completeConnect(parsed.orgId, parsed.storeId, parsed.actor);
+        return { output: result.ok ? { status: result.value.status } : { error: result.code ?? "COMPLETE_CONNECT_FAILED", message: result.error } };
       },
     },
     {
@@ -564,6 +599,11 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           return oauthRedirect(authUrl.value);
         });
 
+      // Two shapes of callback reach here. Shopify's is the merchant's BROWSER (GET): the connection
+      // completes in the request and the browser lands on the outcome. WooCommerce's is the STORE
+      // posting the keys (POST), and it deletes them on anything but a 200 or after 60 seconds, so
+      // the keys are saved, the answer is immediate, and the rest runs as `channel/complete-connect`.
+      // Its browser then returns separately (GET with `return=1`) and lands on the store's real state.
       const handleOAuthCallback = async ({ params, raw }: { params: Record<string, string>; raw: unknown }) => {
         const oauth = options.oauth;
         if (!oauth?.stateSecret || !oauth.postConnectRedirect) return oauthError(501, "OAUTH_NOT_CONFIGURED", "Channel OAuth is not configured.");
@@ -573,29 +613,45 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
         if (!connector.completeAuth) return oauthError(501, "OAUTH_UNSUPPORTED", `Connector "${provider}" does not support OAuth onboarding.`);
         const request = (raw as { req: { raw: Request } }).req.raw;
         const requestUrl = new URL(request.url);
+        const posted = request.method === "POST";
         const state = requestUrl.searchParams.get("state");
-        const refused = (error: string, message: string): Response => connectOutcome(oauth.postConnectRedirect, { error, message });
+        // A store posting keys is answered with a status it understands; a browser is sent to the outcome.
+        const refused = (error: string, message: string, status = 400): Response => posted
+          ? oauthError(status, error, message)
+          : connectOutcome(oauth.postConnectRedirect, { error, message });
         if (!state) return refused("INVALID_OAUTH_STATE", "The connection was not started here, or its link was altered.");
-        const landing = provider === "woocommerce" && request.method === "GET" && requestUrl.searchParams.get("return") === "1";
         const verified = verifyState(state, oauth.stateSecret, Math.floor(Date.now() / 1000));
         if (!verified.ok || verified.value.provider !== provider) return refused("INVALID_OAUTH_STATE", "The connection link expired; start again.");
-        if (landing) return oauthRedirect(oauth.postConnectRedirect);
+        if (!posted && requestUrl.searchParams.get("return") === "1") {
+          if (requestUrl.searchParams.get("success") === "0") return refused("CONNECT_DECLINED", "You declined the connection in your store, so nothing was connected.");
+          const landed = await service.storeByDomain(verified.value.orgId, provider, verified.value.shopDomain);
+          if (!landed) return refused("CONNECT_NOT_RECEIVED", "Your store did not send its keys. Approve the connection again.");
+          return connectOutcome(oauth.postConnectRedirect, { connected: landed.id });
+        }
         const [consumed] = await db.insert(processedWebhookEvents).values({
           eventId: oauthStateEventId(verified.value.jti),
           provider: `oauth:${provider}`,
           eventType: "oauth_state",
         }).onConflictDoNothing().returning({ id: processedWebhookEvents.id });
-        if (!consumed) return refused("OAUTH_STATE_REPLAYED", "This connection link was already used; start again.");
-        const completed = await connector.completeAuth(request, { storeDomain: verified.value.shopDomain });
+        if (!consumed) return refused("OAUTH_STATE_REPLAYED", "This connection link was already used; start again.", 409);
+        const completed = await connector.completeAuth(request, { storeDomain: verified.value.shopDomain, state });
         if (!completed.ok) return refused(completed.error.code, completed.error.message);
         if (completed.value.storeDomain !== verified.value.shopDomain) return refused("OAUTH_STORE_MISMATCH", "The store that answered is not the one the connection was started for.");
-        const connected = await service.connectStore(verified.value.orgId, {
-          provider,
-          storeDomain: verified.value.shopDomain,
-          credentials: completed.value.credentials,
-        }, { orgId: verified.value.orgId, userId: verified.value.userId, claims: verified.value.claims });
-        if (!connected.ok) return refused(connected.code ?? "STORE_CONNECTION_FAILED", connected.error);
-        return connectOutcome(oauth.postConnectRedirect, { connected: connected.value.id });
+        const actor = { orgId: verified.value.orgId, userId: verified.value.userId, claims: verified.value.claims };
+        const input = { provider, storeDomain: verified.value.shopDomain, credentials: completed.value.credentials };
+        if (!posted) {
+          const connected = await service.connectStore(verified.value.orgId, input, actor);
+          if (!connected.ok) return refused(connected.code ?? "STORE_CONNECTION_FAILED", connected.error);
+          return connectOutcome(oauth.postConnectRedirect, { connected: connected.value.id });
+        }
+        const saved = await service.saveConnectingStore(verified.value.orgId, input, actor);
+        if (!saved.ok) return refused(saved.code ?? "STORE_CONNECTION_FAILED", saved.error, 409);
+        await (ctx.services.jobs as JobsAdapter).enqueue("channel/complete-connect", { orgId: verified.value.orgId, storeId: saved.value.id, actor }, {
+          organizationId: verified.value.orgId,
+          concurrencyKey: `connect:${saved.value.id}`,
+          supersedes: false,
+        });
+        return new Response(JSON.stringify({ data: { received: true } }), { status: 200, headers: { "content-type": "application/json" } });
       };
 
       channels.get("/oauth/{provider}/callback")
@@ -608,26 +664,38 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
         .params(z.object({ provider: z.string().min(1) }))
         .handler(handleOAuthCallback);
 
+      // Every delivery for a provider that signs per STORE (WooCommerce) arrives here. The answer is
+      // 200 for anything verified, before any work: WooCommerce never retries a delivery, counts every
+      // non-2xx (and every redirect) as a failure, and silently disables a subscription after repeated
+      // failures. The work runs as a job, which retries through the queue, never through the store.
       channels.post("/webhooks/{storeId}")
         .summary("Receive a channel webhook")
+        .params(z.object({ storeId: z.string().uuid() }))
         .handler(async ({ params, raw }) => {
-          const context = raw as { req: { raw: Request; header(name: string): string | undefined }; json(data: unknown, status?: number): Response };
-          const storeId = params.storeId!;
-          const [store] = await db.select().from(connectedStores).where(eq(connectedStores.id, storeId));
-          if (!store || !store.webhookSecret) return context.json({ error: { code: "UNAUTHORIZED", message: "Webhook store is not available." } }, 401);
+          const context = raw as { req: { raw: Request }; json(data: unknown, status?: number): Response };
+          const [store] = await db.select().from(connectedStores).where(eq(connectedStores.id, params.storeId!));
+          if (!store || !store.webhookSecret) return context.json({ error: { code: "NOT_FOUND", message: "No store receives webhooks here." } }, 404);
           const connector = service.getConnector(store.provider);
-          if (!connector?.verifyWebhook) return context.json({ error: { code: "UNAUTHORIZED", message: "Webhook provider is not configured for per-store deliveries." } }, 401);
+          if (!connector?.verifyWebhook) return context.json({ error: { code: "NOT_FOUND", message: "This store's provider does not deliver per-store webhooks." } }, 404);
           const verified = await connector.verifyWebhook(store, context.req.raw);
           if (!verified.ok) return context.json({ error: { code: "UNAUTHORIZED", message: "Invalid webhook signature." } }, 401);
-          const [inserted] = await db.insert(processedWebhookEvents).values({ eventId: verified.value.id, provider: store.provider, eventType: verified.value.type }).onConflictDoNothing().returning({ id: processedWebhookEvents.id });
-          if (!inserted) return context.json({ data: { received: true, duplicate: true } });
-          const handled = await service.handleWebhook(store.organizationId, store.id, verified.value);
-          if (!handled.ok) return context.json({ error: { code: "WEBHOOK_PROCESSING_FAILED", message: handled.error } }, 422);
-          return context.json({ data: {
-            received: true,
-            ...(handled.value.data ? { data: handled.value.data } : {}),
-            ...(handled.value.redacted !== undefined ? { redacted: handled.value.redacted } : {}),
-          } });
+          // The unsigned ping a provider sends when a subscription is created carries nothing to do.
+          if (verified.value === null) return context.json({ data: { received: true } });
+          const delivery = verified.value;
+          // The connector's key is unique within one store; the store id makes it unique here.
+          const [marked] = await db.insert(processedWebhookEvents).values({ eventId: `${store.id}:${delivery.id}`, provider: store.provider, eventType: delivery.type }).onConflictDoNothing().returning({ id: processedWebhookEvents.id });
+          if (!marked) return context.json({ data: { received: true, duplicate: true } });
+          try {
+            await (ctx.services.jobs as JobsAdapter).enqueue("channel/apply-webhook", { orgId: store.organizationId, storeId: store.id, id: delivery.id, topic: delivery.type, data: delivery.data }, {
+              organizationId: store.organizationId,
+              concurrencyKey: `webhook:${store.id}`,
+              supersedes: false,
+            });
+          } catch (error) {
+            await db.delete(processedWebhookEvents).where(eq(processedWebhookEvents.id, marked.id));
+            return context.json({ error: { code: "WEBHOOK_NOT_ACCEPTED", message: error instanceof Error ? error.message : "The delivery could not be queued." } }, 503);
+          }
+          return context.json({ data: { received: true } });
         });
 
       // Every delivery for a provider that signs per APP — Shopify's catalogue, stock, order, uninstall
@@ -801,6 +869,11 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           const values = input as { entityIds?: string[] };
           return unwrap(await service.previewCatalogPush(orgId, params.storeId!, values.entityIds));
         });
+
+      channels.post("/stores/{id}/health")
+        .summary("Check a store's webhooks and key, repairing what can be repaired")
+        .permission("channels:connect")
+        .handler(async ({ params, orgId, actor, raw }: ChannelRouteContext) => unwrap(await service.checkStoreHealth(orgId, params.id!, { orgId, actor, raw })));
 
       channels.post("/stores/{id}/disconnect")
         .summary("Disconnect a channel store")

@@ -10,6 +10,7 @@
  * Written before the implementation.
  */
 import { beforeAll, describe, expect, it } from "vitest";
+import type { ChannelShipment } from "@porulle/core";
 import { eq } from "@porulle/core/drizzle";
 import { fulfillmentLineItems, fulfillmentRecords, orders, sellableEntities, variants } from "@porulle/core/schema";
 import { createPluginTestApp, createTestActor, jsonHeaders, TEST_ORG_ID } from "@porulle/core/testing";
@@ -73,16 +74,15 @@ describe("a store's fulfilment reaches the shopper as tracking", () => {
     return { orderId: created.value.id, remoteId: remoteSeq };
   }
 
-  const fulfilment = (id: number, variantIds: number[], tracking: { company: string; number: string; url: string }) => ({
-    id,
-    status: "success",
-    tracking_company: tracking.company,
-    tracking_number: tracking.number,
-    tracking_url: tracking.url,
-    line_items: variantIds.map((variantId) => ({ id: variantId * 10, variant_id: variantId, quantity: 1 })),
+  const fulfilment = (id: number, variantIds: number[], tracking: { company: string; number: string; url: string }): ChannelShipment => ({
+    remoteId: String(id),
+    carrier: tracking.company,
+    trackingNumber: tracking.number,
+    trackingUrl: tracking.url,
+    lines: variantIds.map((variantId) => ({ externalVariantId: String(variantId), quantity: 1 })),
   });
-  const deliver = (type: string, remoteId: number, fulfillments: unknown[], eventId: string) =>
-    service.handleWebhook(TEST_ORG_ID, storeId, { id: eventId, type, data: { id: remoteId, fulfillments } });
+  const deliver = (type: "orders/fulfilled" | "orders/partially_fulfilled", remoteId: number, shipments: ChannelShipment[], eventId: string) =>
+    service.handleWebhook(TEST_ORG_ID, storeId, { id: eventId, type, data: { kind: "order.fulfilled", remoteOrderId: String(remoteId), partial: type === "orders/partially_fulfilled", shipments } });
   const recordsOf = async (orderId: string) => built.db.select().from(fulfillmentRecords).where(eq(fulfillmentRecords.orderId, orderId));
   const statusOf = async (orderId: string) => (await built.db.select({ status: orders.status }).from(orders).where(eq(orders.id, orderId)))[0]?.status;
 
@@ -113,13 +113,5 @@ describe("a store's fulfilment reaches the shopper as tracking", () => {
     expect((await deliver("orders/fulfilled", remoteId, [first, second], "evt-t4")).ok).toBe(true);
     expect((await recordsOf(orderId)).map((record) => record.trackingNumber).sort()).toEqual(["PR-1", "PR-2"]);
     expect(await statusOf(orderId)).toBe("fulfilled");
-  });
-
-  it("T5: a fulfilment the store cancelled is not a parcel", async () => {
-    const { orderId, remoteId } = await exportedOrder();
-    const cancelled = { ...fulfilment(94, [501, 502], { company: "DHL Express", number: "VOID-1", url: "https://track.example/VOID-1" }), status: "cancelled" };
-    const live = fulfilment(95, [501, 502], { company: "DHL Express", number: "LIVE-1", url: "https://track.example/LIVE-1" });
-    expect((await deliver("orders/fulfilled", remoteId, [cancelled, live], "evt-t5")).ok).toBe(true);
-    expect((await recordsOf(orderId)).map((record) => record.trackingNumber)).toEqual(["LIVE-1"]);
   });
 });

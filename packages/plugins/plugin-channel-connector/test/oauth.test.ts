@@ -3,6 +3,7 @@ import { Ok } from "@porulle/core";
 import { createPluginTestApp, jsonHeaders, testAdminActor } from "@porulle/core/testing";
 import { sql, eq } from "@porulle/core/drizzle";
 import { connectedStores } from "../src/schema.js";
+import { commerceJobs } from "@porulle/core/schema";
 import { channelConnectorPlugin, mockChannelConnector } from "../src/index.js";
 import { signState, verifyState } from "../src/oauth-state.js";
 
@@ -169,7 +170,10 @@ describe("channel connector OAuth routes", () => {
     expect(await built.db.select().from(connectedStores).where(eq(connectedStores.storeDomain, "twice.myshopify.com"))).toHaveLength(1);
   });
 
-  it("builds Woo URLs with dual state-bearing callbacks and completes the server POST", async () => {
+  // WooCommerce POSTs the keys from the STORE and deletes them unless it gets a 200 within 60 seconds,
+  // so the keys are saved and answered at once, and the rest (subscribe, first import) is a job. The
+  // merchant's browser returns separately and lands on that store.
+  it("answers WooCommerce's key POST with 200 at once, queues the rest, and lands the browser on the store", async () => {
     const start = await built.app.request("http://localhost/api/channels/oauth/woocommerce/start?store=https://woo.example", {
       headers: jsonHeaders(testAdminActor),
     });
@@ -179,19 +183,27 @@ describe("channel connector OAuth routes", () => {
     const callbackUrl = new URL(location.searchParams.get("callback_url")!);
     expect(returnUrl.searchParams.get("state")).toBe(callbackUrl.searchParams.get("state"));
     expect(returnUrl.searchParams.get("return")).toBe("1");
-    expect(callbackUrl.searchParams.get("state")).toBeTruthy();
 
     const callback = await built.app.request(callbackUrl.toString(), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ consumer_key: "ck_oauth", consumer_secret: "cs_oauth" }),
     });
-    expect(outcome(callback).get("connected")).toBeTruthy();
-    const landing = await built.app.request(returnUrl.toString());
-    expect(landing.status).toBe(302);
-    expect(landing.headers.get("location")).toBe(REDIRECT);
-    const stores = await built.db.select().from(connectedStores).where(eq(connectedStores.storeDomain, "https://woo.example"));
-    expect(stores[0]?.credentials).toEqual({ consumerKey: "ck_oauth", consumerSecret: "cs_oauth" });
+    expect(callback.status).toBe(200);
+    expect(await callback.json()).toEqual({ data: { received: true } });
+    const [store] = await built.db.select().from(connectedStores).where(eq(connectedStores.storeDomain, "https://woo.example"));
+    expect({ status: store?.status, credentials: store?.credentials }).toEqual({ status: "connecting", credentials: { consumerKey: "ck_oauth", consumerSecret: "cs_oauth" } });
+    const [job] = await built.db.select({ input: commerceJobs.input }).from(commerceJobs).where(eq(commerceJobs.taskSlug, "channel/complete-connect"));
+    expect(job?.input).toMatchObject({ storeId: store?.id });
+
+    // A replay of the same POST is refused (non-200), so WooCommerce deletes the second key it made.
+    const replay = await built.app.request(callbackUrl.toString(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ consumer_key: "ck_oauth", consumer_secret: "cs_oauth" }) });
+    expect(replay.status).toBe(409);
+
+    expect(outcome(await built.app.request(returnUrl.toString())).get("connected")).toBe(store?.id);
+    const declined = new URL(returnUrl);
+    declined.searchParams.set("success", "0");
+    expect(outcome(await built.app.request(declined.toString())).get("connect_error")).toBe("CONNECT_DECLINED");
   });
 
   it("returns a clear 501 when OAuth is not configured", async () => {

@@ -13,6 +13,7 @@ import type {
 } from "@porulle/core";
 import { z } from "zod";
 import { readCatalogItems, readCatalogPage } from "./catalog.js";
+import { decodeShopifyWebhook } from "./webhooks.js";
 import { shopifyGid, shopifyGraphql } from "./graphql.js";
 import type { ShopifyGraphqlTarget } from "./graphql.js";
 import {
@@ -27,6 +28,7 @@ import {
 
 export { SHOPIFY_API_VERSION } from "./graphql.js";
 export { CATALOG_ITEMS_QUERY, CATALOG_PAGE_QUERY, VARIANTS_PAGE_QUERY } from "./catalog.js";
+export { INVENTORY_ITEM_VARIANT_QUERY } from "./webhooks.js";
 export { REQUIRED_SCOPES, normalizeShopDomain, parseShopifyCredentials } from "./oauth.js";
 export type { ShopifyCredentials } from "./oauth.js";
 
@@ -416,6 +418,9 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
         return Err({ code: "INVALID_APP_WEBHOOK", message: "Shopify webhook body must be valid JSON.", retriable: false });
       }
       return Ok({ id, topic, shopDomain, data });
+    },
+    async decodeWebhook(store, event) {
+      return decodeShopifyWebhook(target(store), event);
     },
     async refundExecute() {
       return Err({ code: "NOT_IMPLEMENTED", message: "Refunds are issued by the platform, not executed in the Shopify store." });

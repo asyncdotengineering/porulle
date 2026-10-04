@@ -148,7 +148,7 @@ export type {
   PaymentWebhookEvent,
   CreatePaymentIntentParams,
 } from "./modules/payments/adapter.js";
-export { CHANNEL_CANCEL_REFUSED, CHANNEL_CREDENTIALS_REJECTED, CHANNEL_OUT_OF_STOCK, defineChannelConnector } from "./modules/channels/adapter.js";
+export { CHANNEL_CANCEL_REFUSED, CHANNEL_CREDENTIALS_REJECTED, CHANNEL_OUT_OF_STOCK, CHANNEL_TOTAL_MISMATCH, defineChannelConnector } from "./modules/channels/adapter.js";
 export {
   channelCatalogImageSchema,
   channelCatalogItemSchema,
@@ -194,6 +194,9 @@ export type {
   ChannelStore,
   ChannelStoreProfile,
   ChannelWebhookEvent,
+  ChannelEvent,
+  ChannelShipment,
+  ChannelWebhookHealth,
 } from "./modules/channels/adapter.js";
 export type { StorageAdapter } from "./modules/media/adapter.js";
 export { noopStorageAdapter } from "./modules/media/noop-adapter.js";

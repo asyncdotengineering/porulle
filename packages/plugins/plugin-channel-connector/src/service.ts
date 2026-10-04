@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
+  CHANNEL_CREDENTIALS_REJECTED,
   CHANNEL_OUT_OF_STOCK,
   CommerceInvalidTransitionError,
   CommerceNotFoundError,
@@ -19,6 +20,9 @@ import type {
   EntityLinkRows,
   ChannelCatalogItem,
   ChannelConnector,
+  ChannelEvent,
+  ChannelShipment,
+  ChannelWebhookEvent,
   ChannelOrderAddress,
   ChannelOrderSlice,
   ChannelPushCatalogField,
@@ -92,6 +96,7 @@ import {
   type ChannelRefundRequest,
   type ConnectedStore,
 } from "./schema.js";
+import type { StoreHealth } from "./schema.js";
 import {
   mergeCatalogFieldMapping,
   normalizeCatalogFieldMapping,
@@ -132,26 +137,13 @@ export const CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION = 20;
  * The reason a platform order is cancelled under when its STORE cancelled it. The cancel hook skips
  * cancelling at the store for exactly this reason, so the two directions cannot loop.
  */
+/** How stale a store order may be before a read point queues a refresh of it. */
+export const REMOTE_ORDER_REFRESH_MS = 5 * 60 * 1000;
+
+/** How often a merchant's visit may make the plugin call a store to check its health. */
+export const STORE_HEALTH_INTERVAL_MS = 10 * 60 * 1000;
+
 export const CHANNEL_ORDER_CANCELLED_REASON = "channel_order_cancelled";
-
-/** What each store return webhook says about the return. */
-const RETURN_WEBHOOK_STATUS: Partial<Record<string, "approved" | "declined" | "closed" | "cancelled" | "requested">> = {
-  "returns/approve": "approved",
-  "returns/decline": "declined",
-  "returns/close": "closed",
-  "returns/cancel": "cancelled",
-  "returns/reopen": "approved",
-};
-
-/** The slice of a store order body's `fulfillments` (Shopify's REST spelling) a parcel is read from. */
-const channelFulfillmentsSchema = z.array(z.object({
-  id: z.union([z.string(), z.number()]),
-  status: z.string().nullish(),
-  tracking_company: z.string().nullish(),
-  tracking_number: z.string().nullish(),
-  tracking_url: z.string().nullish(),
-  line_items: z.array(z.object({ variant_id: z.union([z.string(), z.number()]).nullish(), quantity: z.number().int().positive() })).default([]),
-}));
 
 const CATALOG_PUSH_RETRY_BASE_MS = 60_000;
 const CATALOG_PUSH_RETRY_MAX_MS = 60 * 60 * 1000;
@@ -1117,6 +1109,9 @@ function redactStore(store: ConnectedStore): PublicConnectedStore {
     credentials: "[REDACTED]",
     storeDomain: store.storeDomain,
     status: store.status,
+    statusReason: store.statusReason,
+    health: store.health,
+    lastEventAt: store.lastEventAt,
     catalogWriteEnabled: store.catalogWriteEnabled,
     catalogFieldMapping: store.catalogFieldMapping,
     catalogCursor: store.catalogCursor,
@@ -1165,6 +1160,10 @@ export interface CatalogPageConvergence extends Record<string, unknown> {
   heroesImported: number;
   mediaFailures: CatalogMediaFailure[];
   deferredMedia: CatalogDeferredMedia[];
+  /** Fields the store's value did not overwrite because the platform owns them. */
+  skipped: CatalogFieldSkip[];
+  /** Shared fields both sides changed, held for an operator. */
+  conflicts: CatalogFieldConflict[];
   warnings: string[];
 }
 
@@ -1294,6 +1293,13 @@ function toImportProduct(item: ChannelCatalogItem): ImportProduct {
 
 /** One item's link writes, planned before the transaction that commits them (`commitEntityLinks`). */
 type PlannedLinks = { [K in keyof EntityLinkRows]-?: Array<NonNullable<EntityLinkRows[K]>[number]> };
+
+/** What applying one delivery's events left for the store's reconcile report. */
+interface ChannelEventReport {
+  skipped: CatalogFieldSkip[];
+  conflicts: CatalogFieldConflict[];
+  warnings: string[];
+}
 
 export class ChannelConnectorService {
   private readonly connectors = new Map<string, ChannelConnector>();
@@ -2654,6 +2660,12 @@ export class ChannelConnectorService {
 
   // A shop_domain can map to more than one connected store (reconnect, or the same
   // shop under two orgs). Compliance webhooks must fan out to all of them.
+  /** This organization's store of `provider` at `storeDomain`, whatever its status. */
+  async storeByDomain(orgId: string, provider: string, storeDomain: string): Promise<PublicConnectedStore | undefined> {
+    const [row] = await this.db.select().from(connectedStores).where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.provider, provider), eq(connectedStores.storeDomain, storeDomain)));
+    return row ? redactStore(row as ConnectedStore) : undefined;
+  }
+
   async getStoresByDomain(shopDomain: string): Promise<ConnectedStore[]> {
     const rows = await this.db
       .select()
@@ -3156,14 +3168,29 @@ export class ChannelConnectorService {
    * provider that subscribes per store is registered after commit, at an absolute address; the
    * consumer's follow-on work ({@link AfterStoreConnected}) runs after that.
    */
+  /**
+   * Connects a store and runs its follow-on work (subscribe, first import) before answering. For a
+   * provider whose callback must be answered at once, see {@link saveConnectingStore} and
+   * {@link completeConnect}, which this is the two halves of.
+   */
   async connectStore(
     orgId: string,
-    input: {
-      provider: string;
-      credentials: Record<string, unknown>;
-      storeDomain: string;
-      webhookSecret?: string;
-    },
+    input: { provider: string; credentials: Record<string, unknown>; storeDomain: string; webhookSecret?: string },
+    actor: StoreConnectActor,
+  ): Promise<PluginResult<PublicConnectedStore>> {
+    const saved = await this.saveConnectingStore(orgId, input, actor);
+    if (!saved.ok) return saved;
+    return this.completeConnect(orgId, saved.value.id, actor);
+  }
+
+  /**
+   * Writes the store with its credentials in status `connecting`, bound to the actor's vendor, and
+   * nothing else: no call to the store. Reconnecting a store this organization already has refreshes
+   * its row instead of adding one.
+   */
+  async saveConnectingStore(
+    orgId: string,
+    input: { provider: string; credentials: Record<string, unknown>; storeDomain: string; webhookSecret?: string },
     actor: StoreConnectActor,
   ): Promise<PluginResult<PublicConnectedStore>> {
     const connector = this.connectors.get(input.provider);
@@ -3173,9 +3200,8 @@ export class ChannelConnectorService {
     if (connector.registerWebhooks && !this.options.publicUrl) {
       return PluginErr(`Connector "${input.provider}" subscribes per store and needs the plugin's publicUrl to give it an absolute address.`, "PUBLIC_URL_REQUIRED");
     }
-    let store: ConnectedStore;
     try {
-      store = await this.transact(async (tx) => {
+      const store = await this.transact(async (tx) => {
         const [existing] = await tx.select().from(connectedStores).where(and(
           eq(connectedStores.organizationId, orgId),
           eq(connectedStores.provider, input.provider),
@@ -3184,7 +3210,8 @@ export class ChannelConnectorService {
         const rows = existing
           ? await tx.update(connectedStores).set({
             credentials: input.credentials,
-            status: "connected",
+            status: "connecting",
+            statusReason: null,
             ...(existing.status !== "connected" ? { catalogWriteEnabled: false } : {}),
             webhookSecret: input.webhookSecret ?? existing.webhookSecret ?? crypto.randomUUID(),
             updatedAt: new Date(),
@@ -3194,6 +3221,7 @@ export class ChannelConnectorService {
             provider: input.provider,
             credentials: input.credentials,
             storeDomain,
+            status: "connecting",
             webhookSecret: input.webhookSecret ?? crypto.randomUUID(),
           }).returning();
         const written = rows[0] as ConnectedStore | undefined;
@@ -3201,39 +3229,53 @@ export class ChannelConnectorService {
         await this.options.bindConnectedStore?.({ db: tx, store: written, actor });
         return written;
       });
+      return Ok(redactStore(store));
     } catch (error) {
       return PluginErr(error instanceof Error ? error.message : "The store could not be connected.", error instanceof CommerceNotFoundError ? "NOT_FOUND" : "STORE_CONNECTION_REFUSED");
     }
+  }
+
+  /**
+   * The work after the credentials are saved: subscribe the store to its connector's topics (all or
+   * none — a partial subscription is removed), mark it `connected`, then the host's follow-on work.
+   * A failure leaves the store in `error` with the reason the merchant will read, unless the host
+   * already moved it (it disconnects a store it refuses).
+   */
+  async completeConnect(orgId: string, storeId: string, actor: StoreConnectActor): Promise<PluginResult<PublicConnectedStore>> {
+    const store = await this.getStoreRecord(orgId, storeId);
+    if (!store) return PluginErr("Connected store not found.", "NOT_FOUND");
+    const connector = this.connectors.get(store.provider);
+    if (!connector) return PluginErr(`No connector registered for provider "${store.provider}".`, "NOT_FOUND");
+    const fail = async (message: string, code: string): Promise<PluginResult<never>> => {
+      await this.db.update(connectedStores).set({ statusReason: message, updatedAt: new Date() }).where(eq(connectedStores.id, storeId));
+      await this.db.update(connectedStores).set({ status: "error" }).where(and(eq(connectedStores.id, storeId), inArray(connectedStores.status, ["connecting", "connected"])));
+      return PluginErr(message, code);
+    };
     if (connector.registerWebhooks && this.options.publicUrl) {
-      const callbackUrl = new URL(`/api/channels/webhooks/${store.id}`, this.options.publicUrl).toString();
-      const registration = await connector.registerWebhooks(store as ChannelStore, [
-        "products/create",
-        "products/update",
-        "products/delete",
-        "inventory_levels/update",
-        "orders/fulfilled",
-        "orders/partially_fulfilled",
-        "orders/cancelled",
-        "refunds/create",
-        "returns/approve",
-        "returns/decline",
-        "returns/close",
-        "returns/cancel",
-        "app/uninstalled",
-      ], callbackUrl);
+      const callbackUrl = this.webhookCallbackUrl(storeId);
+      const registration = await connector.registerWebhooks(store as ChannelStore, [...(connector.webhookTopics ?? [])], callbackUrl);
       if (!registration.ok) {
-        await this.db.update(connectedStores).set({ status: "error", updatedAt: new Date() }).where(eq(connectedStores.id, store.id));
-        return PluginErr(registration.error.message, "CONNECTOR_REGISTRATION_FAILED");
+        await connector.unregisterWebhooks?.(store as ChannelStore, callbackUrl);
+        return fail(registration.error.message, registration.error.code === CHANNEL_CREDENTIALS_REJECTED ? CHANNEL_CREDENTIALS_REJECTED : "CONNECTOR_REGISTRATION_FAILED");
       }
     }
+    const [connected] = await this.db.update(connectedStores).set({ status: "connected", statusReason: null, updatedAt: new Date() })
+      .where(and(eq(connectedStores.id, storeId), eq(connectedStores.status, "connecting"))).returning();
+    const current = (connected ?? store) as ConnectedStore;
     if (this.options.afterStoreConnected) {
       try {
-        await this.options.afterStoreConnected({ store, actor, connector, services: this.services });
+        await this.options.afterStoreConnected({ store: current, actor, connector, services: this.services });
       } catch (error) {
-        return PluginErr(error instanceof Error ? error.message : "The store connected but its follow-on work failed.", "AFTER_CONNECT_FAILED");
+        return fail(error instanceof Error ? error.message : "The store connected but its follow-on work failed.", "AFTER_CONNECT_FAILED");
       }
     }
-    return Ok(redactStore(store));
+    return Ok(redactStore(current));
+  }
+
+  /** Where a store that subscribes per store delivers its webhooks: absolute, on this deployment's public origin. */
+  webhookCallbackUrl(storeId: string): string {
+    if (!this.options.publicUrl) throw new Error("The channel plugin has no publicUrl to build a webhook address on.");
+    return new URL(`/api/channels/webhooks/${storeId}`, this.options.publicUrl).toString();
   }
 
   /** The store with credentials good for a call the host makes itself, e.g. its own Admin API write. */
@@ -3276,6 +3318,13 @@ export class ChannelConnectorService {
   }
 
   async disconnectStoreSystem(orgId: string, id: string, redactDomain = false): Promise<PluginResult<PublicConnectedStore>> {
+    const before = await this.getStoreRecord(orgId, id);
+    const connector = before ? this.connectors.get(before.provider) : undefined;
+    if (before && connector?.unregisterWebhooks && this.options.publicUrl && before.status !== "disconnected") {
+      // Best effort: the store is disconnected here whatever the provider answers.
+      const removed = await connector.unregisterWebhooks(before as ChannelStore, this.webhookCallbackUrl(id));
+      if (!removed.ok) console.warn(JSON.stringify({ event: "channel_unregister_webhooks_failed", provider: before.provider, storeId: id, code: removed.error.code, message: removed.error.message }));
+    }
     const rows = await this.db
       .update(connectedStores)
       .set({
@@ -3290,6 +3339,39 @@ export class ChannelConnectorService {
     const store = rows[0] as ConnectedStore | undefined;
     if (!store) return PluginErr("Connected store not found.", "NOT_FOUND");
     return Ok(redactStore(store));
+  }
+
+  /**
+   * Checks the store's webhook subscriptions and key and repairs what it can, when a merchant looks:
+   * there is no scheduled check. At most once per {@link STORE_HEALTH_INTERVAL_MS} per store; inside
+   * that window the last result is answered without calling the store.
+   */
+  async checkStoreHealth(orgId: string, id: string, context?: StoreReadContext): Promise<PluginResult<StoreHealth & { status: ConnectedStore["status"]; statusReason: string | null; lastEventAt: Date | null; cached: boolean }>> {
+    const reached = await this.reachableStore(orgId, id, context);
+    if (!reached.ok) return reached;
+    const store = reached.value;
+    const answer = (health: StoreHealth, current: ConnectedStore, cached: boolean) => Ok({ ...health, status: current.status, statusReason: current.statusReason, lastEventAt: current.lastEventAt, cached });
+    if (store.health && Date.now() - Date.parse(store.health.checkedAt) < STORE_HEALTH_INTERVAL_MS) return answer(store.health, store, true);
+    const connector = this.connectors.get(store.provider);
+    if (!connector) return PluginErr(`No connector registered for provider "${store.provider}".`, "NOT_FOUND");
+    let health: StoreHealth;
+    const checkedAt = new Date().toISOString();
+    if (store.status !== "connected" && store.status !== "error") {
+      health = { checkedAt, webhooks: "not_applicable", repaired: 0, missing: [], keyValid: false };
+    } else if (connector.webhookHealth && this.options.publicUrl) {
+      const checked = await connector.webhookHealth(store as ChannelStore, this.webhookCallbackUrl(id));
+      health = checked.ok
+        ? { checkedAt, webhooks: checked.value.healthy ? (checked.value.repaired > 0 ? "repaired" : "ok") : "failing", repaired: checked.value.repaired, missing: checked.value.missing, keyValid: true }
+        : { checkedAt, webhooks: "failing", repaired: 0, missing: [...(connector.webhookTopics ?? [])], keyValid: checked.error.code !== CHANNEL_CREDENTIALS_REJECTED, error: checked.error.message };
+    } else if (connector.fetchStoreProfile) {
+      // Subscribed per app (Shopify): nothing per store to repair, only the grant to check.
+      const profile = await connector.fetchStoreProfile(store as ChannelStore);
+      health = { checkedAt, webhooks: "not_applicable", repaired: 0, missing: [], keyValid: profile.ok || profile.error.code !== CHANNEL_CREDENTIALS_REJECTED, ...(profile.ok ? {} : { error: profile.error.message }) };
+    } else {
+      health = { checkedAt, webhooks: "not_applicable", repaired: 0, missing: [], keyValid: true };
+    }
+    const [updated] = await this.db.update(connectedStores).set({ health, updatedAt: new Date() }).where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.id, id))).returning();
+    return answer(health, (updated ?? store) as ConnectedStore, false);
   }
 
   async getStore(orgId: string, id: string, context?: StoreReadContext): Promise<PluginResult<PublicConnectedStore>> {
@@ -3426,6 +3508,8 @@ export class ChannelConnectorService {
     const items = rawItems.map(withDistinctVariantSkus);
     const failures: CatalogConvergenceFailure[] = [];
     const warnings: string[] = [];
+    const skipped: CatalogFieldSkip[] = [];
+    const conflicts: CatalogFieldConflict[] = [];
     const entityByExternalId = new Map<string, string>();
     let unchanged = 0;
     let updated = 0;
@@ -3473,6 +3557,8 @@ export class ChannelConnectorService {
       if (!result.ok) return result;
       failures.push(...result.value.failures);
       warnings.push(...result.value.warnings);
+      skipped.push(...result.value.skipped);
+      conflicts.push(...result.value.conflicts);
       const failedIds = new Set(result.value.failures.map((failure) => failure.externalId));
       const survivors = editor.filter((item) => !failedIds.has(item.externalId));
       survivors.forEach((item, index) => {
@@ -3563,6 +3649,8 @@ export class ChannelConnectorService {
       heroesImported: media.heroesImported,
       mediaFailures: media.mediaFailures,
       deferredMedia: media.deferredMedia,
+      skipped,
+      conflicts,
       warnings,
     });
   }
@@ -4944,83 +5032,103 @@ export class ChannelConnectorService {
     return Ok({ synced, exhausted });
   }
 
-  async handleWebhook(orgId: string, storeId: string, event: { id: string; type: string; data: unknown }): Promise<PluginResult<{ processed: true; data?: ChannelComplianceData; redacted?: number }>> {
+  /**
+   * One verified store delivery. The store's connector says what it means ({@link ChannelEvent}); this
+   * acts on the meaning and never on a topic or payload field. A delivery the connector does not act
+   * on is logged as unmapped and answered `processed: false`, never reported as applied.
+   */
+  async handleWebhook(orgId: string, storeId: string, delivery: ChannelWebhookEvent): Promise<PluginResult<{ processed: boolean; data?: ChannelComplianceData; redacted?: number }>> {
     const store = await this.getStoreRecord(orgId, storeId);
     if (!store) return PluginErr("Connected store not found.", "NOT_FOUND");
-    const actor = createSystemActor(orgId);
-    const data = event.data as Record<string, unknown>;
-    let skipped: CatalogFieldSkip[] = [];
-    let conflicts: CatalogFieldConflict[] = [];
-    let warnings: string[] = [];
     const connector = this.connectors.get(store.provider);
-    if ((event.type === "products/create" || event.type === "products/update") && connector?.fetchCatalogItems) {
-      // A webhook is a notification, not a snapshot: its payload is the provider's wire spelling and
-      // may be stale or out of order. The product is read fresh and converged exactly as an import
-      // page would be — creating it when this store has never mapped it.
-      const externalId = String(data.id ?? data.product_id ?? "");
-      if (!externalId) return PluginErr(`A ${event.type} delivery named no product.`, "INVALID_WEBHOOK");
-      const read = await connector.fetchCatalogItems(store as ChannelStore, [externalId]);
-      if (!read.ok) return PluginErr(read.error.message, read.error.code);
-      const [item] = read.value;
-      if (item === undefined) {
-        // Gone between the delivery and the read: the same as a delete.
-        const archived = await this.archiveMappedProduct(orgId, storeId, externalId, actor);
-        if (!archived.ok) return archived;
-        skipped = archived.value;
-      } else {
-        const converged = await this.convergeCatalogPage(orgId, storeId, [item], actor);
+    const decoded = connector?.decodeWebhook ? await connector.decodeWebhook(store as ChannelStore, delivery) : Ok<ChannelEvent[]>([]);
+    if (!decoded.ok) return PluginErr(decoded.error.message, decoded.error.code);
+    await this.db.update(connectedStores).set({ lastEventAt: new Date() }).where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.id, storeId)));
+    if (decoded.value.length === 0) {
+      console.warn(JSON.stringify({ event: "channel_webhook_unmapped", provider: store.provider, storeId, topic: delivery.type, deliveryId: delivery.id }));
+      return Ok({ processed: false });
+    }
+    const actor = createSystemActor(orgId);
+    const outcome: { processed: boolean; data?: ChannelComplianceData; redacted?: number } = { processed: true };
+    const report: ChannelEventReport = { skipped: [], conflicts: [], warnings: [] };
+    for (const event of decoded.value) {
+      const applied = await this.applyChannelEvent(orgId, store, connector, event, actor, report);
+      if (!applied.ok) return applied;
+      if (applied.value.data) outcome.data = applied.value.data;
+      if (applied.value.redacted !== undefined) outcome.redacted = applied.value.redacted;
+    }
+    if (report.skipped.length > 0 || report.conflicts.length > 0 || report.warnings.length > 0) {
+      const merged = {
+        ...(store.lastReconcileReport ?? {}),
+        ...(report.skipped.length > 0 ? { skipped: uniqueSkipped(report.skipped) } : {}),
+        ...(report.conflicts.length > 0 ? { conflicts: report.conflicts } : {}),
+        ...(report.warnings.length > 0 ? { warnings: report.warnings } : {}),
+      };
+      await this.db.update(connectedStores).set({ lastReconcileReport: merged, updatedAt: new Date() }).where(and(
+        eq(connectedStores.organizationId, orgId),
+        eq(connectedStores.id, storeId),
+      ));
+    }
+    return Ok(outcome);
+  }
+
+  private async applyChannelEvent(
+    orgId: string,
+    store: ConnectedStore,
+    connector: ChannelConnector | undefined,
+    event: ChannelEvent,
+    actor: Actor,
+    report: ChannelEventReport,
+  ): Promise<PluginResult<{ data?: ChannelComplianceData; redacted?: number }>> {
+    const storeId = store.id;
+    switch (event.kind) {
+      case "product.changed": {
+        // A webhook is a notification, not a snapshot. The products are read fresh and converged
+        // exactly as an import page would be, creating one this store has never mapped.
+        if (!connector?.fetchCatalogItems) return PluginErr(`Connector "${store.provider}" cannot re-read products, so a product change cannot be applied.`, "CONNECTOR_CANNOT_REREAD");
+        const read = await connector.fetchCatalogItems(store as ChannelStore, event.externalIds);
+        if (!read.ok) return PluginErr(read.error.message, read.error.code);
+        const found = new Set(read.value.map((item) => item.externalId));
+        for (const externalId of event.externalIds.filter((id) => !found.has(id))) {
+          // Gone between the delivery and the read: the same as a delete.
+          const archived = await this.archiveMappedProduct(orgId, storeId, externalId, actor);
+          if (!archived.ok) return archived;
+          report.skipped.push(...archived.value);
+        }
+        if (read.value.length === 0) return Ok({});
+        const converged = await this.convergeCatalogPage(orgId, storeId, read.value, actor);
         if (!converged.ok) return converged;
         const [failure] = converged.value.failures;
         if (failure) return PluginErr(`Product ${failure.externalId} could not be converged: ${failure.error}`, "CONVERGENCE_FAILED");
-        warnings = [...converged.value.warnings];
+        report.skipped.push(...converged.value.skipped);
+        report.conflicts.push(...converged.value.conflicts);
+        report.warnings.push(...converged.value.warnings);
         if (converged.value.entityIds.length > 0) {
           await this.options.onStoreCatalogChanged?.({ orgId, storeId, entityIds: [...converged.value.entityIds], convergence: converged.value });
         }
+        return Ok({});
       }
-    } else if (event.type === "products/update") {
-      const productId = String(data.id ?? data.product_id ?? "");
-      const mapping = await this.db.select().from(channelEntityMap).where(and(eq(channelEntityMap.organizationId, orgId), eq(channelEntityMap.storeId, storeId), eq(channelEntityMap.kind, "entity"), eq(channelEntityMap.externalId, productId)));
-      if (mapping[0]) {
-        const converged = await this.convergeCatalogItem(orgId, storeId, mapping[0].entityId, data, actor);
-        if (!converged.ok) return converged;
-        skipped = converged.value.skipped;
-        conflicts = converged.value.conflicts;
-        warnings = converged.value.warnings;
-      }
-    } else if (event.type === "products/delete") {
-      const archived = await this.archiveMappedProduct(orgId, storeId, String(data.id ?? data.product_id ?? ""), actor);
-      if (!archived.ok) return archived;
-      skipped = archived.value;
-    } else if (event.type === "inventory_levels/update") {
-      const available = Number(data.available ?? data.stock_quantity ?? 0);
-      // Shopify names an INVENTORY ITEM, whose id is not the variant id the channel map is keyed by;
-      // looked up by it, every Shopify stock webhook found no mapping and was dropped. The variant is
-      // resolved through the inventory item id its import recorded; a provider that sends a variant
-      // id keeps the plain lookup.
-      const inventoryItemId = data.inventory_item_id !== undefined && data.inventory_item_id !== null ? String(data.inventory_item_id) : null;
-      const byInventoryItem = inventoryItemId === null ? null : await this.variantForInventoryItem(orgId, storeId, inventoryItemId);
-      if (byInventoryItem !== null) {
-        // The delivery's `available` is ONE location's count. The variant's stock is the sum the
-        // connector reads, so it is read fresh rather than taken from the payload.
-        let quantity = available;
-        if (connector) {
-          const levels = await connector.fetchInventory(store as ChannelStore, [byInventoryItem.externalId]);
-          if (!levels.ok) return PluginErr(levels.error.message, levels.error.code);
-          const fresh = levels.value.find((entry) => entry.externalId === byInventoryItem.externalId);
-          if (fresh) quantity = fresh.available;
+      case "product.deleted": {
+        for (const externalId of event.externalIds) {
+          const archived = await this.archiveMappedProduct(orgId, storeId, externalId, actor);
+          if (!archived.ok) return archived;
+          report.skipped.push(...archived.value);
         }
-        await this.setInventoryLevel(byInventoryItem.entityId, byInventoryItem.variantId, quantity, actor);
-      } else {
-        const externalId = String(data.variation_id ?? data.product_id ?? inventoryItemId ?? "");
-        await this.setMappedInventory(orgId, storeId, externalId, available, actor);
+        return Ok({});
       }
-    } else if (event.type === "orders/fulfilled" || event.type === "orders/partially_fulfilled" || event.type === "orders/cancelled") {
-      const orderId = await this.resolveOrderId(orgId, storeId, data);
-      if (orderId) {
+      case "inventory.changed": {
+        for (const level of event.levels) await this.setMappedInventory(orgId, storeId, level.externalId, level.available, actor);
+        return Ok({});
+      }
+      case "order.cancelled":
+      case "order.fulfilled": {
+        const orderId = await this.orderForRemote(orgId, storeId, event.remoteOrderId);
+        if (!orderId) return Ok({});
         const ordersService = this.services.orders as { addNote(orderId: string, input: { body: string }, actor: Actor): Promise<{ ok: boolean; error?: { message: string } }>; changeStatus(input: { orderId: string; newStatus: "processing" | "fulfilled" | "partially_fulfilled" | "cancelled"; reason: string }, actor: Actor): Promise<{ ok: boolean }> };
-        const note = await ordersService.addNote(orderId, { body: `Channel ${event.type}: ${String(data.id ?? data.order_id ?? "remote order")}.` }, actor);
+        const what = event.kind === "order.cancelled" ? "cancelled" : event.partial ? "partially fulfilled" : "fulfilled";
+        const note = await ordersService.addNote(orderId, { body: `The store ${what} its order ${event.remoteOrderId}.` }, actor);
         if (!note.ok) return PluginErr(note.error?.message ?? "Could not add channel order note.");
-        if (event.type === "orders/cancelled") {
+        if (event.kind === "order.cancelled") {
           // The store cancelled: the platform follows, under a reason the cancel hook recognises, so
           // it does not turn round and cancel at the store again. An order already closed, or one the
           // machine cannot cancel (shipped), keeps its status; the note above records the delivery.
@@ -5028,60 +5136,42 @@ export class ChannelConnectorService {
           if (order && !["cancelled", "refunded"].includes(order.status)) {
             await ordersService.changeStatus({ orderId, newStatus: "cancelled", reason: CHANNEL_ORDER_CANCELLED_REASON }, actor);
           }
+          return Ok({});
         }
-        if (event.type === "orders/fulfilled" || event.type === "orders/partially_fulfilled") {
-          // The parcels first, so whatever the status move announces (a shipped email) can read them.
-          const recorded = await this.recordChannelFulfillments(orgId, storeId, orderId, data, actor);
-          if (!recorded.ok) return recorded;
-          const target = event.type === "orders/fulfilled" ? "fulfilled" : "partially_fulfilled";
-          const [order] = await this.db.select({ status: orders.status }).from(orders).where(and(eq(orders.organizationId, orgId), eq(orders.id, orderId)));
-          if (order?.status === "confirmed") await ordersService.changeStatus({ orderId, newStatus: "processing", reason: "channel_order_fulfilled" }, actor);
-          const [after] = await this.db.select({ status: orders.status }).from(orders).where(and(eq(orders.organizationId, orgId), eq(orders.id, orderId)));
-          if (after?.status === "processing" || (target === "fulfilled" && after?.status === "partially_fulfilled")) {
-            await ordersService.changeStatus({ orderId, newStatus: target, reason: "channel_order_fulfilled" }, actor);
-          }
+        // The parcels first, so whatever the status move announces (a shipped email) can read them.
+        const recorded = await this.recordChannelFulfillments(orgId, storeId, orderId, event.shipments, actor);
+        if (!recorded.ok) return recorded;
+        const target = event.partial ? "partially_fulfilled" : "fulfilled";
+        const [order] = await this.db.select({ status: orders.status }).from(orders).where(and(eq(orders.organizationId, orgId), eq(orders.id, orderId)));
+        if (order?.status === "confirmed") await ordersService.changeStatus({ orderId, newStatus: "processing", reason: "channel_order_fulfilled" }, actor);
+        const [after] = await this.db.select({ status: orders.status }).from(orders).where(and(eq(orders.organizationId, orgId), eq(orders.id, orderId)));
+        if (after?.status === "processing" || (target === "fulfilled" && after?.status === "partially_fulfilled")) {
+          await ordersService.changeStatus({ orderId, newStatus: target, reason: "channel_order_fulfilled" }, actor);
         }
+        return Ok({});
       }
-    } else if (RETURN_WEBHOOK_STATUS[event.type] !== undefined) {
-      // The store's answer to a return the marketplace asked for. A return it never asked for is ignored.
-      const status = RETURN_WEBHOOK_STATUS[event.type];
-      const remoteReturnId = String(data.id ?? "");
-      if (status !== undefined && remoteReturnId !== "") {
-        await this.db.update(channelReturns).set({ status, updatedAt: new Date() }).where(and(eq(channelReturns.organizationId, orgId), eq(channelReturns.storeId, storeId), eq(channelReturns.remoteReturnId, remoteReturnId)));
+      case "refund.created": {
+        const refund = await this.createRefundRequest(orgId, store, event, actor);
+        return refund.ok ? Ok({}) : refund;
       }
-    } else if (event.type === "refunds/create") {
-      const refund = await this.createRefundRequest(orgId, store, data, actor);
-      if (!refund.ok) return refund;
-    } else if (event.type === "customers/data_request") {
-      const dataRequest = await this.channelCustomerDataRequest(orgId, storeId, data);
-      if (!dataRequest.ok) return dataRequest;
-      return Ok({ processed: true, data: dataRequest.value });
-    } else if (event.type === "customers/redact") {
-      const redacted = await this.redactCustomerData(orgId, storeId, data);
-      if (!redacted.ok) return redacted;
-      return Ok({ processed: true, redacted: redacted.value });
-    } else if (event.type === "shop/redact") {
-      const redacted = await this.redactShopData(orgId, storeId);
-      if (!redacted.ok) return redacted;
-      return Ok({ processed: true, redacted: redacted.value });
-    } else if (event.type === "app/uninstalled") {
-      const disconnected = await this.disconnectStoreSystem(orgId, storeId);
-      if (!disconnected.ok) return disconnected;
-      return Ok({ processed: true });
+      case "return.updated": {
+        // The store's answer to a return the marketplace asked for. A return it never asked for is ignored.
+        await this.db.update(channelReturns).set({ status: event.status, updatedAt: new Date() }).where(and(eq(channelReturns.organizationId, orgId), eq(channelReturns.storeId, storeId), eq(channelReturns.remoteReturnId, event.remoteReturnId)));
+        return Ok({});
+      }
+      case "connection.revoked": {
+        const disconnected = await this.disconnectStoreSystem(orgId, storeId);
+        return disconnected.ok ? Ok({}) : disconnected;
+      }
+      case "compliance.request": {
+        if (event.request === "customer_data") {
+          const dataRequest = await this.channelCustomerDataRequest(orgId, storeId, event.data);
+          return dataRequest.ok ? Ok({ data: dataRequest.value }) : dataRequest;
+        }
+        const redacted = event.request === "customer_redact" ? await this.redactCustomerData(orgId, storeId, event.data) : await this.redactShopData(orgId, storeId);
+        return redacted.ok ? Ok({ redacted: redacted.value }) : redacted;
+      }
     }
-    if (skipped.length > 0 || conflicts.length > 0 || warnings.length > 0) {
-      const report = {
-        ...(store.lastReconcileReport ?? {}),
-        ...(skipped.length > 0 ? { skipped: uniqueSkipped(skipped) } : {}),
-        ...(conflicts.length > 0 ? { conflicts } : {}),
-        ...(warnings.length > 0 ? { warnings } : {}),
-      };
-      await this.db.update(connectedStores).set({ lastReconcileReport: report, updatedAt: new Date() }).where(and(
-        eq(connectedStores.organizationId, orgId),
-        eq(connectedStores.id, storeId),
-      ));
-    }
-    return Ok({ processed: true });
   }
 
   private complianceEmail(data: Record<string, unknown>): string | undefined {
@@ -5138,10 +5228,53 @@ export class ChannelConnectorService {
     return Ok(rows.filter((row) => row.customerData !== null).length);
   }
 
-  private async resolveOrderId(orgId: string, storeId: string, data: Record<string, unknown>): Promise<string | undefined> {
-    const nestedOrder = data.order && typeof data.order === "object" ? data.order as Record<string, unknown> : undefined;
-    // An `orders/*` payload IS the order, so its own `id` names it; a refund names its order in `order_id`.
-    const remoteOrderId = String(data.order_id ?? data.orderId ?? nestedOrder?.id ?? data.id ?? "");
+  /**
+   * For a read point (a shopper opening their order): each of the order's store orders not read for
+   * {@link REMOTE_ORDER_REFRESH_MS} is queued for one refresh, so a store-side cancel, shipment or
+   * refund whose delivery never arrived still reaches the platform. No schedule: someone looked.
+   * Answers how many were queued.
+   */
+  async refreshStaleRemoteOrders(orgId: string, orderId: string, jobs: JobsAdapter): Promise<number> {
+    const [order] = await this.db.select({ status: orders.status }).from(orders).where(and(eq(orders.organizationId, orgId), eq(orders.id, orderId)));
+    if (!order || ["cancelled", "refunded"].includes(order.status)) return 0;
+    const cutoff = new Date(Date.now() - REMOTE_ORDER_REFRESH_MS);
+    // The claim and the window in one statement: two readers at once queue one refresh.
+    const claimed = await this.db.update(channelOrderExports).set({ remoteCheckedAt: new Date() }).where(and(
+      eq(channelOrderExports.organizationId, orgId),
+      eq(channelOrderExports.orderId, orderId),
+      inArray(channelOrderExports.state, ["exported", "confirmed"]),
+      sql`${channelOrderExports.remoteOrderId} is not null`,
+      or(isNull(channelOrderExports.remoteCheckedAt), lte(channelOrderExports.remoteCheckedAt, cutoff)),
+    )).returning({ storeId: channelOrderExports.storeId, remoteOrderId: channelOrderExports.remoteOrderId });
+    let queued = 0;
+    for (const row of claimed) {
+      if (!row.remoteOrderId) continue;
+      const store = await this.getStoreRecord(orgId, row.storeId);
+      if (!store || store.status !== "connected" || !this.connectors.get(store.provider)?.orderEvents) continue;
+      await jobs.enqueue("channel/refresh-order", { orgId, storeId: row.storeId, remoteOrderId: row.remoteOrderId }, { organizationId: orgId, concurrencyKey: `webhook:${row.storeId}`, supersedes: false });
+      queued += 1;
+    }
+    return queued;
+  }
+
+  /** The store's current state of one order we pushed, applied as if its delivery had arrived. */
+  async refreshRemoteOrder(orgId: string, storeId: string, remoteOrderId: string): Promise<PluginResult<{ events: number }>> {
+    const store = await this.getStoreRecord(orgId, storeId);
+    if (!store) return PluginErr("Connected store not found.", "NOT_FOUND");
+    const connector = this.connectors.get(store.provider);
+    if (!connector?.orderEvents) return Ok({ events: 0 });
+    const events = await connector.orderEvents(store as ChannelStore, remoteOrderId);
+    if (!events.ok) return PluginErr(events.error.message, events.error.code);
+    const report: ChannelEventReport = { skipped: [], conflicts: [], warnings: [] };
+    const actor = createSystemActor(orgId);
+    for (const event of events.value) {
+      const applied = await this.applyChannelEvent(orgId, store, connector, event, actor, report);
+      if (!applied.ok) return applied;
+    }
+    return Ok({ events: events.value.length });
+  }
+
+  private async orderForRemote(orgId: string, storeId: string, remoteOrderId: string): Promise<string | undefined> {
     const rows = await this.db.select({ orderId: channelOrderExports.orderId }).from(channelOrderExports).where(and(eq(channelOrderExports.organizationId, orgId), eq(channelOrderExports.storeId, storeId), eq(channelOrderExports.remoteOrderId, remoteOrderId)));
     return rows[0]?.orderId;
   }
@@ -5167,192 +5300,20 @@ export class ChannelConnectorService {
     await inventory.setAbsolute({ entityId, ...(variantId ? { variantId } : {}), quantity: Math.max(0, Math.floor(quantity)), reason: "Inventory webhook sync" }, actor);
   }
 
-  /** This store's mapped variant whose import recorded `metadata.inventoryItemId`; null when none, or when two claim it. */
-  private async variantForInventoryItem(orgId: string, storeId: string, inventoryItemId: string): Promise<{ entityId: string; variantId: string; externalId: string } | null> {
-    const rows = await this.db.select({ entityId: channelEntityMap.entityId, variantId: channelEntityMap.variantId, externalId: channelEntityMap.externalId }).from(channelEntityMap)
-      .innerJoin(variants, eq(variants.id, channelEntityMap.variantId))
-      .where(and(
-        eq(channelEntityMap.organizationId, orgId),
-        eq(channelEntityMap.storeId, storeId),
-        eq(channelEntityMap.kind, "variant"),
-        sql`${variants.metadata}->>'inventoryItemId' = ${inventoryItemId}`,
-      ))
-      .limit(2);
-    const [only] = rows;
-    return rows.length === 1 && only !== undefined && only.variantId !== null ? { entityId: only.entityId, variantId: only.variantId, externalId: only.externalId } : null;
-  }
-
-  private async convergeCatalogItem(
-    orgId: string,
-    storeId: string,
-    entityId: string,
-    data: Record<string, unknown>,
-    actor: Actor,
-  ): Promise<PluginResult<{ skipped: CatalogFieldSkip[]; conflicts: CatalogFieldConflict[]; warnings: string[] }>> {
-    const product = data.product && typeof data.product === "object" ? data.product as Record<string, unknown> : data;
-    const remoteMetadata = product.metadata && typeof product.metadata === "object" && !Array.isArray(product.metadata)
-      ? product.metadata as Record<string, unknown>
-      : {};
-    const [mapping] = await this.db.select().from(channelEntityMap).where(and(
-      eq(channelEntityMap.organizationId, orgId),
-      eq(channelEntityMap.storeId, storeId),
-      eq(channelEntityMap.kind, "entity"),
-      eq(channelEntityMap.entityId, entityId),
-    ));
-    const [entity] = await this.db.select().from(sellableEntities).where(and(
-      eq(sellableEntities.organizationId, orgId),
-      eq(sellableEntities.id, entityId),
-    ));
-    if (!mapping || !entity) return Ok({ skipped: [], conflicts: [], warnings: [] });
-    const [currentAttribute] = await this.db.select().from(sellableAttributes).where(and(
-      eq(sellableAttributes.entityId, entityId),
-      eq(sellableAttributes.locale, "en"),
-    ));
-    const title = typeof product.title === "string" ? product.title : currentAttribute?.title ?? entity.slug;
-    const description = product.description !== undefined
-      ? String(product.description)
-      : currentAttribute?.description ?? undefined;
-    const status = typeof product.status === "string" && ["draft", "active", "archived", "discontinued"].includes(product.status)
-      ? product.status as NonNullable<ChannelCatalogItem["status"]>
-      : undefined;
-    const customFields = product.customFields && typeof product.customFields === "object" && !Array.isArray(product.customFields)
-      ? product.customFields as Record<string, unknown>
-      : undefined;
-    const images = Array.isArray(product.images)
-      ? product.images.flatMap((raw) => {
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
-        const image = raw as Record<string, unknown>;
-        const role = typeof image.role === "string" ? pushCatalogImageRole(image.role) : undefined;
-        const url = typeof image.url === "string" ? image.url : typeof image.src === "string" ? image.src : undefined;
-        return role && url ? [{ role, url }] : [];
-      })
-      : [];
-    const remoteItem = {
-      externalId: mapping.externalId,
-      slug: typeof product.slug === "string" ? product.slug : entity.slug,
-      title,
-      ...(description !== undefined ? { description } : {}),
-      ...(status !== undefined ? { status } : {}),
-      attributes: [{ locale: "en", title, ...(description !== undefined ? { description } : {}) }],
-      ...(Object.keys(remoteMetadata).length > 0 ? { metadata: remoteMetadata } : {}),
-      ...(customFields !== undefined ? { customFields } : {}),
-      ...(images.length > 0 ? { images } : {}),
-      variants: [],
-    } as ChannelCatalogItem & { customFields?: Record<string, unknown> };
-    const fieldPaths: FieldPath[] = [];
-    if (typeof product.slug === "string") fieldPaths.push("entity.slug");
-    if (status !== undefined) fieldPaths.push("entity.status");
-    for (const key of Object.keys(remoteMetadata)) {
-      const path = `entity.metadata.${key}`;
-      if (isValidFieldPath(path)) fieldPaths.push(path);
-    }
-    if (typeof product.title === "string") fieldPaths.push("attributes.en.title");
-    if (product.description !== undefined) fieldPaths.push("attributes.en.description");
-    for (const [name, locales] of Object.entries(customFields ?? {})) {
-      if (!locales || typeof locales !== "object" || Array.isArray(locales)) continue;
-      for (const locale of Object.keys(locales as Record<string, unknown>)) {
-        const path = `customFields.${name}.${locale}`;
-        if (isValidFieldPath(path)) fieldPaths.push(path);
-      }
-    }
-    for (const image of images) fieldPaths.push(`media.${image.role}`);
-    const ownershipBeforeSeed = await this.catalog.resolveFieldOwners(entityId, storeId);
-    const seedPaths = fieldPaths.filter((path) => !ownershipBeforeSeed.has(path));
-    const seeded = await this.catalog.seedImportedFieldOwnership(entityId, storeId, seedPaths);
-    if (!seeded.ok) return PluginErr(seeded.error.message);
-    for (const path of seedPaths) ownershipBeforeSeed.set(path, "store");
-    const owners = ownershipBeforeSeed;
-    const remoteHash = hash(product);
-    const outboundEcho = this.isOutboundEcho(mapping, remoteItem);
-    const shared = await this.detectSharedConflicts(
-      entityId, storeId, entity, mapping, remoteItem, owners, fieldPaths, remoteHash,
-      outboundEcho ? { certifiedPaths: new Set(mapping.outboundFieldPaths ?? []) } : undefined,
-    );
-    const persistedConflicts = await this.persistCatalogConflicts(orgId, shared.conflicts, requireUserId(actor));
-    if (!persistedConflicts.ok) return persistedConflicts;
-    const owned = this.filterOwnedFieldsAtPaths(remoteItem, owners, fieldPaths);
-    const heldPaths = [...new Set([...(mapping.heldFieldPaths ?? []), ...shared.paths])];
-    // Same revocation as the reconcile path: a newly held path cancels any force
-    // left from an earlier resolution, so a webhook-raised conflict cannot be
-    // pre-empted by an operator's answer to a previous one.
-    const survivingForcedPaths = (mapping.forcedPushFieldPaths ?? []).filter(
-      (path) => !heldPaths.includes(path),
-    );
-    const held = this.filterConflictingFields(owned.writable, heldPaths);
-    const blockedPaths = new Set<FieldPath>([
-      ...owned.skipped,
-      ...heldPaths,
-      ...(!fieldPaths.includes("attributes.en.title") ? ["attributes.en.title" as FieldPath] : []),
-    ]);
-    const skipped = owned.skipped.map((fieldPath) => ({ entityId, fieldPath }));
-    const conflicts = shared.conflicts.map(({ platformValue: _platformValue, storeValue: _storeValue, ...conflict }) => conflict);
-    const warnings = conflicts.map((conflict) => `Held shared field conflict for entity "${conflict.entityId}", store "${conflict.storeId}", field "${conflict.fieldPath}" (local ${conflict.localValueSummary}, remote ${conflict.remoteValueSummary}).`);
-    const writable = held.writable;
-    const updateInput: {
-      slug?: string;
-      metadata?: Record<string, unknown>;
-      status?: string;
-      isVisible?: boolean;
-    } = {};
-    if (fieldPaths.includes("entity.slug") && ownerAllows(owners, "entity.slug") && !blockedPaths.has("entity.slug") && typeof writable.slug === "string") {
-      const resolved = (await this.resolveStoreSlugs(orgId, storeId, [writable.slug])).get(writable.slug);
-      const slug = resolved ? this.slugToKeep(entity.slug, resolved) : writable.slug;
-      if (entity.slug !== slug) updateInput.slug = slug;
-    }
-    if (Object.keys(writable.metadata ?? {}).length > 0) {
-      const remoteEntityMetadata = mergeMetadata(entity.metadata, writable.metadata ?? {});
-      if (hash(remoteEntityMetadata) !== hash(entity.metadata ?? {})) updateInput.metadata = remoteEntityMetadata;
-    }
-    if (fieldPaths.includes("entity.status") && ownerAllows(owners, "entity.status") && !blockedPaths.has("entity.status") && typeof writable.status === "string" && writable.status !== entity.status) {
-      updateInput.status = writable.status;
-      updateInput.isVisible = writable.status === "active";
-    }
-    if (Object.keys(updateInput).length > 0) {
-      const updated = await this.catalog.update(entityId, updateInput, actor, CHANNEL_CONVERGENCE_CTX);
-      if (!updated.ok) return PluginErr(updated.error.message);
-    }
-    const attributes = await this.setCatalogAttributesIfWritable(entityId, writable, actor, blockedPaths, CHANNEL_CONVERGENCE_CTX);
-    if (!attributes.ok) return attributes;
-    const levels = Array.isArray(product.variants) ? product.variants as Array<Record<string, unknown>> : [];
-    for (const variant of levels) {
-      const externalId = String(variant.id ?? variant.variation_id ?? "");
-      const available = variant.inventory_quantity ?? variant.stock_quantity;
-      if (externalId && available !== undefined) await this.setMappedInventory(orgId, storeId, externalId, Number(available), actor);
-    }
-    const revisionMarkers = await this.catalog.repository.findRevisionMarkers(entityId);
-    const lastSyncedAt = revisionMarkers.at(-1)?.createdAt ?? mapping.lastSyncedAt;
-    await this.db.update(channelEntityMap).set({
-      syncHash: remoteHash,
-      lastSyncedAt,
-      heldFieldPaths: heldPaths,
-      forcedPushFieldPaths: survivingForcedPaths,
-    }).where(eq(channelEntityMap.id, mapping.id));
-    return Ok({ skipped, conflicts, warnings });
-  }
-
-  private async createRefundRequest(orgId: string, store: ConnectedStore, data: Record<string, unknown>, actor: Actor): Promise<PluginResult<ChannelRefundRequest>> {
-    const remoteRefundId = String(data.id ?? data.refund_id ?? "");
-    const orderId = await this.resolveOrderId(orgId, store.id, data);
-    if (!remoteRefundId || !orderId) return PluginErr("Refund webhook is missing a mapped order or refund id.", "REFUND_MAPPING_MISSING");
+  private async createRefundRequest(orgId: string, store: ConnectedStore, event: Extract<ChannelEvent, { kind: "refund.created" }>, actor: Actor): Promise<PluginResult<ChannelRefundRequest | null>> {
+    const { remoteRefundId } = event;
+    const orderId = await this.orderForRemote(orgId, store.id, event.remoteOrderId);
+    // A refund on an order this store never received from us is the store's own business.
+    if (!orderId) return Ok(null);
     const existing = await this.db.select().from(channelRefundRequests).where(and(eq(channelRefundRequests.storeId, store.id), eq(channelRefundRequests.remoteRefundId, remoteRefundId)));
     if (existing[0]) return Ok(existing[0] as ChannelRefundRequest);
-    // Shopify names the refunded lines in `refund_line_items`, each with its order line under
-    // `line_item`; other providers send a flat `line_items`. Both reduce to { variant_id, quantity }.
-    const lineData = Array.isArray(data.refund_line_items)
-      ? data.refund_line_items.map((raw) => {
-        const entry = (raw ?? {}) as Record<string, unknown>;
-        const orderLine = (entry.line_item ?? {}) as Record<string, unknown>;
-        return { variant_id: orderLine.variant_id, product_id: orderLine.product_id, quantity: entry.quantity };
-      })
-      : Array.isArray(data.line_items) ? data.line_items : Array.isArray(data.lineItems) ? data.lineItems : [];
     const orderLines = await this.db.select().from(orderLineItems).where(eq(orderLineItems.orderId, orderId));
     const mappings = await this.db.select().from(channelEntityMap).where(and(eq(channelEntityMap.organizationId, orgId), eq(channelEntityMap.storeId, store.id)));
     const refundLines: Array<{ lineItemId: string; quantity: number }> = [];
-    let clean = lineData.length > 0;
-    for (const raw of lineData) {
-      const line = raw as Record<string, unknown>;
-      const externalId = String(line.variant_id ?? line.variantId ?? line.product_id ?? "");
-      const quantity = Number(line.quantity ?? 0);
+    let clean = event.lines.length > 0;
+    for (const line of event.lines) {
+      const externalId = line.externalVariantId;
+      const quantity = line.quantity;
       const mapping = mappings.find((item) => item.externalId === externalId);
       const orderLine = mapping ? orderLines.find((item) => item.variantId === mapping.variantId || item.entityId === mapping.entityId) : undefined;
       if (!orderLine || !Number.isInteger(quantity) || quantity < 1 || quantity > orderLine.quantity - orderLine.refundedQuantity) clean = false;
@@ -5532,30 +5493,27 @@ export class ChannelConnectorService {
   }
 
   /**
-   * One core fulfilment record per store fulfilment the order body carries, keyed on the store's
-   * fulfilment id (`metadata.channelFulfillmentId`) so a replay records nothing twice. Each records
-   * the lines it shipped, matched by the store's variant id; one whose lines cannot be matched
-   * records every line not yet fulfilled. A fulfilment the store cancelled is not a parcel.
+   * One core fulfilment record per store parcel, keyed on the store's parcel id
+   * (`metadata.channelFulfillmentId`) so a replay records nothing twice. Each records the lines it
+   * shipped, matched by the store's variant id; one whose lines cannot be matched (or that names
+   * none) records every line not yet fulfilled.
    */
-  private async recordChannelFulfillments(orgId: string, storeId: string, orderId: string, data: Record<string, unknown>, actor: Actor): Promise<PluginResult<number>> {
-    const parsed = channelFulfillmentsSchema.safeParse(data.fulfillments ?? []);
-    if (!parsed.success) return PluginErr(`Channel order fulfilments did not parse: ${parsed.error.message}`);
+  private async recordChannelFulfillments(orgId: string, storeId: string, orderId: string, shipments: ChannelShipment[], actor: Actor): Promise<PluginResult<number>> {
     const existing = await this.db.select({ metadata: fulfillmentRecords.metadata }).from(fulfillmentRecords).where(eq(fulfillmentRecords.orderId, orderId));
     const recorded = new Set(existing.map((row) => String(row.metadata?.channelFulfillmentId ?? "")));
     const lines = await this.db.select({ id: orderLineItems.id, variantId: orderLineItems.variantId, quantity: orderLineItems.quantity }).from(orderLineItems).where(eq(orderLineItems.orderId, orderId));
     const fulfillment = this.services.fulfillment as { createFulfillment(input: { orderId: string; lineItems: Array<{ orderLineItemId: string; quantity: number }>; carrier?: string; trackingNumber?: string; trackingUrl?: string; status?: string; metadata?: Record<string, unknown> }, actor: Actor): Promise<{ ok: boolean; error?: { message: string } }> };
     let created = 0;
-    for (const parcel of parsed.data) {
-      const parcelId = String(parcel.id);
-      if (recorded.has(parcelId) || parcel.status === "cancelled" || parcel.status === "error" || parcel.status === "failure") continue;
-      const externalIds = parcel.line_items.flatMap((line) => (line.variant_id == null ? [] : [String(line.variant_id)]));
+    for (const parcel of shipments) {
+      if (recorded.has(parcel.remoteId)) continue;
+      const externalIds = parcel.lines.map((line) => line.externalVariantId);
       const mapped = externalIds.length === 0 ? [] : await this.db
         .select({ externalId: channelEntityMap.externalId, variantId: channelEntityMap.variantId })
         .from(channelEntityMap)
         .where(and(eq(channelEntityMap.organizationId, orgId), eq(channelEntityMap.storeId, storeId), eq(channelEntityMap.kind, "variant"), inArray(channelEntityMap.externalId, externalIds)));
       const variantFor = new Map(mapped.map((row) => [row.externalId, row.variantId]));
-      const matched = parcel.line_items.flatMap((line) => {
-        const variantId = line.variant_id == null ? undefined : variantFor.get(String(line.variant_id));
+      const matched = parcel.lines.flatMap((line) => {
+        const variantId = variantFor.get(line.externalVariantId);
         const orderLine = variantId == null ? undefined : lines.find((candidate) => candidate.variantId === variantId);
         return orderLine ? [{ orderLineItemId: orderLine.id, quantity: line.quantity }] : [];
       });
@@ -5564,14 +5522,14 @@ export class ChannelConnectorService {
       const result = await fulfillment.createFulfillment({
         orderId,
         lineItems,
-        ...(parcel.tracking_company ? { carrier: parcel.tracking_company } : {}),
-        ...(parcel.tracking_number ? { trackingNumber: parcel.tracking_number } : {}),
-        ...(parcel.tracking_url ? { trackingUrl: parcel.tracking_url } : {}),
+        ...(parcel.carrier ? { carrier: parcel.carrier } : {}),
+        ...(parcel.trackingNumber ? { trackingNumber: parcel.trackingNumber } : {}),
+        ...(parcel.trackingUrl ? { trackingUrl: parcel.trackingUrl } : {}),
         status: "shipped",
-        metadata: { channelFulfillmentId: parcelId, storeId },
+        metadata: { channelFulfillmentId: parcel.remoteId, storeId, ...(parcel.source ? { trackingSource: parcel.source } : {}) },
       }, actor);
       if (!result.ok) return PluginErr(result.error?.message ?? "Could not record the store's fulfilment.");
-      recorded.add(parcelId);
+      recorded.add(parcel.remoteId);
       created += 1;
     }
     return Ok(created);

@@ -21,7 +21,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@porulle/core": "workspace:*"
+    "@porulle/core": "workspace:*",
+    "zod": "^4.1.11"
   },
   "devDependencies": {
     "@porulle/eslint-config": "workspace:*",
@@ -29,7 +30,9 @@
     "@types/node": "^24.5.2",
     "eslint": "^9.39.1",
     "typescript": "5.9.2",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "esbuild": "0.25.12",
+    "miniflare": "4.20260722.1"
   },
   "publishConfig": {
     "access": "public"

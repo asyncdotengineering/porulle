@@ -4,8 +4,10 @@ import {
   Ok,
   defineChannelConnector,
 } from "@porulle/core";
+import { z } from "zod";
 import type {
   ChannelCatalogItem,
+  ChannelEvent,
   ChannelConnectorError,
   ChannelInventoryLevel,
   ChannelOrderSlice,
@@ -76,6 +78,28 @@ const defaultCatalog: ChannelCatalogItem[] = [{
   }],
 }];
 
+const level = z.object({ externalId: z.string(), available: z.number() });
+const shipment = z.object({
+  remoteId: z.string(),
+  carrier: z.string().exactOptional(),
+  trackingNumber: z.string().exactOptional(),
+  trackingUrl: z.string().exactOptional(),
+  lines: z.array(z.object({ externalVariantId: z.string(), quantity: z.number().int() })),
+  source: z.string().exactOptional(),
+});
+/** A mock delivery's body IS what it means: one {@link ChannelEvent} or a list of them. */
+const channelEventSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("product.changed"), externalIds: z.array(z.string()) }),
+  z.object({ kind: z.literal("product.deleted"), externalIds: z.array(z.string()) }),
+  z.object({ kind: z.literal("inventory.changed"), levels: z.array(level) }),
+  z.object({ kind: z.literal("order.cancelled"), remoteOrderId: z.string() }),
+  z.object({ kind: z.literal("order.fulfilled"), remoteOrderId: z.string(), partial: z.boolean(), shipments: z.array(shipment) }),
+  z.object({ kind: z.literal("refund.created"), remoteOrderId: z.string(), remoteRefundId: z.string(), lines: z.array(z.object({ externalVariantId: z.string(), quantity: z.number().int() })) }),
+  z.object({ kind: z.literal("return.updated"), remoteReturnId: z.string(), status: z.enum(["approved", "declined", "closed", "cancelled"]) }),
+  z.object({ kind: z.literal("connection.revoked") }),
+  z.object({ kind: z.literal("compliance.request"), request: z.enum(["customer_data", "customer_redact", "shop_redact"]), data: z.record(z.string(), z.unknown()) }),
+]) satisfies z.ZodType<ChannelEvent>;
+
 export function mockChannelConnector(options: MockChannelConnectorOptions = {}) {
   const orders = new Map<string, ChannelOrderSlice>();
   const catalog = new Map<string, ChannelPushCatalogItem>();
@@ -91,6 +115,16 @@ export function mockChannelConnector(options: MockChannelConnectorOptions = {}) 
     },
     async importCatalog(_store?: ChannelStore) {
       return Ok({ items: options.catalog ?? defaultCatalog, nextCursor: null });
+    },
+    /** The catalogue as it stands when asked: a test changes `options.catalog` to change "the store". */
+    async fetchCatalogItems(_store, externalIds) {
+      const wanted = new Set(externalIds);
+      return Ok((options.catalog ?? defaultCatalog).filter((item) => wanted.has(item.externalId)));
+    },
+    async decodeWebhook(_store, event) {
+      const parsed = z.union([channelEventSchema, z.array(channelEventSchema)]).safeParse(event.data);
+      if (!parsed.success) return Err({ code: "MOCK_WEBHOOK_MALFORMED", message: parsed.error.message, retriable: false });
+      return Ok(Array.isArray(parsed.data) ? parsed.data : [parsed.data]);
     },
     async fetchInventory(_store, ids) {
       const requestedIds = ids ?? [];
