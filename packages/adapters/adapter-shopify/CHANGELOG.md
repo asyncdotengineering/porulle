@@ -1,5 +1,14 @@
 # @porulle/adapter-shopify
 
+## 0.73.1
+
+### Patch Changes
+
+- [#176](https://github.com/asyncdotengineering/porulle/pull/176) [`2554f7c`](https://github.com/asyncdotengineering/porulle/commit/2554f7c1d164ddb0b295b9da9279478212ebbe31) Thanks [@octalpixel](https://github.com/octalpixel)! - Ask for `read_returns` and `write_returns` when a store connects, which returns need.
+
+- Updated dependencies []:
+  - @porulle/core@0.73.1
+
 ## 0.73.0
 
 ### Minor Changes
