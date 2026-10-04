@@ -1,5 +1,12 @@
 # @porulle/adapter-local-storage
 
+## 0.70.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.70.1
+
 ## 0.70.0
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @porulle/plugin-channel-connector
 
+## 0.70.1
+
+### Patch Changes
+
+- [#171](https://github.com/asyncdotengineering/porulle/pull/171) [`3c48c68`](https://github.com/asyncdotengineering/porulle/commit/3c48c6899c2b11e4344bf940204bff5e0fd3e5ed) Thanks [@octalpixel](https://github.com/octalpixel)! - Read Shopify's refund webhook as Shopify sends it: the refunded lines are `refund_line_items`, each naming its order line (and that line's variant) under `line_item`. Every real Shopify refund used to map no line and wait for an operator with an amount of 0. `refunds/create` is also registered for providers that subscribe per store.
+
+- Updated dependencies []:
+  - @porulle/core@0.70.1
+
 ## 0.70.0
 
 ### Minor Changes
