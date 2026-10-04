@@ -133,8 +133,14 @@ export interface ChannelOrderAddress {
 export interface ChannelOrderSlice {
   orderId: string;
   currency: string;
+  /** What the shopper paid for this slice: its lines, plus `shipping` when present. */
   grandTotal: number;
   lines: ChannelOrderLine[];
+  /**
+   * The order's delivery charge, present only when the slice is the whole order and the charge is
+   * above zero. An order split across stores carries none: one charge cannot be divided honestly.
+   */
+  shipping?: { title: string; amount: number };
   customer: {
     name: string;
     email: string;

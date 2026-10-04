@@ -257,6 +257,8 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
             requiresShipping: true,
             priceSet: money(line.unitPrice, slice.currency),
           })),
+          // The delivery the shopper paid this seller, so the order total matches the payment below.
+          ...(slice.shipping ? { shippingLines: [{ title: slice.shipping.title, priceSet: money(slice.shipping.amount, slice.currency) }] } : {}),
           transactions: [{ kind: "SALE", status: "SUCCESS", gateway: SOURCE_NAME, amountSet: money(slice.grandTotal, slice.currency) }],
         },
         options: { inventoryBehaviour: "DECREMENT_OBEYING_POLICY", sendReceipt: false, sendFulfillmentReceipt: false },

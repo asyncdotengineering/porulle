@@ -5583,7 +5583,10 @@ export class ChannelConnectorService {
       shippingAddress = withoutUndefined(parsed.data);
     }
     if (!email || !shippingAddress) return PluginErr("Customer email and shipping address are required for channel order export.", "CUSTOMER_DATA_MISSING");
-    return Ok({ orderId, currency: order.currency, grandTotal: lines.reduce((sum, line) => sum + line.totalPrice, 0), lines, customer: { name, email, shippingAddress } });
+    const linesTotal = lines.reduce((sum, line) => sum + line.totalPrice, 0);
+    // ponytail: a multi-store order sends no shipping to any store; apportion it when such orders exist.
+    const shipping = selected.length === lineItems.length && order.shippingTotal > 0 ? { title: "Shipping", amount: order.shippingTotal } : null;
+    return Ok({ orderId, currency: order.currency, grandTotal: linesTotal + (shipping?.amount ?? 0), lines, ...(shipping ? { shipping } : {}), customer: { name, email, shippingAddress } });
   }
 
   async reapExports(input: { definitiveMs: number; transientMs: number }): Promise<{ abandonedCount: number; refundedOrderIds: string[] }> {
