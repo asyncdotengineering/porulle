@@ -156,9 +156,10 @@ export async function pushOrder(client: WooClient, slice: ChannelOrderSlice, opt
     const draftId = draft && typeof draft === "object" && "new_draft_order_id" in draft ? z.coerce.number().int().positive().safeParse(draft.new_draft_order_id) : undefined;
     // A refusal can leave a checkout-draft behind; it is ours, so it goes.
     if (draftId?.success) await client.send("DELETE", `/wc/v3/orders/${draftId.data}`, undefined, z.unknown(), { force: "true" });
-    // A 4xx is the store's answer. Anything else (timeout, 5xx, unreadable) may have created the
-    // order: retriable, and the next attempt looks for it before creating.
-    const answered = error.status !== undefined && error.status >= 400 && error.status < 500;
+    // A 4xx WooCommerce explained (its JSON error) is the store's answer. Anything else — a timeout,
+    // a 5xx, a firewall's page — may or may not have created the order: retriable, and the next
+    // attempt looks for it before creating anything.
+    const answered = error.status !== undefined && error.status >= 400 && error.status < 500 && error.body !== undefined;
     return Err({ code: answered ? "WOO_ORDER_REJECTED" : error.code, message: answered ? `WooCommerce refused the order: ${error.message}` : `The store's answer to the order was lost (${error.message}); it is looked for before trying again.`, retriable: !answered });
   }
   const order = created.value;

@@ -19,12 +19,16 @@ import { connectedStores } from "./schema.js";
  * token lapsed. The store is then marked `error`, so it reads as "reconnect" instead of failing every
  * later call with a credential error nobody is shown.
  */
+/** Why a store whose key the provider refused is in `error`. */
+export const CREDENTIALS_REJECTED_REASON = "The store no longer accepts the key it gave us (it was revoked, or the user who approved it was removed). Reconnect the store.";
+
 export async function resolveLiveCredentials(connector: ChannelConnector, db: PluginDb, store: ChannelStore, options: { force?: boolean } = {}): Promise<Result<ChannelStore, ChannelConnectorError>> {
   if (!connector.liveCredentials) return Ok(store);
   const answer = await connector.liveCredentials(store, options);
   if (!answer.ok) {
     if (answer.error.retriable !== true) {
-      await db.update(connectedStores).set({ status: "error", updatedAt: new Date() }).where(eq(connectedStores.id, store.id));
+      const statusReason = answer.error.code === CHANNEL_CREDENTIALS_REJECTED ? CREDENTIALS_REJECTED_REASON : answer.error.message;
+      await db.update(connectedStores).set({ status: "error", statusReason, updatedAt: new Date() }).where(eq(connectedStores.id, store.id));
     }
     return answer;
   }
@@ -40,9 +44,6 @@ export async function resolveLiveCredentials(connector: ChannelConnector, db: Pl
 }
 
 type StoreCall<A extends unknown[], T> = (store: ChannelStore, ...args: A) => Promise<Result<T, ChannelConnectorError>>;
-
-/** Why a store whose key the provider refused is in `error`. */
-export const CREDENTIALS_REJECTED_REASON = "The store no longer accepts the key it gave us (it was revoked, or the user who approved it was removed). Reconnect the store.";
 
 async function markCredentialsRejected(db: PluginDb, storeId: string): Promise<void> {
   await db.update(connectedStores).set({ status: "error", statusReason: CREDENTIALS_REJECTED_REASON, updatedAt: new Date() }).where(eq(connectedStores.id, storeId));

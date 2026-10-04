@@ -60,7 +60,7 @@ export function wooConnector(options: WooConnectorOptions = {}): ChannelConnecto
     async probeStore(input) {
       const storeDomain = normalizeStoreDomain(input, { allowPrivateHosts: transport.allowPrivateHosts });
       if (!storeDomain) {
-        const why = transport.allowPrivateHosts ? undefined : refusedStoreUrl(input);
+        const why = refusedStoreUrl(input);
         return refused(why === "http" ? "WOO_STORE_NOT_HTTPS" : "WOO_INVALID_STORE_DOMAIN", why === "http"
           ? "Your store must be served over https (with a valid certificate) to connect."
           : why === "private_host" ? "That address is not a public website." : `"${input}" is not a store address. Enter it like https://shop.example.com.`);
