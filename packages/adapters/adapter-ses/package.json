@@ -1,6 +1,6 @@
 {
   "name": "@porulle/adapter-ses",
-  "version": "0.68.3",
+  "version": "0.68.4",
   "license": "MIT",
   "type": "module",
   "exports": {

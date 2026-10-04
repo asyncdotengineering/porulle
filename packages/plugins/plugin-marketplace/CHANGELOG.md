@@ -1,5 +1,12 @@
 # @porulle/plugin-marketplace
 
+## 0.68.4
+
+### Patch Changes
+
+- Updated dependencies [[`51e3a25`](https://github.com/asyncdotengineering/porulle/commit/51e3a2585bd5a17d32c6b2638111fe85030b2c35)]:
+  - @porulle/core@0.68.4
+
 ## 0.68.3
 
 ### Patch Changes
