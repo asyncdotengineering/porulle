@@ -114,6 +114,12 @@ export interface ChannelOrderLine {
   quantity: number;
   unitPrice: number;
   totalPrice: number;
+  /**
+   * This line's share of the order's discount, when the order carries one per line. A connector that
+   * books the discount per line uses it as is, so the store's line totals equal what the platform
+   * refunds a line at; one that cannot falls back to splitting `discount` itself.
+   */
+  discountAmount?: number;
 }
 
 /** Where an order ships, in no provider's spelling; each connector maps it to its own. */
@@ -258,7 +264,10 @@ export interface ChannelReturnInput {
  */
 export interface ChannelRefundRecord {
   lines: Array<{ externalVariantId: string; quantity: number; amount: number }>;
+  /** Everything refunded: the lines' amounts plus `shippingAmount`. */
   amount: number;
+  /** Delivery paid back with the refund, booked against the order's shipping. */
+  shippingAmount?: number;
   reason: string;
   restock: boolean;
 }
@@ -305,11 +314,22 @@ export type ChannelEvent =
   | { kind: "order.cancelled"; remoteOrderId: string }
   | { kind: "order.fulfilled"; remoteOrderId: string; partial: boolean; shipments: ChannelShipment[] }
   /**
-   * Lines the merchant refunded at the store; the platform prices them from its own order. `amount` is
-   * what the store says it refunded, in minor units, when it says: a refund for PART of a line, or a line
-   * the store discounted, is less than the platform's price, and the platform never pays back more.
+   * A refund the merchant made in their own shop; the platform pays the shopper what the store refunded and
+   * never more than the shopper paid for what it names: the lines at most at the platform's own price
+   * (part of a line is less), the delivery at most what of it is not refunded yet, and money with no line
+   * behind it (goodwill) at most what the order has left. A refund whose `amount` is 0 (a restock) pays
+   * nothing. Without an `amount` the lines are paid at the platform's price.
    */
-  | { kind: "refund.created"; remoteOrderId: string; remoteRefundId: string; lines: Array<{ externalVariantId: string; quantity: number }>; amount?: number }
+  | {
+      kind: "refund.created";
+      remoteOrderId: string;
+      remoteRefundId: string;
+      lines: Array<{ externalVariantId: string; quantity: number }>;
+      /** Everything the store refunded, delivery included, minor units; absent when the store does not say. */
+      amount?: number;
+      /** Of `amount`, the delivery the store refunded. */
+      shippingAmount?: number;
+    }
   | { kind: "return.updated"; remoteReturnId: string; status: "approved" | "declined" | "closed" | "cancelled" }
   | { kind: "connection.revoked" }
   | { kind: "compliance.request"; request: "customer_data" | "customer_redact" | "shop_redact"; data: Record<string, unknown> };

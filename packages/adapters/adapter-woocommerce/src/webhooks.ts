@@ -97,6 +97,8 @@ const refundSchema = z.object({
   /** What the merchant refunded, positive, in the store's currency: part of a line is less than the line. */
   amount: z.string().nullish(),
   line_items: z.array(z.object({ product_id: id, variation_id: id, quantity: z.number() })).default([]),
+  /** Delivery refunded: one entry per order shipping item, total negative. */
+  shipping_lines: z.array(z.object({ total: z.string().nullish() })).default([]),
 });
 
 function meta(entries: Array<{ key: string; value: unknown }>, key: string): unknown {
@@ -175,6 +177,9 @@ export async function orderEvents(client: WooClient, remoteOrderId: string): Pro
     if (!refund.ok) return refund;
     const currency = order.currency ?? client.credentials.currency;
     const amount = currency ? toMinorUnits(refund.value.data.amount, currency) : undefined;
+    const shipping = currency
+      ? refund.value.data.shipping_lines.reduce((sum, line) => sum + Math.abs(toMinorUnits(line.total, currency) ?? 0), 0)
+      : 0;
     events.push({
       kind: "refund.created",
       remoteOrderId: order.id,
@@ -184,6 +189,7 @@ export async function orderEvents(client: WooClient, remoteOrderId: string): Pro
         return quantity > 0 ? [{ externalVariantId: line.variation_id !== "0" ? line.variation_id : line.product_id, quantity }] : [];
       }),
       ...(amount === undefined ? {} : { amount: Math.abs(amount) }),
+      ...(shipping > 0 ? { shippingAmount: shipping } : {}),
     });
   }
   return Ok(events);

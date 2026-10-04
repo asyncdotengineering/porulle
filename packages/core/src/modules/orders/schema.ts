@@ -79,7 +79,12 @@ export const orderRefunds = pgTable("order_refunds", {
   orderId: uuid("order_id")
     .references(() => orders.id, { onDelete: "cascade" })
     .notNull(),
+  /** Everything this refund paid back: its lines, `shippingAmount` and `adjustmentAmount`. */
   amount: integer("amount").notNull(),
+  /** Of `amount`, the order's delivery charge paid back. */
+  shippingAmount: integer("shipping_amount").notNull().default(0),
+  /** Of `amount`, money paid back with no line or delivery behind it (a seller's goodwill). */
+  adjustmentAmount: integer("adjustment_amount").notNull().default(0),
   reason: text("reason"),
   lines: jsonb("lines").$type<Array<{ lineItemId: string; quantity: number; amount: number }>>().notNull(),
   performedBy: text("performed_by").notNull(),

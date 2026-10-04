@@ -267,6 +267,8 @@ export const channelReturns = pgTable(
     remoteReturnId: text("remote_return_id").notNull(),
     status: text("status", { enum: ["requested", "approved", "declined", "closed", "cancelled"] }).notNull().default("requested"),
     lines: jsonb("lines").$type<Array<{ orderLineItemId: string; quantity: number }>>().notNull(),
+    /** Delivery the merchant refunded when approving a return held on the platform. */
+    shippingAmount: integer("shipping_amount").notNull().default(0),
     reason: text("reason").notNull(),
     note: text("note"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -286,7 +288,12 @@ export const channelRefundRequests = pgTable(
     storeId: uuid("store_id").references(() => connectedStores.id, { onDelete: "cascade" }).notNull(),
     orderId: uuid("order_id").notNull(),
     remoteRefundId: text("remote_refund_id").notNull(),
+    /** Everything the request pays back: its lines, `shippingAmount` and `adjustmentAmount`. */
     amount: integer("amount").notNull(),
+    /** Of `amount`, delivery the store refunded. */
+    shippingAmount: integer("shipping_amount").notNull().default(0),
+    /** Of `amount`, money the store refunded with no line behind it (goodwill). */
+    adjustmentAmount: integer("adjustment_amount").notNull().default(0),
     /** The order lines the store refunded. Null on requests made before it was kept. */
     lines: jsonb("lines").$type<Array<{ lineItemId: string; quantity: number }>>(),
     state: text("state", { enum: ["requested", "approved", "rejected", "executed"] }).notNull().default("requested"),
@@ -329,4 +336,11 @@ export type ChannelOrderExport = typeof channelOrderExports.$inferSelect;
 export type ChannelExportEvent = typeof channelExportEvents.$inferSelect;
 export type ChannelRefundRequest = typeof channelRefundRequests.$inferSelect;
 export type ChannelReturn = typeof channelReturns.$inferSelect;
+/** A held return as its merchant decides it: which order, which items, and how much delivery is refundable. */
+export type ChannelReturnView = ChannelReturn & {
+  orderNumber: string | null;
+  items: Array<{ orderLineItemId: string; title: string; quantity: number }>;
+  /** Delivery not yet refunded on the order: what approving with delivery would pay back. */
+  shippingRefundable: number;
+};
 export type ChannelRefundEvent = typeof channelRefundEvents.$inferSelect;
