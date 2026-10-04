@@ -1,5 +1,12 @@
 # @porulle/import-flat
 
+## 0.74.5
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.74.5
+
 ## 0.74.4
 
 ### Patch Changes

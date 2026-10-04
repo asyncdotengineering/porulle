@@ -1,5 +1,14 @@
 # @porulle/adapter-woocommerce
 
+## 0.74.5
+
+### Patch Changes
+
+- [`436c5fe`](https://github.com/asyncdotengineering/porulle/commit/436c5fe01bbafa6a7780d2ecabb1562a1255a488) Thanks [@octalpixel](https://github.com/octalpixel)! - A WooCommerce product's brand imports: the first of its `brands` (core since WooCommerce 9.6) becomes the item's `brand`, as Shopify's `vendor` does.
+
+- Updated dependencies []:
+  - @porulle/core@0.74.5
+
 ## 0.74.4
 
 ### Patch Changes
