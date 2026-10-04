@@ -1304,11 +1304,11 @@ export class OrderService {
   }
 
   /**
-   * Refunds specific line-item quantities (issue #52). Enforces per-line
-   * refundable quantity (`quantity - refundedQuantity`), the operator's daily
-   * refund cap (`policies.refundDailyCap`, 403 with the cap surfaced), moves
-   * money through the payment adapter when the order has a captured payment,
-   * and records an auditable `order_refunds` ledger row.
+   * Refunds part of a paid order (issue #52): line-item quantities, delivery, and money with no line
+   * behind it, in any combination. Enforces per-line refundable quantity (`quantity - refundedQuantity`),
+   * delivery not yet refunded, what remains of the order's total, the operator's daily refund cap
+   * (`policies.refundDailyCap`, 403 with the cap surfaced), moves money through the payment adapter when
+   * the order has a captured payment, and records an auditable `order_refunds` ledger row.
    */
   async refundLines(
     orderId: string,
@@ -1317,6 +1317,10 @@ export class OrderService {
       reason?: string | undefined;
       /** Pay back less than the lines' value (a partial refund agreed elsewhere); never more. */
       amount?: number | undefined;
+      /** The order's delivery charge paid back with this refund; at most what of it is not refunded yet. */
+      shippingAmount?: number | undefined;
+      /** Money paid back with no line or delivery behind it (a seller's goodwill); at most what the order has left. */
+      adjustmentAmount?: number | undefined;
     },
     actor: Actor | null,
     ctx?: TxContext,
@@ -1329,8 +1333,16 @@ export class OrderService {
     const orgId = resolveOrgIdForCommerce(actor, this.deps.config);
     const found = await this.repo.findWithLineItems(orgId, orderId, ctx);
     if (!found) return Err(new CommerceNotFoundError("Order not found."));
-    if (input.lines.length === 0) {
-      return Err(new CommerceValidationError("At least one line is required."));
+    const shippingAmount = input.shippingAmount ?? 0;
+    const adjustmentAmount = input.adjustmentAmount ?? 0;
+    if (!Number.isInteger(shippingAmount) || shippingAmount < 0 || !Number.isInteger(adjustmentAmount) || adjustmentAmount < 0) {
+      return Err(new CommerceValidationError("Delivery and adjustment amounts must be whole, non-negative amounts."));
+    }
+    if (input.lines.length === 0 && shippingAmount === 0 && adjustmentAmount === 0) {
+      return Err(new CommerceValidationError("Name at least one line, the delivery, or an amount to refund."));
+    }
+    if (input.amount !== undefined && input.lines.length === 0) {
+      return Err(new CommerceValidationError("A lines' amount needs lines; refund money with no line as an adjustment."));
     }
     // R-02: a terminal order (cancelled / fully refunded) cannot be line-refunded.
     if (this.machine.terminal.includes(found.order.status)) {
@@ -1380,14 +1392,25 @@ export class OrderService {
     if (input.amount !== undefined && (!Number.isInteger(input.amount) || input.amount < 1 || input.amount > linesValue)) {
       return Err(new CommerceValidationError(`Refund amount must be a whole number from 1 to the lines' value (${linesValue}).`));
     }
-    const totalAmount = input.amount ?? linesValue;
-    if (totalAmount < linesValue) {
+    const linesAmount = input.amount ?? linesValue;
+    if (linesAmount < linesValue) {
       // Each line's share of a partial refund, the remainder on the last, so the ledger lines sum to it.
-      let left = totalAmount;
+      let left = linesAmount;
       refundLines.forEach((line, index) => {
-        line.amount = index === refundLines.length - 1 ? left : Math.floor((line.amount * totalAmount) / linesValue);
+        line.amount = index === refundLines.length - 1 ? left : Math.floor((line.amount * linesAmount) / linesValue);
         left -= line.amount;
       });
+    }
+    // Delivery and goodwill are bounded by what the order has not already paid back.
+    const completed = (await this.repo.findRefundsByOrderId(orderId, ctx)).filter((refund) => refund.status === "completed");
+    const shippingLeft = found.order.shippingTotal - completed.reduce((sum, refund) => sum + refund.shippingAmount, 0);
+    if (shippingAmount > shippingLeft) {
+      return Err(new CommerceValidationError(`Delivery refund ${shippingAmount} is more than the ${Math.max(0, shippingLeft)} of delivery not yet refunded.`));
+    }
+    const totalAmount = linesAmount + shippingAmount + adjustmentAmount;
+    const orderLeft = found.order.grandTotal - completed.reduce((sum, refund) => sum + refund.amount, 0);
+    if (totalAmount > orderLeft) {
+      return Err(new CommerceValidationError(`Refund ${totalAmount} is more than the ${Math.max(0, orderLeft)} left of the order's total.`));
     }
 
     const performedBy = actor?.userId ?? "system";
@@ -1445,6 +1468,8 @@ export class OrderService {
         organizationId: orgId,
         orderId,
         amount: totalAmount,
+        shippingAmount,
+        adjustmentAmount,
         reason: input.reason ?? null,
         lines: refundLines,
         performedBy,

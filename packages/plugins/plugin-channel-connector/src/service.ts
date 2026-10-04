@@ -64,6 +64,7 @@ import {
   fulfillmentLineItems,
   fulfillmentRecords,
   orderLineItems,
+  orderRefunds,
   orders,
   prices,
   sellableAttributes,
@@ -95,6 +96,7 @@ import {
   type ChannelOrderExport,
   type ChannelRefundRequest,
   type ChannelReturn,
+  type ChannelReturnView,
   type ConnectedStore,
 } from "./schema.js";
 import type { StoreHealth } from "./schema.js";
@@ -5321,29 +5323,45 @@ export class ChannelConnectorService {
     const orderLines = await this.db.select().from(orderLineItems).where(eq(orderLineItems.orderId, orderId));
     const mappings = await this.db.select().from(channelEntityMap).where(and(eq(channelEntityMap.organizationId, orgId), eq(channelEntityMap.storeId, store.id)));
     const refundLines: Array<{ lineItemId: string; quantity: number }> = [];
-    let clean = event.lines.length > 0;
+    // Every line the store named is one of ours, with that much still refundable.
+    let mapped = true;
     for (const line of event.lines) {
       const externalId = line.externalVariantId;
       const quantity = line.quantity;
       const mapping = mappings.find((item) => item.externalId === externalId);
       const orderLine = mapping ? orderLines.find((item) => item.variantId === mapping.variantId || item.entityId === mapping.entityId) : undefined;
-      if (!orderLine || !Number.isInteger(quantity) || quantity < 1 || quantity > orderLine.quantity - orderLine.refundedQuantity) clean = false;
+      if (!orderLine || !Number.isInteger(quantity) || quantity < 1 || quantity > orderLine.quantity - orderLine.refundedQuantity) mapped = false;
       else refundLines.push({ lineItemId: orderLine.id, quantity });
     }
     const priced = refundLines.reduce((sum, line) => {
       const item = orderLines.find((candidate) => candidate.id === line.lineItemId)!;
       return sum + Math.round((item.totalPrice + item.taxAmount - item.discountAmount) * line.quantity / item.quantity);
     }, 0);
-    // What the store refunded, when it says, and never more than the platform's own price for the lines:
-    // a store can refund part of a line, or a line it discounted, but cannot claim more than it sold.
-    const amount = event.amount === undefined ? priced : Math.min(Math.max(0, event.amount), priced);
     const [order] = await this.db.select().from(orders).where(and(eq(orders.organizationId, orgId), eq(orders.id, orderId)));
     if (!order) return PluginErr("Order not found.", "NOT_FOUND");
+    const completed = (await this.db.select({ amount: orderRefunds.amount, shippingAmount: orderRefunds.shippingAmount }).from(orderRefunds)
+      .where(and(eq(orderRefunds.orderId, orderId), eq(orderRefunds.status, "completed"))));
+    const shippingLeft = Math.max(0, order.shippingTotal - completed.reduce((sum, refund) => sum + refund.shippingAmount, 0));
+    const orderLeft = Math.max(0, order.grandTotal - completed.reduce((sum, refund) => sum + refund.amount, 0));
+    // What the store refunded, and never more than the shopper paid for what it names: the lines at most
+    // at the platform's own price (part of a line, or a line the store discounted, is less), the delivery
+    // at most what of it is not refunded yet, money with no line behind it (goodwill) only when the refund
+    // names no line, and the whole at most what the order has left.
+    const storeShipping = Math.max(0, event.shippingAmount ?? 0);
+    const shippingAmount = Math.min(storeShipping, shippingLeft);
+    const rest = event.amount === undefined ? priced : Math.max(0, event.amount - storeShipping);
+    const linesAmount = Math.min(rest, priced);
+    const goodwill = event.lines.length === 0 ? rest : 0;
+    const adjustmentAmount = Math.max(0, Math.min(goodwill, orderLeft - linesAmount - shippingAmount));
+    const amount = Math.min(linesAmount + shippingAmount + adjustmentAmount, orderLeft);
+    // A refund that pays nothing (a restock, or nothing left to pay) asks nobody for money.
+    if (amount === 0) return Ok(null);
     const max = this.options.refundAutoMax ?? order.amountCaptured ?? order.grandTotal;
     const ageOk = Date.now() - store.createdAt.getTime() >= (this.options.newStoreDays ?? 7) * 86_400_000;
-    // Only a whole-line refund is automatic; any other amount is a person's call.
-    const auto = clean && amount > 0 && amount === priced && ageOk && amount <= max;
-    const rows = await this.db.insert(channelRefundRequests).values({ organizationId: orgId, storeId: store.id, orderId, remoteRefundId, amount, lines: clean ? refundLines : null, state: auto ? "approved" : "requested", approvedBy: auto ? requireUserId(actor) : null }).returning();
+    // Only whole lines, at exactly the platform's price with exactly their delivery, are automatic; any
+    // other amount is a person's call.
+    const auto = mapped && refundLines.length > 0 && adjustmentAmount === 0 && linesAmount === priced && shippingAmount === storeShipping && ageOk && amount <= max;
+    const rows = await this.db.insert(channelRefundRequests).values({ organizationId: orgId, storeId: store.id, orderId, remoteRefundId, amount, shippingAmount, adjustmentAmount, lines: mapped ? refundLines : null, state: auto ? "approved" : "requested", approvedBy: auto ? requireUserId(actor) : null }).returning();
     const request = rows[0] as ChannelRefundRequest;
     await this.db.insert(channelRefundEvents).values({ organizationId: orgId, requestId: request.id, fromState: null, toState: request.state, reason: auto ? "Automatic guarded refund" : "Operator approval required", changedBy: requireUserId(actor) });
     if (auto) {
@@ -5359,17 +5377,29 @@ export class ChannelConnectorService {
   }
 
   private async executeRefund(request: ChannelRefundRequest, lines: Array<{ lineItemId: string; quantity: number }>, actor: Actor): Promise<PluginResult<ChannelRefundRequest>> {
-    const ordersService = this.services.orders as { refundLines(orderId: string, input: { lines: Array<{ lineItemId: string; quantity: number }>; reason?: string; amount?: number }, actor: Actor): Promise<{ ok: boolean; error?: { message: string } }> };
-    // A request that kept its lines pays back its own amount; an older one is priced from the lines rebuilt for it.
-    const result = await ordersService.refundLines(request.orderId, { lines, reason: `Channel refund ${request.remoteRefundId}`, ...(request.lines ? { amount: request.amount } : {}) }, actor);
+    const ordersService = this.services.orders as { refundLines(orderId: string, input: { lines: Array<{ lineItemId: string; quantity: number }>; reason?: string; amount?: number; shippingAmount?: number; adjustmentAmount?: number }, actor: Actor): Promise<{ ok: boolean; error?: { message: string } }> };
+    // A request that kept its lines pays back its own amount for them; an older one is priced from the
+    // lines rebuilt for it. Delivery and goodwill ride beside the lines.
+    const linesAmount = request.amount - request.shippingAmount - request.adjustmentAmount;
+    const result = await ordersService.refundLines(request.orderId, {
+      lines,
+      reason: `Channel refund ${request.remoteRefundId}`,
+      ...(request.lines && lines.length > 0 ? { amount: linesAmount } : {}),
+      ...(request.shippingAmount > 0 ? { shippingAmount: request.shippingAmount } : {}),
+      ...(request.adjustmentAmount > 0 ? { adjustmentAmount: request.adjustmentAmount } : {}),
+    }, actor);
     if (!result.ok) return PluginErr(result.error?.message ?? "Refund execution failed.");
     const [updated] = await this.db.update(channelRefundRequests).set({ state: "executed", updatedAt: new Date() }).where(and(eq(channelRefundRequests.organizationId, request.organizationId), eq(channelRefundRequests.id, request.id), eq(channelRefundRequests.state, "approved"))).returning();
     await this.db.insert(channelRefundEvents).values({ organizationId: request.organizationId, requestId: request.id, fromState: "approved", toState: "executed", reason: "Platform refund executed", changedBy: requireUserId(actor) });
     return Ok(updated as ChannelRefundRequest);
   }
 
-  async listRefundRequests(orgId: string): Promise<PluginResult<ChannelRefundRequest[]>> {
-    return Ok(await this.db.select().from(channelRefundRequests).where(and(eq(channelRefundRequests.organizationId, orgId), eq(channelRefundRequests.state, "requested"))) as ChannelRefundRequest[]);
+  /** Held refunds, each with the order number an approver knows the order by. */
+  async listRefundRequests(orgId: string): Promise<PluginResult<Array<ChannelRefundRequest & { orderNumber: string | null }>>> {
+    const rows = await this.db.select({ request: channelRefundRequests, orderNumber: orders.orderNumber }).from(channelRefundRequests)
+      .leftJoin(orders, eq(orders.id, channelRefundRequests.orderId))
+      .where(and(eq(channelRefundRequests.organizationId, orgId), eq(channelRefundRequests.state, "requested")));
+    return Ok(rows.map((row) => ({ ...(row.request as ChannelRefundRequest), orderNumber: row.orderNumber })));
   }
 
   async approveRefund(orgId: string, id: string, actor: { userId: string }): Promise<PluginResult<ChannelRefundRequest>> {
@@ -5626,7 +5656,7 @@ export class ChannelConnectorService {
   }
 
   /** Returns held on the platform (stores with none of their own) that wait for their merchant. */
-  async listReturns(orgId: string, context?: StoreReadContext): Promise<PluginResult<ChannelReturn[]>> {
+  async listReturns(orgId: string, context?: StoreReadContext): Promise<PluginResult<ChannelReturnView[]>> {
     const allowed = await this.allowedStores(orgId, context);
     if (allowed !== null && allowed.length === 0) return Ok([]);
     const rows = await this.db.select().from(channelReturns).where(and(
@@ -5635,16 +5665,33 @@ export class ChannelConnectorService {
       sql`${channelReturns.remoteReturnId} like ${`${PLATFORM_RETURN_PREFIX}%`}`,
       ...(allowed === null ? [] : [inArray(channelReturns.storeId, [...allowed])]),
     )).orderBy(desc(channelReturns.createdAt));
-    return Ok(rows);
+    if (rows.length === 0) return Ok([]);
+    const orderIds = [...new Set(rows.map((row) => row.orderId))];
+    const orderRows = await this.db.select({ id: orders.id, orderNumber: orders.orderNumber, shippingTotal: orders.shippingTotal }).from(orders)
+      .where(and(eq(orders.organizationId, orgId), inArray(orders.id, orderIds)));
+    const lineRows = await this.db.select({ id: orderLineItems.id, title: orderLineItems.title }).from(orderLineItems).where(inArray(orderLineItems.orderId, orderIds));
+    const refunded = await this.db.select({ orderId: orderRefunds.orderId, shippingAmount: orderRefunds.shippingAmount }).from(orderRefunds)
+      .where(and(inArray(orderRefunds.orderId, orderIds), eq(orderRefunds.status, "completed")));
+    return Ok(rows.map((row) => {
+      const order = orderRows.find((candidate) => candidate.id === row.orderId);
+      const shippingRefunded = refunded.filter((refund) => refund.orderId === row.orderId).reduce((sum, refund) => sum + refund.shippingAmount, 0);
+      return {
+        ...row,
+        orderNumber: order?.orderNumber ?? null,
+        items: row.lines.map((line) => ({ orderLineItemId: line.orderLineItemId, title: lineRows.find((candidate) => candidate.id === line.orderLineItemId)?.title ?? "Item", quantity: line.quantity })),
+        shippingRefundable: Math.max(0, (order?.shippingTotal ?? 0) - shippingRefunded),
+      };
+    }));
   }
 
   /**
-   * The merchant takes a held return back: the shopper is paid back those lines, then the refund is
-   * booked at the store with the stock put back, and kept as an executed refund request under the
-   * store's own refund id so the store's webhook for it pays nobody twice. If the store will not book
-   * it, the shopper has still been paid and the return stays `approved`; approving again only books it.
+   * The merchant takes a held return back: the shopper is paid back those lines (and the delivery, when
+   * the merchant refunds it), then the refund is booked at the store with the stock put back, and kept
+   * as an executed refund request under the store's own refund id so the store's webhook for it pays
+   * nobody twice. If the store will not book it, the shopper has still been paid and the return stays
+   * `approved`; approving again only books it, with the delivery decided the first time.
    */
-  async approveReturn(orgId: string, id: string, context?: StoreReadContext): Promise<PluginResult<ChannelReturn>> {
+  async approveReturn(orgId: string, id: string, context?: StoreReadContext, options: { refundShipping?: boolean } = {}): Promise<PluginResult<ChannelReturn>> {
     const [held] = await this.db.select().from(channelReturns).where(and(eq(channelReturns.organizationId, orgId), eq(channelReturns.id, id)));
     if (!held || !held.remoteReturnId.startsWith(PLATFORM_RETURN_PREFIX)) return PluginErr("Return not found.", "NOT_FOUND");
     const reached = await this.reachableStore(orgId, held.storeId, context);
@@ -5665,11 +5712,18 @@ export class ChannelConnectorService {
       priced.push({ lineItemId: item.id, quantity: line.quantity, variantId: item.variantId, amount: Math.round((item.totalPrice + item.taxAmount - item.discountAmount) * line.quantity / item.quantity) });
     }
     const actor = createSystemActor(orgId);
+    let shippingAmount = held.shippingAmount;
     if (held.status === "requested") {
-      const ordersService = this.services.orders as { refundLines(orderId: string, input: { lines: Array<{ lineItemId: string; quantity: number }>; reason?: string }, actor: Actor): Promise<{ ok: boolean; error?: { message: string } }> };
-      const refunded = await ordersService.refundLines(held.orderId, { lines: priced.map(({ lineItemId, quantity }) => ({ lineItemId, quantity })), reason: `Return ${held.id}` }, actor);
+      if (options.refundShipping === true) {
+        const [order] = await this.db.select({ shippingTotal: orders.shippingTotal }).from(orders).where(and(eq(orders.organizationId, orgId), eq(orders.id, held.orderId)));
+        const refunded = await this.db.select({ shippingAmount: orderRefunds.shippingAmount }).from(orderRefunds)
+          .where(and(eq(orderRefunds.orderId, held.orderId), eq(orderRefunds.status, "completed")));
+        shippingAmount = Math.max(0, (order?.shippingTotal ?? 0) - refunded.reduce((sum, refund) => sum + refund.shippingAmount, 0));
+      }
+      const ordersService = this.services.orders as { refundLines(orderId: string, input: { lines: Array<{ lineItemId: string; quantity: number }>; reason?: string; shippingAmount?: number }, actor: Actor): Promise<{ ok: boolean; error?: { message: string } }> };
+      const refunded = await ordersService.refundLines(held.orderId, { lines: priced.map(({ lineItemId, quantity }) => ({ lineItemId, quantity })), reason: `Return ${held.id}`, ...(shippingAmount > 0 ? { shippingAmount } : {}) }, actor);
       if (!refunded.ok) return PluginErr(refunded.error?.message ?? "The shopper could not be paid back.", "REFUND_FAILED");
-      await this.db.update(channelReturns).set({ status: "approved", updatedAt: new Date() }).where(and(eq(channelReturns.organizationId, orgId), eq(channelReturns.id, held.id)));
+      await this.db.update(channelReturns).set({ status: "approved", shippingAmount, updatedAt: new Date() }).where(and(eq(channelReturns.organizationId, orgId), eq(channelReturns.id, held.id)));
     }
 
     const variantIds = priced.flatMap((line) => (line.variantId === null ? [] : [line.variantId]));
@@ -5681,13 +5735,13 @@ export class ChannelConnectorService {
       if (!externalId) return PluginErr("The shopper was paid back, but the store has no record of a returned line, so it was not booked there.", "CHANNEL_MAPPING_MISSING");
       storeLines.push({ externalVariantId: externalId, quantity: line.quantity, amount: line.amount });
     }
-    const amount = storeLines.reduce((sum, line) => sum + line.amount, 0);
-    const booked = await connector.recordRefund(store as ChannelStore, exported.remoteOrderId, { lines: storeLines, amount, reason: `Return: ${held.reason}`, restock: true });
+    const amount = storeLines.reduce((sum, line) => sum + line.amount, 0) + shippingAmount;
+    const booked = await connector.recordRefund(store as ChannelStore, exported.remoteOrderId, { lines: storeLines, amount, ...(shippingAmount > 0 ? { shippingAmount } : {}), reason: `Return: ${held.reason}`, restock: true });
     if (!booked.ok) return PluginErr(`The shopper was paid back, but the store did not record the refund (${booked.error.message}). Approve again to retry.`, "CHANNEL_REFUND_NOT_RECORDED");
     const lines = priced.map(({ lineItemId, quantity }) => ({ lineItemId, quantity }));
     await this.db.insert(channelRefundRequests)
-      .values({ organizationId: orgId, storeId: store.id, orderId: held.orderId, remoteRefundId: booked.value.remoteRefundId, amount, lines, state: "executed", approvedBy: requireUserId(actor) })
-      .onConflictDoUpdate({ target: [channelRefundRequests.storeId, channelRefundRequests.remoteRefundId], set: { amount, lines, state: "executed", updatedAt: new Date() } });
+      .values({ organizationId: orgId, storeId: store.id, orderId: held.orderId, remoteRefundId: booked.value.remoteRefundId, amount, shippingAmount, lines, state: "executed", approvedBy: requireUserId(actor) })
+      .onConflictDoUpdate({ target: [channelRefundRequests.storeId, channelRefundRequests.remoteRefundId], set: { amount, shippingAmount, adjustmentAmount: 0, lines, state: "executed", updatedAt: new Date() } });
     const [closed] = await this.db.update(channelReturns).set({ status: "closed", updatedAt: new Date() }).where(and(eq(channelReturns.organizationId, orgId), eq(channelReturns.id, held.id))).returning();
     return closed ? Ok(closed) : PluginErr("Return not found.", "NOT_FOUND");
   }
@@ -5828,7 +5882,7 @@ export class ChannelConnectorService {
     for (const line of selected) {
       const mapping = (line.variantId && mappings.find((item) => item.kind === "variant" && item.variantId === line.variantId)) ?? mappings.find((item) => item.kind === "entity" && item.entityId === line.entityId);
       if (!mapping) return PluginErr(`External mapping is missing for order line ${line.id}.`, "MAPPING_MISSING");
-      lines.push({ externalVariantId: mapping.externalId, ...(line.sku ? { sku: line.sku } : {}), title: line.title, quantity: line.quantity, unitPrice: line.unitPrice, totalPrice: line.totalPrice });
+      lines.push({ externalVariantId: mapping.externalId, ...(line.sku ? { sku: line.sku } : {}), title: line.title, quantity: line.quantity, unitPrice: line.unitPrice, totalPrice: line.totalPrice, ...(line.discountAmount > 0 ? { discountAmount: line.discountAmount } : {}) });
     }
 
     let email: string | null = null;
@@ -5876,7 +5930,9 @@ export class ChannelConnectorService {
     // ponytail: like delivery, a discount is sent only with the whole order; apportion it when multi-store orders exist.
     const discountCode = typeof metadata.promotionCode === "string" && metadata.promotionCode.trim() !== "" ? metadata.promotionCode.trim() : "DISCOUNT";
     const discount = selected.length === lineItems.length && order.discountTotal > 0 ? { code: discountCode, amount: order.discountTotal } : null;
-    return Ok({ orderId, currency: order.currency, grandTotal: linesTotal + (shipping?.amount ?? 0) - (discount?.amount ?? 0), lines, ...(shipping ? { shipping } : {}), ...(discount ? { discount } : {}), customer: { name, email, shippingAddress } });
+    // A line's discount travels with the order discount it is a share of, never without it.
+    const slicedLines = discount ? lines : lines.map(({ discountAmount: _share, ...line }) => line);
+    return Ok({ orderId, currency: order.currency, grandTotal: linesTotal + (shipping?.amount ?? 0) - (discount?.amount ?? 0), lines: slicedLines, ...(shipping ? { shipping } : {}), ...(discount ? { discount } : {}), customer: { name, email, shippingAddress } });
   }
 
   async reapExports(input: { definitiveMs: number; transientMs: number }): Promise<{ abandonedCount: number; refundedOrderIds: string[] }> {

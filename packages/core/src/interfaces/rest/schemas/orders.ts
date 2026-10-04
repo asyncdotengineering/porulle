@@ -426,8 +426,12 @@ export const RefundLinesBodySchema = z.object({
   lines: z.array(z.object({
     lineItemId: z.uuid(),
     quantity: z.number().int().min(1),
-  })).min(1),
+  })),
   reason: z.string().max(500).optional(),
+  /** The order's delivery charge paid back, minor units. */
+  shippingAmount: z.number().int().min(0).optional(),
+  /** Money paid back with no line or delivery behind it, minor units. */
+  adjustmentAmount: z.number().int().min(0).optional(),
 }).openapi("RefundLinesRequest");
 
 const RefundParam = z.object({

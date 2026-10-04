@@ -260,6 +260,7 @@ export type {
   ChannelRefundEvent,
   ChannelRefundRequest,
   ChannelReturn,
+  ChannelReturnView,
   ConnectedStore,
   StoreHealth,
 } from "./schema.js";
@@ -918,7 +919,11 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
       channels.post("/returns/{id}/approve")
         .summary("Approve a held return: pay the shopper back and book the refund at the store")
         .permission("channels:connect")
-        .handler(async ({ params, orgId, actor, raw }: ChannelRouteContext) => unwrap(await service.approveReturn(orgId, params.id!, { orgId, actor, raw })));
+        .input(z.object({ refundShipping: z.boolean().optional() }))
+        .handler(async ({ params, orgId, actor, raw, input }: ChannelRouteContext) => {
+          const options = z.object({ refundShipping: z.boolean().optional() }).catch({}).parse(input ?? {});
+          return unwrap(await service.approveReturn(orgId, params.id!, { orgId, actor, raw }, options.refundShipping === undefined ? {} : { refundShipping: options.refundShipping }));
+        });
 
       channels.post("/returns/{id}/decline")
         .summary("Decline a held return")

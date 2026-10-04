@@ -14,6 +14,7 @@ export const wooOrderSchema = z.object({
   date_created_gmt: z.string().nullish(),
   meta_data: z.array(z.object({ key: z.string(), value: z.unknown() })).default([]),
   line_items: z.array(z.object({ id, product_id: id, variation_id: id, quantity: z.number(), total: z.string().nullish() })).default([]),
+  shipping_lines: z.array(z.object({ id, total: z.string().nullish() })).default([]),
   refunds: z.array(z.object({ id, total: z.string().nullish() })).default([]),
 });
 export type WooOrder = z.infer<typeof wooOrderSchema>;
@@ -111,7 +112,12 @@ export async function pushOrder(client: WooClient, slice: ChannelOrderSlice, opt
 
   const currency = slice.currency;
   const decimals = client.credentials.priceDecimals;
-  const discounts = allocate(slice.lines.map((line) => line.totalPrice), slice.discount?.amount ?? 0);
+  // The platform's own per-line discount when it sends one, so the store's line totals are what the
+  // platform refunds a line at; otherwise the slice's discount split here.
+  const shares = slice.lines.map((line) => line.discountAmount ?? 0);
+  const discounts = slice.discount !== undefined && shares.reduce((sum, share) => sum + share, 0) === slice.discount.amount
+    ? shares
+    : allocate(slice.lines.map((line) => line.totalPrice), slice.discount?.amount ?? 0);
   const [firstName = "", ...rest] = slice.customer.name.trim().split(/\s+/);
   const source = slice.customer.shippingAddress;
   const address = {
@@ -216,6 +222,13 @@ export async function recordRefund(client: WooClient, remoteId: string, input: C
     const storeLine = order.line_items.find((candidate) => (candidate.variation_id !== "0" ? candidate.variation_id : candidate.product_id) === line.externalVariantId);
     if (!storeLine) return Err({ code: "CHANNEL_MAPPING_MISSING", message: `Order ${remoteId} has no line for ${line.externalVariantId}.`, retriable: false });
     lineItems.push({ id: storeLine.id, quantity: line.quantity, refund_total: moneyString(line.amount, currency, decimals) });
+  }
+  // Delivery is refunded against the order's shipping item, as wp-admin does it.
+  const shippingAmount = input.shippingAmount ?? 0;
+  if (shippingAmount > 0) {
+    const shippingLine = order.shipping_lines[0];
+    if (!shippingLine) return Err({ code: "CHANNEL_MAPPING_MISSING", message: `Order ${remoteId} has no delivery line to refund.`, retriable: false });
+    lineItems.push({ id: shippingLine.id, quantity: 0, refund_total: moneyString(shippingAmount, currency, decimals) });
   }
   const created = await client.send("POST", `/wc/v3/orders/${encodeURIComponent(remoteId)}/refunds`, {
     amount: moneyString(input.amount, currency, decimals),

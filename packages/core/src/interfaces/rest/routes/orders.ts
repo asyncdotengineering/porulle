@@ -180,7 +180,7 @@ export function orderRoutes(kernel: Kernel) {
 
   // @ts-expect-error -- openapi handler union return type
   router.openapi(refundOrderLinesRoute, async (c) => {
-    const body = c.req.valid("json") as { lines: Array<{ lineItemId: string; quantity: number }>; reason?: string };
+    const body = c.req.valid("json") as { lines: Array<{ lineItemId: string; quantity: number }>; reason?: string; shippingAmount?: number; adjustmentAmount?: number };
     const result = await kernel.services.orders.refundLines(
       c.req.param("id"),
       body,

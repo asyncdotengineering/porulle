@@ -1,4 +1,4 @@
-import { Err, Ok } from "@porulle/core";
+import { Err, Ok, toMinorUnits } from "@porulle/core";
 import type { ChannelConnectorError, ChannelEvent, ChannelShipment, ChannelWebhookEvent, Result } from "@porulle/core";
 import { z } from "zod";
 import { shopifyGid, shopifyGraphql } from "./graphql.js";
@@ -19,6 +19,7 @@ const inventoryItemVariantSchema = z.object({
 const id = z.union([z.string(), z.number()]).transform(String);
 const withId = z.object({ id });
 const inventoryLevelPayload = z.object({ inventory_item_id: id });
+const decimal = z.union([z.string(), z.number()]).transform(String);
 const refundPayload = z.object({
   id,
   order_id: id,
@@ -26,7 +27,29 @@ const refundPayload = z.object({
     quantity: z.number().int(),
     line_item: z.object({ variant_id: id.nullish(), product_id: id.nullish() }),
   })).default([]),
+  /** The money the refund moved. Absent from payloads that predate it; an empty list refunded nothing. */
+  transactions: z.array(z.object({ kind: z.string(), status: z.string().nullish(), amount: decimal, currency: z.string().nullish() })).optional(),
+  refund_shipping_lines: z.array(z.object({
+    subtotal_amount_set: z.object({ shop_money: z.object({ amount: decimal, currency_code: z.string() }) }),
+  })).default([]),
 });
+
+/**
+ * What a Shopify refund paid back: its successful refund transactions (an order paid on the
+ * marketplace refunds through the `manual` gateway), and of that the delivery, from
+ * `refund_shipping_lines` (present on every payload of the pinned API version).
+ */
+function refundMoney(refund: z.infer<typeof refundPayload>): { amount?: number; shippingAmount?: number } {
+  const currency = refund.transactions?.find((transaction) => transaction.currency)?.currency
+    ?? refund.refund_shipping_lines[0]?.subtotal_amount_set.shop_money.currency_code;
+  // Money with no currency cannot be read in minor units; counted as nothing, it can only under-ask.
+  const minor = (value: string): number => (currency ? Math.abs(toMinorUnits(value, currency) ?? 0) : 0);
+  const amount = refund.transactions === undefined
+    ? undefined
+    : refund.transactions.filter((transaction) => transaction.kind.toLowerCase() === "refund" && (transaction.status ?? "success").toLowerCase() === "success").reduce((sum, transaction) => sum + minor(transaction.amount), 0);
+  const shippingAmount = refund.refund_shipping_lines.reduce((sum, line) => sum + minor(line.subtotal_amount_set.shop_money.amount), 0);
+  return { ...(amount === undefined ? {} : { amount }), ...(shippingAmount > 0 ? { shippingAmount } : {}) };
+}
 const fulfilledPayload = z.object({
   id,
   fulfillments: z.array(z.object({
@@ -111,6 +134,7 @@ export async function decodeShopifyWebhook(shop: ShopifyGraphqlTarget | undefine
         const externalVariantId = entry.line_item.variant_id ?? entry.line_item.product_id;
         return externalVariantId == null ? [] : [{ externalVariantId, quantity: entry.quantity }];
       }),
+      ...refundMoney(parsed.data),
     }]);
   }
   const returnStatus = RETURN_STATUS[topic];
