@@ -1,5 +1,14 @@
 # @porulle/adapter-woocommerce
 
+## 0.74.3
+
+### Patch Changes
+
+- [#182](https://github.com/asyncdotengineering/porulle/pull/182) [`3036d34`](https://github.com/asyncdotengineering/porulle/commit/3036d34375cb5301cc301634290508d87e370e1d) Thanks [@octalpixel](https://github.com/octalpixel)! - A variable product whose variations use a global attribute by its term slug ("blue" where the product lists "Blue"), or one the product does not list at all, imports. Measured on WooCommerce's own sample catalogue on a real store, where both variable products failed to converge because a variant's option value was not among its product's options. Option axes are now the product's declared variation attributes plus any its variations use, with each value spelled as the product spells it.
+
+- Updated dependencies []:
+  - @porulle/core@0.74.3
+
 ## 0.74.2
 
 ### Patch Changes
