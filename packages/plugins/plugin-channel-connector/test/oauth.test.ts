@@ -39,6 +39,12 @@ function oauthConnector(provider: "shopify" | "woocommerce") {
       url.searchParams.set("callback_url", callbackUrl.toString());
       return Ok(url.toString());
     },
+    ...(provider === "woocommerce" ? {
+      async probeStore(input: string) {
+        if (input.includes("firewalled")) return { ok: false as const, error: { code: "WOO_NOT_JSON", message: "A firewall in front of the store is blocking us.", retriable: false } };
+        return Ok({ storeDomain: input.replace(/\/$/, ""), name: "Woo Example" });
+      },
+    } : {}),
     async completeAuth(request: Request, ctx: { storeDomain: string }) {
       return Ok({
         credentials: provider === "shopify" ? { accessToken: "oauth-token" } : { consumerKey: "ck_oauth", consumerSecret: "cs_oauth" },
@@ -204,6 +210,14 @@ describe("channel connector OAuth routes", () => {
     const declined = new URL(returnUrl);
     declined.searchParams.set("success", "0");
     expect(outcome(await built.app.request(declined.toString())).get("connect_error")).toBe("CONNECT_DECLINED");
+  });
+
+  // Probed before the merchant is sent anywhere: a store we cannot reach is explained on the connect
+  // page, not discovered as a broken page at the merchant's own site.
+  it("refuses at start, with the connector's reason, a store its probe cannot connect", async () => {
+    const start = await built.app.request("http://localhost/api/channels/oauth/woocommerce/start?store=https://firewalled.example", { headers: jsonHeaders(testAdminActor) });
+    const landed = outcome(start);
+    expect({ error: landed.get("connect_error"), message: landed.get("connect_message") }).toEqual({ error: "WOO_NOT_JSON", message: "A firewall in front of the store is blocking us." });
   });
 
   it("returns a clear 501 when OAuth is not configured", async () => {

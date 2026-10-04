@@ -3,7 +3,7 @@ import type { ChannelConnector, ChannelConnectorError, ChannelStore, Result } fr
 import { z } from "zod";
 import { catalogItems, importPage, storeProfile } from "./catalog.js";
 import { pushCatalog, pushCaches } from "./catalog-push.js";
-import { discoverStore, normalizeStoreDomain, wooClient, wooCredentialsSchema } from "./client.js";
+import { discoverStore, normalizeStoreDomain, probeStore, refusedStoreUrl, wooClient, wooCredentialsSchema } from "./client.js";
 import type { WooClient, WooTransportOptions } from "./client.js";
 import { inventoryFor, inventoryPage } from "./inventory.js";
 import { cancelOrder, orderStatus, pushOrder } from "./orders.js";
@@ -57,6 +57,18 @@ export function wooConnector(options: WooConnectorOptions = {}): ChannelConnecto
     capabilities: { importCatalog: true, importInventory: true, pushOrder: true, pushCatalog: true, receiveWebhooks: true },
     webhookTopics: WOO_WEBHOOK_TOPICS,
     normalizeStoreDomain: (input) => normalizeStoreDomain(input, { allowPrivateHosts: transport.allowPrivateHosts }),
+    async probeStore(input) {
+      const storeDomain = normalizeStoreDomain(input, { allowPrivateHosts: transport.allowPrivateHosts });
+      if (!storeDomain) {
+        const why = transport.allowPrivateHosts ? undefined : refusedStoreUrl(input);
+        return refused(why === "http" ? "WOO_STORE_NOT_HTTPS" : "WOO_INVALID_STORE_DOMAIN", why === "http"
+          ? "Your store must be served over https (with a valid certificate) to connect."
+          : why === "private_host" ? "That address is not a public website." : `"${input}" is not a store address. Enter it like https://shop.example.com.`);
+      }
+      const probe = await probeStore(transport, storeDomain);
+      if (!probe.ok) return refused(`WOO_${probe.error.code.toUpperCase()}`, probe.error.message);
+      return Ok({ storeDomain, name: probe.value.name });
+    },
     buildAuthUrl(params) {
       const store = normalizeStoreDomain(params.storeDomain, { allowPrivateHosts: transport.allowPrivateHosts });
       if (!store) return refused("WOO_INVALID_STORE_DOMAIN", "A WooCommerce store is named by its https address.");
@@ -66,7 +78,9 @@ export function wooConnector(options: WooConnectorOptions = {}): ChannelConnecto
       } catch {
         return refused("WOO_INVALID_CALLBACK_URL", "WooCommerce needs an https callback address.");
       }
-      if (callback.protocol !== "https:") return refused("WOO_INVALID_CALLBACK_URL", "WooCommerce needs an https callback address.");
+      // WooCommerce itself refuses an http callback ("needs to be over SSL"); only a stand-in on this machine takes one.
+      const localCallback = transport.allowPrivateHosts && ["127.0.0.1", "localhost"].includes(callback.hostname);
+      if (callback.protocol !== "https:" && !localCallback) return refused("WOO_INVALID_CALLBACK_URL", "WooCommerce needs an https callback address.");
       callback.searchParams.set("state", params.state);
       const returnUrl = new URL(params.callbackUri);
       returnUrl.searchParams.set("state", params.state);
