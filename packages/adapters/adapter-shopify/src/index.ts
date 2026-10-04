@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { defineChannelConnector, Err, Ok } from "@porulle/core";
+import { CHANNEL_CANCEL_REFUSED, defineChannelConnector, Err, Ok } from "@porulle/core";
 import type {
+  ChannelCancelReason,
   ChannelConnector,
   ChannelConnectorError,
   ChannelInventoryLevel,
@@ -58,6 +59,14 @@ export const ORDER_CREATE_MUTATION = `mutation PorulleOrderCreate($order: OrderC
   orderCreate(order: $order, options: $options) { order { legacyResourceId } userErrors { field message } }
 }`;
 
+/**
+ * Restocks at the store and refunds nothing there, and tells the customer nothing: the marketplace
+ * took the payment, so it refunds and it writes to the shopper.
+ */
+export const ORDER_CANCEL_MUTATION = `mutation PorulleOrderCancel($orderId: ID!, $reason: OrderCancelReason!, $staffNote: String) {
+  orderCancel(orderId: $orderId, reason: $reason, restock: true, notifyCustomer: false, staffNote: $staffNote) { orderCancelUserErrors { code message } }
+}`;
+
 export const ORDER_BY_SOURCE_QUERY = `query PorulleOrderBySource($query: String!) {
   orders(first: 1, query: $query) { nodes { legacyResourceId } }
 }`;
@@ -80,6 +89,17 @@ const orderCreateSchema = z.object({
     userErrors: z.array(z.object({ field: z.array(z.string()).nullable(), message: z.string() })),
   }),
 });
+const orderCancelSchema = z.object({
+  orderCancel: z.object({ orderCancelUserErrors: z.array(z.object({ code: z.string().nullable(), message: z.string() })) }),
+});
+const CANCEL_REASON: Record<ChannelCancelReason, string> = {
+  customer: "CUSTOMER",
+  inventory: "INVENTORY",
+  declined: "DECLINED",
+  fraud: "FRAUD",
+  staff: "STAFF",
+  other: "OTHER",
+};
 const orderBySourceSchema = z.object({ orders: z.object({ nodes: z.array(z.object({ legacyResourceId: z.string() })) }) });
 const orderStatusSchema = z.object({
   order: z.object({ cancelledAt: z.string().nullable(), displayFinancialStatus: z.string().nullable(), displayFulfillmentStatus: z.string() }).nullable(),
@@ -277,6 +297,23 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
       if (!read.ok) return read;
       if (!read.value.order) return Err({ code: "SHOPIFY_ORDER_NOT_FOUND", message: `Shopify has no order ${remoteId}.`, retriable: false });
       return Ok(orderStatus(read.value.order));
+    },
+    async cancelOrder(store, remoteId, input) {
+      const shop = target(store);
+      if (!shop) return Err(credentialsRequired);
+      const orderId = `gid://shopify/Order/${remoteId}`;
+      const cancelled = await shopifyGraphql(shop, ORDER_CANCEL_MUTATION, {
+        orderId,
+        reason: CANCEL_REASON[input.reason],
+        staffNote: input.staffNote?.slice(0, 255) ?? null,
+      }, orderCancelSchema);
+      if (!cancelled.ok) return cancelled;
+      const refusals = cancelled.value.orderCancel.orderCancelUserErrors;
+      if (refusals.length === 0) return Ok(undefined);
+      // Cancelling twice is not a refusal: an order the store already cancelled is the outcome asked for.
+      const read = await shopifyGraphql(shop, ORDER_STATUS_QUERY, { id: orderId }, orderStatusSchema);
+      if (read.ok && read.value.order?.cancelledAt) return Ok(undefined);
+      return Err({ code: CHANNEL_CANCEL_REFUSED, message: `Shopify refused to cancel the order: ${refusals.map((error) => error.message).join("; ")}.`, retriable: false });
     },
     /**
      * Every Shopify delivery — catalogue, stock, orders, uninstall and the mandatory compliance topics —

@@ -73,5 +73,6 @@ export function withLiveCredentials(connector: ChannelConnector, db: PluginDb): 
     ...(connector.pushCatalog ? { pushCatalog: around(connector.pushCatalog) } : {}),
     ...(connector.reserve ? { reserve: around(connector.reserve) } : {}),
     ...(connector.registerWebhooks ? { registerWebhooks: around(connector.registerWebhooks) } : {}),
+    ...(connector.cancelOrder ? { cancelOrder: around(connector.cancelOrder) } : {}),
   };
 }

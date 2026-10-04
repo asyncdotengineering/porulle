@@ -28,6 +28,7 @@ import {
   INVENTORY_QUERY,
   ORDER_BY_SOURCE_QUERY,
   ORDER_CREATE_MUTATION,
+  ORDER_CANCEL_MUTATION,
   ORDER_STATUS_QUERY,
   SHOPIFY_API_VERSION,
   STORE_PROFILE_QUERY,
@@ -63,7 +64,7 @@ describe(`Shopify Admin API ${SHOPIFY_API_VERSION} contract (live)`, { timeout: 
     const response = await fetch(PROXY, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: getIntrospectionQuery() }) });
     const body = await response.json() as { data: IntrospectionQuery };
     const schema = buildClientSchema(body.data);
-    const documents = { CATALOG_PAGE_QUERY, VARIANTS_PAGE_QUERY, CATALOG_ITEMS_QUERY, INVENTORY_QUERY, VARIANT_INVENTORY_QUERY, STORE_PROFILE_QUERY, ORDER_CREATE_MUTATION, ORDER_BY_SOURCE_QUERY, ORDER_STATUS_QUERY };
+    const documents = { CATALOG_PAGE_QUERY, VARIANTS_PAGE_QUERY, CATALOG_ITEMS_QUERY, INVENTORY_QUERY, VARIANT_INVENTORY_QUERY, STORE_PROFILE_QUERY, ORDER_CREATE_MUTATION, ORDER_CANCEL_MUTATION, ORDER_BY_SOURCE_QUERY, ORDER_STATUS_QUERY };
     const failures = Object.entries(documents).flatMap(([name, document]) => validate(schema, parse(document)).map((error) => `${name}: ${error.message}`));
     expect(failures).toEqual([]);
   });
