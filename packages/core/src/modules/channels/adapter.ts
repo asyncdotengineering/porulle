@@ -230,6 +230,13 @@ export interface ChannelCancelOrderInput {
  */
 export const CHANNEL_CANCEL_REFUSED = "CHANNEL_CANCEL_REFUSED";
 
+/**
+ * The code a connector answers when the provider refused an order because it does not have the stock.
+ * Definitive: nobody will send those goods, so the caller should cancel its own order rather than
+ * leave a paid order waiting on a store that has said no.
+ */
+export const CHANNEL_OUT_OF_STOCK = "CHANNEL_OUT_OF_STOCK";
+
 export interface ChannelWebhookEvent {
   id: string;
   type: string;

@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { CHANNEL_CANCEL_REFUSED, defineChannelConnector, Err, Ok } from "@porulle/core";
+import { CHANNEL_CANCEL_REFUSED, CHANNEL_OUT_OF_STOCK, defineChannelConnector, Err, Ok } from "@porulle/core";
 import type {
   ChannelCancelReason,
   ChannelConnector,
@@ -56,7 +56,7 @@ export const STORE_PROFILE_QUERY = `query PorulleStoreProfile {
 }`;
 
 export const ORDER_CREATE_MUTATION = `mutation PorulleOrderCreate($order: OrderCreateOrderInput!, $options: OrderCreateOptionsInput) {
-  orderCreate(order: $order, options: $options) { order { legacyResourceId } userErrors { field message } }
+  orderCreate(order: $order, options: $options) { order { legacyResourceId } userErrors { code field message } }
 }`;
 
 /**
@@ -86,7 +86,7 @@ const storeProfileSchema = z.object({
 const orderCreateSchema = z.object({
   orderCreate: z.object({
     order: z.object({ legacyResourceId: z.string() }).nullable(),
-    userErrors: z.array(z.object({ field: z.array(z.string()).nullable(), message: z.string() })),
+    userErrors: z.array(z.object({ code: z.string().nullish(), field: z.array(z.string()).nullable(), message: z.string() })),
   }),
 });
 const orderCancelSchema = z.object({
@@ -285,6 +285,9 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
       }, orderCreateSchema);
       if (!created.ok) return created;
       const { order, userErrors } = created.value.orderCreate;
+      if (userErrors.some((error) => error.code === "INVENTORY_CLAIM_FAILED")) {
+        return Err({ code: CHANNEL_OUT_OF_STOCK, message: `The store does not have the stock: ${userErrors.map((error) => error.message).join("; ")}.`, retriable: false });
+      }
       if (userErrors.length > 0 || !order) {
         return Err({ code: "SHOPIFY_ORDER_REJECTED", message: `Shopify refused the order: ${userErrors.map((error) => error.message).join("; ") || "no order returned"}.`, retriable: false });
       }
