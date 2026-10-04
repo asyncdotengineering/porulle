@@ -1,5 +1,16 @@
 # @porulle/plugin-channel-connector
 
+## 0.76.0
+
+### Minor Changes
+
+- [#186](https://github.com/asyncdotengineering/porulle/pull/186) [`aeef73d`](https://github.com/asyncdotengineering/porulle/commit/aeef73daa24094b36153a71728cdff6b6a6b7312) Thanks [@octalpixel](https://github.com/octalpixel)! - Returns for stores with none of their own. A connector may implement `recordRefund` (book at the store a refund the marketplace already paid, moving no money there). For a store whose connector has `recordRefund` and no `requestReturn`, a shopper's return is held on the platform (`remote_return_id` prefixed `platform:`), listed at `GET /channels/returns`, and approved or declined by its merchant (`POST /channels/returns/{id}/approve|decline`, `channels:connect`, confined to the merchant's stores). Approving pays the shopper back for the returned lines, books the refund at the store with the stock put back, and keeps it as an executed refund request under the store's own refund id, so the store's webhook for it pays nobody twice. WooCommerce implements `recordRefund`.
+
+### Patch Changes
+
+- Updated dependencies [[`aeef73d`](https://github.com/asyncdotengineering/porulle/commit/aeef73daa24094b36153a71728cdff6b6a6b7312)]:
+  - @porulle/core@0.76.0
+
 ## 0.75.0
 
 ### Minor Changes

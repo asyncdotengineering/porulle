@@ -1,5 +1,12 @@
 # @porulle/plugin-procurement
 
+## 0.76.0
+
+### Patch Changes
+
+- Updated dependencies [[`aeef73d`](https://github.com/asyncdotengineering/porulle/commit/aeef73daa24094b36153a71728cdff6b6a6b7312)]:
+  - @porulle/core@0.76.0
+
 ## 0.75.0
 
 ### Patch Changes
