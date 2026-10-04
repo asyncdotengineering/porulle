@@ -1,5 +1,14 @@
 # @porulle/adapter-shopify
 
+## 0.73.3
+
+### Patch Changes
+
+- [#178](https://github.com/asyncdotengineering/porulle/pull/178) [`7577885`](https://github.com/asyncdotengineering/porulle/commit/757788525ccc8335e28bacc9aa69371aee3cec18) Thanks [@octalpixel](https://github.com/octalpixel)! - Read live Shopify's stock refusal as out of stock. Shopify (2026-10, measured) refuses an `orderCreate` it cannot reserve stock for with `code: INVALID`, `field: ["order","lineItems"]`, "Line items Unable to reserve inventory" — not the documented `INVENTORY_CLAIM_FAILED`. The adapter now answers `CHANNEL_OUT_OF_STOCK` for either, so the marketplace cancels the order and refunds the shopper instead of leaving a paid order whose export failed.
+
+- Updated dependencies []:
+  - @porulle/core@0.73.3
+
 ## 0.73.2
 
 ### Patch Changes

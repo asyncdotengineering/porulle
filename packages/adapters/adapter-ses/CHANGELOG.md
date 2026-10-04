@@ -1,5 +1,12 @@
 # @porulle/adapter-ses
 
+## 0.73.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.73.3
+
 ## 0.73.2
 
 ### Patch Changes
