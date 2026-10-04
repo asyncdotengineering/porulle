@@ -1,5 +1,16 @@
 # @porulle/plugin-channel-connector
 
+## 0.75.0
+
+### Minor Changes
+
+- [#185](https://github.com/asyncdotengineering/porulle/pull/185) [`8716ab8`](https://github.com/asyncdotengineering/porulle/commit/8716ab81c62c14186808e6abc3bd319bf64df0d4) Thanks [@octalpixel](https://github.com/octalpixel)! - A store refund for part of a line pays back exactly that part. `refund.created` carries the store's refunded `amount` when the store says it; the connector records the lesser of that and the platform's own price for the lines, keeps the refunded lines on the request (`channel_refund_requests.lines`), auto-approves only a whole-line refund, and `orders.refundLines` takes an `amount` to pay back less than the lines' value. WooCommerce reports its refund amount.
+
+### Patch Changes
+
+- Updated dependencies [[`8716ab8`](https://github.com/asyncdotengineering/porulle/commit/8716ab81c62c14186808e6abc3bd319bf64df0d4)]:
+  - @porulle/core@0.75.0
+
 ## 0.74.5
 
 ### Patch Changes

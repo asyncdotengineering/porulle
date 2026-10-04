@@ -1,5 +1,12 @@
 # @porulle/plugin-uom
 
+## 0.75.0
+
+### Patch Changes
+
+- Updated dependencies [[`8716ab8`](https://github.com/asyncdotengineering/porulle/commit/8716ab81c62c14186808e6abc3bd319bf64df0d4)]:
+  - @porulle/core@0.75.0
+
 ## 0.74.5
 
 ### Patch Changes

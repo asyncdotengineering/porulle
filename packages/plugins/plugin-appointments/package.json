@@ -1,6 +1,6 @@
 {
   "name": "@porulle/plugin-appointments",
-  "version": "0.74.5",
+  "version": "0.75.0",
   "license": "MIT",
   "type": "module",
   "exports": {
