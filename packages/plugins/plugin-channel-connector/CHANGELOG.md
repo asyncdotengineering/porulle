@@ -1,5 +1,14 @@
 # @porulle/plugin-channel-connector
 
+## 0.77.1
+
+### Patch Changes
+
+- [#188](https://github.com/asyncdotengineering/porulle/pull/188) [`36a81c4`](https://github.com/asyncdotengineering/porulle/commit/36a81c4756b8f3a9b2c379756dec95a47a28a5cc) Thanks [@octalpixel](https://github.com/octalpixel)! - An order export is confirmed when the store's status read after the push answers `fulfilled`, not only `confirmed`. WooCommerce completes virtual and downloadable orders on arrival, so their exports stayed `exported` forever although the store had received the order.
+
+- Updated dependencies []:
+  - @porulle/core@0.77.1
+
 ## 0.77.0
 
 ### Minor Changes

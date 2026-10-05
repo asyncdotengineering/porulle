@@ -1,5 +1,12 @@
 # @porulle/adapter-woocommerce
 
+## 0.77.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.77.1
+
 ## 0.77.0
 
 ### Minor Changes
