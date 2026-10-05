@@ -5843,13 +5843,15 @@ export class ChannelConnectorService {
         remoteStatus.error.retriable === true ? "transient" : "definitive",
       );
     }
-    if (remoteStatus.value.status === "confirmed") {
+    // `fulfilled` is a received order too: WooCommerce completes virtual and downloadable orders on
+    // arrival, and an export waiting for `confirmed` would wait forever.
+    if (remoteStatus.value.status === "confirmed" || remoteStatus.value.status === "fulfilled") {
       return this.transitionExport(
         orgId,
         created.value.id,
         "confirmed",
         requireUserId(actor),
-        "Remote order confirmed.",
+        remoteStatus.value.status === "fulfilled" ? "Remote order received and completed by the store." : "Remote order confirmed.",
       );
     }
     if (remoteStatus.value.status === "failed" || remoteStatus.value.status === "cancelled") {
