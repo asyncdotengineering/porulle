@@ -1176,22 +1176,29 @@ export interface ImportImageSelection {
   hero: ChannelCatalogImage | null;
   /** In variant order; one image per variant the hero does not cover; no url twice. */
   perVariant: ChannelCatalogImage[];
+  /** The store's further photos in its order, as entity-level `gallery` images; no url twice. */
+  gallery: ChannelCatalogImage[];
 }
+
+/** The hero, the variant photos and the gallery together never exceed this — what a projection reads. */
+const IMPORT_IMAGE_LIMIT = 6;
 
 function imageOrder(a: ChannelCatalogImage, b: ChannelCatalogImage): number {
   return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
 }
 
 /**
- * Ruling 2026-09-22: import the hero plus the FIRST photo of each other variant, nothing more.
- * A "blue long dress" query must be able to show the blue variant, and a fourth photo of the red
- * one adds nothing the index can use. Variants are read off the images' own variant references,
- * so a connector that lists images against variants it does not enumerate still gets one each.
+ * The hero, then the first photo of each other variant (a "blue long dress" query must be able to
+ * show the blue variant), then the store's further photos as the gallery, up to
+ * `IMPORT_IMAGE_LIMIT` in all. Agent feeds publish the gallery as additional images and enrichment
+ * reads it; only the hero is embedded, so a gallery photo costs an upload and no model call.
+ * Variants are read off the images' own variant references, so a connector that lists images
+ * against variants it does not enumerate still gets one each.
  */
 export function selectImportImages(item: ChannelCatalogItem): ImportImageSelection {
   const images = [...(item.images ?? [])].sort(imageOrder);
   const hero = images.find((image) => image.role === "primary") ?? images[0] ?? null;
-  if (!hero) return { hero: null, perVariant: [] };
+  if (!hero) return { hero: null, perVariant: [], gallery: [] };
   const covered = new Set(hero.variantExternalIds ?? []);
   const usedUrls = new Set([hero.url]);
   const perVariant: ChannelCatalogImage[] = [];
@@ -1205,7 +1212,15 @@ export function selectImportImages(item: ChannelCatalogItem): ImportImageSelecti
     usedUrls.add(image.url);
     perVariant.push(image);
   }
-  return { hero, perVariant };
+  const gallery: ChannelCatalogImage[] = [];
+  for (const image of images) {
+    if (1 + perVariant.length + gallery.length >= IMPORT_IMAGE_LIMIT) break;
+    if (usedUrls.has(image.url)) continue;
+    usedUrls.add(image.url);
+    // A further photo of a variant already shown is a product photo, not that variant's image.
+    gallery.push({ ...image, role: "gallery", variantExternalIds: [] });
+  }
+  return { hero, perVariant, gallery };
 }
 
 type BoundedFetch =
@@ -2400,12 +2415,11 @@ export class ChannelConnectorService {
   }>> {
     // Uploads what is missing and PLANS the entity's media links; `commitEntityLinks` writes them.
     //
-    // Only the images the import ruling allows — the SAME `selectImportImages` the page fast path
-    // uses: the hero plus the first photo of each other variant. This path attached EVERY image
-    // the item listed, so the first converge of a product whose price changed pulled in the whole
-    // gallery the fast path had deliberately left out: an upload, an embed and a bump per photo.
+    // The SAME `selectImportImages` the page fast path uses — hero, variant photos, bounded gallery.
+    // This path once attached EVERY image the item listed, so a product's first price change
+    // pulled in photos the fast path had left out: an upload and an entity bump per photo.
     const selection = selectImportImages(item);
-    const images = selection.hero === null ? [] : [selection.hero, ...selection.perVariant];
+    const images = selection.hero === null ? [] : [selection.hero, ...selection.perVariant, ...selection.gallery];
     const externalIds = [...new Set(images.map((image) => image.externalId).filter((id): id is string => id != null))];
     const urlHashes = [...new Set(images.map((image) => hash(image.url)))];
     const keyPredicates = [];
@@ -3501,7 +3515,7 @@ export class ChannelConnectorService {
    *
    * Media: only each new item's hero is fetched here, streamed under `HERO_IMAGE_BYTE_CAP`, and
    * linked at entity level as `primary` plus to the variants it shows. The first photo of every
-   * other variant comes back in `deferredMedia` for the host to land later.
+   * other variant, then the bounded gallery, come back in `deferredMedia` for the host to land later.
    */
   async convergeCatalogPage(
     orgId: string,
@@ -3669,7 +3683,8 @@ export class ChannelConnectorService {
     const deferredMedia: CatalogDeferredMedia[] = [];
     const selections = createdItems.flatMap(({ item, entityId, variantIds }) => {
       const selection = selectImportImages(item);
-      if (selection.perVariant.length > 0) deferredMedia.push({ externalId: item.externalId, entityId, images: selection.perVariant });
+      const deferred = [...selection.perVariant, ...selection.gallery];
+      if (deferred.length > 0) deferredMedia.push({ externalId: item.externalId, entityId, images: deferred });
       return selection.hero ? [{ item, entityId, variantIds, hero: selection.hero }] : [];
     });
     if (selections.length === 0) return { heroesImported: 0, mediaFailures, deferredMedia };
