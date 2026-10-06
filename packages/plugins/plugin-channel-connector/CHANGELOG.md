@@ -1,5 +1,14 @@
 # @porulle/plugin-channel-connector
 
+## 0.79.1
+
+### Patch Changes
+
+- [`75d3422`](https://github.com/asyncdotengineering/porulle/commit/75d342228b8777126732e504a0d8d0480d48349a) Thanks [@octalpixel](https://github.com/octalpixel)! - Raise `HERO_IMAGE_BYTE_CAP` from 1 MiB to 4 MiB. At 1 MiB the import refused ordinary product photographs — 16 of 100 heroes in one live Shopify catalogue and 11 of 100 in another, all between 1 and 2 MiB — and a product imported without a photo is left out of every agent feed and of vision enrichment. The cap still refuses a stray 30 MB TIFF.
+
+- Updated dependencies []:
+  - @porulle/core@0.79.1
+
 ## 0.79.0
 
 ### Minor Changes
