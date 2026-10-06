@@ -322,8 +322,10 @@ describe("E2E: a page of products lands on the import fast path", () => {
     expect(result.mediaFailures).toEqual([]);
     expect(result.deferredMedia).toHaveLength(GOOD);
     for (const deferred of result.deferredMedia) {
-      expect(deferred.images.map((image) => image.url.split("/").pop())).toEqual(["blue.jpg", "black.jpg"]);
-      expect(deferred.images.every((image) => (image.variantExternalIds?.length ?? 0) === SIZES.length)).toBe(true);
+      // The other variants' first photos, then the remaining photos as entity-level gallery.
+      expect(deferred.images.map((image) => image.url.split("/").pop())).toEqual(["blue.jpg", "black.jpg", "red-2.jpg", "blue-2.jpg"]);
+      expect(deferred.images.map((image) => image.variantExternalIds?.length ?? 0)).toEqual([SIZES.length, SIZES.length, 0, 0]);
+      expect(deferred.images.slice(2).every((image) => image.role === "gallery")).toBe(true);
     }
     // F9: hero stored once per product, linked at entity level as primary and to each of its variants.
     const assets = await built.db.select().from(mediaAssets).where(eq(mediaAssets.organizationId, TEST_ORG_ID));
@@ -405,13 +407,16 @@ describe("E2E: a page of products lands on the import fast path", () => {
     expect(await built.db.select().from(sellableEntities).where(isNull(sellableEntities.sourceStoreId))).toHaveLength(1);
   });
 
-  it("selectImportImages: hero plus the first photo of each other variant, nothing more", () => {
+  it("selectImportImages: hero, the first photo of each other variant, then the gallery, six in all", () => {
     const item = product(1);
-    const { hero, perVariant } = selectImportImages(item);
+    const { hero, perVariant, gallery } = selectImportImages(item);
     expect(hero?.externalId).toBe("img-1-hero");
     expect(perVariant.map((image) => image.externalId)).toEqual(["img-1-blue", "img-1-black"]);
+    expect(gallery.map((image) => image.externalId)).toEqual(["img-1-red-2", "img-1-blue-2"]);
+    const many = product(5, { images: Array.from({ length: 9 }, (_, n) => ({ url: `https://cdn.example.test/many-${n}.jpg`, role: n === 0 ? "primary" as const : "gallery" as const, sortOrder: n })) });
+    expect(selectImportImages(many).gallery.map((image) => image.url.split("/").pop())).toEqual(["many-1.jpg", "many-2.jpg", "many-3.jpg", "many-4.jpg", "many-5.jpg"]);
     const single = product(2, { images: [{ url: "https://cdn.example.test/only.jpg", role: "gallery", variantExternalIds: ["ext-2-red-xs"] }, { url: "https://cdn.example.test/only-2.jpg", role: "gallery", variantExternalIds: ["ext-2-red-xs"] }] });
-    expect(selectImportImages(single)).toEqual({ hero: single.images![0], perVariant: [] });
+    expect(selectImportImages(single)).toEqual({ hero: single.images![0], perVariant: [], gallery: [{ ...single.images![1], role: "gallery", variantExternalIds: [] }] });
     const shared: ChannelCatalogImage[] = [
       { url: "https://cdn.example.test/a.jpg", role: "primary", variantExternalIds: ["v1"] },
       { url: "https://cdn.example.test/a.jpg", role: "gallery", variantExternalIds: ["v2"] },
@@ -419,6 +424,7 @@ describe("E2E: a page of products lands on the import fast path", () => {
     ];
     const dedup = selectImportImages(product(3, { images: shared, variants: [] }));
     expect(dedup.perVariant.map((image) => image.url.split("/").pop())).toEqual(["b.jpg"]);
-    expect(selectImportImages(product(4, { images: [] }))).toEqual({ hero: null, perVariant: [] });
+    expect(dedup.gallery).toEqual([]);
+    expect(selectImportImages(product(4, { images: [] }))).toEqual({ hero: null, perVariant: [], gallery: [] });
   });
 });
