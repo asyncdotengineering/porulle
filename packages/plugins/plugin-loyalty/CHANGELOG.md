@@ -1,5 +1,12 @@
 # @porulle/plugin-loyalty
 
+## 0.78.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.78.0
+
 ## 0.77.1
 
 ### Patch Changes
