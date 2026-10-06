@@ -1,5 +1,12 @@
 # @porulle/adapter-resend
 
+## 0.79.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.79.0
+
 ## 0.78.0
 
 ### Patch Changes

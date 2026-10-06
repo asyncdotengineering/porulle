@@ -1,5 +1,18 @@
 # @porulle/plugin-channel-connector
 
+## 0.79.0
+
+### Minor Changes
+
+- [#190](https://github.com/asyncdotengineering/porulle/pull/190) [`228cf3e`](https://github.com/asyncdotengineering/porulle/commit/228cf3ec4828149232fa208f21ea720821cee871) Thanks [@octalpixel](https://github.com/octalpixel)! - Import a bounded gallery. `selectImportImages` now returns `gallery` beside `hero` and `perVariant`: the store's further photos in its order, as entity-level `gallery` images, up to six images per product in all. The page fast path defers them with the variant photos in `deferredMedia` (the host lands them) and the editor path links the same set, so both paths still converge on one image set. Agent feeds publish these as additional images and enrichment can read them; only the hero is embedded, so a gallery photo costs an upload and no model call.
+
+  Hosts that land `deferredMedia` must link an image with no `variantExternalIds` at entity level rather than skip it.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.79.0
+
 ## 0.78.0
 
 ### Patch Changes
