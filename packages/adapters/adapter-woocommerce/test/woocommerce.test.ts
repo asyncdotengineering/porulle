@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catalogItem, wooProductSchema } from "../src/catalog.js";
+import { catalogItem, wooProductSchema, wooVariationSchema } from "../src/catalog.js";
 import { wooConnector } from "../src/index.js";
 
 const store = { id: "store-1", organizationId: "org-1", provider: "woocommerce", credentials: { consumerKey: `ck_${"a".repeat(40)}`, consumerSecret: `cs_${"b".repeat(40)}`, authMode: "header", restRoute: "pretty", currency: "USD", priceDecimals: 2 }, storeDomain: "https://shop.example", status: "connected" as const, webhookSecret: "webhook-secret" };
@@ -340,5 +340,30 @@ describe("woocommerce connector: brand", () => {
   it("names no brand when the product has none, or the store predates Brands", () => {
     expect("brand" in catalogItem(product([]), [], "LKR")).toBe(false);
     expect("brand" in catalogItem(product(undefined), [], "LKR")).toBe(false);
+  });
+});
+
+describe("woocommerce connector: identifiers and copy agents read", () => {
+  // WooCommerce REST v3: `global_unique_id` is the product's or variation's GTIN/UPC/EAN/ISBN (core
+  // since 9.2); `short_description` is the summary the product page shows above the cart button.
+  const simple = (extra: Record<string, string>) => wooProductSchema.parse({ id: 41, name: "Sarong", type: "simple", price: "4500", regular_price: "4500", sale_price: "", ...extra });
+
+  it("imports a simple product's global unique id as its variant's barcode", () => {
+    expect(catalogItem(simple({ global_unique_id: "4006381333931" }), [], "LKR").variants[0]?.barcode).toBe("4006381333931");
+  });
+
+  it("imports a variation's global unique id as that variant's barcode, and names none when absent", () => {
+    const variable = wooProductSchema.parse({ id: 42, name: "Kurta", type: "variable", attributes: [{ name: "Colour", variation: true, options: ["Red", "Blue"] }], variations: [43, 44] });
+    const red = wooVariationSchema.parse({ id: 43, sku: "K-RED", price: "6200", regular_price: "6200", sale_price: "", global_unique_id: "0012345678905", attributes: [{ name: "Colour", option: "Red" }] });
+    const blue = wooVariationSchema.parse({ id: 44, sku: "K-BLUE", price: "6400", regular_price: "6400", sale_price: "", attributes: [{ name: "Colour", option: "Blue" }] });
+    const item = catalogItem(variable, [red, blue], "LKR");
+    expect(item.variants.find((row) => row.externalId === "43")?.barcode).toBe("0012345678905");
+    expect("barcode" in (item.variants.find((row) => row.externalId === "44") ?? {})).toBe(false);
+  });
+
+  it("imports the short description, summary first, beside the long one", () => {
+    const item = catalogItem(simple({ short_description: "<p>Handloom cotton.</p>", description: "<p>Woven in Galle.</p>" }), [], "LKR");
+    expect(item.description).toBe("<p>Handloom cotton.</p>\n\n<p>Woven in Galle.</p>");
+    expect(catalogItem(simple({ short_description: "<p>Only a summary.</p>" }), [], "LKR").description).toBe("<p>Only a summary.</p>");
   });
 });

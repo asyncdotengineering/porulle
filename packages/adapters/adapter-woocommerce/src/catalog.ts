@@ -13,6 +13,8 @@ export const wooVariationSchema = z.object({
   price: money,
   regular_price: money,
   sale_price: money,
+  /** GTIN, UPC, EAN or ISBN — core since WooCommerce 9.2; absent on older stores. */
+  global_unique_id: z.string().nullish(),
   status: z.string().nullish(),
   attributes: z.array(z.object({ name: z.string(), option: z.string().nullish() })).default([]),
   image: image.nullish(),
@@ -29,8 +31,12 @@ export const wooProductSchema = z.object({
   type: z.string(),
   status: z.string().nullish(),
   description: z.string().nullish(),
+  /** The summary WooCommerce shows above the add-to-cart button; often the only copy a store writes. */
+  short_description: z.string().nullish(),
   permalink: z.string().nullish(),
   sku: z.string().nullish(),
+  /** GTIN, UPC, EAN or ISBN — core since WooCommerce 9.2; a simple product's own barcode. */
+  global_unique_id: z.string().nullish(),
   price: money,
   regular_price: money,
   sale_price: money,
@@ -117,6 +123,7 @@ function variant(row: WooVariation, currency: string | undefined, resolve: (name
   return {
     externalId: row.id,
     ...(row.sku ? { sku: row.sku } : {}),
+    ...(row.global_unique_id?.trim() ? { barcode: row.global_unique_id.trim() } : {}),
     ...(Object.keys(optionValues).length > 0 ? { optionValues } : {}),
     ...(rowPrices ? { prices: rowPrices } : {}),
   };
@@ -148,7 +155,7 @@ export function catalogItem(product: WooProduct, variations: WooVariation[], cur
   const sellable = product.type === "simple" ? [] : variations.filter((row) => row.status !== "private");
   const { axes, resolve } = optionAxes(product, sellable);
   const variants = product.type === "simple"
-    ? [variant({ id: product.id, sku: product.sku, price: product.price, regular_price: product.regular_price, sale_price: product.sale_price, attributes: [] }, currency, resolve)]
+    ? [variant({ id: product.id, sku: product.sku, global_unique_id: product.global_unique_id, price: product.price, regular_price: product.regular_price, sale_price: product.sale_price, attributes: [] }, currency, resolve)]
     : sellable.map((row) => variant(row, currency, resolve));
   const options = product.type === "simple" ? [] : axes.map((axis, index) => ({
     name: axis.name,
@@ -157,12 +164,18 @@ export function catalogItem(product: WooProduct, variations: WooVariation[], cur
     values: axis.values.map((value, valueIndex) => ({ value, displayValue: value, sortOrder: valueIndex })),
   }));
   const itemStatus = status(product.status);
+  // Both of the store's copies, summary first, as the product page shows them: a store that writes
+  // only a short description would otherwise import with none.
+  const description = [product.short_description, product.description]
+    .map((part) => part?.trim() ?? "")
+    .filter((part) => part.length > 0)
+    .join("\n\n");
   return {
     externalId: product.id,
     slug: product.slug || product.id,
     title: product.name,
-    ...(product.description ? { description: product.description } : {}),
-    attributes: [{ locale: "en", title: product.name, ...(product.description ? { description: product.description } : {}) }],
+    ...(description ? { description } : {}),
+    attributes: [{ locale: "en", title: product.name, ...(description ? { description } : {}) }],
     variants,
     ...(images.length > 0 ? { images } : {}),
     ...(options.length > 0 ? { options } : {}),
