@@ -185,6 +185,7 @@ describe("E2E: a page of products lands on the import fast path", () => {
   let merchantMadeEntityId: string;
   const fetched: string[] = [];
   let oversizeUrls = new Set<string>();
+  let photographUrls = new Set<string>();
   const fetchSpy = vi.spyOn(globalThis, "fetch");
 
   beforeAll(async () => {
@@ -201,6 +202,9 @@ describe("E2E: a page of products lands on the import fast path", () => {
     fetchSpy.mockImplementation(async (input) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       fetched.push(url);
+      if (photographUrls.has(url)) {
+        return new Response(streamOf(1.5 * 1024 * 1024), { headers: { "content-type": "image/jpeg" } });
+      }
       if (oversizeUrls.has(url)) {
         return new Response(streamOf(2 * HERO_IMAGE_BYTE_CAP), { headers: { "content-type": "image/jpeg", "content-length": "1" } });
       }
@@ -427,4 +431,16 @@ describe("E2E: a page of products lands on the import fast path", () => {
     expect(dedup.gallery).toEqual([]);
     expect(selectImportImages(product(4, { images: [] }))).toEqual({ hero: null, perVariant: [], gallery: [] });
   });
+
+  it("F8b: an ordinary 1.5 MiB product photograph is imported, not refused (16 of 100 Kelly Felder heroes and 11 of 100 Arienti, measured 2026-10-06)", async () => {
+    const photographed = product(51, { externalId: "ext-photo", slug: "dress-photo" });
+    photographUrls = new Set([photographed.images![0]!.url]);
+    const outcome = await service.convergeCatalogPage(TEST_ORG_ID, storeId, [photographed], testAdminActor);
+    photographUrls = new Set();
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.value.mediaFailures).toEqual([]);
+    expect(outcome.value.heroesImported).toBe(1);
+  });
+
 });

@@ -1135,8 +1135,12 @@ function redactStore(store: ConnectedStore): PublicConnectedStore {
  * A hero is streamed inside the page's own invocation, so it is bounded: a 30 MB TIFF a merchant
  * uploaded by mistake must not buffer into a 128 MiB isolate. Anything larger is reported, not
  * stored, and the product still lands — the index reads text first and media later.
+ *
+ * 4 MiB, not 1: at 1 MiB the cap refused ordinary product photographs — 16 of 100 Kelly Felder
+ * heroes and 11 of 100 Arienti, all between 1 and 2 MiB, measured 2026-10-06 — and a product with
+ * no photo is left out of every agent feed. Three in flight at 4 MiB stays far under the isolate.
  */
-export const HERO_IMAGE_BYTE_CAP = 1024 * 1024;
+export const HERO_IMAGE_BYTE_CAP = 4 * 1024 * 1024;
 
 export type CatalogMediaFailureReason = "too-large" | "download-failed" | "unsupported" | "storage";
 
