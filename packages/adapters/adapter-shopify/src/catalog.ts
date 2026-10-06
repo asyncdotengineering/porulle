@@ -25,7 +25,7 @@ const VARIANT_FIELDS = `
 
 const PRODUCT_FIELDS = `
   legacyResourceId title handle status descriptionHtml vendor productType tags onlineStoreUrl
-  category { name }
+  category { id name }
   options { name position optionValues { name } }
   media(first: ${MEDIA_PER_PRODUCT}) { nodes { id alt mediaContentType ... on MediaImage { image { url } } } }
   variants(first: ${VARIANTS_WITH_PRODUCT}) { pageInfo { hasNextPage endCursor } nodes { ${VARIANT_FIELDS} } }`;
@@ -74,7 +74,7 @@ const productSchema = z.object({
   productType: z.string(),
   tags: z.array(z.string()),
   onlineStoreUrl: z.string().nullable(),
-  category: z.object({ name: z.string() }).nullable(),
+  category: z.object({ id: z.string(), name: z.string() }).nullable(),
   options: z.array(z.object({ name: z.string(), position: z.number(), optionValues: z.array(z.object({ name: z.string() })) })),
   media: z.object({
     nodes: z.array(z.object({
@@ -139,10 +139,19 @@ function slugify(value: string): string {
   return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+/** `gid://shopify/TaxonomyCategory/aa-1-4` → `aa-1-4`, the Standard Product Taxonomy's own id. */
+function taxonomyCategoryId(gid: string): string | undefined {
+  const id = gid.slice(gid.lastIndexOf("/") + 1);
+  return /^[a-z]{2}(-\d+)*$/.test(id) ? id : undefined;
+}
+
 export function toCatalogItem(product: ShopifyProduct, variants: readonly ShopifyVariant[], currency: string): ChannelCatalogItem {
   const images = product.media.nodes.flatMap((media) => (media.mediaContentType === "IMAGE" && media.image ? [{ id: media.id, url: media.image.url, alt: media.alt }] : []));
   const category = product.productType ? slugify(product.productType) : product.category ? slugify(product.category.name) : "";
   const storefrontUrl = product.onlineStoreUrl;
+  // The merchant's (or Shopify's) Standard Product Taxonomy category, as Shopify's own id. A
+  // platform that classifies against the same taxonomy reads it instead of guessing from text.
+  const shopifyCategory = product.category ? taxonomyCategoryId(product.category.id) : undefined;
   return {
     externalId: product.legacyResourceId,
     slug: product.handle,
@@ -184,6 +193,7 @@ export function toCatalogItem(product: ShopifyProduct, variants: readonly Shopif
     // Only Shopify's own answer. Null means the product is not on the Online Store channel; a URL
     // assembled from the handle would be a guess that 404s on any shop with a custom route.
     ...(storefrontUrl ? { storefrontUrl } : {}),
+    ...(shopifyCategory ? { metadata: { shopifyTaxonomyCategoryId: shopifyCategory } } : {}),
   };
 }
 
