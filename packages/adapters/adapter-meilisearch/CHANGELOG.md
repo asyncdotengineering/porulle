@@ -1,5 +1,12 @@
 # @porulle/adapter-meilisearch
 
+## 0.80.0
+
+### Patch Changes
+
+- Updated dependencies [[`96c8cfa`](https://github.com/asyncdotengineering/porulle/commit/96c8cfa88f62f394601b6a7c410b288dc54d707c)]:
+  - @porulle/core@0.80.0
+
 ## 0.79.1
 
 ### Patch Changes
