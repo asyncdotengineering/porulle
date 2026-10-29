@@ -273,6 +273,7 @@ export function checkoutRoutes(kernel: Kernel) {
             totalPrice: lineItem.resolvedTotal ?? 0,
             // Per-line tax from product tax classes (issue #57)
             taxAmount: lineItem.taxAmount ?? 0,
+            metadata: lineItem.metadata ?? {},
             ...(lineItem.discountAmount !== undefined
               ? { discountAmount: lineItem.discountAmount }
               : {}),
