@@ -54,6 +54,8 @@ export interface CheckoutLineItem {
     delta: number;
     amountAfter: number;
   }>;
+  /** The cart line's own metadata, carried onto the order line. */
+  metadata?: Record<string, unknown>;
 }
 
 export interface CheckoutData {
@@ -113,6 +115,7 @@ export const validateCartNotEmpty: BeforeHook<CheckoutData> = async ({
               entityId: string;
               variantId?: string | null;
               quantity: number;
+              metadata?: Record<string, unknown> | null;
             }>;
           };
         }
@@ -196,6 +199,7 @@ export const validateCartNotEmpty: BeforeHook<CheckoutData> = async ({
         entityType,
         title,
         quantity: item.quantity,
+        metadata: item.metadata ?? {},
         // Use != null to exclude both null (DB value) and undefined
         ...(item.variantId != null ? { variantId: item.variantId } : {}),
       };
