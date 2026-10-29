@@ -3,6 +3,7 @@
   "version": "0.80.0",
   "license": "MIT",
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "@porulle/source": "./src/index.ts",

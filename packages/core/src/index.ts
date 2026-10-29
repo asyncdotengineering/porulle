@@ -19,7 +19,10 @@ export { router } from "./interfaces/rest/router.js";
 export { markPublicRoute, markRoutePermissionGuard, requirePerm } from "./interfaces/rest/utils.js";
 export { webhookRouter, type WebhookRouterResult } from "./interfaces/rest/webhook-router.js";
 export { isPrivateUrl, isPrivateIp } from "./modules/webhooks/ssrf-guard.js";
-export { createServer } from "./runtime/server.js";
+// The server and commerce factories load on first call: their module graph (kernel, every module's
+// tables, Hono, zod-openapi) is most of core's module-init CPU, which a Worker pays at upload time.
+export const createServer: typeof import("./runtime/server.js").createServer = async (config) =>
+  (await import("./runtime/server.js")).createServer(config);
 export { createClientIpResolver } from "./runtime/client-ip.js";
 export type { ClientIpResolver, ClientIpContext, RuntimeConfig } from "./runtime/client-ip.js";
 export { createLogger } from "./runtime/logger.js";
@@ -103,7 +106,8 @@ export {
 
 export { createLocalAPI } from "./kernel/local-api.js";
 export type { CommerceLocalAPI, LocalAPIOptions } from "./kernel/local-api.js";
-export { createCommerce } from "./runtime/commerce.js";
+export const createCommerce: typeof import("./runtime/commerce.js").createCommerce = async (config) =>
+  (await import("./runtime/commerce.js")).createCommerce(config);
 export type { CommerceInstance } from "./runtime/commerce.js";
 
 export { createAuditService, createNullAuditService } from "./modules/audit/service.js";

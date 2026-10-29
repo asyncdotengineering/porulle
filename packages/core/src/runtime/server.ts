@@ -15,8 +15,6 @@ import { resolveOrgIdForCommerce } from "../auth/org.js";
 import { organizationGuard } from "../auth/organization-guard.js";
 import type { DrizzleDatabase } from "../kernel/database/drizzle-db.js";
 import { CommerceCsrfError } from "../kernel/errors.js";
-import { createRestRoutes } from "../interfaces/rest/index.js";
-import { createCustomerPortalRoutes } from "../interfaces/rest/customer-portal.js";
 import type { Logger } from "./logger.js";
 import { createCommerce, type CommerceInstance } from "./commerce.js";
 import { rewriteCommerceAliasRequest } from "./url-alias-rewrite.js";
@@ -387,6 +385,11 @@ export async function createServer(config: CommerceConfig) {
   });
 
   // ─── Routes ──────────────────────────────────────────────────────────
+  // Route and zod schema construction is ~40 ms of module init; load it when the server is built.
+  const [{ createRestRoutes }, { createCustomerPortalRoutes }] = await Promise.all([
+    import("../interfaces/rest/index.js"),
+    import("../interfaces/rest/customer-portal.js"),
+  ]);
   app.route("/api", createRestRoutes(kernel));
   // Mounted under /api so the auth middleware, rate limiter, CSRF, and
   // body-limit stack apply (all are scoped to /api/*).

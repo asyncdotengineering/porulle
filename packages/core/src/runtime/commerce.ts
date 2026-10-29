@@ -4,7 +4,7 @@ import type { Kernel } from "./kernel.js";
 import { createKernel } from "./kernel.js";
 import { pushSchema } from "../kernel/database/migrate.js";
 import { ensureDefaultOrg } from "../auth/org.js";
-import { createAuth, type AuthInstance } from "../auth/setup.js";
+import type { AuthInstance } from "../auth/setup.js";
 import { createLogger, type Logger } from "./logger.js";
 import { createLocalAPI, type CommerceLocalAPI, type LocalAPIOptions } from "../kernel/local-api.js";
 
@@ -137,6 +137,9 @@ export async function createCommerce(
     await ensureDefaultOrg(kernel.database.db, config.storeName);
   }
 
+  // Loaded on first use: better-auth and its plugins cost ~40 ms of module init that a Worker
+  // would otherwise pay at upload time, before it serves a request.
+  const { createAuth } = await import("../auth/setup.js");
   const auth = createAuth(kernel.database, config);
   const logger = createLogger(config);
 
