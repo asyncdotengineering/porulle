@@ -49,7 +49,7 @@ describe("VAPT: refund money-conservation", () => {
   });
 
   // Create an order and (optionally) mark it captured.
-  async function makeOrder(captured: boolean): Promise<{ orderId: string; lineItemId: string; total: number }> {
+  async function makeOrder(captured: boolean, quantity = 1): Promise<{ orderId: string; lineItemId: string; total: number }> {
     const entRes = await makeRequest(server, {
       method: "POST",
       url: "http://localhost/api/catalog/entities",
@@ -63,7 +63,7 @@ describe("VAPT: refund money-conservation", () => {
       url: "http://localhost/api/orders",
       body: {
         currency: "USD", subtotal: total, taxTotal: 0, shippingTotal: 0, grandTotal: total,
-        lineItems: [{ entityId, entityType: "product", title: "P", quantity: 1, unitPrice: total, totalPrice: total }],
+        lineItems: [{ entityId, entityType: "product", title: "P", quantity, unitPrice: total / quantity, totalPrice: total }],
       },
       actor: testActor,
     });
@@ -95,11 +95,24 @@ describe("VAPT: refund money-conservation", () => {
     expect(totalRefunded).toBeLessThanOrEqual(total); // gateway never paid twice
   });
 
-  it("R-04: an order with a refunded line cannot be fulfilled", async () => {
+  it("R-04: an order with nothing left to ship cannot be fulfilled", async () => {
     const { orderId, lineItemId } = await makeOrder(true);
     expect((await refundLines(orderId, lineItemId)).status).toBe(201);
+    for (const status of ["confirmed", "processing"]) {
+      const res = await makeRequest(server, { method: "PATCH", url: `http://localhost/api/orders/${orderId}/status`, body: { status }, actor: testActor });
+      expect(res.status).toBe(200);
+    }
     const res = await makeRequest(server, { method: "PATCH", url: `http://localhost/api/orders/${orderId}/status`, body: { status: "fulfilled" }, actor: testActor });
     expect(res.status).toBe(422);
+  });
+
+  it("R-04: a partly refunded order still ships what is left of it", async () => {
+    const { orderId, lineItemId } = await makeOrder(true, 2);
+    expect((await refundLines(orderId, lineItemId)).status).toBe(201);
+    for (const status of ["confirmed", "processing", "fulfilled"]) {
+      const res = await makeRequest(server, { method: "PATCH", url: `http://localhost/api/orders/${orderId}/status`, body: { status }, actor: testActor });
+      expect(res.status).toBe(200);
+    }
   });
 
   it("R-03: refundLines on an uncaptured order is rejected", async () => {

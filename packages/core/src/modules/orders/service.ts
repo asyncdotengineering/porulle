@@ -1001,15 +1001,16 @@ export class OrderService {
     const previous = order.status;
     const lineItems = await this.repo.findLineItemsByOrderId(order.id, ctx);
 
-    // R-04: goods must not ship against refunded lines. Reject the fulfilled
-    // transition if any line has been (partially) refunded.
+    // R-04: goods must not ship against refunded lines. A partly refunded order
+    // still ships what is left of it, so only an order with nothing left to
+    // ship is refused.
     if (
       input.newStatus === "fulfilled" &&
-      lineItems.some((li) => li.refundedQuantity > 0)
+      lineItems.every((li) => li.quantity - li.refundedQuantity <= 0)
     ) {
       return Err(
         new CommerceValidationError(
-          "Cannot fulfill an order that has refunded line items.",
+          "Cannot fulfill an order whose lines have all been refunded.",
         ),
       );
     }

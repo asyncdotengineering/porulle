@@ -9,9 +9,9 @@
  * Written before the implementation.
  */
 import { beforeAll, describe, expect, it } from "vitest";
-import { Ok, type ChannelReturnInput } from "@porulle/core";
+import { Err, Ok, type ChannelReturnInput } from "@porulle/core";
 import { eq } from "@porulle/core/drizzle";
-import { orderLineItems, sellableEntities, variants } from "@porulle/core/schema";
+import { orderLineItems, orderRefunds, orders, sellableEntities, variants } from "@porulle/core/schema";
 import { createPluginTestApp, createTestActor, jsonHeaders, TEST_ORG_ID } from "@porulle/core/testing";
 import { channelConnectorPlugin, ChannelConnectorService, mockChannelConnector } from "../src/index.js";
 import { channelEntityMap, channelOrderExports, channelReturns } from "../src/schema.js";
@@ -108,5 +108,66 @@ describe("a shopper's return", () => {
     expect(await statusOf()).toBe("closed");
     expect((await service.handleWebhook(TEST_ORG_ID, storeId, { id: "evt-decline-unknown", type: "returns/decline", data: { kind: "return.updated", remoteReturnId: "999999", status: "declined" } })).ok).toBe(true);
     expect(await statusOf()).toBe("closed");
+  });
+
+  describe("a return held for the merchant to decide", () => {
+    let storeBooks = true;
+    let heldService: ChannelConnectorService;
+
+    beforeAll(() => {
+      const { requestReturn: _notAsked, ...withoutRequest } = connector;
+      heldService = new ChannelConnectorService(built.db, built.kernel.services, { connectors: [{
+        ...withoutRequest,
+        async recordRefund() {
+          return storeBooks ? Ok({ remoteRefundId: crypto.randomUUID() }) : Err({ code: "CHANNEL_DOWN", message: "the store is down" });
+        },
+      }] });
+    });
+
+    async function heldReturn(): Promise<{ id: string; orderId: string; shirtLine: string }> {
+      const { orderId, shirtLine } = await shippedOrder();
+      await built.db.update(orders).set({ status: "fulfilled" }).where(eq(orders.id, orderId));
+      const requested = await heldService.requestReturn(TEST_ORG_ID, orderId, { lines: [{ orderLineItemId: shirtLine, quantity: 1 }], reason: "Too small" });
+      if (!requested.ok) throw new Error(requested.error);
+      return { id: requested.value.id, orderId, shirtLine };
+    }
+    const refundsOf = (orderId: string) => built.db.select({ id: orderRefunds.id }).from(orderRefunds).where(eq(orderRefunds.orderId, orderId));
+    const statusOf = async (id: string) => (await built.db.select({ status: channelReturns.status }).from(channelReturns).where(eq(channelReturns.id, id)))[0]?.status;
+
+    it("H1: two approvals at once refund one unit of a two-unit line once", async () => {
+      const { id, orderId, shirtLine } = await heldReturn();
+      const answers = await Promise.all([heldService.approveReturn(TEST_ORG_ID, id), heldService.approveReturn(TEST_ORG_ID, id)]);
+      expect(answers.filter((answer) => answer.ok)).toHaveLength(1);
+      expect(await refundsOf(orderId)).toHaveLength(1);
+      const [line] = await built.db.select({ refunded: orderLineItems.refundedQuantity }).from(orderLineItems).where(eq(orderLineItems.id, shirtLine));
+      expect(line?.refunded).toBe(1);
+    });
+
+    it("H2: a decline that arrives after the approval claimed the return changes nothing", async () => {
+      const { id, orderId } = await heldReturn();
+      const approved = await heldService.approveReturn(TEST_ORG_ID, id);
+      expect(approved.ok).toBe(true);
+      expect((await heldService.declineReturn(TEST_ORG_ID, id)).ok).toBe(false);
+      expect(await statusOf(id)).toBe("closed");
+      expect(await refundsOf(orderId)).toHaveLength(1);
+    });
+
+    it("H3: when the store will not book it, approving again books it and does not pay the shopper twice", async () => {
+      const { id, orderId } = await heldReturn();
+      storeBooks = false;
+      expect((await heldService.approveReturn(TEST_ORG_ID, id)).ok).toBe(false);
+      expect(await statusOf(id)).toBe("approved");
+      storeBooks = true;
+      expect((await heldService.approveReturn(TEST_ORG_ID, id)).ok).toBe(true);
+      expect(await statusOf(id)).toBe("closed");
+      expect(await refundsOf(orderId)).toHaveLength(1);
+    });
+
+    it("H4: a crash after the claim and before the refund still pays the shopper on the next approval", async () => {
+      const { id, orderId } = await heldReturn();
+      await built.db.update(channelReturns).set({ status: "approved" }).where(eq(channelReturns.id, id));
+      expect((await heldService.approveReturn(TEST_ORG_ID, id)).ok).toBe(true);
+      expect(await refundsOf(orderId)).toHaveLength(1);
+    });
   });
 });

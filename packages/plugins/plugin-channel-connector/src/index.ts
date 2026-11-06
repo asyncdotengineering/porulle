@@ -415,6 +415,9 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
     },
     {
       slug: "channel/push-order",
+      // A store blip is worth a few minutes of patience: the push is safe to repeat, because the
+      // connector looks for an order it already made. After the last attempt the export stays `failed`.
+      retries: { attempts: 5, backoff: { type: "exponential", delay: 30_000 } },
       concurrency: { key: (input: Record<string, unknown>) => `push:${String(input.orderId)}:${String(input.storeId)}`, supersedes: true },
       handler: async ({ input, ctx }: { input: Record<string, unknown>; ctx: import("@porulle/core").TaskContext }) => {
         const service = new ChannelConnectorService(ctx.db, ctx.services, options);
@@ -433,6 +436,11 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
         }
         const result = await service.exportOrder(orgId, storeId, slice.value, createSystemActor(orgId));
         if (!result.ok) throw new Error(result.error);
+        // A transient failure is recorded and returned as a value, so throw to have the job retried:
+        // `failed` to `exported` is a legal move, and it is what the retry takes.
+        if (result.value.state === "failed" && result.value.failureKind === "transient") {
+          throw new Error(result.value.lastError ?? "A transient export failure.");
+        }
         return { output: { exportId: result.value.id, state: result.value.state } };
       },
     },

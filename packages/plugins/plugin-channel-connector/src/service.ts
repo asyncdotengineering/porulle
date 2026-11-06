@@ -5732,7 +5732,17 @@ export class ChannelConnectorService {
     }
     const actor = createSystemActor(orgId);
     let shippingAmount = held.shippingAmount;
+    // Claimed before the money moves, so two approvals cannot both refund and a decline cannot land
+    // on a return being paid. A retry finds the refund by its reason, so a crash after the claim
+    // pays the shopper rather than skipping them, and a crash after the refund does not pay twice.
     if (held.status === "requested") {
+      const [claimed] = await this.db.update(channelReturns).set({ status: "approved", updatedAt: new Date() })
+        .where(and(eq(channelReturns.organizationId, orgId), eq(channelReturns.id, held.id), eq(channelReturns.status, "requested"))).returning({ id: channelReturns.id });
+      if (!claimed) return PluginErr("This return is already being decided.", "CONFLICT");
+    }
+    const [alreadyPaid] = await this.db.select({ id: orderRefunds.id }).from(orderRefunds)
+      .where(and(eq(orderRefunds.orderId, held.orderId), eq(orderRefunds.reason, `Return ${held.id}`), eq(orderRefunds.status, "completed")));
+    if (!alreadyPaid) {
       if (options.refundShipping === true) {
         const [order] = await this.db.select({ shippingTotal: orders.shippingTotal }).from(orders).where(and(eq(orders.organizationId, orgId), eq(orders.id, held.orderId)));
         const refunded = await this.db.select({ shippingAmount: orderRefunds.shippingAmount }).from(orderRefunds)
@@ -5741,8 +5751,11 @@ export class ChannelConnectorService {
       }
       const ordersService = this.services.orders as { refundLines(orderId: string, input: { lines: Array<{ lineItemId: string; quantity: number }>; reason?: string; shippingAmount?: number }, actor: Actor): Promise<{ ok: boolean; error?: { message: string } }> };
       const refunded = await ordersService.refundLines(held.orderId, { lines: priced.map(({ lineItemId, quantity }) => ({ lineItemId, quantity })), reason: `Return ${held.id}`, ...(shippingAmount > 0 ? { shippingAmount } : {}) }, actor);
-      if (!refunded.ok) return PluginErr(refunded.error?.message ?? "The shopper could not be paid back.", "REFUND_FAILED");
-      await this.db.update(channelReturns).set({ status: "approved", shippingAmount, updatedAt: new Date() }).where(and(eq(channelReturns.organizationId, orgId), eq(channelReturns.id, held.id)));
+      if (!refunded.ok) {
+        await this.db.update(channelReturns).set({ status: "requested", updatedAt: new Date() }).where(and(eq(channelReturns.organizationId, orgId), eq(channelReturns.id, held.id)));
+        return PluginErr(refunded.error?.message ?? "The shopper could not be paid back.", "REFUND_FAILED");
+      }
+      await this.db.update(channelReturns).set({ shippingAmount, updatedAt: new Date() }).where(and(eq(channelReturns.organizationId, orgId), eq(channelReturns.id, held.id)));
     }
 
     const variantIds = priced.flatMap((line) => (line.variantId === null ? [] : [line.variantId]));
@@ -5761,7 +5774,8 @@ export class ChannelConnectorService {
     await this.db.insert(channelRefundRequests)
       .values({ organizationId: orgId, storeId: store.id, orderId: held.orderId, remoteRefundId: booked.value.remoteRefundId, amount, shippingAmount, lines, state: "executed", approvedBy: requireUserId(actor) })
       .onConflictDoUpdate({ target: [channelRefundRequests.storeId, channelRefundRequests.remoteRefundId], set: { amount, shippingAmount, adjustmentAmount: 0, lines, state: "executed", updatedAt: new Date() } });
-    const [closed] = await this.db.update(channelReturns).set({ status: "closed", updatedAt: new Date() }).where(and(eq(channelReturns.organizationId, orgId), eq(channelReturns.id, held.id))).returning();
+    const [closed] = await this.db.update(channelReturns).set({ status: "closed", updatedAt: new Date() })
+      .where(and(eq(channelReturns.organizationId, orgId), eq(channelReturns.id, held.id), eq(channelReturns.status, "approved"))).returning();
     return closed ? Ok(closed) : PluginErr("Return not found.", "NOT_FOUND");
   }
 
