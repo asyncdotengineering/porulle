@@ -254,8 +254,30 @@ function cancelAtStoreHook(options: ChannelConnectorPluginOptions): PluginHookRe
   };
 }
 
+/**
+ * After the platform's cancel commits, take back any store order the before-commit step could not
+ * have seen: a push that claimed and recorded between that step and the commit. Only `cancelled`:
+ * a `refunded` order came from `fulfilled`, so its store order was shipped long before.
+ */
+function withdrawAfterCancelHook(options: ChannelConnectorPluginOptions): PluginHookRegistration {
+  return {
+    key: "orders.afterStatusChange",
+    async handler(args: unknown) {
+      const request = parseCancelRequest(args);
+      if (request === null || request.reason === CHANNEL_ORDER_CANCELLED_REASON || !hasHookContext(args)) return;
+      const { context } = args;
+      const service = new ChannelConnectorService(context.db, context.services, options);
+      await service.withdrawRemoteOrders(
+        resolveOrgIdForCommerce(context.actor, context.commerceConfig),
+        request.orderId,
+        { reason: storeCancelReason(request.reason), staffNote: `Cancelled on the marketplace${request.reason ? ` (${request.reason})` : ""}.` },
+      );
+    },
+  };
+}
+
 export function buildHooks(options: ChannelConnectorPluginOptions): PluginHookRegistration[] {
-  return [cancelAtStoreHook(options), {
+  return [cancelAtStoreHook(options), withdrawAfterCancelHook(options), {
     key: "checkout.beforePayment",
     async handler(args: unknown) {
       const { data, context } = args as {

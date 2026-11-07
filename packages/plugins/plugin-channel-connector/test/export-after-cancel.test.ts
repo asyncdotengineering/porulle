@@ -229,4 +229,46 @@ describe("an order cancelled while it is being sent to a store", () => {
     const failed = await service.listFailedExports(TEST_ORG_ID);
     expect(failed.ok && failed.value.map((item) => item.orderId)).toContain(orderId);
   });
+
+  /** The whole push (claim, store call, record, confirm) runs after the cancel's store step and before its commit. */
+  async function pushInsideCancelWindow(store: keyof typeof stores): Promise<string> {
+    const orderId = await paidOrder(store);
+    const gate = holdCancelCommit();
+    const cancelled = cancel(orderId);
+    await gate.reached.wait;
+    await runJobs();
+    expect(await exportOf(orderId)).toMatchObject({ state: "confirmed", remoteOrderId: `mock-order-${orderId}` });
+    gate.release.open();
+    expect(await cancelled).toBe(true);
+    return orderId;
+  }
+
+  it("E6: a push that claims and records entirely inside the cancel's window is cancelled at the store after the commit", async () => {
+    const orderId = await pushInsideCancelWindow("cancelling");
+    expect(cancelCalls.filter((call) => call.remoteId === `mock-order-${orderId}`)).toHaveLength(1);
+    expect(await exportOf(orderId)).toMatchObject({ state: "abandoned" });
+
+    // At a store that cannot cancel, the export is left failed for an operator rather than confirmed.
+    const stranded = await pushInsideCancelWindow("noCancel");
+    const row = await exportOf(stranded);
+    expect(row).toMatchObject({ state: "failed", failureKind: "definitive" });
+    expect(row?.lastError).toContain(`mock-order-${stranded}`);
+  });
+
+  it("E7: at a store that cannot cancel, a push that finds the order closed when it records is left failed", async () => {
+    const orderId = await paidOrder("noCancel");
+    const gate = holdCancelCommit();
+    const cancelled = cancel(orderId);
+    await gate.reached.wait;
+    const push = holdPush(orderId);
+    const jobs = runJobs();
+    await push.started.wait;
+    gate.release.open();
+    expect(await cancelled).toBe(true);
+    push.release.open();
+    await jobs;
+    const row = await exportOf(orderId);
+    expect(row).toMatchObject({ state: "failed", failureKind: "definitive", remoteOrderId: `mock-order-${orderId}` });
+    expect(row?.lastError).toContain(`mock-order-${orderId}`);
+  });
 });
