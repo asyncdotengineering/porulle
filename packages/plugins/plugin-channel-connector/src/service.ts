@@ -712,6 +712,14 @@ export function canExportTransition(from: ExportState, to: ExportState): boolean
   return exportTransitions[from].includes(to);
 }
 
+/**
+ * The export's order is not cancelled or refunded. Carried by the writes that send an order (the
+ * claim, and recording what the store made), so a close that committed first is always seen: a read
+ * before them could be stale by the time the store is called.
+ */
+const exportOrderOpen = sql`not exists (select 1 from ${orders} where ${orders.id} = ${channelOrderExports.orderId} and ${orders.status} in ('cancelled', 'refunded'))`;
+const ORDER_CLOSED = "ORDER_CLOSED";
+
 // Catalog pushes recur; confirmed/failed rows re-arm through exported, and rows with nothing to push resolve directly.
 const catalogPushTransitions: Record<CatalogPushState, readonly CatalogPushState[]> = {
   pending: ["exported", "confirmed", "abandoned"],
@@ -5515,10 +5523,17 @@ export class ChannelConnectorService {
           eq(channelOrderExports.organizationId, orgId),
           eq(channelOrderExports.id, exportId),
           eq(channelOrderExports.state, current.state),
+          toState === "exported" ? exportOrderOpen : undefined,
         ))
         .returning();
       const updated = updatedRows[0] as ChannelOrderExport | undefined;
-      if (!updated) return PluginErr("Channel order export changed concurrently.", "CONFLICT");
+      if (!updated) {
+        const [order] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, current.orderId));
+        if (toState === "exported" && (order?.status === "cancelled" || order?.status === "refunded")) {
+          return PluginErr("This order was cancelled or refunded, so it is not sent to a store.", ORDER_CLOSED);
+        }
+        return PluginErr("Channel order export changed concurrently.", "CONFLICT");
+      }
 
       await tx.insert(channelExportEvents).values({
         organizationId: orgId,
@@ -5538,6 +5553,27 @@ export class ChannelConnectorService {
    * goods already on their way. A store with no connector able to cancel is left to its merchant.
    */
   async cancelRemoteOrders(orgId: string, orderId: string, input: ChannelCancelOrderInput): Promise<PluginResult<number>> {
+    // A push still in flight has no store order to cancel yet. Mark it first, so the pusher, whose
+    // record of the store order needs the export still `exported`, takes back what it sends; a push
+    // that recorded first is cancelled below like any other.
+    // ponytail: a push that claims AND records entirely between this hook and core's status commit is
+    // not seen (core holds no lock across them); closing it needs the cancel and the mark in one transaction.
+    const inFlight = "The order was cancelled while it was being sent to the store.";
+    const marked = await this.db
+      .update(channelOrderExports)
+      .set({ state: "failed", failureKind: "definitive", lastError: inFlight, updatedAt: new Date() })
+      .where(and(
+        eq(channelOrderExports.organizationId, orgId),
+        eq(channelOrderExports.orderId, orderId),
+        eq(channelOrderExports.state, "exported"),
+        isNull(channelOrderExports.remoteOrderId),
+      ))
+      .returning({ id: channelOrderExports.id });
+    if (marked.length > 0) {
+      await this.db.insert(channelExportEvents).values(marked.map((row) => ({
+        organizationId: orgId, exportId: row.id, fromState: "exported", toState: "failed", reason: inFlight, changedBy: "system",
+      })));
+    }
     const exports = await this.db
       .select({ storeId: channelOrderExports.storeId, remoteOrderId: channelOrderExports.remoteOrderId })
       .from(channelOrderExports)
@@ -5820,7 +5856,11 @@ export class ChannelConnectorService {
         requireUserId(actor),
         "Export attempt started.",
       );
-      if (!exported.ok) return exported;
+      if (!exported.ok) {
+        return exported.code === ORDER_CLOSED
+          ? this.transitionExport(orgId, created.value.id, "abandoned", requireUserId(actor), "The order was cancelled or refunded before it was sent.")
+          : exported;
+      }
     }
 
     await this.db
@@ -5850,17 +5890,39 @@ export class ChannelConnectorService {
       return failed;
     }
 
-    await this.db
+    const remote = { remoteOrderId: pushed.value.remoteOrderId, remoteUrl: pushed.value.remoteUrl ?? null, updatedAt: new Date() };
+    const recorded = await this.db
       .update(channelOrderExports)
-      .set({
-        remoteOrderId: pushed.value.remoteOrderId,
-        remoteUrl: pushed.value.remoteUrl ?? null,
-        updatedAt: new Date(),
-      })
+      .set(remote)
       .where(and(
         eq(channelOrderExports.organizationId, orgId),
         eq(channelOrderExports.id, created.value.id),
+        eq(channelOrderExports.state, "exported"),
+        exportOrderOpen,
+      ))
+      .returning({ id: channelOrderExports.id });
+    if (recorded.length === 0) {
+      // Cancelled or refunded while the store was being called: the store must not keep the order.
+      await this.db.update(channelOrderExports).set(remote).where(and(
+        eq(channelOrderExports.organizationId, orgId),
+        eq(channelOrderExports.id, created.value.id),
       ));
+      const cancelled = connector.cancelOrder
+        ? await connector.cancelOrder(store as ChannelStore, remote.remoteOrderId, { reason: "other", staffNote: "Cancelled on the marketplace while it was being sent." })
+        : null;
+      if (cancelled?.ok) {
+        return this.transitionExport(orgId, created.value.id, "abandoned", requireUserId(actor), `The order closed while it was being sent; store order ${remote.remoteOrderId} was cancelled.`);
+      }
+      const reason = `The order closed while it was being sent, and store order ${remote.remoteOrderId} could not be cancelled (${cancelled ? cancelled.error.message : "this store cannot cancel orders"}). Cancel it at the store.`;
+      const moved = await this.transitionExport(orgId, created.value.id, "failed", requireUserId(actor), reason, "definitive");
+      if (moved.ok) return moved;
+      // Already `failed`: the cancel marked it in flight. Only the reason is new.
+      await this.db.update(channelOrderExports).set({ lastError: reason, failureKind: "definitive", updatedAt: new Date() }).where(and(
+        eq(channelOrderExports.organizationId, orgId),
+        eq(channelOrderExports.id, created.value.id),
+      ));
+      return this.getExport(orgId, created.value.id);
+    }
 
     const remoteStatus = await connector.fetchOrderStatus(
       store as ChannelStore,
