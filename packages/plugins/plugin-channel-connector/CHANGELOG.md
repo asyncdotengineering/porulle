@@ -1,5 +1,14 @@
 # @porulle/plugin-channel-connector
 
+## 0.82.1
+
+### Patch Changes
+
+- [#195](https://github.com/asyncdotengineering/porulle/pull/195) [`d23a2c5`](https://github.com/asyncdotengineering/porulle/commit/d23a2c58c0fa436cdd8ea181b06e0cb1cecff544) Thanks [@octalpixel](https://github.com/octalpixel)! - An order cancelled while it is being sent to a store no longer stays at the store. The push used to check that the order was open only when the job started, and a shopper's cancel that landed while the push was in flight found no store order to cancel, so the store kept, and could ship, an order the shopper had been refunded for. Now the claim on the export and the write that records the store's order both carry the "order not cancelled or refunded" check in the same statement; the cancel marks an export still being sent as `failed` before it cancels at the store; and a push that finds the order closed when it comes back cancels the store order it just made (export `abandoned`). A store whose connector cannot cancel, or refuses, leaves the export `failed` (definitive) with the store order named, on the failed-exports list for an operator. A push that claims and records entirely between the cancel's store step and its commit is taken back by a new `orders.afterStatusChange` hook once the cancel has committed; a store order cancelled at the store now leaves its export `abandoned`, which is how a second run knows to skip it, and an export can move from `confirmed` to `failed` when the store cannot cancel. An operator retry of a closed order's export is refused.
+
+- Updated dependencies []:
+  - @porulle/core@0.82.1
+
 ## 0.82.0
 
 ### Minor Changes
