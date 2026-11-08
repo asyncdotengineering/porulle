@@ -1,5 +1,11 @@
 # @porulle/core
 
+## 0.83.0
+
+### Minor Changes
+
+- [#196](https://github.com/asyncdotengineering/porulle/pull/196) [`ee99129`](https://github.com/asyncdotengineering/porulle/commit/ee99129d60d33e9832977d0818f3d0d2621541af) Thanks [@octalpixel](https://github.com/octalpixel)! - Breaking: Add `auth.extraAuthSchema`, `auth.jwt`, and `auth.suppressedAuthPaths` so consumer Better Auth plugins (for example `@better-auth/mcp`) can merge plugin-owned Drizzle tables, forward jwt() options, and suppress extra auth paths without patching core. OAuth provider tables are no longer duplicated in core's auth-schema — generate them with `@better-auth/cli` in the consumer app. Bump better-auth to 1.7.18 and drop `account.issuer` (removed upstream).
+
 ## 0.82.1
 
 ## 0.82.0
