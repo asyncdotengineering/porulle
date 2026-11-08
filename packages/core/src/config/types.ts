@@ -14,6 +14,7 @@ import type {
   JobProcessingOrder,
   TaskDefinition,
 } from "../kernel/jobs/types.js";
+import type { JwtPluginOptions } from "../auth/jwt-plugin-options.js";
 
 /** Better Auth's own options type, read off the function so no named export is required. */
 type BetterAuthOptions = Parameters<typeof betterAuth>[0];
@@ -269,6 +270,20 @@ export interface AuthConfig {
    * Appended to the core plugin list (organization, bearer, jwt, etc.).
    */
   extraAuthPlugins?: unknown[];
+  /**
+   * Extra Drizzle table definitions for plugin-owned auth models (for example
+   * `oauth_*` tables from `npx @better-auth/cli generate`). Merged into the
+   * schema passed to the drizzle adapter in `createAuth` and into schema push
+   * when `databaseAdapter.autoMigrate` is set.
+   */
+  extraAuthSchema?: Record<string, unknown>;
+  /** Options passed into core's built-in `jwt()` plugin call. */
+  jwt?: JwtPluginOptions;
+  /**
+   * Additional Better Auth paths refused via `disabledPaths`, alongside core's
+   * suppressed session-token routes (`/list-sessions`, `/revoke-session`).
+   */
+  suppressedAuthPaths?: readonly string[];
   /**
    * When true (and NODE_ENV === "test"), the `x-test-actor` header may inject
    * a trusted actor for integration tests. Default false.
