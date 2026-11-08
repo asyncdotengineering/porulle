@@ -10,6 +10,7 @@ import { getAuthTables } from "better-auth/db";
 import type { BetterAuthOptions } from "better-auth";
 import { apiKey } from "@better-auth/api-key";
 import { organization, twoFactor, phoneNumber, jwt, bearer } from "better-auth/plugins";
+import type { AuthConfig } from "../config/types.js";
 import * as authSchema from "./auth-schema.js";
 
 /**
@@ -18,23 +19,41 @@ import * as authSchema from "./auth-schema.js";
  * chooses, so the guard compares against the maximal table set: a column that
  * only `twoFactor` needs is still a column this package must declare.
  */
-export const AUTH_SCHEMA_GUARD_OPTIONS = {
-  plugins: [
-    organization({ roles: {} }),
-    bearer(),
-    jwt(),
-    twoFactor({ issuer: "porulle-auth-schema-guard" }),
-    apiKey(),
-    phoneNumber(),
-  ],
-  user: {
-    additionalFields: {
-      vendorId: { type: "string", required: false },
-      posOperatorPin: { type: "string", required: false },
-      dateOfBirth: { type: "string", required: false },
-    },
+const AUTH_SCHEMA_GUARD_USER = {
+  additionalFields: {
+    vendorId: { type: "string", required: false },
+    posOperatorPin: { type: "string", required: false },
+    dateOfBirth: { type: "string", required: false },
   },
-} satisfies BetterAuthOptions;
+} satisfies BetterAuthOptions["user"];
+
+/**
+ * Better Auth options for schema parity checks when a consumer enables extra
+ * plugins (for example `@better-auth/mcp`) and supplies matching Drizzle tables
+ * in `auth.extraAuthSchema`.
+ */
+export function buildAuthSchemaGuardOptions(
+  auth?: Pick<AuthConfig, "jwt" | "extraAuthPlugins">,
+): BetterAuthOptions {
+  return {
+    plugins: [
+      organization({ roles: {} }),
+      bearer(),
+      jwt(auth?.jwt ?? {}),
+      twoFactor({ issuer: "porulle-auth-schema-guard" }),
+      apiKey(),
+      phoneNumber(),
+      ...((auth?.extraAuthPlugins ?? []) as NonNullable<
+        BetterAuthOptions["plugins"]
+      >),
+    ],
+    user: AUTH_SCHEMA_GUARD_USER,
+  };
+}
+
+/** Default guard options — core plugins only, no consumer extensions. */
+export const AUTH_SCHEMA_GUARD_OPTIONS =
+  buildAuthSchemaGuardOptions() satisfies BetterAuthOptions;
 
 /**
  * Drizzle tables keyed by the SQL table name they declare, so the guard walks
@@ -42,13 +61,20 @@ export const AUTH_SCHEMA_GUARD_OPTIONS = {
  * remember to extend. A hand-maintained model list is how `jwks.alg` shipped
  * missing while this guard passed.
  */
-function drizzleTablesByName(): Map<string, PgTable> {
+function drizzleTablesByName(
+  extraAuthSchema?: Record<string, unknown>,
+): Map<string, PgTable> {
   const byName = new Map<string, PgTable>();
-  for (const value of Object.values(authSchema)) {
-    try {
-      byName.set(getTableName(value as PgTable), value as PgTable);
-    } catch {
-      // Not a Drizzle table (type export, index helper) — skip.
+  const modules = [authSchema, extraAuthSchema ?? {}] as const;
+  for (const module of modules) {
+    for (const [exportKey, value] of Object.entries(module)) {
+      try {
+        const table = value as PgTable;
+        byName.set(getTableName(table), table);
+        byName.set(exportKey, table);
+      } catch {
+        // Not a Drizzle table — skip.
+      }
     }
   }
   return byName;
@@ -83,10 +109,11 @@ export type AuthSchemaParityMismatch = {
  */
 export function findAuthSchemaParityMismatches(
   options: BetterAuthOptions = AUTH_SCHEMA_GUARD_OPTIONS,
+  extraAuthSchema?: Record<string, unknown>,
 ): AuthSchemaParityMismatch[] {
   const mismatches: AuthSchemaParityMismatch[] = [];
   const authTables = getAuthTables(options);
-  const byName = drizzleTablesByName();
+  const byName = drizzleTablesByName(extraAuthSchema);
 
   for (const [model, tableDef] of Object.entries(authTables)) {
     if (!tableDef) continue;
@@ -131,8 +158,9 @@ export function findAuthSchemaParityMismatches(
 
 export function assertAuthSchemaParity(
   options: BetterAuthOptions = AUTH_SCHEMA_GUARD_OPTIONS,
+  extraAuthSchema?: Record<string, unknown>,
 ): void {
-  const mismatches = findAuthSchemaParityMismatches(options);
+  const mismatches = findAuthSchemaParityMismatches(options, extraAuthSchema);
   if (mismatches.length === 0) return;
 
   const detail = mismatches

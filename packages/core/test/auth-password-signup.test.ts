@@ -56,11 +56,11 @@ describe("password sign-up after pushSchema (better-auth account columns)", () =
     expect(result.user?.email).toBe(email);
 
     const rows = await db
-      .select({ issuer: account.issuer, accountId: account.accountId })
+      .select({ providerId: account.providerId, accountId: account.accountId })
       .from(account)
       .where(eq(account.userId, result.user.id));
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.issuer).toBe("local:credential");
+    expect(rows[0]?.providerId).toBe("credential");
     expect(rows[0]?.accountId).toBe(result.user.id);
   });
 });

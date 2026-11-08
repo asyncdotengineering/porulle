@@ -26,6 +26,27 @@ import type { CommerceConfig } from "../../config/types.js";
 import { unwrapDb } from "./adapter.js";
 import * as schema from "./schema.js";
 
+function mergePluginSchemas(
+  merged: Record<string, unknown>,
+  coreKeys: Set<string>,
+  pluginSchema?: Record<string, unknown>,
+): void {
+  if (!pluginSchema) return;
+  for (const [key, value] of Object.entries(pluginSchema)) {
+    if (coreKeys.has(key)) {
+      throw new Error(
+        `Auth schema name collision: "${key}" already exists in core schema`,
+      );
+    }
+    if (key in merged) {
+      throw new Error(
+        `Auth schema name collision: "${key}" is defined more than once`,
+      );
+    }
+    merged[key] = value;
+  }
+}
+
 /**
  * Returns the combined Drizzle schema object with all table definitions.
  * Use this in your own drizzle.config.ts or for programmatic schema inspection.
@@ -41,24 +62,13 @@ export function getSchema() {
 export function buildSchema(config?: CommerceConfig): Record<string, unknown> {
   const merged: Record<string, unknown> = { ...schema };
 
+  const coreKeys = new Set(Object.keys(schema));
+  mergePluginSchemas(merged, coreKeys, config?.auth?.extraAuthSchema);
+
   if (!config?.customSchemas?.length) return merged;
 
-  const coreKeys = new Set(Object.keys(schema));
-
   for (const pluginSchema of config.customSchemas) {
-    for (const [key, value] of Object.entries(pluginSchema)) {
-      if (coreKeys.has(key)) {
-        throw new Error(
-          `Plugin schema name collision: "${key}" already exists in core schema`,
-        );
-      }
-      if (key in merged) {
-        throw new Error(
-          `Plugin schema name collision: "${key}" is defined by multiple plugins`,
-        );
-      }
-      merged[key] = value;
-    }
+    mergePluginSchemas(merged, coreKeys, pluginSchema);
   }
 
   return merged;

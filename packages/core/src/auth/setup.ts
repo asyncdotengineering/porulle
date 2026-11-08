@@ -11,6 +11,24 @@ import { SUPPRESSED_AUTH_PATH_LIST } from "./suppressed-auth-paths.js";
 
 type BetterAuthDbProvider = "pg";
 
+function drizzleAuthSchema(
+  extra?: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!extra || Object.keys(extra).length === 0) {
+    return authSchema as Record<string, unknown>;
+  }
+  return { ...authSchema, ...extra };
+}
+
+function disabledAuthPaths(
+  extra?: readonly string[],
+): readonly string[] {
+  if (!extra?.length) {
+    return SUPPRESSED_AUTH_PATH_LIST;
+  }
+  return [...SUPPRESSED_AUTH_PATH_LIST, ...extra];
+}
+
 function resolveAuthDbProvider(provider: string): BetterAuthDbProvider {
   if (provider === "postgres" || provider === "postgresql" || provider === "pg") return "pg";
   throw new Error(
@@ -88,7 +106,7 @@ export function createAuth(
       roles: (config.auth?.roles ?? {}) as unknown as Record<string, Role | undefined>,
     }),
     bearer(),
-    jwt(),
+    jwt(config.auth?.jwt ?? {}),
   ];
 
   // Requiring a second factor while the plugin that enrols one is off would lock
@@ -158,10 +176,10 @@ export function createAuth(
       // the router's own onRequest, before rate limiting and before any plugin
       // hook, so no mount point or config reaches them. See
       // ./suppressed-auth-paths.ts for the per-path argument.
-      disabledPaths: [...SUPPRESSED_AUTH_PATH_LIST],
+      disabledPaths: [...disabledAuthPaths(config.auth?.suppressedAuthPaths)],
       database: drizzleAdapter(db.db as unknown as Record<string, unknown>, {
         provider: resolveAuthDbProvider(db.provider),
-        schema: authSchema,
+        schema: drizzleAuthSchema(config.auth?.extraAuthSchema),
       }),
       // Customer profile creation is handled lazily by CustomerService.getByUserId()
       // which calls getOrCreateByUserId() on first access (checkout, /api/me/profile).
