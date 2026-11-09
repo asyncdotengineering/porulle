@@ -25,6 +25,7 @@ import { resolveOrgIdForCommerce } from "../../../auth/org.js";
 import { makeDeterministicId, makeIdempotencyScope } from "../../../utils/id.js";
 import type { ShippingAddress } from "../../../modules/shipping/calculator.js";
 import type { Actor } from "../../../auth/types.js";
+import { describeError } from "../../../utils/describe-error.js";
 
 /**
  * SEC-07 — resolve the customer profile a checkout order is attributed to.
@@ -390,7 +391,7 @@ export function checkoutRoutes(kernel: Kernel) {
         (releaseError: unknown) => {
           console.error("[checkout] Failed to release cart claim:", {
             cartId: body.cartId,
-            error: releaseError instanceof Error ? releaseError.message : String(releaseError),
+            error: describeError(releaseError),
           });
         },
       );
@@ -399,8 +400,7 @@ export function checkoutRoutes(kernel: Kernel) {
       const realMessage = rawMessage === "[object ErrorEvent]"
         ? `Checkout stage "${pipelineStage}" failed: ${rawMessage}`
         : rawMessage;
-      const realStack = error instanceof Error ? error.stack : undefined;
-      console.error("[checkout] Pipeline failed:", { message: realMessage, stack: realStack, code: (error as Record<string, unknown>)?.code });
+      console.error("[checkout] Pipeline failed:", { stage: pipelineStage, error: describeError(error) });
 
       const message = isCommerceError(error)
         ? error.message

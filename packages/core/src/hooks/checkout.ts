@@ -14,6 +14,7 @@ import {
   initiateFulfillmentStep,
   sendConfirmationStep,
 } from "./checkout-completion.js";
+import { describeError } from "../utils/describe-error.js";
 
 export interface OrderResult {
   id: string;
@@ -656,7 +657,7 @@ export const completeCheckout: AfterHook<OrderResult> = async ({
       } catch (statusError) {
         context.logger.error(
           `Failed to update order ${order.id} status to cancelled after checkout failure.`,
-          { statusError },
+          { error: describeError(statusError) },
         );
       }
     }
