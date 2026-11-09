@@ -284,8 +284,6 @@ export type {
 } from "./kernel/compensation/types.js";
 
 
-export type { CartItemMatcher } from "./modules/cart/matcher.js";
-export { defaultCartItemMatcher } from "./modules/cart/matcher.js";
 
 
 

@@ -36,7 +36,6 @@ import type {
   UpdateCartItemInput,
 } from "./schemas.js";
 
-import { defaultCartItemMatcher, type CartItemMatcher } from "./matcher.js";
 
 export interface CartServiceDeps {
   repository: CartRepository;
@@ -45,7 +44,6 @@ export interface CartServiceDeps {
   config: CommerceConfig;
   services: Record<string, unknown>;
   database: DatabaseAdapter;
-  cartItemMatcher?: CartItemMatcher;
 }
 
 type CartAddBeforeHook = BeforeHook<AddCartItemInput>;
@@ -275,72 +273,45 @@ export class CartService {
       context,
     );
 
-    // CartItemMatcher: deduplicate by merging quantity into existing matching item
-    const matcher = this.deps.cartItemMatcher ?? defaultCartItemMatcher;
-    const existingItems = await this.repo.findLineItemsByCartId(
-      input.cartId,
-      ctx,
-    );
-    const match = existingItems.find((existing) =>
-      matcher({
-        existingItem: existing,
-        newItem: {
-          ...processed,
-          variantId: processed.variantId ?? null,
-        },
-      }),
-    );
-
-    let item: CartLineItem;
-    if (match) {
-      const updated = await this.repo.updateLineItem(
-        match.id,
-        { quantity: match.quantity + quantity },
-        ctx,
-      );
-      item = updated!;
-    } else {
-      // A new line needs a price, and a price the system cannot determine is refused rather than
-      // invented. This used to read `processed.unitPriceSnapshot ?? 1000`: a silent default in a
-      // money path, which nothing in the response, the logs or the schema disclosed. An integrator
-      // found it by comparing a deployed cart reading 1000 against a catalog priced 14500-22800.
-      //
-      // A hook still wins when it supplies one, so bespoke pricing keeps its seam; otherwise the
-      // pricing step answers — the SAME step `resolveCurrentPrices` uses at checkout, so a cart and
-      // its order agree by construction rather than by an integrator remembering to install a hook.
-      const currency = processed.currency ?? cart.currency;
-      let unitPriceSnapshot = processed.unitPriceSnapshot;
-      if (unitPriceSnapshot === undefined) {
-        const resolved = await this.resolveUnitPrice(
-          {
-            entityId: processed.entityId,
-            currency,
-            quantity,
-            ...(processed.variantId != null
-              ? { variantId: processed.variantId }
-              : {}),
-          },
-          actor ?? null,
-          ctx,
-        );
-        if (!resolved.ok) return resolved;
-        unitPriceSnapshot = resolved.value;
-      }
-      item = await this.repo.createLineItem(
+    // A price the system cannot determine is refused rather than invented. This used to read
+    // `processed.unitPriceSnapshot ?? 1000`: a silent default in a money path, which nothing in the response, the logs or the
+    // schema disclosed. A hook still wins when it supplies one, so bespoke pricing keeps its seam; otherwise the pricing step
+    // answers — the SAME step `resolveCurrentPrices` uses at checkout, so a cart and its order agree by construction. A line
+    // that already exists keeps the snapshot it was added with.
+    const currency = processed.currency ?? cart.currency;
+    let unitPriceSnapshot = processed.unitPriceSnapshot;
+    if (unitPriceSnapshot === undefined) {
+      const resolved = await this.resolveUnitPrice(
         {
-          cartId: input.cartId,
           entityId: processed.entityId,
-          quantity,
-          unitPriceSnapshot,
           currency,
-          metadata: processed.metadata ?? {},
-          ...(processed.variantId !== undefined
+          quantity,
+          ...(processed.variantId != null
             ? { variantId: processed.variantId }
             : {}),
         },
+        actor ?? null,
         ctx,
       );
+      if (!resolved.ok) return resolved;
+      unitPriceSnapshot = resolved.value;
     }
+    // One line per variant: the quantity is added in SQL to the line as it stands (cart_line_items_cart_entity_variant_unique),
+    // so a concurrent add or a payment that settled the line in between is never overwritten from a stale read.
+    const item = await this.repo.addToLine(
+      {
+        cartId: input.cartId,
+        entityId: processed.entityId,
+        quantity,
+        unitPriceSnapshot,
+        currency,
+        metadata: processed.metadata ?? {},
+        ...(processed.variantId !== undefined
+          ? { variantId: processed.variantId }
+          : {}),
+      },
+      ctx,
+    );
 
     await runAfterHooks(afterHooks, null, item, "addItem", context);
 
@@ -520,9 +491,9 @@ export class CartService {
       ctx,
     );
 
-    // Move items from source to target
+    // Move items from source to target, onto the target's line for the same variant when it has one
     for (const item of sourceItems) {
-      await this.repo.createLineItem(
+      await this.repo.addToLine(
         {
           cartId: targetCartId,
           entityId: item.entityId,
@@ -734,7 +705,7 @@ export class CartService {
 
   /**
    * Merges a guest (source) cart into an authenticated (target) cart on login.
-   * Uses addItem() internally so CartItemMatcher deduplication is applied.
+   * Uses addItem() internally, so each item lands on the target line for its variant.
    * The source cart's secret must be provided for access control.
    */
   async mergeCarts(
