@@ -16,6 +16,7 @@ import {
   getJobsReaperIntervalMs,
   runStaleJobReaper,
 } from "./reaper.js";
+import { describeError } from "../../utils/describe-error.js";
 
 /**
  * PostgreSQL-backed job queue adapter using the application's own database.
@@ -46,7 +47,7 @@ export class DrizzleJobsAdapter implements ExecutionEngine {
           );
         } catch (error) {
           this.setup.context.logger.error("Stale job reaper failed", {
-            error: error instanceof Error ? error.message : String(error),
+            error: describeError(error),
           });
         }
       }

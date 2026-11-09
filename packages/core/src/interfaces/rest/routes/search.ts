@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Kernel } from "../../../runtime/kernel.js";
 import { searchRoute, suggestRoute } from "../schemas/search.js";
 import { type AppEnv, errorBody, mapErrorToStatus, requirePerm } from "../utils.js";
+import { describeError } from "../../../utils/describe-error.js";
 
 const SAFE_ATTRIBUTE_NAME = /^[A-Za-z0-9_-]+$/;
 
@@ -66,7 +67,7 @@ export function searchRoutes(kernel: Kernel) {
         },
       });
     } catch (error) {
-      console.error("[search] Route handler failed:", error instanceof Error ? error.message : error);
+      console.error("[search] Route handler failed:", describeError(error));
       return c.json({ data: [], meta: { total: 0, page: 1, limit: 20, facets: {} } });
     }
   });
@@ -90,7 +91,7 @@ export function searchRoutes(kernel: Kernel) {
 
       return c.json({ data: result.value });
     } catch (error) {
-      console.error("[search] Suggest route failed:", error instanceof Error ? error.message : error);
+      console.error("[search] Suggest route failed:", describeError(error));
       return c.json({ data: [] });
     }
   });

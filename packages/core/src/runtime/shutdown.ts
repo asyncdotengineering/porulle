@@ -1,4 +1,5 @@
 import type { Logger } from "./logger.js";
+import { describeError } from "../utils/describe-error.js";
 
 /**
  * Sets up graceful shutdown handlers for SIGTERM and SIGINT.
@@ -33,7 +34,7 @@ export function setupGracefulShutdown(opts: {
       logger.info("graceful shutdown complete");
       process.exit(0);
     } catch (err) {
-      logger.error({ err }, "error during shutdown");
+      logger.error({ error: describeError(err) }, "error during shutdown");
       process.exit(1);
     }
   }

@@ -1,3 +1,4 @@
+import { describeError } from "../utils/describe-error.js";
 /**
  * Service method observability via ES Proxy.
  *
@@ -52,7 +53,7 @@ export function withTiming<T extends object>(
           // Synchronous throw
           const durationMs = Math.round(performance.now() - start);
           logger.error(
-            { service: serviceName, method: methodName, durationMs, err },
+            { service: serviceName, method: methodName, durationMs, error: describeError(err) },
             `${serviceName}.${methodName} failed (${durationMs}ms)`,
           );
           throw err;
@@ -74,7 +75,7 @@ export function withTiming<T extends object>(
             (err) => {
               const durationMs = Math.round(performance.now() - start);
               logger.error(
-                { service: serviceName, method: methodName, durationMs, err },
+                { service: serviceName, method: methodName, durationMs, error: describeError(err) },
                 `${serviceName}.${methodName} failed (${durationMs}ms)`,
               );
               throw err;

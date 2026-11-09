@@ -2,6 +2,7 @@ import { eq, and, lt } from "drizzle-orm";
 import type { Actor } from "../../auth/types.js";
 import { orders } from "./schema.js";
 import type { TaskDefinition } from "../../kernel/jobs/types.js";
+import { describeError } from "../../utils/describe-error.js";
 
 function systemActorForOrg(organizationId: string): Actor {
   return {
@@ -86,7 +87,7 @@ export const staleOrderCleanupTask: TaskDefinition<
             placedAt: order.placedAt,
           });
         } catch (error) {
-          ctx.logger.error(`Failed to cancel stale order ${order.orderNumber}`, { error });
+          ctx.logger.error(`Failed to cancel stale order ${order.orderNumber}`, { error: describeError(error) });
         }
       }
     }

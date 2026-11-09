@@ -24,6 +24,7 @@ import { markRoutePermissionGuard } from "../interfaces/rest/utils.js";
 import { isStrictOrgResolution } from "../auth/strict-org-resolution.js";
 import { runWithPluginDatabaseScope } from "../kernel/database/plugin-db-context.js";
 import { buildConfigRoutesKernel } from "../kernel/plugin/manifest.js";
+import { describeError } from "../utils/describe-error.js";
 
 type ServerEnv = {
   Variables: {
@@ -495,7 +496,7 @@ export async function createServer(config: CommerceConfig) {
       const result = await runJobs(queue, limit);
       return c.json({ data: result });
     } catch (err) {
-      logger.error({ err }, "Job runner endpoint failed");
+      logger.error({ error: describeError(err) }, "Job runner endpoint failed");
       return c.json({ error: { code: "INTERNAL_ERROR", message: "Job processing failed" } }, 500);
     }
   }));
@@ -514,7 +515,7 @@ export async function createServer(config: CommerceConfig) {
       try {
         await runJobs();
       } catch (err) {
-        logger.error({ err }, "Job runner iteration failed");
+        logger.error({ error: describeError(err) }, "Job runner iteration failed");
       }
     }, intervalMs);
 

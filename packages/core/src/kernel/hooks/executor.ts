@@ -2,6 +2,7 @@ import type { AfterHook, BeforeHook, HookContext, HookOperation } from "./types.
 import type { PluginDb } from "../database/plugin-types.js";
 import { deferAfterCommit } from "./deferred.js";
 import { reportHookFailure } from "./failures.js";
+import { describeError } from "../../utils/describe-error.js";
 
 export interface HookError {
   hookName: string;
@@ -127,7 +128,7 @@ export async function runBeforeHooks<T>(
       );
     } catch (error) {
       context.logger.error(`Before-hook "${hookName}" failed during ${operation}`, {
-        error: error instanceof Error ? error.message : String(error),
+        error: describeError(error),
         requestId: context.requestId,
       });
       throw actionableHookError(error, hookName); // Before hooks MUST succeed with actionable context.
@@ -171,7 +172,7 @@ export async function runAfterHooks<TResult, TData = TResult>(
         errors.push({ hookName, message });
         reportHookFailure({ hookName, message, deferred: false });
         context.logger.error(`After-hook "${hookName}" failed`, {
-          error,
+          error: describeError(error),
         });
       }
       continue;
@@ -191,7 +192,7 @@ export async function runAfterHooks<TResult, TData = TResult>(
           deferred: true,
         });
         context.logger.error(`After-commit hook "${hookName}" failed`, {
-          error,
+          error: describeError(error),
         });
       }
     });
@@ -206,7 +207,7 @@ export async function runAfterHooks<TResult, TData = TResult>(
         errors.push({ hookName, message });
         reportHookFailure({ hookName, message, deferred: false });
         context.logger.error(`After-hook "${hookName}" failed`, {
-          error,
+          error: describeError(error),
         });
       }
     }

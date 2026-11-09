@@ -1,6 +1,7 @@
 import { resolveOrgIdForCommerce } from "../../auth/org.js";
 import type { CompensationContext, Step } from "./types.js";
 import type { Result } from "../result.js";
+import { describeError } from "../../utils/describe-error.js";
 
 function errorToRecordPayload(
   err: unknown,
@@ -69,7 +70,7 @@ export async function runCompensationChain<TInput>(
       ctx.hook.logger.error(
         `Compensation chain failed at step "${step.id}". ` +
           `Running ${completed.length} compensation(s).`,
-        { error: originalErr },
+        { error: describeError(originalErr) },
       );
 
       // Compensate in reverse order — most recently completed step first
@@ -81,7 +82,7 @@ export async function runCompensationChain<TInput>(
         } catch (compensateError) {
           ctx.hook.logger.error(
             `Compensation for step "${done.step.id}" failed. Manual review required.`,
-            { compensateError },
+            { error: describeError(compensateError) },
           );
           if (ctx.failureRepository) {
             try {

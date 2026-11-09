@@ -18,6 +18,7 @@ import type {
 } from "./adapter.js";
 import type { EntityFieldDefinitionResolver } from "../catalog/service.js";
 import { canReadUnpublishedCatalog } from "../catalog/read-policy.js";
+import { describeError } from "../../utils/describe-error.js";
 
 interface SearchServiceDeps {
   catalogRepository: CatalogRepository;
@@ -413,7 +414,7 @@ export class SearchService {
     } catch (error) {
       // In-memory search is best-effort; surface error as empty result
       // rather than crashing the entire request with a 500
-      console.error("[search] In-memory fallback failed:", error instanceof Error ? error.message : error);
+      console.error("[search] In-memory fallback failed:", describeError(error));
       return Ok({ hits: [], total: 0, page, limit, facets: {} });
     }
   }
@@ -464,7 +465,7 @@ export class SearchService {
 
       return Ok(titles);
     } catch (error) {
-      console.error("[search] Suggest fallback failed:", error instanceof Error ? error.message : error);
+      console.error("[search] Suggest fallback failed:", describeError(error));
       return Ok([]);
     }
   }

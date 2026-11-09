@@ -60,6 +60,7 @@ import {
   parseSort,
   requirePerm,
 } from "../utils.js";
+import { describeError } from "../../../utils/describe-error.js";
 
 export function catalogRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
@@ -183,7 +184,7 @@ export function catalogRoutes(kernel: Kernel) {
         },
       });
     } catch (error) {
-      console.error("[catalog] List failed:", error instanceof Error ? error.message : error);
+      console.error("[catalog] List failed:", describeError(error));
       return c.json(errorBody(error), mapErrorToStatus(error));
     }
   });
@@ -222,7 +223,7 @@ export function catalogRoutes(kernel: Kernel) {
 
       return c.json({ data: result.value });
     } catch (error) {
-      console.error("[catalog] Get entity failed:", error instanceof Error ? error.message : error);
+      console.error("[catalog] Get entity failed:", describeError(error));
       return c.json(errorBody(error), mapErrorToStatus(error));
     }
   });

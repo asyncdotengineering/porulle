@@ -5,6 +5,7 @@ import type { JobProcessingOrder, TaskDefinition } from "./types.js";
 import { TaskNonRetryableError } from "./types.js";
 import { createPassThroughTaskStep } from "./step.js";
 import { commerceJobs } from "./schema.js";
+import { describeError } from "../../utils/describe-error.js";
 
 export interface RunPendingJobsArgs {
   db: DrizzleDatabase;
@@ -252,7 +253,7 @@ export async function runPendingJobs(
         logger.error("Job handler failed", {
           taskSlug: job.taskSlug,
           jobId: job.id,
-          error: err instanceof Error ? err.message : String(err),
+          error: describeError(err),
         });
         const attempts = job.attempts + 1;
         const maxAttempts = job.maxAttempts;

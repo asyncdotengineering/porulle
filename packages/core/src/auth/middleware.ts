@@ -8,6 +8,7 @@ import { isCredentialRejection } from "./auth-failure.js";
 import { isStrictOrgResolution } from "./strict-org-resolution.js";
 import { isIdentityFreeRoute } from "./identity-free-routes.js";
 import { CommerceTwoFactorRequiredError } from "../kernel/errors.js";
+import { describeError } from "../utils/describe-error.js";
 
 function emptyToNull(value: string | null | undefined): string | null {
   return value == null || value === "" ? null : value;
@@ -257,7 +258,7 @@ export function authMiddleware(
           if (isStrictOrgResolution(config)) {
             const actorCtx = c.get("actor");
             console.error(
-              { err, actor: actorCtx ?? null, path: c.req.path, method: c.req.method },
+              { error: describeError(err), actor: actorCtx ?? null, path: c.req.path, method: c.req.method },
               "storeResolver failed while resolving organization (strict org resolution)",
             );
             const message =
