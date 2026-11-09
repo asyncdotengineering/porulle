@@ -128,7 +128,7 @@ describe("cart – happy path (PGlite-backed)", () => {
     const fetched = await kernel.services.cart.getById(cart.value.id, actor);
     expect(fetched.ok).toBe(true);
     if (!fetched.ok) return;
-    // CartItemMatcher merges duplicate items: 1 line item with quantity 2
+    // One line per variant: the second add increments the first line
     expect(fetched.value.lineItems).toHaveLength(1);
     expect(fetched.value.lineItems[0]!.quantity).toBe(2);
   });

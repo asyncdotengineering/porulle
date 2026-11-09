@@ -1,4 +1,4 @@
-import { eq, and, lt, desc, isNull, isNotNull } from "drizzle-orm";
+import { eq, and, lt, desc, isNull, isNotNull, sql } from "drizzle-orm";
 import type { TxContext } from "../../../kernel/database/tx-context.js";
 import type {
   DrizzleDatabase,
@@ -209,37 +209,24 @@ export class CartRepository {
       .where(eq(cartLineItems.cartId, cartId));
   }
 
-  async findLineItemByEntity(
-    cartId: string,
-    entityId: string,
-    variantId?: string,
-    ctx?: TxContext,
-  ): Promise<CartLineItem | undefined> {
-    const db = this.getDb(ctx);
-    const conditions = [
-      eq(cartLineItems.cartId, cartId),
-      eq(cartLineItems.entityId, entityId),
-    ];
-
-    if (variantId !== undefined) {
-      conditions.push(eq(cartLineItems.variantId, variantId));
-    }
-
-    const rows = await db
-      .select()
-      .from(cartLineItems)
-      .where(and(...conditions));
-
-    // Filter for exact variantId match
-    return rows.find((r) => r.variantId === (variantId ?? null));
-  }
-
-  async createLineItem(
-    data: CartLineItemInsert,
+  /**
+   * Adds `data.quantity` to the cart's line for this entity and variant, or makes that line: one statement, so the quantity is
+   * incremented in SQL from the row as it stands, never written from an earlier read. An existing line keeps its price snapshot,
+   * currency and metadata.
+   */
+  async addToLine(
+    data: CartLineItemInsert & { quantity: number },
     ctx?: TxContext,
   ): Promise<CartLineItem> {
     const db = this.getDb(ctx);
-    const rows = await db.insert(cartLineItems).values(data).returning();
+    const rows = await db
+      .insert(cartLineItems)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [cartLineItems.cartId, cartLineItems.entityId, cartLineItems.variantId],
+        set: { quantity: sql`${cartLineItems.quantity} + excluded.quantity` },
+      })
+      .returning();
     return rows[0]!;
   }
 

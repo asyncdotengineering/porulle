@@ -1,4 +1,4 @@
-import { index, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { organization } from "../../auth/auth-schema.js";
 import { sellableEntities, variants } from "../catalog/schema.js";
 
@@ -45,4 +45,7 @@ export const cartLineItems = pgTable("cart_line_items", {
   addedAt: timestamp("added_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   index("idx_cart_line_items_cart_id").on(table.cartId),
+  // One line per variant in a cart (a product without variants has a NULL variant, and NULLs count as equal here): an add is an
+  // upsert against this key, so two concurrent adds of one variant make one line and a quantity is never written from a stale read.
+  unique("cart_line_items_cart_entity_variant_unique").on(table.cartId, table.entityId, table.variantId).nullsNotDistinct(),
 ]);
