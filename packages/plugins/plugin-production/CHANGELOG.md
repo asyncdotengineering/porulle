@@ -1,5 +1,12 @@
 # @porulle/plugin-production
 
+## 0.84.1
+
+### Patch Changes
+
+- Updated dependencies [[`b204f7e`](https://github.com/asyncdotengineering/porulle/commit/b204f7ece8a6105df2d779ef0f043e1547b7a2d3)]:
+  - @porulle/core@0.84.1
+
 ## 0.84.0
 
 ### Patch Changes
