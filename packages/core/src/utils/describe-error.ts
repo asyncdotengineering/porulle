@@ -12,7 +12,7 @@ export function describeError(error: unknown, depth = 0): DescribedError {
   const code = typeof fields.code === "string" || typeof fields.code === "number" ? String(fields.code) : undefined;
   // `status` on a fetch-shaped error, `statusCode` on an API call error.
   const status = typeof fields.status === "number" ? fields.status : typeof fields.statusCode === "number" ? fields.statusCode : undefined;
-  const frames = (error.stack ?? "").split("\n").map((line) => line.trim()).filter((line) => line.startsWith("at ")).slice(0, 8);
+  const frames = callFrames(error);
   return {
     name: error.name,
     ...(code === undefined ? {} : { code }),
@@ -20,4 +20,16 @@ export function describeError(error: unknown, depth = 0): DescribedError {
     ...(frames.length === 0 ? {} : { frames }),
     ...(error.cause === undefined || depth >= 3 ? {} : { cause: describeError(error.cause, depth + 1) }),
   };
+}
+
+/**
+ * The `at …` lines of a V8 stack, after its header. The header is `name: message`, and a message can span lines (a provider's
+ * body), one of which may itself begin `at `: so the whole header is cut off first, and a stack that does not begin with it (a
+ * renamed or rewritten error, another engine's format) gives no frames at all rather than a guess.
+ */
+function callFrames(error: Error): string[] {
+  const stack = error.stack ?? "";
+  const header = error.message === "" ? error.name : `${error.name}: ${error.message}`;
+  if (!stack.startsWith(header)) return [];
+  return stack.slice(header.length).split("\n").map((line) => line.trim()).filter((line) => line.startsWith("at ")).slice(0, 8);
 }
