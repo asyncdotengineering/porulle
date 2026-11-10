@@ -53,9 +53,11 @@ export class CustomersRepository {
   }
 
   /**
-   * The auth user's email, when no OTHER customer profile in this organization already holds it
-   * (`customers` is unique on organization + email). Undefined otherwise — the caller then leaves the
-   * profile's email as it is rather than fail the whole profile read on the unique index.
+   * The auth user's email, once VERIFIED, when no OTHER customer profile in this organization already
+   * holds it (`customers` is unique on organization + email). Undefined otherwise — the caller then
+   * leaves the profile's email as it is rather than fail the whole profile read on the unique index.
+   * An unverified address is only what someone typed at sign-up: copying it would let them attach
+   * another person's email to a customer record.
    */
   async claimableUserEmail(
     orgId: string,
@@ -63,8 +65,11 @@ export class CustomersRepository {
     ctx?: TxContext,
   ): Promise<string | undefined> {
     const db = this.getDb(ctx);
-    const [account] = await db.select({ email: user.email }).from(user).where(eq(user.id, userId));
-    if (!account?.email) return undefined;
+    const [account] = await db
+      .select({ email: user.email, emailVerified: user.emailVerified })
+      .from(user)
+      .where(eq(user.id, userId));
+    if (!account?.email || account.emailVerified !== true) return undefined;
     const [holder] = await db
       .select({ userId: customers.userId })
       .from(customers)

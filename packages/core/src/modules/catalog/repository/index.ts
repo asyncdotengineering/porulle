@@ -612,9 +612,10 @@ export class CatalogRepository {
   async listProposedCustomFields(
     organizationId: string,
     pagination: { page: number; limit: number },
-    filter?: { entityType?: string },
+    filter?: { entityType?: string; sourceStoreIds?: string[] },
     ctx?: TxContext,
   ): Promise<{ items: ProposedCustomField[]; total: number }> {
+    if (filter?.sourceStoreIds?.length === 0) return { items: [], total: 0 };
     const db = this.getDb(ctx);
     const page = Math.max(1, pagination.page);
     const limit = Math.max(1, pagination.limit);
@@ -624,6 +625,9 @@ export class CatalogRepository {
     ];
     if (filter?.entityType !== undefined) {
       conditions.push(eq(sellableEntities.type, filter.entityType));
+    }
+    if (filter?.sourceStoreIds !== undefined) {
+      conditions.push(inArray(sellableEntities.sourceStoreId, filter.sourceStoreIds));
     }
     const where = and(...conditions);
     const rows = await db

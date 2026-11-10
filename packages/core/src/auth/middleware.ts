@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from "hono";
 import type { CommerceConfig } from "../config/types.js";
 import type { Actor } from "./types.js";
 import type { AuthInstance } from "./setup.js";
-import { getCustomerPermissions, resolveActor } from "./actor.js";
+import { findMembershipRole, getCustomerPermissions, resolveActor } from "./actor.js";
 import { DEFAULT_ORG_ID } from "./org.js";
 import { isCredentialRejection } from "./auth-failure.js";
 import { isStrictOrgResolution } from "./strict-org-resolution.js";
@@ -10,8 +10,58 @@ import { isIdentityFreeRoute } from "./identity-free-routes.js";
 import { CommerceTwoFactorRequiredError } from "../kernel/errors.js";
 import { describeError } from "../utils/describe-error.js";
 
-function emptyToNull(value: string | null | undefined): string | null {
-  return value == null || value === "" ? null : value;
+function keyMetadata(raw: unknown): Record<string, unknown> | null {
+  if (raw && typeof raw === "object") return raw as Record<string, unknown>;
+  if (typeof raw !== "string") return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+const claim = (meta: Record<string, unknown> | null, field: string): string | undefined =>
+  typeof meta?.[field] === "string" ? meta[field] : undefined;
+
+/**
+ * Who an API key acts as, from facts the server holds: the key's `referenceId` and the `member` table.
+ *
+ * Metadata is written by whoever may create or update the key (Better Auth turns `enableMetadata` on for every
+ * organization-referenced scope here), so a field in it is a CLAIM. A claimed operator or store is accepted only when the
+ * `member` table says that user belongs to that organization; a claim that does not hold refuses the key (`null`).
+ *
+ * - Organization-referenced: the organization is `referenceId`. With no operator the user is `referenceId` too: an
+ *   organization id, which matches no membership, so every vendor guard confines it instead of passing it through.
+ * - User-referenced (POS shift keys): the user is `referenceId`, acting in the claimed store when a member of it, and in
+ *   the default organization when the key claims none.
+ */
+async function apiKeyIdentity(
+  auth: AuthInstance,
+  config: CommerceConfig,
+  key: Record<string, unknown>,
+  configId: string | undefined,
+  defaultOrgId: string,
+): Promise<{ organizationId: string; userId: string } | null> {
+  const referenceId = typeof key.referenceId === "string" && key.referenceId !== "" ? key.referenceId : null;
+  if (referenceId === null) return null;
+  const scopeId = typeof key.configId === "string" ? key.configId : configId;
+  const references = scopeId ? config.auth?.apiKeyScopes?.[scopeId]?.references : undefined;
+  const meta = keyMetadata(key.metadata);
+  const claimedOrganization = claim(meta, "organizationId");
+  const claimedOperator = claim(meta, "operatorId");
+  const isMember = async (userId: string, organizationId: string): Promise<boolean> =>
+    (await findMembershipRole(auth, userId, organizationId)) !== undefined;
+
+  if (references === "organization") {
+    if (claimedOrganization !== undefined && claimedOrganization !== referenceId) return null;
+    if (claimedOperator === undefined) return { organizationId: referenceId, userId: referenceId };
+    return (await isMember(claimedOperator, referenceId)) ? { organizationId: referenceId, userId: claimedOperator } : null;
+  }
+
+  if (claimedOperator !== undefined && claimedOperator !== referenceId) return null;
+  if (claimedOrganization === undefined) return { organizationId: defaultOrgId, userId: referenceId };
+  return (await isMember(referenceId, claimedOrganization)) ? { organizationId: claimedOrganization, userId: referenceId } : null;
 }
 
 
@@ -149,32 +199,12 @@ export function authMiddleware(
           const apiKey = result.key as Record<string, unknown>;
 
           const name = (apiKey.name ?? "API Key") as string;
-          // Read the org (and operator identity) from key metadata when present.
-          // POS shift keys carry { organizationId, operatorId } in metadata so the
-          // operator is scoped to their store WITHOUT any org membership/role
-          // (SEC-16 / R-01). Other keys fall back to the key's organizationId.
-          const rawMeta = apiKey.metadata;
-          const meta =
-            rawMeta && typeof rawMeta === "object"
-              ? (rawMeta as Record<string, unknown>)
-              : typeof rawMeta === "string"
-                ? (() => {
-                    try {
-                      return JSON.parse(rawMeta) as Record<string, unknown>;
-                    } catch {
-                      return null;
-                    }
-                  })()
-                : null;
-          const metaOrg = typeof meta?.organizationId === "string" ? meta.organizationId : undefined;
-          const orgId = (metaOrg ?? apiKey.organizationId ?? defaultOrgId) as string;
-          // No operator and no reference means the key carries no user
-          // identity. Leave it absent rather than substituting a shared
-          // placeholder, which would make every such key look like one person.
-          const userId = emptyToNull(
-            (typeof meta?.operatorId === "string" ? meta.operatorId : undefined) ??
-              (typeof apiKey.referenceId === "string" ? apiKey.referenceId : undefined),
-          );
+          const identity = await apiKeyIdentity(auth, config, apiKey, configId, defaultOrgId);
+          if (identity === null) {
+            const refused = c.json({ error: { code: "UNAUTHORIZED", message: "The presented credential could not be verified." } }, 401);
+            applyAuthenticateChallenge(refused);
+            return refused;
+          }
 
           // Better Auth stores permissions as Record<string, string[]>
           // (e.g. {"catalog":["read","create"]}).  Flatten to the
@@ -198,11 +228,11 @@ export function authMiddleware(
 
           c.set("actor", {
             type: "api_key",
-            userId,
+            userId: identity.userId,
             email: null,
             name,
             vendorId: null,
-            organizationId: orgId,
+            organizationId: identity.organizationId,
             role: "api_key",
             permissions,
           } satisfies Actor);

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { PluginTestApp } from "@porulle/core/testing";
-import { createPluginTestApp, jsonHeaders } from "@porulle/core/testing";
+import { createPluginTestApp, jsonHeaders, TEST_ORG_ID } from "@porulle/core/testing";
+import { member, user } from "@porulle/core/auth-schema";
 import { posAdminActor, posOperatorActor } from "./test-utils.js";
 import { posPlugin } from "../src/index.js";
 
@@ -17,6 +18,10 @@ describe("POS PIN auth runtime (issue #51)", () => {
   beforeAll(async () => {
     const result = await createPluginTestApp(posPlugin());
     app = result.app;
+
+    // A cashier is staff of the store: the shift key acts as them only while they are a member.
+    await result.db.insert(user).values({ id: "pos-operator-1", name: "Cashier", email: "pos-operator-1@test.local", emailVerified: true });
+    await result.db.insert(member).values({ id: "member-pos-operator-1", organizationId: TEST_ORG_ID, userId: "pos-operator-1", role: "staff", createdAt: new Date() });
 
     const res = await app.request("http://localhost/api/pos/terminals", {
       method: "POST",
