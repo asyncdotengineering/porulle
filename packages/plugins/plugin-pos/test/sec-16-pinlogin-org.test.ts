@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { eq } from "@porulle/core/drizzle";
-import { apikey, member, organization } from "@porulle/core/auth-schema";
+import { apikey, member, organization, user } from "@porulle/core/auth-schema";
 import type { PluginTestApp } from "@porulle/core/testing";
 import {createPluginTestApp, jsonHeaders, TEST_ORG_ID, createTestActor } from "@porulle/core/testing";
 import { posAdminActor } from "./test-utils.js";
@@ -44,6 +44,9 @@ describe("SEC-16 — pin-login API key carries operator organization", () => {
       slug: "sec16-store",
       createdAt: new Date(),
     });
+    // The cashier is staff of the store; core accepts the key's store only for a member of it.
+    await db.insert(user).values({ id: requireUserId(storeOperator), name: "SEC-16 Cashier", email: "sec16-cashier@test.local", emailVerified: true });
+    await db.insert(member).values({ id: "member-sec16-cashier", organizationId: STORE_ORG_ID, userId: requireUserId(storeOperator), role: "staff", createdAt: new Date() });
 
     const res = await app.request("http://localhost/api/pos/terminals", {
       method: "POST",
@@ -90,8 +93,8 @@ describe("SEC-16 — pin-login API key carries operator organization", () => {
       .from(apikey)
       .where(eq(apikey.id, apiKeyId!));
     expect(keyRows).toHaveLength(1);
-    // SEC-16/R-01: user-referenced key (no org membership granted); the store
-    // org is carried on metadata and resolves at auth time (verified below).
+    // SEC-16/R-01: user-referenced key; the store org is carried on metadata
+    // and resolves at auth time because the operator is a member (verified below).
     const keyMeta = typeof keyRows[0]!.metadata === "string"
       ? (JSON.parse(keyRows[0]!.metadata as string) as Record<string, unknown>)
       : (keyRows[0]!.metadata as Record<string, unknown> | null);
@@ -99,12 +102,13 @@ describe("SEC-16 — pin-login API key carries operator organization", () => {
     expect(keyMeta?.organizationId).not.toBe(DEFAULT_ORG_ID);
     expect(keyRows[0]!.referenceId).toBe(storeOperator.userId);
 
-    // R-01: PIN login must NOT create any org membership / owner grant.
+    // R-01: PIN login must NOT create any org membership / owner grant: the
+    // cashier's one staff membership is the only row.
     const memberRows = await db
       .select()
       .from(member)
       .where(eq(member.userId, requireUserId(storeOperator)));
-    expect(memberRows).toHaveLength(0);
+    expect(memberRows.map((row) => row.role)).toEqual(["staff"]);
 
     const current = await app.request("http://localhost/api/pos/shifts/current", {
       method: "GET",

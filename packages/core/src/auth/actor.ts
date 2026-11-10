@@ -75,7 +75,7 @@ function toIsoString(value: unknown): string | null {
  * and without re-resolving anything. `findOne` returning null IS the answer for
  * a shopper — one miss, done.
  */
-async function findMembershipRole(
+export async function findMembershipRole(
   auth: AuthInstance,
   userId: string,
   organizationId: string,

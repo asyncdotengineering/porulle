@@ -29,9 +29,10 @@ export function createCustomerPortalRoutes(kernel: Kernel) {
   const router = new OpenAPIHono<AppEnv>();
 
   // Two refusals, because two different callers are being turned away and one
-  // answer cannot serve both. The second clause is also what makes the
-  // `AuthenticatedActor` cast below true: every route under this guard reads
-  // `actor.userId` as a string.
+  // answer cannot serve both. The second refuses every API key, including one
+  // that names a person: a key is not that person's signed-in session. It is
+  // also what makes the `AuthenticatedActor` cast below true: every route under
+  // this guard reads `actor.userId` as a string.
   router.use("*", markRoutePermissionGuard(async (c, next) => {
     const actor = c.get("actor") as Actor | null;
     if (isUnauthenticatedActor(actor)) {
@@ -40,7 +41,7 @@ export function createCustomerPortalRoutes(kernel: Kernel) {
         401,
       );
     }
-    if (!actor?.userId) {
+    if (actor?.type !== "user" || !actor.userId) {
       return c.json(
         {
           error: {

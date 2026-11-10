@@ -1,7 +1,7 @@
 import { eq, and } from "@porulle/core/drizzle";
 import { Ok, Err } from "@porulle/core";
 import type { PluginResult } from "@porulle/core";
-import { user } from "@porulle/core/auth-schema";
+import { member } from "@porulle/core/auth-schema";
 import { posOperatorPins, posPinAttempts, posShifts } from "../schema.js";
 import type { Db, OperatorPin, PinAttempt, Shift } from "../types.js";
 
@@ -79,21 +79,19 @@ export async function verifyPinHash(pin: string, encoded: string): Promise<boole
   return diff === 0;
 }
 
-async function ensureOperatorUser(db: Db, operatorId: string): Promise<void> {
-  // SEC-16/R-01: ensure ONLY a user row exists so a user-referenced API key can
-  // be minted. We create NO org membership and grant NO role — better-auth's
-  // org-referenced keys require owner/admin (a cashier->owner escalation), so
-  // the key is user-referenced and carries the operator's store in metadata,
-  // read back by authMiddleware.
-  const users = await db.select().from(user).where(eq(user.id, operatorId));
-  if (users.length === 0) {
-    await db.insert(user).values({
-      id: operatorId,
-      name: operatorId,
-      email: `${operatorId}@pos.local`,
-      emailVerified: true,
-    });
-  }
+/**
+ * The shift key is user-referenced and names the operator's store in metadata. Core accepts that
+ * store only when the operator is a member of it, so a cashier is staff of the store they sell in:
+ * PIN login refuses anyone else rather than minting a key that cannot act. It creates no membership
+ * and grants no role (SEC-16/R-01: org-referenced keys would need owner/admin).
+ */
+async function isOrganizationMember(db: Db, organizationId: string, userId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: member.id })
+    .from(member)
+    .where(and(eq(member.organizationId, organizationId), eq(member.userId, userId)))
+    .limit(1);
+  return rows.length > 0;
 }
 
 export class PinService {
@@ -278,7 +276,9 @@ export class PinService {
       return Err("PIN login requires the Better Auth instance (plugin ctx.auth) — are routes mounted by createServer?");
     }
 
-    await ensureOperatorUser(this.db, input.operatorId);
+    if (!(await isOrganizationMember(this.db, orgId, input.operatorId))) {
+      return Err("This operator is not a member of the store");
+    }
 
     const ttlSeconds = this.options.credentialTtlSeconds ?? 12 * 3600;
     let created: { key?: string; id?: string };

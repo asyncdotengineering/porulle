@@ -24,6 +24,7 @@ import {
   type SellableAttributeInsert,
   type SellableCustomField,
   type SellableCustomFieldInsert,
+  type ProposedCustomField,
   type EntityFieldDefinitionRecord,
   type CatalogFieldOwnership,
 } from "./repository/index.js";
@@ -816,6 +817,27 @@ export class CatalogServiceImpl {
       }
       return Ok(updated);
     });
+  }
+
+  /**
+   * Custom fields awaiting review in the actor's organization. `sourceStoreIds` narrows the list to
+   * entities those connected stores imported (an empty list matches nothing): the same seam `list`
+   * offers a plugin that confines one tenant inside a shared organization.
+   */
+  async listProposedCustomFields(
+    params: { pagination: { page: number; limit: number }; entityType?: string; sourceStoreIds?: string[] },
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<{ items: ProposedCustomField[]; total: number }>> {
+    return Ok(await this.repository.listProposedCustomFields(
+      resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.config),
+      params.pagination,
+      {
+        ...(params.entityType !== undefined ? { entityType: params.entityType } : {}),
+        ...(params.sourceStoreIds !== undefined ? { sourceStoreIds: params.sourceStoreIds } : {}),
+      },
+      ctx,
+    ));
   }
 
   approveCustomField(

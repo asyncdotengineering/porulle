@@ -159,8 +159,8 @@ export class CustomerService {
     ctx?: TxContext,
   ): Promise<Customer> {
     // The profile carries the shopper's email: it is the key channel redaction uses, so a profile
-    // without one cannot be erased once its orders have been exported. Filled on creation, and on
-    // the next access of a profile created before this (never overwriting an email it has).
+    // without one cannot be erased once its orders have been exported. Filled on creation, and on a
+    // later access once the address is verified (never overwriting an email it has).
     const existing = await this.repo.findByUserId(orgId, userId, ctx);
     if (existing) {
       if (existing.email) return existing;

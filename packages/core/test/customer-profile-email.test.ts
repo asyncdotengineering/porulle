@@ -8,7 +8,8 @@
  *
  * `customers` is unique on (organization, email), and another shopper's profile can already hold
  * the address (a profile email edited to it). Copying it then would fail the whole profile read, so
- * the email is copied only when no other profile in the organization holds it.
+ * the email is copied only when no other profile in the organization holds it, and only once the
+ * address is verified: an unverified one is only what someone typed at sign-up.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
@@ -36,7 +37,7 @@ describe("the lazily created customer profile's email", () => {
     role: "customer",
     permissions: ["customers:read:self", "customers:update:self"],
   });
-  const signUp = (id: string) => db.insert(user).values({ id, name: id, email: `${id}@shoppers.example` });
+  const signUp = (id: string) => db.insert(user).values({ id, name: id, email: `${id}@shoppers.example`, emailVerified: true });
   const profileEmail = async (id: string) =>
     (await db.select({ email: customers.email }).from(customers)
       .where(and(eq(customers.organizationId, DEFAULT_ORG_ID), eq(customers.userId, id))))[0]?.email;
