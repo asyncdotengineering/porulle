@@ -1,5 +1,21 @@
 # @porulle/plugin-channel-connector
 
+## 0.87.0
+
+### Minor Changes
+
+- [#203](https://github.com/asyncdotengineering/porulle/pull/203) [`f8d082e`](https://github.com/asyncdotengineering/porulle/commit/f8d082e7d0e1c14ec84739822dc9b34474b5ddec) Thanks [@octalpixel](https://github.com/octalpixel)! - Every write that changes a product's prices, variants, options or SKU now announces itself in the writer's transaction.
+
+  - Pricing hooks run in the writer's transaction for a hook marked `inTransaction`. `setBasePrice`, `createModifier` and `updateModifier` used to run every hook after commit with `tx: null`, so a derived copy of a price could be read stale after the new row was stored.
+  - `pricing.afterDelete` (new) runs after `deleteModifier` with the deleted modifier, in the caller's transaction for a hook marked `inTransaction`. It is audited (`price` / `deleted`) and delivered to webhooks subscribed to `pricing.delete`. A deleted modifier announced nothing before.
+  - `catalog.afterUpdate` now fires (once per call, in the caller's transaction) from `createOptionType`, `createOptionValue`, `createVariant`, `generateVariants`, `quickCreateVariant` and `bulkCreateVariants` when they write, and from `restoreEntityRevision`, which rewrites the slug and metadata.
+  - The channel connector calls `notifyEntityChanged` after it relabels or reorders option types and values, rewrites a variant's option values (inside that write's transaction) and applies an upstream SKU or barcode (inside that write's transaction).
+
+### Patch Changes
+
+- Updated dependencies [[`273273e`](https://github.com/asyncdotengineering/porulle/commit/273273e172a485ac94428e240b71d3ffe49fed72), [`f8d082e`](https://github.com/asyncdotengineering/porulle/commit/f8d082e7d0e1c14ec84739822dc9b34474b5ddec), [`7c3d376`](https://github.com/asyncdotengineering/porulle/commit/7c3d376d60597c72339fc746c91062169ae8e712)]:
+  - @porulle/core@0.87.0
+
 ## 0.86.0
 
 ### Patch Changes

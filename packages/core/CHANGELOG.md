@@ -1,5 +1,30 @@
 # @porulle/core
 
+## 0.87.0
+
+### Minor Changes
+
+- [#203](https://github.com/asyncdotengineering/porulle/pull/203) [`273273e`](https://github.com/asyncdotengineering/porulle/commit/273273e172a485ac94428e240b71d3ffe49fed72) Thanks [@octalpixel](https://github.com/octalpixel)! - Price, stock and hydrate many products in a constant number of queries.
+
+  - `PricingService.resolveMany({ items, currency, quantity, customerGroupIds?, timestamp?, entities? }, actor, ctx?)` prices every (entity, variant) pair with one prices read and one modifiers read, plus one entity read (none when `entities` is passed). Currency, quantity window, validity window and customer group are filtered in SQL. Each pair carries its own `Result`, so one unpriced item never fails the batch. `resolve` is now a one-item call to it; the pricing rules are unchanged.
+  - `InventoryService.getAvailableMany(items, actor?, ctx?)` returns available quantity for many (entity, variant) pairs in one query, keyed `${entityId}:${variantId ?? ""}`. `getAvailable` is now a one-item call to it.
+  - `CatalogService.getManyForInternalUse(ids, organizationId, options?, ctx?)` hydrates many entities with one read per included relation: variants come with their option value ids and option types with their values in a single join each. `getByIdForInternalUse` is now a one-item call to it.
+  - New indexes on `variants(entity_id)`, `option_types(entity_id)` and `option_values(option_type_id)`. Generate and apply a migration in your app.
+
+- [#203](https://github.com/asyncdotengineering/porulle/pull/203) [`f8d082e`](https://github.com/asyncdotengineering/porulle/commit/f8d082e7d0e1c14ec84739822dc9b34474b5ddec) Thanks [@octalpixel](https://github.com/octalpixel)! - Every write that changes a product's prices, variants, options or SKU now announces itself in the writer's transaction.
+
+  - Pricing hooks run in the writer's transaction for a hook marked `inTransaction`. `setBasePrice`, `createModifier` and `updateModifier` used to run every hook after commit with `tx: null`, so a derived copy of a price could be read stale after the new row was stored.
+  - `pricing.afterDelete` (new) runs after `deleteModifier` with the deleted modifier, in the caller's transaction for a hook marked `inTransaction`. It is audited (`price` / `deleted`) and delivered to webhooks subscribed to `pricing.delete`. A deleted modifier announced nothing before.
+  - `catalog.afterUpdate` now fires (once per call, in the caller's transaction) from `createOptionType`, `createOptionValue`, `createVariant`, `generateVariants`, `quickCreateVariant` and `bulkCreateVariants` when they write, and from `restoreEntityRevision`, which rewrites the slug and metadata.
+  - The channel connector calls `notifyEntityChanged` after it relabels or reorders option types and values, rewrites a variant's option values (inside that write's transaction) and applies an upstream SKU or barcode (inside that write's transaction).
+
+- [#203](https://github.com/asyncdotengineering/porulle/pull/203) [`7c3d376`](https://github.com/asyncdotengineering/porulle/commit/7c3d376d60597c72339fc746c91062169ae8e712) Thanks [@octalpixel](https://github.com/octalpixel)! - A caller can store what a product's price is chosen from and price it later, and learns every write that changes available stock.
+
+  - `inventory.afterAvailabilityChange` runs after `reserve`, `release` and `deductForFulfillment`, in the caller's transaction for a hook marked `inTransaction`, with `{ organizationId, entityId, variantId, operation }`. Those writes change available quantity and announced nothing.
+  - `resolvePriceAt` (exported) prices one pair from candidate rows: it keeps the rows in their quantity bounds, valid at the moment and for the customer groups, then applies the selection rules. `resolveMany` prices through it.
+  - `pricing.priceCandidates` reads every price and modifier that can ever apply to some products in a currency, windows and bounds unfiltered. `ResolvableModifier` now carries its customer group, quantity bounds and validity window.
+  - The batched variant read (`includeVariants`) returns each variant once with its option value ids aggregated in SQL, instead of one row per option value.
+
 ## 0.86.0
 
 ## 0.85.0
