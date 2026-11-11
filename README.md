@@ -37,6 +37,8 @@ Porulle gives you the atoms — catalog, cart, checkout, orders, inventory, paym
 ## Why Porulle
 
 - **Universal entity model** — products, services, gift cards, subscriptions through one `sellable_entities` table
+
+[![Porulle on StartupScores](https://startupscores.com/badge/porulle.svg?style=shield&v=combo&theme=dark)](https://startupscores.com/open-source/porulle)
 - **Plugin architecture** — extend with hooks, routes, schema, analytics models, permission scopes (PayloadCMS-style config-transform)
 - **Adapter discipline** — swap PostgreSQL / Stripe / S3 / Meilisearch behind clean interfaces; vendor SDKs never leak into core
 - **Multi-tenant by default** — every row is org-scoped; cross-tenant access is a closed surface
