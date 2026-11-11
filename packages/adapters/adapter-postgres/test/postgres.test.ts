@@ -1,14 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
+import { generateDrizzleJson, generateMigration } from "drizzle-kit/api";
+import postgres from "postgres";
 import { postgresAdapter } from "../src/index.js";
 import {
   Ok,
+  buildSchema,
   createKernel,
   defineConfig,
+  ensureDefaultOrg,
   requireUserId,
   type Actor,
   type StorageAdapter,
 } from "@porulle/core";
+
+function withDatabase(url: string, database: string): string {
+  const parsed = new URL(url);
+  parsed.pathname = `/${database}`;
+  return parsed.toString();
+}
 
 function createStorageAdapter(): StorageAdapter {
   return {
@@ -38,13 +48,12 @@ function createStorageAdapter(): StorageAdapter {
   };
 }
 
-describe("postgres adapter", () => {
+const testUrl = process.env.POSTGRES_TEST_URL;
+
+// Without a server these rows are SKIPPED, never passed: a green run with no database proved nothing.
+describe.skipIf(!testUrl)("postgres adapter (real Postgres via POSTGRES_TEST_URL)", () => {
   it("executes basic CRUD operations when POSTGRES_TEST_URL is configured", async () => {
-    const url = process.env.POSTGRES_TEST_URL;
-    if (!url) {
-      expect(true).toBe(true);
-      return;
-    }
+    const url = testUrl ?? "";
 
     const adapter = postgresAdapter({ connectionString: url });
 
@@ -61,20 +70,22 @@ describe("postgres adapter", () => {
   });
 
   it("runs admin/customer/inventory regression flow when POSTGRES_TEST_URL is configured", async () => {
-    const url = process.env.POSTGRES_TEST_URL;
-    if (!url) {
-      expect(true).toBe(true);
-      return;
-    }
+    const serverUrl = testUrl ?? "";
 
-    const adapter = postgresAdapter({ connectionString: url });
-    const kernel = createKernel(
-      await defineConfig({
+    const database = `porulle_regression_${Math.random().toString(36).slice(2, 10)}`;
+    const admin = postgres(serverUrl, { max: 1 });
+    await admin.unsafe(`CREATE DATABASE ${database}`);
+    const scratchUrl = withDatabase(serverUrl, database);
+
+    const adapter = postgresAdapter({ connectionString: scratchUrl });
+  try {
+    const config = await defineConfig({
         storeName: "Postgres Regression Store",
         database: { provider: "postgresql" },
         databaseAdapter: adapter,
         storage: createStorageAdapter(),
         auth: {
+          defaultOrganizationId: "org_default",
           roles: {
             admin: { permissions: ["*:*"] },
             customer: {
@@ -102,8 +113,16 @@ describe("postgres adapter", () => {
           digitalDownload: { fields: [], variants: { enabled: false }, fulfillment: "digital-download" },
           course: { fields: [], variants: { enabled: false }, fulfillment: "digital-access" },
         },
-      }),
-    );
+      });
+    const ddl = await generateMigration(generateDrizzleJson({}), generateDrizzleJson(buildSchema(config)));
+    const raw = postgres(scratchUrl, { max: 1 });
+    try {
+      for (const statement of ddl) await raw.unsafe(statement);
+    } finally {
+      await raw.end({ timeout: 5 });
+    }
+    await ensureDefaultOrg(adapter.db, config.storeName);
+    const kernel = createKernel(config);
 
     const admin: Actor = {
       type: "user",
@@ -111,7 +130,7 @@ describe("postgres adapter", () => {
       email: "admin@example.com",
       name: "Admin",
       vendorId: null,
-      organizationId: null,
+      organizationId: "org_default",
       role: "admin",
       permissions: ["*:*"],
     };
@@ -122,7 +141,7 @@ describe("postgres adapter", () => {
       email: "customer@example.com",
       name: "Customer",
       vendorId: null,
-      organizationId: null,
+      organizationId: "org_default",
       role: "customer",
       permissions: [
         "catalog:read",
@@ -152,6 +171,11 @@ describe("postgres adapter", () => {
     await kernel.services.catalog.publish(physical.value.id, admin);
     await kernel.services.catalog.publish(digital.value.id, admin);
     await kernel.services.catalog.publish(course.value.id, admin);
+
+    await kernel.services.pricing.setBasePrice(
+      { entityId: physical.value.id, currency: "USD", amount: 1000 },
+      admin,
+    );
 
     const category = await kernel.services.catalog.createCategory(
       { slug: `gear-${Date.now()}`, sortOrder: 1 },
@@ -264,5 +288,9 @@ describe("postgres adapter", () => {
     expect(available.ok).toBe(true);
     if (!available.ok) return;
     expect(available.value).toBe(8);
-  });
+  } finally {
+    await admin.unsafe(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`);
+    await admin.end({ timeout: 5 });
+  }
+  }, 120_000);
 });

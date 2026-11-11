@@ -67,7 +67,7 @@ New in core: `createTestActor`, `renderEmail`, `escapeHtml`, `currencyExponent`,
 | `@porulle/db` | **The whole package** | `pgTable` and column builders from `@porulle/core/drizzle`, with an `organizationId` text column. This is how every first-party plugin defines its tables. |
 | `@porulle/sdk` | `@porulle/sdk/react` (`createCommerceHooks`), `createSDK` | `createClient` from `@porulle/sdk`, plus `createQueryHooks` from `openapi-react-query` |
 | `@porulle/cli` | `porulle migrate`, `porulle generate migration`, `porulle deploy` | `drizzle-kit migrate`, `drizzle-kit generate`, `vercel deploy` |
-| `@porulle/adapter-neon` | `normalizeExecuteShape` | `normalizeExecuteShape` from `@porulle/core` |
+| `@porulle/adapter-postgres` (Workers) | `hyperdriveAdapter` + `withDatabaseScope` | same `normalizeExecuteShape` from `@porulle/core` |
 | `@porulle/plugin-pos` | `createPOSPaymentAdapter`; options `defaultCurrency`, `maxHoldHours`, `discountOverrideThreshold` | Configure a core `PaymentAdapter`. The options did nothing; delete them. `ReceiptData` gains `currency`. |
 | `@porulle/plugin-marketplace` | Options `vendorApprovalMode`, `requiredDocuments`, `defaultPayoutSchedule`, `defaultHoldbackDays`, `autoEscalateOnMissedDeadline`, `returnWindowDays`, `autoApproveReturnsOnVendorTimeout`, `vendorReturnResponseDays`, `requireVerifiedPurchase`, `performanceThresholds`, `b2b.contractPricing` | Delete them. None was ever read; `requireVerifiedPurchase` was documented as defaulting to `true` but never enforced. |
 | `@porulle/plugin-marketplace` | Contract pricing: `GET/POST /marketplace/contract-prices`, `PATCH/DELETE /marketplace/contract-prices/{id}` | Nothing. Stored contract prices never affected any price. |

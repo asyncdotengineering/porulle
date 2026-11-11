@@ -18,11 +18,14 @@ memoize the server **per isolate**:
 ```ts
 // commerce.config.ts — a factory, not a top-level config
 import { defineConfig } from "@porulle/core";
+import { hyperdriveAdapter } from "@porulle/adapter-postgres";
 
 export function buildConfig(env: Env) {
   return defineConfig({
     storeName: "Acme",
-    databaseAdapter: workersDbAdapter(env.HYPERDRIVE.connectionString), // §2
+    databaseAdapter: hyperdriveAdapter({
+      connectionString: env.HYPERDRIVE.connectionString,
+    }),
     storage: r2StorageAdapter({ bucket: env.MEDIA_BUCKET, bucketName: "media" }),
     runtime: { getClientIp: (c) => c.req.header("cf-connecting-ip") ?? "unknown" }, // §3
   });
@@ -30,8 +33,9 @@ export function buildConfig(env: Env) {
 ```
 
 ```ts
-// worker.ts — memoize the server once per isolate
+// worker.ts — memoize the server once per isolate; one DB scope per invocation
 import { createServer } from "@porulle/core";
+import { withDatabaseScope } from "@porulle/adapter-postgres";
 import { buildConfig } from "./commerce.config";
 
 let cached: Promise<Awaited<ReturnType<typeof createServer>>> | null = null;
@@ -47,12 +51,14 @@ function getServer(env: Env) {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
-    const { app } = await getServer(env);
-    return app.fetch(request, env, ctx);
+    return withDatabaseScope(async () => {
+      const { app } = await getServer(env);
+      return app.fetch(request, env, ctx);
+    });
   },
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
     const server = await getServer(env);
-    ctx.waitUntil(server.runJobs()); // §4
+    ctx.waitUntil(withDatabaseScope(() => server.runJobs()));
   },
 };
 ```
@@ -62,113 +68,67 @@ reuses. Rebuild on deploy is automatic (new isolates).
 
 ## 2. Database adapter
 
-**Use `@porulle/adapter-neon`. Do not hand-roll this one.**
+**Use `@porulle/adapter-postgres` with `hyperdriveAdapter` and `withDatabaseScope`. Do not hand-roll this one.**
+
+Cloudflare documents Drizzle on Postgres.js over Hyperdrive as **not supported** — use **node-postgres (`pg`)** with `drizzle-orm/node-postgres` instead. Porulle ships that stack in one adapter:
 
 ```ts
-import { neonAdapter } from "@porulle/adapter-neon";
+import { hyperdriveAdapter, withDatabaseScope } from "@porulle/adapter-postgres";
 
-const databaseAdapter = neonAdapter({
-  connectionString: env.DATABASE_URL,
-  // Optional. When present, transactions run over Hyperdrive's TCP endpoint
-  // instead of a Neon WebSocket pool.
-  hyperdrive: env.HYPERDRIVE,
+const databaseAdapter = hyperdriveAdapter({
+  connectionString: env.HYPERDRIVE.connectionString,
 });
 ```
 
 ### Why not a hand-rolled adapter
 
-Two transports are needed, and picking one is not enough.
+Two constraints collide on Workers:
 
-Plain reads and writes want Neon's **HTTP** driver
-(`@neondatabase/serverless` + `drizzle-orm/neon-http`) — stateless, with no
-socket-reuse races across Workers isolates. But `drizzle-orm/neon-http` throws
-on `db.transaction()` with *"No transactions support"*, because HTTP has no
-session to hold one open.
+1. **Real transactions** — checkout, staff revocation, POS returns, and inventory
+   paths need `db.transaction()` with rollback and row locks. A no-op
+   `transaction: (fn) => fn(db)` type-checks and fails only under concurrency.
 
-The tempting workaround is to satisfy the `DatabaseAdapter` interface like this:
+2. **Connection lifecycle** — a module-scope `pg` client cannot be reused across
+   invocations (Workers forbid cross-request socket reuse). Opening one client per
+   SQL statement is correct but slow; opening one client with `max: 1` **hangs**
+   when an outer query runs while a transaction holds the only connection (how
+   Porulle's checkout validation hooks behave).
 
-```ts
-// ✘ WRONG — this is not a transaction
-return { provider: "postgresql", db, transaction: (fn) => fn(db) };
-```
+`hyperdriveAdapter` opens **one `pg.Pool` with `max: 5` per invocation** inside
+`withDatabaseScope`, lazily on first use. Plain queries and transactions share
+that pool. Do **not** call `pool.end()` — Cloudflare tears down connections when
+the invocation ends; `ctx.waitUntil` work after the response still needs the pool.
 
-That type-checks and boots, and every statement inside it runs as its own
-auto-committed HTTP request. Nothing rolls back, and a `SELECT … FOR UPDATE`
-releases its lock the instant the statement returns. **Failures are silent and
-only appear under concurrency**, which is the worst possible shape for a bug.
-
-Paths that lose their guarantee with a no-op transaction:
-
-| Path | What breaks |
+| Path | What breaks without real transactions |
 | --- | --- |
-| `PATCH` / `DELETE /api/admin/staff/:id` | The last-owner invariant. Concurrent revocations are no longer serialised. |
-| `POST /api/pos/returns` | The refund ledger move and the payout stop being atomic — a return can strand between them. |
-| `POST /api/checkout` | Phase-1 validation stops rolling back as a unit. |
-| Inventory adjust, jobs reaper | Row locks stop holding for the read-modify-write. |
-
-`neonAdapter` handles it: plain queries go over HTTP, and `transaction()` opens
-a **fresh** client per call — a Neon WebSocket `Pool`, or Postgres.js over
-Workers TCP when a Hyperdrive binding is supplied — closing it before the
-request completes. The pool-backed `transaction` is also spliced onto the HTTP
-client, so `kernel.database.db.transaction(...)` and
-`kernel.database.transaction(...)` behave identically.
-
-A transaction therefore costs one connection setup. Every path in the table
-above is an infrequent write, so that is the right trade.
+| `PATCH` / `DELETE /api/admin/staff/:id` | Last-owner invariant under concurrent revocations |
+| `POST /api/pos/returns` | Refund ledger and payout no longer atomic |
+| `POST /api/checkout` | Phase-1 validation stops rolling back as a unit |
+| Inventory adjust, jobs reaper | Row locks stop holding for read-modify-write |
 
 ### Local `wrangler dev`
 
-neon-http fails under miniflare, and Hyperdrive's local binding points at
-localhost. Branch on the connection string and use Postgres.js locally — with a
-**real** transaction:
+Hyperdrive's local binding points at localhost. Use the binding's
+`connectionString` (or `DATABASE_URL` when the binding is absent) and the same
+`hyperdriveAdapter` + `withDatabaseScope` wrapper — `pg` runs real transactions
+against local Postgres. Require `nodejs_compat` and `pg` ≥ 8.16.3.
 
-```ts
-import postgres from "postgres";
-import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
-import { neonAdapter } from "@porulle/adapter-neon";
-import type { DatabaseAdapter } from "@porulle/core";
-import * as schema from "@porulle/core/schema";
+### Node servers
 
-const isLocalDev = (cs: string) => /(?:localhost|127\.0\.0\.1|\[::1\])/.test(cs);
-
-export function workersDbAdapter(
-  connectionString: string,
-  hyperdrive?: { connectionString: string },
-): DatabaseAdapter {
-  if (isLocalDev(connectionString)) {
-    const sql = postgres(connectionString, { prepare: false, max: 5 });
-    return {
-      provider: "postgresql",
-      db: drizzlePg(sql, { schema }),
-      // sql.begin() is a real transaction — keep it that way.
-      transaction: (fn) => sql.begin((tx) => fn(drizzlePg(tx, { schema }))),
-    };
-  }
-  return neonAdapter({
-    connectionString,
-    ...(hyperdrive ? { hyperdrive } : {}),
-  });
-}
-```
-
-You do **not** need a custom `db.execute()` result-shape shim: `createKernel`
-normalizes `db.execute()` to a row array across drivers (postgres-js, neon-http,
-node-postgres) automatically. `defineConfig` accepts **any** `DatabaseAdapter`,
-so this drops straight in.
+Long-lived processes use `postgresAdapter({ connectionString, pool })` — one
+process-wide pool, no `withDatabaseScope`.
 
 ### Lock timeouts
 
-`@porulle/adapter-postgres` sets `lock_timeout` to 10s by default. The Neon
-transports do not, so a contended row lock waits on the PostgreSQL default —
-unbounded — until the Worker's own limit trips. Contention on these paths is
-rare, but if you want the ceiling, set it on the role rather than in code:
+`postgresAdapter` sets `lock_timeout` to 10s by default on direct connections.
+Hyperdrive/Workers paths inherit whatever the database role sets:
 
 ```sql
 ALTER ROLE app SET lock_timeout = '10s';
 ```
 
-Note that transaction-mode poolers reject `lock_timeout` as a startup
-parameter, which is why it belongs on the role.
+Transaction-mode poolers reject `lock_timeout` as a startup parameter, so it
+belongs on the role.
 
 ## 3. Client-IP resolution (rate limiting)
 
@@ -187,7 +147,8 @@ defineConfig({
 ## 4. Cron via `scheduled()`
 
 In-process `setInterval` can't outlive a request on Workers. Drive the job queue
-from a cron trigger calling `server.runJobs()` (one runner tick):
+from a cron trigger calling `server.runJobs()` (one runner tick), wrapped in
+`withDatabaseScope` like `fetch`:
 
 ```toml
 # wrangler.toml
@@ -197,13 +158,6 @@ crons = ["*/5 * * * *"]
 [[r2_buckets]]
 binding = "MEDIA_BUCKET"
 bucket_name = "acme-media"
-```
-
-```ts
-async scheduled(_e, env, ctx) {
-  const server = await getServer(env);
-  ctx.waitUntil(server.runJobs());
-}
 ```
 
 ## 5. Storage

@@ -88,7 +88,6 @@ describe.skipIf(!serverUrl)("an import page and another store's page sharing a n
     if (!SCRATCH.test(database)) throw new Error(`refusing to drop a database named ${database}`);
     try {
       await raw?.end({ timeout: 5 });
-      await adapter?.db.$client.end({ timeout: 5 });
     } finally {
       await admin.unsafe(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`);
       await admin.end({ timeout: 5 });
