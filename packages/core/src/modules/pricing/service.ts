@@ -431,7 +431,7 @@ export class PricingService {
       "pricing.afterCreate",
     ) as AfterHook<Price>[];
     const hctx = createModuleHookContext("pricing", this.deps, actor ?? ctx?.actor ?? null, ctx?.tx ?? null);
-    await runAfterHooks(afterHooks, null, record, "create", hctx);
+    await runAfterHooks(afterHooks, null, record, "create", hctx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
     return Ok(record);
   }
@@ -486,7 +486,7 @@ export class PricingService {
       "pricing.afterCreate",
     ) as AfterHook<PriceModifier>[];
     const hctx = createModuleHookContext("pricing", this.deps, actor ?? ctx?.actor ?? null, ctx?.tx ?? null);
-    await runAfterHooks(afterHooks, null, modifier, "create", hctx);
+    await runAfterHooks(afterHooks, null, modifier, "create", hctx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
     return Ok(modifier);
   }
@@ -550,7 +550,7 @@ export class PricingService {
       "pricing.afterUpdate",
     ) as AfterHook<PriceModifier>[];
     const hctx = createModuleHookContext("pricing", this.deps, actor ?? ctx?.actor ?? null, ctx?.tx ?? null);
-    await runAfterHooks(afterHooks, existing, updated!, "update", hctx);
+    await runAfterHooks(afterHooks, existing, updated!, "update", hctx, (hook) => this.deps.hooks.runsInTransaction(hook));
 
     return Ok(updated!);
   }
@@ -566,6 +566,13 @@ export class PricingService {
       return Err(new CommerceNotFoundError("Price modifier not found."));
     }
     await this.repo.deleteModifier(id, ctx);
+
+    const afterHooks = this.deps.hooks.resolve(
+      "pricing.afterDelete",
+    ) as AfterHook<PriceModifier>[];
+    const hctx = createModuleHookContext("pricing", this.deps, actor ?? ctx?.actor ?? null, ctx?.tx ?? null);
+    await runAfterHooks(afterHooks, existing, existing, "delete", hctx, (hook) => this.deps.hooks.runsInTransaction(hook));
+
     return Ok({ deleted: true });
   }
 

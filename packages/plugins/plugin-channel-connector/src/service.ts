@@ -1663,6 +1663,7 @@ export class ChannelConnectorService {
     orgId: string,
     storeId: string,
     items: readonly ChannelCatalogItem[],
+    actor: Actor,
   ): Promise<VariantIdentityOutcome> {
     const outcome: VariantIdentityOutcome = { written: new Set(), clashes: new Map(), openSkuConflicts: new Set() };
     const externalIds = [...new Set(items.flatMap((item) => item.variants.map((variant) => variant.externalId)))];
@@ -1745,6 +1746,14 @@ export class ChannelConnectorService {
           ...(write.toBarcode !== undefined ? { barcode: write.toBarcode } : {}),
           updatedAt: sql`now()`,
         }).where(eq(variants.id, write.variantId));
+      }
+      // The entity row is untouched, so its consumers learn of the new SKU/barcode here, in this transaction.
+      for (const entityId of new Set(group.map((write) => write.entityId))) {
+        const paths = [...new Set(group.filter((write) => write.entityId === entityId).flatMap((write) => [
+          ...(write.toSku !== undefined ? ["variants.sku"] : []),
+          ...(write.toBarcode !== undefined ? ["variants.barcode"] : []),
+        ]))].sort();
+        await this.catalog.notifyEntityChanged(entityId, paths, actor, createTxContext(tx, { actor }));
       }
     });
     const landed = (group: readonly Write[]) => { for (const write of group) outcome.written.add(write.itemExternalId); };
@@ -1925,6 +1934,8 @@ export class ChannelConnectorService {
         .from(optionTypes)
         .where(eq(optionTypes.entityId, entityId));
     let changed = false;
+    // A display name or order written straight to the row; the catalog's own creates above notify for themselves.
+    let relabelled = false;
     for (const [typeIndex, sourceType] of (item.options ?? []).entries()) {
       let optionType = existingTypes.find((row) => row.name === sourceType.name);
       if (!optionType) {
@@ -1954,6 +1965,7 @@ export class ChannelConnectorService {
           displayName: sourceType.displayName,
           sortOrder: desiredTypeSort,
         }).where(eq(optionTypes.id, optionType.id));
+        relabelled = true;
         optionType.displayName = desiredTypeDisplay;
         optionType.sortOrder = desiredTypeSort;
       }
@@ -1982,6 +1994,7 @@ export class ChannelConnectorService {
             displayValue: sourceValue.displayValue,
             sortOrder: desiredValueSort,
           }).where(eq(optionValues.id, optionValue.id));
+          relabelled = true;
           optionValue.displayValue = desiredValueDisplay;
           optionValue.sortOrder = desiredValueSort;
         }
@@ -1989,6 +2002,8 @@ export class ChannelConnectorService {
       }
       optionValueIds.set(sourceType.name, valueIds);
     }
+    // These writes run on the plain connection, outside any transaction, so the notification does too.
+    if (relabelled) await this.catalog.notifyEntityChanged(entityId, ["options"], actor);
     return Ok({ value: optionValueIds, changed });
   }
 
@@ -2156,6 +2171,7 @@ export class ChannelConnectorService {
               await tx.insert(variantOptionValues).values(desiredIds.map((optionValueId) => ({ variantId: optionVariantId, optionValueId }))).onConflictDoNothing();
             }
             await tx.update(variants).set({ updatedAt: sql`now()` }).where(eq(variants.id, optionVariantId));
+            await this.catalog.notifyEntityChanged(entityId, ["options"], actor, createTxContext(tx, { actor }));
           });
           if (desiredIds.length > 0) repaired += 1;
           // The map is the read model for this pass; a payload repeating an externalId must not see
@@ -4340,7 +4356,7 @@ export class ChannelConnectorService {
     const slugFor = await this.resolveStoreSlugs(orgId, storeId, items.map((item) => item.slug));
     // Upstream SKU/barcode changes on already-mapped variants, for the whole batch at once, so that
     // variants exchanging SKUs across products in this batch land together.
-    const identity = await this.applyUpstreamVariantIdentity(orgId, storeId, items);
+    const identity = await this.applyUpstreamVariantIdentity(orgId, storeId, items, actor);
     await this.claimUnrecordedLinks(orgId, storeId, items);
     for (const item of items) {
       consumed += 1;

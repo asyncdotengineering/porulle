@@ -53,6 +53,7 @@ export function registerConfiguredKernelHooks(
   hooks.append("customers.afterUpdate", deliverWebhooks);
   hooks.append("pricing.afterCreate", deliverWebhooks);
   hooks.append("pricing.afterUpdate", deliverWebhooks);
+  hooks.append("pricing.afterDelete", deliverWebhooks);
   hooks.append("promotions.afterCreate", deliverWebhooks);
   hooks.append("promotions.afterUpdate", deliverWebhooks);
   hooks.append("fulfillment.afterCreate", deliverWebhooks);

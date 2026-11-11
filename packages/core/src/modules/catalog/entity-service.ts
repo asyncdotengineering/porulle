@@ -624,6 +624,7 @@ export class EntityService {
         await this.repo.createOptionValue({ optionTypeId: optionType.id, value, displayValue: value, sortOrder: 0, metadata: {} }, ctx);
       }
     }
+    await this.notifyEntityUpdated(input.entityId, ["optionTypes"], actor, ctx);
     return Ok(optionType);
   }
 
@@ -638,7 +639,9 @@ export class EntityService {
     } catch (error) {
       return Err(toCommerceError(error));
     }
-    return Ok(await this.repo.createOptionValue({ optionTypeId: input.optionTypeId, value: input.value, displayValue: input.value, sortOrder: 0, metadata: {} }, ctx));
+    const optionValue = await this.repo.createOptionValue({ optionTypeId: input.optionTypeId, value: input.value, displayValue: input.value, sortOrder: 0, metadata: {} }, ctx);
+    await this.notifyEntityUpdated(entity.id, ["optionTypes"], actor, ctx);
+    return Ok(optionValue);
   }
 
   async createVariant(input: CreateVariantInput, actor: Actor | null, ctx?: TxContext): Promise<Result<Variant>> {
@@ -662,6 +665,7 @@ export class EntityService {
     }
     const variant = await this.repo.createVariant({ entityId: input.entityId, status: "active", sortOrder: 0, metadata: {}, ...(input.sku !== undefined ? { sku: input.sku } : {}), ...(input.barcode !== undefined ? { barcode: input.barcode } : {}), ...(input.taxClass !== undefined ? { taxClass: input.taxClass } : {}) }, ctx);
     await this.repo.createVariantOptionValues(optionValueIds.map((optionValueId) => ({ variantId: variant.id, optionValueId })), ctx);
+    await this.notifyEntityUpdated(input.entityId, ["variants"], actor, ctx);
     return Ok(variant);
   }
 
@@ -716,6 +720,7 @@ export class EntityService {
       await this.repo.createVariantOptionValues(combo.map((optionValueId) => ({ variantId: variant.id, optionValueId })), ctx);
       created.push(variant);
     }
+    if (created.length > 0) await this.notifyEntityUpdated(entityId, ["variants"], actor, ctx);
     return Ok(created);
   }
 
@@ -728,9 +733,10 @@ export class EntityService {
     entityId: string,
     axes: Array<{ name: string; values: string[] }>,
     ctx?: TxContext,
-  ): Promise<Map<string, Map<string, string>>> {
+  ): Promise<{ ids: Map<string, Map<string, string>>; wrote: boolean }> {
     const existingTypes = await this.repo.findOptionTypesByEntityId(entityId, ctx);
     const result = new Map<string, Map<string, string>>();
+    let wrote = false;
     for (const axis of axes) {
       let optionType = existingTypes.find((t) => t.name === axis.name);
       if (!optionType) {
@@ -738,6 +744,7 @@ export class EntityService {
           { entityId, name: axis.name, displayName: axis.name, sortOrder: existingTypes.length },
           ctx,
         );
+        wrote = true;
         existingTypes.push(optionType);
       }
       const existingValues = await this.repo.findOptionValuesByTypeId(optionType.id, ctx);
@@ -749,13 +756,14 @@ export class EntityService {
             { optionTypeId: optionType.id, value, displayValue: value, sortOrder: existingValues.length, metadata: {} },
             ctx,
           );
+          wrote = true;
           existingValues.push(optionValue);
         }
         valueIds.set(value, optionValue.id);
       }
       result.set(axis.name, valueIds);
     }
-    return result;
+    return { ids: result, wrote };
   }
 
   private async existingComboKeys(entityId: string, ctx?: TxContext): Promise<Map<string, string>> {
@@ -800,7 +808,8 @@ export class EntityService {
     try { this.assertSameOrg(entity, actor); } catch (error) { return Err(toCommerceError(error)); }
 
     const axes = Object.entries(input.options).map(([name, value]) => ({ name, values: [value] }));
-    const axisValueIds = await this.upsertAxes(entityId, axes, ctx);
+    const upserted = await this.upsertAxes(entityId, axes, ctx);
+    const axisValueIds = upserted.ids;
     const optionValueIds = Object.entries(input.options)
       .map(([name, value]) => axisValueIds.get(name)!.get(value)!);
 
@@ -809,6 +818,7 @@ export class EntityService {
     const existingVariantId = existing.get(key);
     if (existingVariantId !== undefined) {
       const variant = await this.repo.findVariantById(existingVariantId, ctx);
+      if (upserted.wrote) await this.notifyEntityUpdated(entityId, ["optionTypes"], actor, ctx);
       return Ok({ variant: variant!, created: false });
     }
 
@@ -829,6 +839,7 @@ export class EntityService {
     );
     const seeded = await this.seedInventoryLevel(entityId, variant.id, actor, ctx);
     if (!seeded.ok) return seeded;
+    await this.notifyEntityUpdated(entityId, ["variants"], actor, ctx);
     return Ok({ variant, created: true });
   }
 
@@ -843,7 +854,8 @@ export class EntityService {
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
     try { this.assertSameOrg(entity, actor); } catch (error) { return Err(toCommerceError(error)); }
 
-    const axisValueIds = await this.upsertAxes(entityId, input.axes, ctx);
+    const axes = await this.upsertAxes(entityId, input.axes, ctx);
+    const axisValueIds = axes.ids;
     // Empty axis list → one option-less variant.
     const groups = input.axes.map((axis) =>
       axis.values.map((value) => ({ value, id: axisValueIds.get(axis.name)!.get(value)! })),
@@ -881,6 +893,7 @@ export class EntityService {
       existing.set(key, variant.id);
       created.push(variant);
     }
+    if (axes.wrote || created.length > 0) await this.notifyEntityUpdated(entityId, ["variants"], actor, ctx);
     return Ok({ created, skipped });
   }
 }

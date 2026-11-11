@@ -553,6 +553,9 @@ export class CatalogServiceImpl {
         const revision = await this.repository.findRevisionById(entityId, revisionId, txCtx);
         if (!revision) return Err(new CommerceNotFoundError("Revision not found."));
         await this.applyRevisionSnapshot(entityId, revision.snapshot, txCtx);
+        // The restore rewrites the slug and metadata (a product's `basePrice` lives there), so anything that keeps a
+        // derived copy of the product learns it here, in this transaction.
+        await this.entities.notifyEntityUpdated(entityId, ["slug", "metadata"], revisionActor, txCtx);
         const restored = await this.entities.getById(
           entityId,
           { includeAttributes: true, includeCategories: true, includeBrands: true, includeMedia: true },
