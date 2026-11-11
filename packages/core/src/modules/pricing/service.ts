@@ -169,7 +169,7 @@ function resolveModifierDelta(
 function resolvePair(
   entityId: string,
   variantId: string | null,
-  entity: SellableEntity | undefined,
+  entity: PricedEntity | undefined,
   input: { currency: string; quantity: number },
   prices: ResolvablePrice[],
   modifiers: ResolvableModifier[],
@@ -299,6 +299,60 @@ function resolvePair(
     appliedModifiers,
     breakdown,
   });
+}
+
+/** What price selection reads off the entity: its slug (for the error) and its `metadata.basePrice` fallback. */
+export type PricedEntity = Pick<SellableEntity, "slug" | "metadata">;
+
+/** When and for whom a pair is priced. Modifiers are matched to the FIRST customer group only (the resolver's rule). */
+export interface PriceSelectionInput {
+  currency: string;
+  quantity: number;
+  customerGroupIds?: readonly string[];
+  /** The moment base prices must be valid at. */
+  at: Date;
+  /** The moment modifiers must be valid at; defaults to `at`. `resolveMany` passes the wall clock here. */
+  modifiersAt?: Date;
+}
+
+function withinBounds(min: number | null, max: number | null, quantity: number): boolean {
+  return (min === null || min <= quantity) && (max === null || max >= quantity);
+}
+
+function validAt(from: Date | null, until: Date | null, at: Date): boolean {
+  return (from === null || from.getTime() <= at.getTime()) && (until === null || until.getTime() >= at.getTime());
+}
+
+/**
+ * The price of ONE (entity, variant) pair from candidate rows (`findPriceCandidates`, or rows `resolveMany` already
+ * narrowed in SQL): keeps the rows in their quantity bounds, valid at the moment and for the customer groups, then applies
+ * the selection rules. Pure, so a caller that stored the candidates can price them at read time; the only implementation
+ * of the rules, which `resolveMany` uses too.
+ */
+export function resolvePriceAt(
+  entityId: string,
+  variantId: string | null,
+  entity: PricedEntity | undefined,
+  input: PriceSelectionInput,
+  prices: readonly ResolvablePrice[],
+  modifiers: readonly ResolvableModifier[],
+): Result<ResolvedPrice> {
+  const groups = input.customerGroupIds ?? [];
+  const modifierGroup = groups[0];
+  const modifiersAt = input.modifiersAt ?? input.at;
+  const livePrices = prices.filter(
+    (price) =>
+      withinBounds(price.minQuantity, price.maxQuantity, input.quantity) &&
+      validAt(price.validFrom, price.validUntil, input.at) &&
+      (price.customerGroupId === null || groups.includes(price.customerGroupId)),
+  );
+  const liveModifiers = modifiers.filter(
+    (modifier) =>
+      withinBounds(modifier.minQuantity, modifier.maxQuantity, input.quantity) &&
+      validAt(modifier.validFrom, modifier.validUntil, modifiersAt) &&
+      (modifier.customerGroupId === null || modifier.customerGroupId === modifierGroup),
+  );
+  return resolvePair(entityId, variantId, entity, input, livePrices, liveModifiers);
 }
 
 export class PricingService {
@@ -579,6 +633,29 @@ export class PricingService {
     return Ok({ prices, modifiers });
   }
 
+  /**
+   * Every price row and modifier that can ever apply to `entityIds` in `currency`, windows and bounds unfiltered — what a
+   * caller stores to price later with `resolvePriceAt`. Two reads whatever the number of products.
+   */
+  async priceCandidates(
+    input: { entityIds: string[]; currency: string; customerGroupIds?: string[] },
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<{ prices: ResolvablePrice[]; modifiers: ResolvableModifier[] }>> {
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
+    return Ok(
+      await this.repo.findPriceCandidates(
+        orgId,
+        {
+          entityIds: [...new Set(input.entityIds)],
+          currency: normalizeCurrency(input.currency),
+          customerGroupIds: [...new Set(input.customerGroupIds ?? [])],
+        },
+        ctx,
+      ),
+    );
+  }
+
   /** One pair through `resolveMany`: there is a single pricing path. */
   async resolve(
     input: PriceResolutionContext,
@@ -642,6 +719,8 @@ export class PricingService {
       ),
     ];
 
+    // Read once, so the SQL filter and the in-memory one see the same moment.
+    const modifiersAt = new Date();
     const [prices, modifiers] = await Promise.all([
       this.repo.findResolvablePrices(
         orgId,
@@ -652,7 +731,7 @@ export class PricingService {
       // `timestamp`: both are the resolver's rules as they stand.
       this.repo.findResolvableModifiers(
         orgId,
-        { entityIds, variantIds, currency, quantity: input.quantity, customerGroupId: groupIds[0], at: new Date() },
+        { entityIds, variantIds, currency, quantity: input.quantity, customerGroupId: groupIds[0], at: modifiersAt },
         ctx,
       ),
     ]);
@@ -661,11 +740,11 @@ export class PricingService {
       pairs.map(({ entityId, variantId }) => ({
         entityId,
         variantId,
-        price: resolvePair(
+        price: resolvePriceAt(
           entityId,
           variantId,
           entities.get(entityId),
-          { currency, quantity: input.quantity },
+          { currency, quantity: input.quantity, customerGroupIds: groupIds, at: timestamp, modifiersAt },
           prices,
           modifiers,
         ),

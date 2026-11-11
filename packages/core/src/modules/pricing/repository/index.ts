@@ -28,7 +28,19 @@ export type ResolvablePrice = Pick<
 /** The columns modifier application reads. */
 export type ResolvableModifier = Pick<
   PriceModifier,
-  "id" | "name" | "type" | "value" | "priority" | "entityId" | "variantId" | "conditions"
+  | "id"
+  | "name"
+  | "type"
+  | "value"
+  | "priority"
+  | "entityId"
+  | "variantId"
+  | "conditions"
+  | "customerGroupId"
+  | "minQuantity"
+  | "maxQuantity"
+  | "validFrom"
+  | "validUntil"
 >;
 
 /**
@@ -119,6 +131,74 @@ export class PricingRepository {
             : isNull(prices.customerGroupId),
         ),
       );
+  }
+
+  /**
+   * Every base price and modifier that can EVER apply to `entityIds` in `currency` for the given customer groups, with
+   * their quantity bounds and validity windows unfiltered: the inputs `resolvePriceAt` chooses from at any moment, for a
+   * caller that stores them and prices later. Modifiers include the organization-wide ones (no entity).
+   */
+  async findPriceCandidates(
+    orgId: string,
+    filter: { entityIds: string[]; currency: string; customerGroupIds: string[] },
+    ctx?: TxContext,
+  ): Promise<{ prices: ResolvablePrice[]; modifiers: ResolvableModifier[] }> {
+    if (filter.entityIds.length === 0) return { prices: [], modifiers: [] };
+    const db = this.getDb(ctx);
+    const [priceRows, modifierRows] = await Promise.all([
+      db
+        .select({
+          id: prices.id,
+          entityId: prices.entityId,
+          variantId: prices.variantId,
+          amount: prices.amount,
+          customerGroupId: prices.customerGroupId,
+          minQuantity: prices.minQuantity,
+          maxQuantity: prices.maxQuantity,
+          validFrom: prices.validFrom,
+          validUntil: prices.validUntil,
+          createdAt: prices.createdAt,
+        })
+        .from(prices)
+        .where(
+          and(
+            eq(prices.organizationId, orgId),
+            inArray(prices.entityId, filter.entityIds),
+            eq(prices.currency, filter.currency),
+            filter.customerGroupIds.length > 0
+              ? or(isNull(prices.customerGroupId), inArray(prices.customerGroupId, filter.customerGroupIds))
+              : isNull(prices.customerGroupId),
+          ),
+        ),
+      db
+        .select({
+          id: priceModifiers.id,
+          name: priceModifiers.name,
+          type: priceModifiers.type,
+          value: priceModifiers.value,
+          priority: priceModifiers.priority,
+          entityId: priceModifiers.entityId,
+          variantId: priceModifiers.variantId,
+          conditions: priceModifiers.conditions,
+          customerGroupId: priceModifiers.customerGroupId,
+          minQuantity: priceModifiers.minQuantity,
+          maxQuantity: priceModifiers.maxQuantity,
+          validFrom: priceModifiers.validFrom,
+          validUntil: priceModifiers.validUntil,
+        })
+        .from(priceModifiers)
+        .where(
+          and(
+            eq(priceModifiers.organizationId, orgId),
+            or(isNull(priceModifiers.entityId), inArray(priceModifiers.entityId, filter.entityIds)),
+            or(isNull(priceModifiers.currency), eq(priceModifiers.currency, filter.currency)),
+            filter.customerGroupIds.length > 0
+              ? or(isNull(priceModifiers.customerGroupId), inArray(priceModifiers.customerGroupId, filter.customerGroupIds))
+              : isNull(priceModifiers.customerGroupId),
+          ),
+        ),
+    ]);
+    return { prices: priceRows, modifiers: modifierRows };
   }
 
   async createPrice(data: PriceInsert, ctx?: TxContext): Promise<Price> {
@@ -251,6 +331,11 @@ export class PricingRepository {
         entityId: priceModifiers.entityId,
         variantId: priceModifiers.variantId,
         conditions: priceModifiers.conditions,
+        customerGroupId: priceModifiers.customerGroupId,
+        minQuantity: priceModifiers.minQuantity,
+        maxQuantity: priceModifiers.maxQuantity,
+        validFrom: priceModifiers.validFrom,
+        validUntil: priceModifiers.validUntil,
       })
       .from(priceModifiers)
       .where(

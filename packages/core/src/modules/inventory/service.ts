@@ -31,6 +31,17 @@ export interface InventoryAdjustManyResult {
   entities: Array<{ entityId: string; levels: InventoryLevel[] }>;
 }
 
+/**
+ * What `inventory.afterAvailabilityChange` announces: one (entity, variant) whose AVAILABLE quantity a write changed without
+ * an adjust — a reservation, its release, or a fulfillment deduction. Adjusts announce `afterAdjust` / `afterAdjustMany`.
+ */
+export interface InventoryAvailabilityChange {
+  organizationId: string;
+  entityId: string;
+  variantId: string | null;
+  operation: "reserve" | "release" | "fulfillment";
+}
+
 export type { InventoryAdjustInput, InventoryReserveInput, InventoryReleaseInput } from "./schemas.js";
 import type { InventoryAdjustInput, InventoryReserveInput, InventoryReleaseInput } from "./schemas.js";
 
@@ -88,6 +99,25 @@ export class InventoryService {
       ctx,
     );
     return defaultWarehouse.id;
+  }
+
+  /** Runs `inventory.afterAvailabilityChange` in the writer's transaction (for a hook marked in-transaction). */
+  private async announceAvailabilityChange(
+    change: InventoryAvailabilityChange,
+    actor: Actor | null,
+    tx: unknown,
+  ): Promise<void> {
+    const hooks = this.deps.hooks.resolve("inventory.afterAvailabilityChange");
+    if (hooks.length === 0) return;
+    const hookCtx: HookContext = createModuleHookContext("inventory", this.deps, actor, tx, { logScope: "inventory.availability" });
+    await runAfterHooks(
+      hooks as Parameters<typeof runAfterHooks>[0],
+      null,
+      change,
+      "update",
+      hookCtx,
+      (hook) => this.deps.hooks.runsInTransaction(hook),
+    );
   }
 
   async createWarehouse(
@@ -278,6 +308,11 @@ export class InventoryService {
         txCtx,
       );
 
+      await this.announceAvailabilityChange(
+        { organizationId: orgId, entityId: input.entityId, variantId, operation: "reserve" },
+        actor ?? null,
+        txCtx.tx,
+      );
       return Ok(undefined);
     });
   }
@@ -330,6 +365,11 @@ export class InventoryService {
         txCtx,
       );
 
+      await this.announceAvailabilityChange(
+        { organizationId: orgId, entityId: input.entityId, variantId, operation: "release" },
+        actor ?? null,
+        txCtx.tx,
+      );
       return Ok(undefined);
     };
 
@@ -723,6 +763,11 @@ export class InventoryService {
       ctx,
     );
 
+    await this.announceAvailabilityChange(
+      { organizationId: orgId, entityId: input.entityId, variantId, operation: "fulfillment" },
+      ctx?.actor ?? null,
+      ctx?.tx ?? null,
+    );
     return Ok(undefined);
   }
 
