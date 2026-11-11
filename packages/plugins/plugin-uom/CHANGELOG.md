@@ -1,5 +1,12 @@
 # @porulle/plugin-uom
 
+## 0.86.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.86.0
+
 ## 0.85.0
 
 ### Patch Changes
