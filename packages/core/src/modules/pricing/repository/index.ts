@@ -1,4 +1,4 @@
-import { eq, and, lte, gte, or, isNull } from "drizzle-orm";
+import { eq, and, inArray, lte, gte, or, isNull } from "drizzle-orm";
 import type { TxContext } from "../../../kernel/database/tx-context.js";
 import type {
   DrizzleDatabase,
@@ -11,6 +11,25 @@ export type Price = typeof prices.$inferSelect;
 export type PriceInsert = typeof prices.$inferInsert;
 export type PriceModifier = typeof priceModifiers.$inferSelect;
 export type PriceModifierInsert = typeof priceModifiers.$inferInsert;
+/** The columns price resolution reads: no `metadata`, `currency` (filtered in SQL) or `compareAtAmount`. */
+export type ResolvablePrice = Pick<
+  Price,
+  | "id"
+  | "entityId"
+  | "variantId"
+  | "amount"
+  | "customerGroupId"
+  | "minQuantity"
+  | "maxQuantity"
+  | "validFrom"
+  | "validUntil"
+  | "createdAt"
+>;
+/** The columns modifier application reads. */
+export type ResolvableModifier = Pick<
+  PriceModifier,
+  "id" | "name" | "type" | "value" | "priority" | "entityId" | "variantId" | "conditions"
+>;
 
 /**
  * PricingRepository provides type-safe database operations for pricing.
@@ -51,77 +70,55 @@ export class PricingRepository {
       );
   }
 
-  async findPricesByEntityAndVariant(
-    entityId: string,
-    variantId: string | null,
+  /**
+   * The base prices that can apply to any of `entityIds` (product-level rows, plus rows for any of
+   * `variantIds`) at `at`, for `quantity` units in `currency`. Every filter that does not depend on
+   * WHICH variant is asking runs here, in SQL; the caller picks per (entity, variant) in memory.
+   */
+  async findResolvablePrices(
+    orgId: string,
+    filter: {
+      entityIds: string[];
+      variantIds: string[];
+      currency: string;
+      quantity: number;
+      customerGroupIds: string[];
+      at: Date;
+    },
     ctx?: TxContext,
-  ): Promise<Price[]> {
-    const db = this.getDb(ctx);
-
-    if (variantId === null) {
-      return db
-        .select()
-        .from(prices)
-        .where(and(eq(prices.entityId, entityId), isNull(prices.variantId)));
-    }
-
-    return db
-      .select()
-      .from(prices)
-      .where(
-        and(eq(prices.entityId, entityId), eq(prices.variantId, variantId)),
-      );
-  }
-
-  async findActivePrices(
-    entityId: string,
-    currency: string,
-    variantId?: string,
-    customerGroupId?: string,
-    quantity?: number,
-    ctx?: TxContext,
-  ): Promise<Price[]> {
-    const db = this.getDb(ctx);
-    const now = new Date();
-
-    const rows = await db
-      .select()
+  ): Promise<ResolvablePrice[]> {
+    if (filter.entityIds.length === 0) return [];
+    return this.getDb(ctx)
+      .select({
+        id: prices.id,
+        entityId: prices.entityId,
+        variantId: prices.variantId,
+        amount: prices.amount,
+        customerGroupId: prices.customerGroupId,
+        minQuantity: prices.minQuantity,
+        maxQuantity: prices.maxQuantity,
+        validFrom: prices.validFrom,
+        validUntil: prices.validUntil,
+        createdAt: prices.createdAt,
+      })
       .from(prices)
       .where(
         and(
-          eq(prices.entityId, entityId),
-          eq(prices.currency, currency),
-          or(isNull(prices.validFrom), lte(prices.validFrom, now)),
-          or(isNull(prices.validUntil), gte(prices.validUntil, now)),
+          eq(prices.organizationId, orgId),
+          inArray(prices.entityId, filter.entityIds),
+          eq(prices.currency, filter.currency),
+          filter.variantIds.length > 0
+            ? or(isNull(prices.variantId), inArray(prices.variantId, filter.variantIds))
+            : isNull(prices.variantId),
+          or(isNull(prices.minQuantity), lte(prices.minQuantity, filter.quantity)),
+          or(isNull(prices.maxQuantity), gte(prices.maxQuantity, filter.quantity)),
+          or(isNull(prices.validFrom), lte(prices.validFrom, filter.at)),
+          or(isNull(prices.validUntil), gte(prices.validUntil, filter.at)),
+          filter.customerGroupIds.length > 0
+            ? or(isNull(prices.customerGroupId), inArray(prices.customerGroupId, filter.customerGroupIds))
+            : isNull(prices.customerGroupId),
         ),
       );
-
-    // Filter by variantId
-    let filtered = rows.filter((p) => {
-      if (variantId === undefined) return p.variantId === null;
-      return p.variantId === variantId || p.variantId === null;
-    });
-
-    // Filter by customerGroupId
-    if (customerGroupId) {
-      filtered = filtered.filter(
-        (p) =>
-          p.customerGroupId === null || p.customerGroupId === customerGroupId,
-      );
-    } else {
-      filtered = filtered.filter((p) => p.customerGroupId === null);
-    }
-
-    // Filter by quantity
-    if (quantity !== undefined) {
-      filtered = filtered.filter((p) => {
-        const minOk = p.minQuantity === null || quantity >= p.minQuantity;
-        const maxOk = p.maxQuantity === null || quantity <= p.maxQuantity;
-        return minOk && maxOk;
-      });
-    }
-
-    return filtered;
   }
 
   async createPrice(data: PriceInsert, ctx?: TxContext): Promise<Price> {
@@ -226,73 +223,53 @@ export class PricingRepository {
     return rows.sort((a, b) => a.priority - b.priority);
   }
 
-  async findActiveModifiers(
+  /**
+   * The modifiers that can apply to any of `entityIds` (or to every entity) and to product-level
+   * prices or any of `variantIds`, active at `at`, for `quantity` units in `currency`, unscoped or
+   * scoped to `customerGroupId`. The caller picks per (entity, variant) in memory.
+   */
+  async findResolvableModifiers(
     orgId: string,
-    entityId: string,
-    variantId?: string,
-    customerGroupId?: string,
-    currency?: string,
-    quantity?: number,
+    filter: {
+      entityIds: string[];
+      variantIds: string[];
+      currency: string;
+      quantity: number;
+      customerGroupId: string | undefined;
+      at: Date;
+    },
     ctx?: TxContext,
-  ): Promise<PriceModifier[]> {
-    const db = this.getDb(ctx);
-    const now = new Date();
-
-    const rows = await db
-      .select()
+  ): Promise<ResolvableModifier[]> {
+    if (filter.entityIds.length === 0) return [];
+    return this.getDb(ctx)
+      .select({
+        id: priceModifiers.id,
+        name: priceModifiers.name,
+        type: priceModifiers.type,
+        value: priceModifiers.value,
+        priority: priceModifiers.priority,
+        entityId: priceModifiers.entityId,
+        variantId: priceModifiers.variantId,
+        conditions: priceModifiers.conditions,
+      })
       .from(priceModifiers)
       .where(
         and(
           eq(priceModifiers.organizationId, orgId),
-          or(
-            isNull(priceModifiers.entityId),
-            eq(priceModifiers.entityId, entityId),
-          ),
-          or(
-            isNull(priceModifiers.validFrom),
-            lte(priceModifiers.validFrom, now),
-          ),
-          or(
-            isNull(priceModifiers.validUntil),
-            gte(priceModifiers.validUntil, now),
-          ),
+          or(isNull(priceModifiers.entityId), inArray(priceModifiers.entityId, filter.entityIds)),
+          filter.variantIds.length > 0
+            ? or(isNull(priceModifiers.variantId), inArray(priceModifiers.variantId, filter.variantIds))
+            : isNull(priceModifiers.variantId),
+          or(isNull(priceModifiers.currency), eq(priceModifiers.currency, filter.currency)),
+          or(isNull(priceModifiers.minQuantity), lte(priceModifiers.minQuantity, filter.quantity)),
+          or(isNull(priceModifiers.maxQuantity), gte(priceModifiers.maxQuantity, filter.quantity)),
+          or(isNull(priceModifiers.validFrom), lte(priceModifiers.validFrom, filter.at)),
+          or(isNull(priceModifiers.validUntil), gte(priceModifiers.validUntil, filter.at)),
+          filter.customerGroupId !== undefined
+            ? or(isNull(priceModifiers.customerGroupId), eq(priceModifiers.customerGroupId, filter.customerGroupId))
+            : isNull(priceModifiers.customerGroupId),
         ),
       );
-
-    // Filter by variantId
-    let filtered = rows.filter((m) => {
-      if (m.variantId === null) return true;
-      return m.variantId === variantId;
-    });
-
-    // Filter by customerGroupId
-    if (customerGroupId) {
-      filtered = filtered.filter(
-        (m) =>
-          m.customerGroupId === null || m.customerGroupId === customerGroupId,
-      );
-    } else {
-      filtered = filtered.filter((m) => m.customerGroupId === null);
-    }
-
-    // Filter by currency
-    if (currency) {
-      filtered = filtered.filter(
-        (m) => m.currency === null || m.currency === currency,
-      );
-    }
-
-    // Filter by quantity
-    if (quantity !== undefined) {
-      filtered = filtered.filter((m) => {
-        const minOk = m.minQuantity === null || quantity >= m.minQuantity;
-        const maxOk = m.maxQuantity === null || quantity <= m.maxQuantity;
-        return minOk && maxOk;
-      });
-    }
-
-    // Sort by priority (lower number = higher priority)
-    return filtered.sort((a, b) => a.priority - b.priority);
   }
 
   async createModifier(

@@ -42,6 +42,10 @@ export interface InventoryServiceDeps {
   database: DatabaseAdapter;
 }
 
+function availabilityKey(entityId: string, variantId: string | null | undefined): string {
+  return `${entityId}:${variantId ?? ""}`;
+}
+
 export class InventoryService {
   private readonly repo: InventoryRepository;
 
@@ -127,22 +131,38 @@ export class InventoryService {
     return Ok(warehouses.sort((a, b) => a.priority - b.priority));
   }
 
+  /** One pair through `getAvailableMany`. */
   async getAvailable(
     entityId: string,
     variantId?: string,
     ctx?: TxContext,
     actor?: Actor | null,
   ): Promise<Result<number>> {
+    const result = await this.getAvailableMany([{ entityId, variantId: variantId ?? null }], actor, ctx);
+    if (!result.ok) return result;
+    return Ok(result.value.get(availabilityKey(entityId, variantId)) ?? 0);
+  }
+
+  /**
+   * Available quantity for many (entity, variant) pairs in one read, keyed by
+   * `${entityId}:${variantId ?? ""}`. Every requested pair has an entry; no stock rows reads as 0.
+   */
+  async getAvailableMany(
+    items: Array<{ entityId: string; variantId?: string | null }>,
+    actor?: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<Map<string, number>>> {
     const orgId = resolveOrgIdForCommerce(
       actor ?? ctx?.actor ?? null,
       this.deps.config,
     );
-    const available = await this.repo.getAvailableQuantity(
-      orgId,
-      entityId,
-      variantId,
-      ctx,
-    );
+    const pairs = items.map((i) => ({ entityId: i.entityId, variantId: i.variantId ?? null }));
+    const available = new Map(pairs.map((p) => [availabilityKey(p.entityId, p.variantId), 0]));
+    const rows = await this.repo.getAvailableQuantitiesByVariant(orgId, pairs, ctx);
+    for (const row of rows) {
+      const key = availabilityKey(row.entityId, row.variantId);
+      if (available.has(key)) available.set(key, row.available);
+    }
     return Ok(available);
   }
 

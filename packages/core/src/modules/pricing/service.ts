@@ -18,8 +18,10 @@ import type {
   PriceModifier,
   PriceInsert,
   PriceModifierInsert,
+  ResolvablePrice,
+  ResolvableModifier,
 } from "./repository/index.js";
-import type { CatalogRepository } from "../catalog/repository/index.js";
+import type { CatalogRepository, SellableEntity } from "../catalog/repository/index.js";
 
 // Re-export PriceModifierType from schema for external use
 export type PriceModifierType =
@@ -45,6 +47,23 @@ export interface PriceResolutionContext {
   quantity: number;
   customerGroupIds?: string[];
   timestamp?: Date;
+}
+
+/** Prices many (entity, variant) pairs at once; `variantIds: [null]` asks for the product-level price. */
+export interface ResolveManyInput {
+  items: Array<{ entityId: string; variantIds: Array<string | null> }>;
+  currency: string;
+  quantity: number;
+  customerGroupIds?: string[];
+  timestamp?: Date;
+  /** Entities the caller already loaded; skips the entity read. Other organizations' entities are ignored. */
+  entities?: ReadonlyMap<string, SellableEntity>;
+}
+
+export interface ResolvedPriceItem {
+  entityId: string;
+  variantId: string | null;
+  price: Result<ResolvedPrice>;
 }
 
 export interface PriceBreakdownStep {
@@ -75,26 +94,6 @@ export type { SetBasePriceInput, CreatePriceModifierInput } from "./schemas.js";
 import type { SetBasePriceInput, CreatePriceModifierInput } from "./schemas.js";
 import { normalizeCurrency } from "../../utils/money.js";
 
-function matchesQuantity(
-  min: number | null | undefined,
-  max: number | null | undefined,
-  quantity: number,
-): boolean {
-  if (min != null && quantity < min) return false;
-  if (max != null && quantity > max) return false;
-  return true;
-}
-
-function matchesWindow(
-  validFrom: Date | null | undefined,
-  validUntil: Date | null | undefined,
-  timestamp: Date,
-): boolean {
-  if (validFrom && timestamp < validFrom) return false;
-  if (validUntil && timestamp > validUntil) return false;
-  return true;
-}
-
 function durationScore(
   validFrom: Date | null | undefined,
   validUntil: Date | null | undefined,
@@ -120,18 +119,12 @@ function sameNaturalKeyDate(a: Date | null | undefined, b: Date | null | undefin
 }
 
 function compareBasePriceSpecificity(
-  a: Price,
-  b: Price,
-  context: PriceResolutionContext,
+  a: ResolvablePrice,
+  b: ResolvablePrice,
+  variantId: string | null,
 ): number {
-  const aVariant =
-    context.variantId !== undefined && a.variantId === context.variantId
-      ? 1
-      : 0;
-  const bVariant =
-    context.variantId !== undefined && b.variantId === context.variantId
-      ? 1
-      : 0;
+  const aVariant = variantId !== null && a.variantId === variantId ? 1 : 0;
+  const bVariant = variantId !== null && b.variantId === variantId ? 1 : 0;
   if (aVariant !== bVariant) return bVariant - aVariant;
 
   const hasGroupA = a.customerGroupId ? 1 : 0;
@@ -168,10 +161,145 @@ function resolveModifierDelta(
   }
 }
 
-function toGroupSet(context: PriceResolutionContext): Set<string> {
-  return new Set(context.customerGroupIds ?? []);
-}
+/**
+ * Picks the price for ONE (entity, variant) pair from rows already filtered in SQL by organization,
+ * currency, quantity window, validity window and customer group (see `findResolvablePrices` /
+ * `findResolvableModifiers`). This is the only implementation of the selection rules.
+ */
+function resolvePair(
+  entityId: string,
+  variantId: string | null,
+  entity: SellableEntity | undefined,
+  input: { currency: string; quantity: number },
+  prices: ResolvablePrice[],
+  modifiers: ResolvableModifier[],
+): Result<ResolvedPrice> {
+  if (!entity) {
+    return Err(new CommerceNotFoundError(`Entity ${entityId} not found.`));
+  }
+  if (input.quantity <= 0) {
+    return Err(
+      new CommerceValidationError(
+        "Quantity must be greater than zero for price resolution.",
+      ),
+    );
+  }
+  const { currency } = input;
 
+  const matchingPrices = prices.filter(
+    (price) =>
+      price.entityId === entityId &&
+      (price.variantId === null || (variantId !== null && price.variantId === variantId)),
+  );
+
+  if (matchingPrices.length === 0) {
+    const metadataPrice =
+      typeof entity.metadata?.basePrice === "number"
+        ? Math.round(entity.metadata.basePrice)
+        : undefined;
+    if (metadataPrice === undefined) {
+      return Err(
+        new CommerceNotFoundError(
+          `No base price configured for ${entity.slug} (${currency}).`,
+        ),
+      );
+    }
+    return Ok({
+      baseAmount: metadataPrice,
+      finalAmount: metadataPrice,
+      currency,
+      basePriceId: "metadata:basePrice",
+      appliedModifiers: [],
+      breakdown: [
+        {
+          label: "Base price (entity metadata)",
+          amountBefore: metadataPrice,
+          delta: 0,
+          amountAfter: metadataPrice,
+        },
+      ],
+    });
+  }
+
+  const selectedBase = [...matchingPrices].sort((a, b) =>
+    compareBasePriceSpecificity(a, b, variantId),
+  )[0];
+  if (!selectedBase) {
+    return Err(
+      new CommerceNotFoundError("No matching base price could be selected."),
+    );
+  }
+
+  let runningAmount = selectedBase.amount;
+  const breakdown: PriceBreakdownStep[] = [
+    {
+      label: "Base price",
+      amountBefore: selectedBase.amount,
+      delta: 0,
+      amountAfter: selectedBase.amount,
+      metadata: {
+        priceId: selectedBase.id,
+        customerGroupId: selectedBase.customerGroupId,
+        minQuantity: selectedBase.minQuantity,
+        maxQuantity: selectedBase.maxQuantity,
+      },
+    },
+  ];
+
+  const appliedModifiers: ResolvedPrice["appliedModifiers"] = [];
+
+  const applicable = modifiers
+    .filter((modifier) => {
+      if (modifier.entityId !== null && modifier.entityId !== entityId) return false;
+      if (modifier.variantId !== null && modifier.variantId !== variantId) return false;
+      const conditions = modifier.conditions as Record<string, unknown> | null;
+      const minSubtotal = conditions?.minSubtotal;
+      if (typeof minSubtotal === "number" && runningAmount < minSubtotal)
+        return false;
+      return true;
+    })
+    .sort((a, b) => a.priority - b.priority);
+
+  for (const modifier of applicable) {
+    const amountBefore = runningAmount;
+    const rawDelta = resolveModifierDelta(
+      modifier.type as PriceModifierType,
+      modifier.value,
+      amountBefore,
+    );
+    const delta = Math.max(-amountBefore, rawDelta);
+    runningAmount = Math.max(0, amountBefore + delta);
+
+    appliedModifiers.push({
+      id: modifier.id,
+      name: modifier.name,
+      type: modifier.type as PriceModifierType,
+      delta,
+      value: modifier.value,
+      priority: modifier.priority,
+    });
+
+    breakdown.push({
+      label: `Modifier: ${modifier.name}`,
+      amountBefore,
+      delta,
+      amountAfter: runningAmount,
+      metadata: {
+        type: modifier.type,
+        priority: modifier.priority,
+      },
+    });
+  }
+
+  return Ok({
+    baseAmount: selectedBase.amount,
+    finalAmount: runningAmount,
+    currency,
+    basePriceId: selectedBase.id,
+    appliedModifiers,
+    breakdown,
+  });
+}
 
 export class PricingService {
   private readonly repo: PricingRepository;
@@ -451,189 +579,97 @@ export class PricingService {
     return Ok({ prices, modifiers });
   }
 
+  /** One pair through `resolveMany`: there is a single pricing path. */
   async resolve(
     input: PriceResolutionContext,
     actor?: Actor | null,
     ctx?: TxContext,
   ): Promise<Result<ResolvedPrice>> {
-    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
-    const entity = await this.catalogRepo.findEntityById(input.entityId, ctx, orgId);
-    if (!entity) {
-      return Err(
-        new CommerceNotFoundError(`Entity ${input.entityId} not found.`),
-      );
-    }
+    const result = await this.resolveMany(
+      {
+        items: [{ entityId: input.entityId, variantIds: [input.variantId ?? null] }],
+        currency: input.currency,
+        quantity: input.quantity,
+        ...(input.customerGroupIds !== undefined ? { customerGroupIds: input.customerGroupIds } : {}),
+        ...(input.timestamp !== undefined ? { timestamp: input.timestamp } : {}),
+      },
+      actor ?? null,
+      ctx,
+    );
+    if (!result.ok) return result;
+    return result.value[0]!.price;
+  }
 
-    if (input.quantity <= 0) {
-      return Err(
-        new CommerceValidationError(
-          "Quantity must be greater than zero for price resolution.",
-        ),
-      );
+  /**
+   * Prices every (entity, variant) pair in `input.items` with at most three reads whatever their
+   * number: the entities (skipped when `input.entities` is given), the candidate prices and the
+   * candidate modifiers. A pair with no price gets its own error; the batch never fails for it.
+   */
+  async resolveMany(
+    input: ResolveManyInput,
+    actor: Actor | null,
+    ctx?: TxContext,
+  ): Promise<Result<ResolvedPriceItem[]>> {
+    const orgId = resolveOrgIdForCommerce(actor ?? ctx?.actor ?? null, this.deps.config);
+    const pairs = input.items.flatMap((item) =>
+      item.variantIds.map((variantId) => ({ entityId: item.entityId, variantId })),
+    );
+    if (pairs.length === 0) return Ok([]);
+
+    const requestedIds = [...new Set(pairs.map((p) => p.entityId))];
+    const entities = new Map<string, SellableEntity>();
+    if (input.entities) {
+      // A caller-supplied entity counts only inside the caller's organization.
+      for (const id of requestedIds) {
+        const entity = input.entities.get(id);
+        if (entity && entity.organizationId === orgId) entities.set(id, entity);
+      }
+    } else {
+      for (const entity of await this.catalogRepo.findEntitiesByIds(requestedIds, orgId, ctx)) {
+        entities.set(entity.id, entity);
+      }
     }
 
     const timestamp = input.timestamp ?? new Date();
     const currency = normalizeCurrency(input.currency);
-    const groupSet = toGroupSet(input);
-
-    // Get matching prices from repository (orgId resolved above)
-    const allPrices = await this.repo.findPricesByEntityId(
-      orgId,
-      input.entityId,
-      ctx,
-    );
-
-    const matchingPrices = allPrices.filter((price) => {
-      if (input.variantId !== undefined) {
-        if (price.variantId !== null && price.variantId !== input.variantId)
-          return false;
-      } else if (price.variantId !== null) {
-        return false;
-      }
-      if (price.currency !== currency) return false;
-      if (
-        !matchesQuantity(price.minQuantity, price.maxQuantity, input.quantity)
-      )
-        return false;
-      if (!matchesWindow(price.validFrom, price.validUntil, timestamp))
-        return false;
-      if (
-        price.customerGroupId !== null &&
-        !groupSet.has(price.customerGroupId)
-      )
-        return false;
-      return true;
-    });
-
-    if (matchingPrices.length === 0) {
-      const metadataPrice =
-        typeof entity.metadata?.basePrice === "number"
-          ? Math.round(entity.metadata.basePrice)
-          : undefined;
-      if (metadataPrice === undefined) {
-        return Err(
-          new CommerceNotFoundError(
-            `No base price configured for ${entity.slug} (${currency}).`,
-          ),
-        );
-      }
-      const fallback: ResolvedPrice = {
-        baseAmount: metadataPrice,
-        finalAmount: metadataPrice,
-        currency,
-        basePriceId: "metadata:basePrice",
-        appliedModifiers: [],
-        breakdown: [
-          {
-            label: "Base price (entity metadata)",
-            amountBefore: metadataPrice,
-            delta: 0,
-            amountAfter: metadataPrice,
-          },
-        ],
-      };
-      return Ok(fallback);
-    }
-
-    const selectedBase = [...matchingPrices].sort((a, b) =>
-      compareBasePriceSpecificity(a, b, input),
-    )[0];
-    if (!selectedBase) {
-      return Err(
-        new CommerceNotFoundError("No matching base price could be selected."),
-      );
-    }
-
-    let runningAmount = selectedBase.amount;
-    const breakdown: PriceBreakdownStep[] = [
-      {
-        label: "Base price",
-        amountBefore: selectedBase.amount,
-        delta: 0,
-        amountAfter: selectedBase.amount,
-        metadata: {
-          priceId: selectedBase.id,
-          customerGroupId: selectedBase.customerGroupId,
-          minQuantity: selectedBase.minQuantity,
-          maxQuantity: selectedBase.maxQuantity,
-        },
-      },
+    const groupIds = [...new Set(input.customerGroupIds ?? [])];
+    const entityIds = input.quantity > 0 ? requestedIds.filter((id) => entities.has(id)) : [];
+    const variantIds = [
+      ...new Set(
+        pairs
+          .filter((p) => entities.has(p.entityId))
+          .flatMap((p) => (p.variantId === null ? [] : [p.variantId])),
+      ),
     ];
 
-    const appliedModifiers: ResolvedPrice["appliedModifiers"] = [];
+    const [prices, modifiers] = await Promise.all([
+      this.repo.findResolvablePrices(
+        orgId,
+        { entityIds, variantIds, currency, quantity: input.quantity, customerGroupIds: groupIds, at: timestamp },
+        ctx,
+      ),
+      // Modifiers match the FIRST customer group only and are active at the wall clock, not at
+      // `timestamp`: both are the resolver's rules as they stand.
+      this.repo.findResolvableModifiers(
+        orgId,
+        { entityIds, variantIds, currency, quantity: input.quantity, customerGroupId: groupIds[0], at: new Date() },
+        ctx,
+      ),
+    ]);
 
-    // Get matching modifiers (includes both entity-specific and global)
-    const firstGroupId = groupSet.size > 0 ? [...groupSet][0] : undefined;
-    const activeModifiers = await this.repo.findActiveModifiers(
-      orgId,
-      input.entityId,
-      input.variantId,
-      firstGroupId,
-      currency,
-      input.quantity,
-      ctx,
+    return Ok(
+      pairs.map(({ entityId, variantId }) => ({
+        entityId,
+        variantId,
+        price: resolvePair(
+          entityId,
+          variantId,
+          entities.get(entityId),
+          { currency, quantity: input.quantity },
+          prices,
+          modifiers,
+        ),
+      })),
     );
-
-    // Additional filtering for multiple customer groups and conditions
-    const modifiers = activeModifiers
-      .filter((modifier) => {
-        // Re-check customer group for multi-group support
-        if (
-          modifier.customerGroupId !== null &&
-          !groupSet.has(modifier.customerGroupId)
-        )
-          return false;
-
-        const conditions = modifier.conditions as Record<
-          string,
-          unknown
-        > | null;
-        const minSubtotal = conditions?.minSubtotal;
-        if (typeof minSubtotal === "number" && runningAmount < minSubtotal)
-          return false;
-
-        return true;
-      })
-      .sort((a, b) => a.priority - b.priority);
-
-    for (const modifier of modifiers) {
-      const amountBefore = runningAmount;
-      const rawDelta = resolveModifierDelta(
-        modifier.type as PriceModifierType,
-        modifier.value,
-        amountBefore,
-      );
-      const delta = Math.max(-amountBefore, rawDelta);
-      runningAmount = Math.max(0, amountBefore + delta);
-
-      appliedModifiers.push({
-        id: modifier.id,
-        name: modifier.name,
-        type: modifier.type as PriceModifierType,
-        delta,
-        value: modifier.value,
-        priority: modifier.priority,
-      });
-
-      breakdown.push({
-        label: `Modifier: ${modifier.name}`,
-        amountBefore,
-        delta,
-        amountAfter: runningAmount,
-        metadata: {
-          type: modifier.type,
-          priority: modifier.priority,
-        },
-      });
-    }
-
-    return Ok({
-      baseAmount: selectedBase.amount,
-      finalAmount: runningAmount,
-      currency,
-      basePriceId: selectedBase.id,
-      appliedModifiers,
-      breakdown,
-    });
   }
 }

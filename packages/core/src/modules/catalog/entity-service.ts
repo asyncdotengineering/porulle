@@ -217,53 +217,54 @@ export class EntityService {
   }
 
   private async hydrateEntity(entity: SellableEntity, options?: GetOptions, ctx?: TxContext): Promise<CatalogEntityHydrated> {
-    const hydrated: CatalogEntityHydrated = { ...entity };
-    if (options?.includeAttributes) {
-      const attrs = await this.repo.findAttributesByEntityId(entity.id, ctx);
-      if (typeof options.includeAttributes === "object") {
-        hydrated.attributes = attrs.filter((a) => options.includeAttributes && typeof options.includeAttributes === "object" && options.includeAttributes.locales.includes(a.locale));
-      } else {
-        hydrated.attributes = attrs;
+    return (await this.hydrateEntities([entity], options, ctx))[0]!;
+  }
+
+  /**
+   * Hydrates many entities with one read per included relation, whatever their number. Media and
+   * pricing go through their own services, one call per entity.
+   */
+  private async hydrateEntities(entities: SellableEntity[], options?: GetOptions, ctx?: TxContext): Promise<CatalogEntityHydrated[]> {
+    const ids = entities.map((e) => e.id);
+    const [attributes, entityVariants, entityOptionTypes, categories, brands, customFields] = await Promise.all([
+      options?.includeAttributes ? this.repo.findAttributesByEntityIds(ids, ctx) : undefined,
+      options?.includeVariants ? this.repo.findVariantsWithOptionValueIdsByEntityIds(ids, ctx) : undefined,
+      options?.includeOptionTypes ? this.repo.findOptionTypesWithValuesByEntityIds(ids, ctx) : undefined,
+      options?.includeCategories ? this.repo.findEntityCategoriesByEntityIds(ids, ctx) : undefined,
+      options?.includeBrands ? this.repo.findEntityBrandsByEntityIds(ids, ctx) : undefined,
+      options?.includeCustomFields ? this.repo.findCustomFieldsByEntityIds(ids, ctx) : undefined,
+    ]);
+    const locales = typeof options?.includeAttributes === "object" ? options.includeAttributes.locales : undefined;
+    return Promise.all(entities.map(async (entity) => {
+      const hydrated: CatalogEntityHydrated = { ...entity };
+      if (attributes) hydrated.attributes = attributes.filter((a) => a.entityId === entity.id && (!locales || locales.includes(a.locale)));
+      if (entityVariants) hydrated.variants = entityVariants.filter((v) => v.entityId === entity.id);
+      if (entityOptionTypes) hydrated.optionTypes = entityOptionTypes.filter((ot) => ot.entityId === entity.id);
+      if (categories) hydrated.categories = categories.filter((c) => c.entityId === entity.id);
+      if (brands) hydrated.brands = brands.filter((b) => b.entityId === entity.id);
+      if (customFields) hydrated.customFields = customFields.filter((f) => f.entityId === entity.id);
+      if (options?.includeMedia) {
+        const mediaService = this.deps.services.media as {
+          listEntityMedia?: (
+            entityId: string,
+            opts?: { orgId?: string },
+            ctx?: TxContext,
+          ) => Promise<{ ok: boolean; value?: CatalogEntityHydrated["media"] }>;
+        } | undefined;
+        const mediaResult = await mediaService?.listEntityMedia?.(entity.id, { orgId: entity.organizationId }, ctx);
+        hydrated.media = mediaResult?.ok && mediaResult.value ? mediaResult.value : [];
       }
-    }
-    if (options?.includeVariants) {
-      const entityVariants = await this.repo.findVariantsByEntityId(entity.id, ctx);
-      hydrated.variants = await Promise.all(entityVariants.map(async (variant) => {
-        const optionValues = await this.repo.findVariantOptionValues(variant.id, ctx);
-        return { ...variant, optionValueIds: optionValues.map((vov) => vov.optionValueId) };
-      }));
-    }
-    if (options?.includeOptionTypes) {
-      const entityOptionTypes = await this.repo.findOptionTypesByEntityId(entity.id, ctx);
-      hydrated.optionTypes = await Promise.all(entityOptionTypes.map(async (ot) => {
-        const values = await this.repo.findOptionValuesByTypeId(ot.id, ctx);
-        return { ...ot, values };
-      }));
-    }
-    if (options?.includeCategories) hydrated.categories = await this.repo.findEntityCategories(entity.id, ctx);
-    if (options?.includeBrands) hydrated.brands = await this.repo.findEntityBrands(entity.id, ctx);
-    if (options?.includeCustomFields) hydrated.customFields = await this.repo.findCustomFieldsByEntityId(entity.id, ctx);
-    if (options?.includeMedia) {
-      const mediaService = this.deps.services.media as {
-        listEntityMedia?: (
-          entityId: string,
-          opts?: { orgId?: string },
-          ctx?: TxContext,
-        ) => Promise<{ ok: boolean; value?: CatalogEntityHydrated["media"] }>;
-      } | undefined;
-      const mediaResult = await mediaService?.listEntityMedia?.(entity.id, { orgId: entity.organizationId }, ctx);
-      hydrated.media = mediaResult?.ok && mediaResult.value ? mediaResult.value : [];
-    }
-    if (options?.includePricing) {
-      try {
-        const pricingService = this.deps.services.pricing as { listPrices: (filter: { entityId: string }) => Promise<{ ok: boolean; value?: { prices: Array<{ id: string; currency: string; amount: number; compareAtAmount?: number | null; createdAt: Date }> } }> };
-        const priceResult = await pricingService.listPrices({ entityId: entity.id });
-        if (priceResult.ok && priceResult.value) {
-          hydrated.pricing = priceResult.value.prices.map((p) => ({ id: p.id, currency: p.currency, amount: p.amount, compareAtAmount: p.compareAtAmount ?? null, createdAt: p.createdAt }));
-        }
-      } catch {}
-    }
-    return hydrated;
+      if (options?.includePricing) {
+        try {
+          const pricingService = this.deps.services.pricing as { listPrices: (filter: { entityId: string }) => Promise<{ ok: boolean; value?: { prices: Array<{ id: string; currency: string; amount: number; compareAtAmount?: number | null; createdAt: Date }> } }> };
+          const priceResult = await pricingService.listPrices({ entityId: entity.id });
+          if (priceResult.ok && priceResult.value) {
+            hydrated.pricing = priceResult.value.prices.map((p) => ({ id: p.id, currency: p.currency, amount: p.amount, compareAtAmount: p.compareAtAmount ?? null, createdAt: p.createdAt }));
+          }
+        } catch {}
+      }
+      return hydrated;
+    }));
   }
 
   async create(input: CreateEntityInput, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> { try {
@@ -373,9 +374,26 @@ export class EntityService {
     options?: GetOptions,
     ctx?: TxContext,
   ): Promise<Result<CatalogEntityHydrated>> {
-    const entity = await this.repo.findEntityById(id, ctx, organizationId);
+    const found = await this.getManyForInternalUse([id], organizationId, options, ctx);
+    if (!found.ok) return found;
+    const entity = found.value.get(id);
     if (!entity) return Err(new CommerceNotFoundError("Entity not found."));
-    return Ok(await this.hydrateEntity(entity, options, ctx));
+    return Ok(entity);
+  }
+
+  /**
+   * `getByIdForInternalUse` for many ids, with a constant number of reads. Ids that do not exist in
+   * `organizationId` are absent from the map.
+   */
+  async getManyForInternalUse(
+    ids: string[],
+    organizationId: string,
+    options?: GetOptions,
+    ctx?: TxContext,
+  ): Promise<Result<Map<string, CatalogEntityHydrated>>> {
+    const entities = await this.repo.findEntitiesByIds([...new Set(ids)], organizationId, ctx);
+    const hydrated = await this.hydrateEntities(entities, options, ctx);
+    return Ok(new Map(hydrated.map((entity) => [entity.id, entity])));
   }
 
   async getBySlug(slug: string, options: GetOptions | undefined, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
@@ -476,7 +494,7 @@ export class EntityService {
     const page = processed.pagination?.page ?? 1;
     const limit = processed.pagination?.limit ?? 20;
     const paged = paginate(entities, page, limit);
-    const hydratedItems = await Promise.all(paged.items.map((entity) => this.hydrateEntity(entity, undefined, ctx)));
+    const hydratedItems = await this.hydrateEntities(paged.items, undefined, ctx);
     const result = { items: hydratedItems, pagination: paged.pagination };
     const listTypeFilter = processed.filter?.type;
     const entityAfterHooks = listTypeFilter ? (this.deps.hooks.resolve(`catalog.${listTypeFilter}.afterList`) as CatalogListAfterHook[]) : [];

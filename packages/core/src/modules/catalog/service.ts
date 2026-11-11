@@ -613,6 +613,10 @@ export class CatalogServiceImpl {
     return this.entities.getByIdForInternalUse(id, organizationId, options, ctx);
   }
 
+  getManyForInternalUse(ids: string[], organizationId: string, options?: GetOptions, ctx?: TxContext): Promise<Result<Map<string, CatalogEntityHydrated>>> {
+    return this.entities.getManyForInternalUse(ids, organizationId, options, ctx);
+  }
+
   getBySlug(slug: string, options: GetOptions | undefined, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
     return this.entities.getBySlug(slug, options, actor, ctx);
   }
