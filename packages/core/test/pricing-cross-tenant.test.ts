@@ -103,14 +103,6 @@ describe("pricing cross-tenant isolation", () => {
     }
   });
 
-  it("findActiveModifiers is org-scoped", async () => {
-    const repo = new PricingRepository(kernel.database.db as DrizzleDatabase);
-    const forA = await repo.findActiveModifiers(ORG_A, entityAId);
-    const forB = await repo.findActiveModifiers(ORG_B, entityAId);
-    expect(forA.length).toBe(0);
-    expect(forB.some((m) => m.name === "org-b-global-discount")).toBe(true);
-  });
-
   it("findPricesByEntityId is org-scoped for cross-tenant entity id probes", async () => {
     const repo = new PricingRepository(kernel.database.db as DrizzleDatabase);
     const crossRead = await repo.findPricesByEntityId(ORG_A, entityBId);

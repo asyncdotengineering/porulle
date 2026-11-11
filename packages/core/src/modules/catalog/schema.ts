@@ -306,7 +306,9 @@ export const optionTypes = pgTable("option_types", {
   name: text("name").notNull(),
   displayName: text("display_name").notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
-});
+}, (table) => ({
+  entityIdx: index("idx_option_types_entity").on(table.entityId),
+}));
 
 export const optionValues = pgTable("option_values", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -317,7 +319,9 @@ export const optionValues = pgTable("option_values", {
   displayValue: text("display_value").notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
-});
+}, (table) => ({
+  optionTypeIdx: index("idx_option_values_option_type").on(table.optionTypeId),
+}));
 
 export const variants = pgTable(
   "variants",
@@ -343,6 +347,7 @@ export const variants = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({
+    entityIdx: index("idx_variants_entity").on(table.entityId),
     barcodeIdx: index("idx_variants_barcode").on(table.barcode),
     skuIdx: index("idx_variants_sku").on(table.sku),
     nativeSkuUnique: uniqueIndex("variants_native_org_sku_unique")

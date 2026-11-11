@@ -553,6 +553,9 @@ export class CatalogServiceImpl {
         const revision = await this.repository.findRevisionById(entityId, revisionId, txCtx);
         if (!revision) return Err(new CommerceNotFoundError("Revision not found."));
         await this.applyRevisionSnapshot(entityId, revision.snapshot, txCtx);
+        // The restore rewrites the slug and metadata (a product's `basePrice` lives there), so anything that keeps a
+        // derived copy of the product learns it here, in this transaction.
+        await this.entities.notifyEntityUpdated(entityId, ["slug", "metadata"], revisionActor, txCtx);
         const restored = await this.entities.getById(
           entityId,
           { includeAttributes: true, includeCategories: true, includeBrands: true, includeMedia: true },
@@ -611,6 +614,10 @@ export class CatalogServiceImpl {
 
   getByIdForInternalUse(id: string, organizationId: string, options?: GetOptions, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {
     return this.entities.getByIdForInternalUse(id, organizationId, options, ctx);
+  }
+
+  getManyForInternalUse(ids: string[], organizationId: string, options?: GetOptions, ctx?: TxContext): Promise<Result<Map<string, CatalogEntityHydrated>>> {
+    return this.entities.getManyForInternalUse(ids, organizationId, options, ctx);
   }
 
   getBySlug(slug: string, options: GetOptions | undefined, actor: Actor | null, ctx?: TxContext): Promise<Result<CatalogEntityHydrated>> {

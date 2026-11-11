@@ -1,4 +1,4 @@
-import { eq, and, asc, count, desc, gt, inArray, isNull, lt, max, ne, or, sql, type SQL } from "drizzle-orm";
+import { eq, and, asc, count, desc, getTableColumns, gt, inArray, isNull, lt, max, ne, or, sql, type SQL } from "drizzle-orm";
 import type { TxContext } from "../../../kernel/database/tx-context.js";
 import { CommerceNotFoundError } from "../../../kernel/errors.js";
 import type {
@@ -99,6 +99,18 @@ export class CatalogRepository {
       .from(sellableEntities)
       .where(and(...conditions));
     return rows[0];
+  }
+
+  async findEntitiesByIds(
+    ids: string[],
+    orgId: string,
+    ctx?: TxContext,
+  ): Promise<SellableEntity[]> {
+    if (ids.length === 0) return [];
+    return this.getDb(ctx)
+      .select()
+      .from(sellableEntities)
+      .where(and(inArray(sellableEntities.id, ids), eq(sellableEntities.organizationId, orgId)));
   }
 
   async findEntityBySlug(
@@ -447,6 +459,17 @@ export class CatalogRepository {
       .where(eq(sellableAttributes.entityId, entityId));
   }
 
+  async findAttributesByEntityIds(
+    entityIds: string[],
+    ctx?: TxContext,
+  ): Promise<SellableAttribute[]> {
+    if (entityIds.length === 0) return [];
+    return this.getDb(ctx)
+      .select()
+      .from(sellableAttributes)
+      .where(inArray(sellableAttributes.entityId, entityIds));
+  }
+
   async findAttributeByLocale(
     entityId: string,
     locale: string,
@@ -527,6 +550,22 @@ export class CatalogRepository {
       .where(
         and(
           eq(sellableCustomFields.entityId, entityId),
+          eq(sellableCustomFields.status, "approved"),
+        ),
+      );
+  }
+
+  async findCustomFieldsByEntityIds(
+    entityIds: string[],
+    ctx?: TxContext,
+  ): Promise<SellableCustomField[]> {
+    if (entityIds.length === 0) return [];
+    return this.getDb(ctx)
+      .select()
+      .from(sellableCustomFields)
+      .where(
+        and(
+          inArray(sellableCustomFields.entityId, entityIds),
           eq(sellableCustomFields.status, "approved"),
         ),
       );
@@ -915,6 +954,17 @@ export class CatalogRepository {
       .where(eq(entityCategories.entityId, entityId));
   }
 
+  async findEntityCategoriesByEntityIds(
+    entityIds: string[],
+    ctx?: TxContext,
+  ): Promise<EntityCategory[]> {
+    if (entityIds.length === 0) return [];
+    return this.getDb(ctx)
+      .select()
+      .from(entityCategories)
+      .where(inArray(entityCategories.entityId, entityIds));
+  }
+
   async findEntitiesByCategory(
     categoryId: string,
     ctx?: TxContext,
@@ -1065,6 +1115,17 @@ export class CatalogRepository {
       .where(eq(entityBrands.entityId, entityId));
   }
 
+  async findEntityBrandsByEntityIds(
+    entityIds: string[],
+    ctx?: TxContext,
+  ): Promise<EntityBrand[]> {
+    if (entityIds.length === 0) return [];
+    return this.getDb(ctx)
+      .select()
+      .from(entityBrands)
+      .where(inArray(entityBrands.entityId, entityIds));
+  }
+
   async findEntityTags(
     entityId: string,
     ctx?: TxContext,
@@ -1149,6 +1210,27 @@ export class CatalogRepository {
       .select()
       .from(optionTypes)
       .where(eq(optionTypes.entityId, entityId));
+  }
+
+  /** The option types of `entityIds` with their values, in one read. */
+  async findOptionTypesWithValuesByEntityIds(
+    entityIds: string[],
+    ctx?: TxContext,
+  ): Promise<Array<OptionType & { values: OptionValue[] }>> {
+    if (entityIds.length === 0) return [];
+    const rows = await this.getDb(ctx)
+      .select({ optionType: optionTypes, optionValue: optionValues })
+      .from(optionTypes)
+      .leftJoin(optionValues, eq(optionValues.optionTypeId, optionTypes.id))
+      .where(inArray(optionTypes.entityId, entityIds))
+      .orderBy(asc(optionTypes.sortOrder), asc(optionTypes.id), asc(optionValues.sortOrder), asc(optionValues.id));
+    const byId = new Map<string, OptionType & { values: OptionValue[] }>();
+    for (const { optionType, optionValue } of rows) {
+      let entry = byId.get(optionType.id);
+      if (!entry) byId.set(optionType.id, (entry = { ...optionType, values: [] }));
+      if (optionValue) entry.values.push(optionValue);
+    }
+    return [...byId.values()];
   }
 
   async findOptionTypeById(
@@ -1245,6 +1327,28 @@ export class CatalogRepository {
   ): Promise<Variant[]> {
     const db = this.getDb(ctx);
     return db.select().from(variants).where(eq(variants.entityId, entityId));
+  }
+
+  /** The variants of `entityIds` with the ids of their option values, in one read. */
+  /**
+   * Each variant ONCE, with its option value ids aggregated in SQL, in `sort_order, id` order. A join
+   * without the aggregate returned every column of every variant once per option value.
+   */
+  async findVariantsWithOptionValueIdsByEntityIds(
+    entityIds: string[],
+    ctx?: TxContext,
+  ): Promise<Array<Variant & { optionValueIds: string[] }>> {
+    if (entityIds.length === 0) return [];
+    return this.getDb(ctx)
+      .select({
+        ...getTableColumns(variants),
+        optionValueIds: sql<string[]>`coalesce(array_agg(${variantOptionValues.optionValueId}::text) filter (where ${variantOptionValues.optionValueId} is not null), '{}')`,
+      })
+      .from(variants)
+      .leftJoin(variantOptionValues, eq(variantOptionValues.variantId, variants.id))
+      .where(inArray(variants.entityId, entityIds))
+      .groupBy(variants.id)
+      .orderBy(asc(variants.sortOrder), asc(variants.id));
   }
 
   async findVariantById(

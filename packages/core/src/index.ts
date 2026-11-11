@@ -233,8 +233,11 @@ export type {
 } from "./modules/catalog/import-service.js";
 export { writeEntityLinks, removeEntityLinks, linkFieldPaths } from "./modules/catalog/entity-links.js";
 /** The `inventory.afterAdjustMany` payload: a page's changed levels, grouped by product. */
-export type { InventoryAdjustManyResult } from "./modules/inventory/service.js";
+export type { InventoryAdjustManyResult, InventoryAvailabilityChange } from "./modules/inventory/service.js";
 export type { InventoryLevel } from "./modules/inventory/repository/index.js";
+export { resolvePriceAt } from "./modules/pricing/service.js";
+export type { PricedEntity, PriceSelectionInput, ResolvedPrice } from "./modules/pricing/service.js";
+export type { ResolvablePrice, ResolvableModifier } from "./modules/pricing/repository/index.js";
 export type { EntityLinkRemovals, EntityLinkRows, EntityMediaRole, WrittenEntityLinks } from "./modules/catalog/entity-links.js";
 export type {
   TxContext,

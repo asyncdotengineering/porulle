@@ -1,4 +1,4 @@
-import { eq, and, inArray, isNull, sql } from "drizzle-orm";
+import { eq, and, inArray, isNull, or, sql } from "drizzle-orm";
 import { CommerceValidationError, INVENTORY_RECORD_NOT_FOUND_MESSAGE } from "../../../kernel/errors.js";
 import type { TxContext } from "../../../kernel/database/tx-context.js";
 import type {
@@ -228,34 +228,6 @@ export class InventoryRepository {
           eq(inventoryLevels.organizationId, organizationId),
         ),
       );
-  }
-
-  async findLevelsByEntityAndVariant(
-    organizationId: string,
-    entityId: string,
-    variantId?: string | null,
-    ctx?: TxContext,
-  ): Promise<InventoryLevel[]> {
-    const db = this.getDb(ctx);
-    const conditions = [
-      eq(inventoryLevels.organizationId, organizationId),
-      eq(inventoryLevels.entityId, entityId),
-    ];
-
-    // Only add variantId condition when it's a real string value — never pass null to eq()
-    if (variantId != null) {
-      conditions.push(eq(inventoryLevels.variantId, variantId));
-    }
-
-    const rows = await db
-      .select()
-      .from(inventoryLevels)
-      .where(and(...conditions));
-
-    // Post-filter for exact variantId match (handles SQL NULL correctly in JS)
-    return rows.filter((r) =>
-      variantId == null ? r.variantId === null : r.variantId === variantId,
-    );
   }
 
   async findLevelsByWarehouseId(
@@ -694,22 +666,42 @@ export class InventoryRepository {
   // Aggregate Queries
   // ─────────────────────────────────────────────────────────────────────────────
 
-  async getAvailableQuantity(
+  /**
+   * Available quantity (on hand minus reserved, summed over every warehouse) for each
+   * (entity, variant) pair, in one read. A null variant means the product-level stock rows.
+   * Pairs with no stock rows are absent from the result.
+   */
+  async getAvailableQuantitiesByVariant(
     organizationId: string,
-    entityId: string,
-    variantId?: string | null,
+    items: Array<{ entityId: string; variantId: string | null }>,
     ctx?: TxContext,
-  ): Promise<number> {
-    const levels = await this.findLevelsByEntityAndVariant(
-      organizationId,
-      entityId,
-      variantId,
-      ctx,
-    );
-    return levels.reduce(
-      (sum, level) => sum + (level.quantityOnHand - level.quantityReserved),
-      0,
-    );
+  ): Promise<Array<{ entityId: string; variantId: string | null; available: number }>> {
+    if (items.length === 0) return [];
+    const entityIds = [...new Set(items.map((i) => i.entityId))];
+    const variantIds = [...new Set(items.flatMap((i) => (i.variantId === null ? [] : [i.variantId])))];
+    const wantsProductLevel = items.some((i) => i.variantId === null);
+    const variantCondition =
+      variantIds.length > 0 && wantsProductLevel
+        ? or(isNull(inventoryLevels.variantId), inArray(inventoryLevels.variantId, variantIds))
+        : variantIds.length > 0
+          ? inArray(inventoryLevels.variantId, variantIds)
+          : isNull(inventoryLevels.variantId);
+    const rows = await this.getDb(ctx)
+      .select({
+        entityId: inventoryLevels.entityId,
+        variantId: inventoryLevels.variantId,
+        available: sql<string>`sum(${inventoryLevels.quantityOnHand} - ${inventoryLevels.quantityReserved})`,
+      })
+      .from(inventoryLevels)
+      .where(
+        and(
+          eq(inventoryLevels.organizationId, organizationId),
+          inArray(inventoryLevels.entityId, entityIds),
+          variantCondition,
+        ),
+      )
+      .groupBy(inventoryLevels.entityId, inventoryLevels.variantId);
+    return rows.map((row) => ({ ...row, available: Number(row.available) }));
   }
 
   async getAvailableQuantities(

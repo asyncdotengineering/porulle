@@ -408,6 +408,8 @@ export interface InventoryConfig {
     afterAdjust?: AfterHook<unknown>[];
     /** One page of changed levels grouped by product (`inventory.setAbsoluteMany`). Required alongside `afterAdjust`. */
     afterAdjustMany?: AfterHook<unknown>[];
+    /** A reservation, its release or a fulfillment deduction changed one variant's available quantity (`InventoryAvailabilityChange`). */
+    afterAvailabilityChange?: AfterHook<unknown>[];
   };
 }
 

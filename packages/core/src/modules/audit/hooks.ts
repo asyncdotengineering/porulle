@@ -106,6 +106,7 @@ export const auditHooks: Record<string, HookHandler> = {
   // Pricing
   "pricing.afterCreate": createAuditAfterHook("price", "created") as HookHandler,
   "pricing.afterUpdate": createAuditAfterHook("price", "updated") as HookHandler,
+  "pricing.afterDelete": createAuditAfterHook("price", "deleted") as HookHandler,
 
   // Promotions
   "promotions.afterCreate": createAuditAfterHook("promotion", "created") as HookHandler,
