@@ -12,7 +12,7 @@ interface Env {
   /** Fresh rotation candidate; promote by deploying before retiring CURRENT. */
   STRIPE_SECRET_KEY_NEXT?: string;
   STRIPE_WEBHOOK_SECRET?: string;
-  HYPERDRIVE?: Hyperdrive;
+  HYPERDRIVE: Hyperdrive;
 }
 
 let cached: Promise<Awaited<ReturnType<typeof createServer>>> | undefined;
@@ -26,19 +26,13 @@ function stripeSecret(env: Env): string {
   return key;
 }
 
-function databaseConnectionString(env: Env): string {
-  const hyperdrive = env.HYPERDRIVE?.connectionString?.trim();
-  if (hyperdrive) return hyperdrive;
-  return env.DATABASE_URL;
-}
-
 function server(env: Env) {
   cached ??= createOriginConfig(
     {
       ...env,
       STRIPE_SECRET_KEY: stripeSecret(env),
     },
-    hyperdriveAdapter({ connectionString: databaseConnectionString(env) }),
+    hyperdriveAdapter({ connectionString: env.HYPERDRIVE.connectionString }),
   ).then((config) => createServer(config));
   return cached;
 }

@@ -73,7 +73,7 @@ Retail-operations release, driven by the ordereka-fashion-pos field study. The w
 
 ### Adapters
 
-- **`@porulle/adapter-postgres` — Workers path** — `hyperdriveAdapter` + `withDatabaseScope` for Cloudflare Workers over Hyperdrive (Drizzle on `pg`; replaces the former Neon-specific adapter).
+- **`@porulle/adapter-neon`** *(new)* — Workers-grade Neon `DatabaseAdapter`: HTTP driver for queries, a fresh WebSocket pool per transaction, Hyperdrive-aware.
 
 ### SDK
 

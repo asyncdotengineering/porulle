@@ -49,35 +49,15 @@ function attachPoolErrorHandler(pool: Pool): void {
   });
 }
 
-function connectionStringWithStartupTimeouts(
-  connectionString: string,
-  statementTimeoutMs: number,
-  lockTimeoutMs: number,
-): string {
-  try {
-    const url = new URL(connectionString);
-    const extra = `-c statement_timeout=${statementTimeoutMs} -c lock_timeout=${lockTimeoutMs}`;
-    const existing = url.searchParams.get("options");
-    url.searchParams.set("options", existing ? `${existing} ${extra}` : extra);
-    return url.toString();
-  } catch {
-    const sep = connectionString.includes("?") ? "&" : "?";
-    const options = encodeURIComponent(
-      `-c statement_timeout=${statementTimeoutMs} -c lock_timeout=${lockTimeoutMs}`,
-    );
-    return `${connectionString}${sep}options=${options}`;
-  }
-}
-
 function createPgPool(connectionString: string, poolOpts: PostgresPoolOptions): Pool {
   const statementTimeout = poolOpts.statementTimeoutMs ?? 30_000;
   const lockTimeout = poolOpts.lockTimeoutMs ?? 10_000;
   const pooled = poolOpts.pooled ?? false;
 
   const pool = new Pool({
-    connectionString: pooled
-      ? connectionString
-      : connectionStringWithStartupTimeouts(connectionString, statementTimeout, lockTimeout),
+    connectionString,
+    // A startup parameter on direct connections; transaction-mode poolers reject it (see `pooled`).
+    ...(pooled ? {} : { options: `-c statement_timeout=${statementTimeout} -c lock_timeout=${lockTimeout}` }),
     max: poolOpts.max ?? 20,
     idleTimeoutMillis: (poolOpts.idleTimeout ?? 30) * 1000,
     connectionTimeoutMillis: (poolOpts.connectTimeout ?? 10) * 1000,
@@ -136,7 +116,10 @@ function scopeClient(connectionString: string): PostgresDrizzleClient {
   // max: 5 — measured on Workers + Hyperdrive: max=1 hangs when an outer query
   // runs while a transaction holds the only connection (checkout validation hooks).
   // Do not call pool.end(); Cloudflare tears down connections when the invocation ends.
-  const pool = new Pool({ connectionString, max: 5 });
+  // connectionTimeoutMillis: pg's default 0 waits forever for a free connection, which would turn a
+  // pool deadlock (every connection held by a transaction waiting on an outer query) into a silent
+  // hang. 30 s leaves room for imports queued behind slow transactions; Hyperdrive kills a query at 60 s.
+  const pool = new Pool({ connectionString, max: 5, connectionTimeoutMillis: 30_000 });
   attachPoolErrorHandler(pool);
   const db = drizzleFromPool(pool);
   store.set(connectionString, db);
@@ -148,7 +131,8 @@ function createScopedDbHandle(connectionString: string): PostgresDrizzleClient {
   // rather than calling it sees a genuine database: `"select" in db`, prototype walks such as a
   // vendor-scoping guard's search for unclassified data methods, `instanceof`. Over an empty object
   // those checks see nothing, and a guard built on them fails open. Constructing a Pool opens no
-  // socket. Every property READ resolves the current invocation's own instance.
+  // socket. Every property READ resolves the current invocation's own instance, so a read outside
+  // withDatabaseScope throws DatabaseScopeError; `in` and prototype checks work anywhere.
   const shape = drizzleFromPool(new Pool({ connectionString, max: 1 }));
   return new Proxy(shape, {
     get(_target, prop) {
