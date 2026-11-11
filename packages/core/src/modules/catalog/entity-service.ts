@@ -715,12 +715,18 @@ export class EntityService {
       });
     }
     const created: Variant[] = [];
-    for (const combo of combinations) {
-      const variant = await this.repo.createVariant({ entityId, status: "active", sortOrder: 0, metadata: { generatedBy: strategy.mode } }, ctx);
-      await this.repo.createVariantOptionValues(combo.map((optionValueId) => ({ variantId: variant.id, optionValueId })), ctx);
-      created.push(variant);
+    let wrote = false;
+    // Announced even when a later combination throws: the rows written before it may already be committed.
+    try {
+      for (const combo of combinations) {
+        const variant = await this.repo.createVariant({ entityId, status: "active", sortOrder: 0, metadata: { generatedBy: strategy.mode } }, ctx);
+        wrote = true;
+        await this.repo.createVariantOptionValues(combo.map((optionValueId) => ({ variantId: variant.id, optionValueId })), ctx);
+        created.push(variant);
+      }
+    } finally {
+      if (wrote) await this.notifyEntityUpdated(entityId, ["variants"], actor, ctx);
     }
-    if (created.length > 0) await this.notifyEntityUpdated(entityId, ["variants"], actor, ctx);
     return Ok(created);
   }
 
@@ -838,8 +844,9 @@ export class EntityService {
       ctx,
     );
     const seeded = await this.seedInventoryLevel(entityId, variant.id, actor, ctx);
-    if (!seeded.ok) return seeded;
+    // The variant and its options are written either way, so the change is announced either way.
     await this.notifyEntityUpdated(entityId, ["variants"], actor, ctx);
+    if (!seeded.ok) return seeded;
     return Ok({ variant, created: true });
   }
 
@@ -889,7 +896,10 @@ export class EntityService {
         ctx,
       );
       const seeded = await this.seedInventoryLevel(entityId, variant.id, actor, ctx);
-      if (!seeded.ok) return seeded;
+      if (!seeded.ok) {
+        await this.notifyEntityUpdated(entityId, ["variants"], actor, ctx);
+        return seeded;
+      }
       existing.set(key, variant.id);
       created.push(variant);
     }
