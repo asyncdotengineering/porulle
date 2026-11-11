@@ -1,8 +1,8 @@
 # @porulle/adapter-postgres
 
-The PostgreSQL `DatabaseAdapter` for `@porulle/core`. Drizzle on `postgres-js`. The only database backend Porulle ships today.
+The PostgreSQL `DatabaseAdapter` for `@porulle/core`. Drizzle on **node-postgres (`pg`)** — one package for Node and Cloudflare Workers (via Hyperdrive).
 
-## Usage
+## Node — long-lived pool
 
 ```ts
 import { defineConfig } from "@porulle/core";
@@ -24,22 +24,40 @@ export default defineConfig({
 });
 ```
 
+## Cloudflare Workers — Hyperdrive
+
+Cloudflare does not support Drizzle + Postgres.js over Hyperdrive; use this adapter's `pg` driver. Wrap each invocation (`fetch`, queue, `scheduled`) in `withDatabaseScope`:
+
+```ts
+import { hyperdriveAdapter, withDatabaseScope } from "@porulle/adapter-postgres";
+
+const databaseAdapter = hyperdriveAdapter({
+  connectionString: env.HYPERDRIVE.connectionString,
+});
+
+export default {
+  async fetch(request, env) {
+    return withDatabaseScope(async () => app.fetch(request, env));
+  },
+};
+```
+
+Do not call `pool.end()` on Workers — the runtime closes connections when the invocation ends.
+
 ## `pooled: true` — when to set it
 
-If your `DATABASE_URL` points at a **transaction-mode pooler** (pgbouncer, pgcat, Fly Managed Postgres), set `pooled: true`. The pooler rejects libpq startup parameters like `statement_timeout` — when `pooled` is on, the adapter skips them. Set the timeouts on the DB role instead:
+If your `DATABASE_URL` points at a **transaction-mode pooler** (pgbouncer, pgcat, Fly Managed Postgres), set `pooled: true`. The pooler rejects per-session `SET` for timeouts — configure the role instead:
 
 ```sql
 ALTER ROLE app SET statement_timeout = '30s';
 ALTER ROLE app SET lock_timeout = '10s';
 ```
 
-Direct PostgreSQL connections (no pooler) leave `pooled: false` (the default) so the adapter sets the timeouts per-session.
-
 ## What it does
 
-- Opens a `postgres-js` connection pool with the given options.
-- Wraps it in Drizzle (`drizzle-orm/postgres-js`).
-- Implements `DatabaseAdapter` from `@porulle/core` — `transaction(fn)` honours nested transactions correctly.
+- Opens a `pg.Pool` with the given options (`postgresAdapter`) or per-invocation pool (`hyperdriveAdapter` inside `withDatabaseScope`).
+- Wraps it in Drizzle (`drizzle-orm/node-postgres`) and normalizes `db.execute()` via `@porulle/core`.
+- Implements `DatabaseAdapter` — `transaction(fn)` honours nested transactions correctly.
 
 ## What it doesn't do
 
@@ -48,5 +66,6 @@ Direct PostgreSQL connections (no pooler) leave `pooled: false` (the default) so
 
 ## See also
 
+- [Deploy on Cloudflare Workers](../../../docs/deploy-cloudflare-workers.md)
 - [Root README — Quick Start](../../../README.md#quick-start)
 - [`SECURITY.md`](../../../SECURITY.md) — multi-tenant org-scoping is enforced at the repo layer; this adapter is the substrate

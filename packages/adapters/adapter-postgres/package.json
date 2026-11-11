@@ -23,14 +23,17 @@
   "dependencies": {
     "@porulle/core": "workspace:*",
     "drizzle-orm": "^0.45.1",
-    "postgres": "^3.4.7"
+    "pg": "^8.22.0"
   },
   "devDependencies": {
     "@porulle/eslint-config": "workspace:*",
     "@porulle/plugin-channel-connector": "workspace:*",
     "@porulle/typescript-config": "workspace:*",
     "@types/node": "^24.5.2",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9.39.1",
+    "postgres": "^3.4.9",
     "typescript": "5.9.2",
     "vitest": "^3.2.4"
   },
@@ -42,7 +45,7 @@
     "dist",
     "README.md"
   ],
-  "description": "The PostgreSQL DatabaseAdapter for @porulle/core. Drizzle on postgres-js. The only database backend Porulle ships today.",
+  "description": "The PostgreSQL DatabaseAdapter for @porulle/core. Drizzle on node-postgres (pg); postgresAdapter for Node, hyperdriveAdapter + withDatabaseScope for Cloudflare Workers.",
   "homepage": "https://porulle-docs.vercel.app",
   "bugs": {
     "url": "https://github.com/asyncdotengineering/porulle/issues"

@@ -1,4 +1,4 @@
-import { neonAdapter } from "@porulle/adapter-neon";
+import { hyperdriveAdapter, withDatabaseScope } from "@porulle/adapter-postgres";
 import { createServer } from "@porulle/core";
 import { createOriginConfig } from "../commerce.config.js";
 
@@ -12,7 +12,7 @@ interface Env {
   /** Fresh rotation candidate; promote by deploying before retiring CURRENT. */
   STRIPE_SECRET_KEY_NEXT?: string;
   STRIPE_WEBHOOK_SECRET?: string;
-  HYPERDRIVE?: Hyperdrive;
+  HYPERDRIVE: Hyperdrive;
 }
 
 let cached: Promise<Awaited<ReturnType<typeof createServer>>> | undefined;
@@ -27,18 +27,18 @@ function stripeSecret(env: Env): string {
 }
 
 function server(env: Env) {
-  cached ??= createOriginConfig({
-    ...env,
-    STRIPE_SECRET_KEY: stripeSecret(env),
-  }, neonAdapter({
-    connectionString: env.DATABASE_URL,
-    hyperdrive: env.HYPERDRIVE,
-  })).then((config) => createServer(config));
+  cached ??= createOriginConfig(
+    {
+      ...env,
+      STRIPE_SECRET_KEY: stripeSecret(env),
+    },
+    hyperdriveAdapter({ connectionString: env.HYPERDRIVE.connectionString }),
+  ).then((config) => createServer(config));
   return cached;
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    return (await server(env)).app.fetch(request);
+    return withDatabaseScope(async () => (await server(env)).app.fetch(request));
   },
 } satisfies ExportedHandler<Env>;

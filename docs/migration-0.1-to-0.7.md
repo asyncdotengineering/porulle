@@ -68,7 +68,7 @@ shipped in between:
 | **0.1.0 → 0.5.0** | The early-adopter issue wave — all 29 rounds of ordereka feedback (#1–#29): configId forwarded in `verifyApiKey` so named-scope keys authenticate (#1), customer order totals rollup (#2), clienteling interactions (#3), fuzzy order lookup `GET /api/orders/lookup` (#4), walk-in customer creation (#5), `PATCH /api/promotions/{id}` (#6), inventory adjust `mode=add\|remove\|set` with before/after/delta (#7), customer metadata shallow-merge on PATCH (#8), custom DatabaseAdapter injection (#10), normalized `db.execute()` row shape across drivers (#11), injectable `runtime.getClientIp` (#13), `server.runJobs()` for serverless cron (#15), audit-by-default middleware (#16), `parseJson()` + `details.issues[]` error envelope (#17), CLI `make-key --ttl --user` (#18), media-upload body-limit exemption (#21), category archive/restore (#22), `PromotionType` export (#23), no-op StorageAdapter default (#27). 0.5.0 was the "out of alpha" release. |
 | **0.5.0 → 0.6.0** | Packaging only: bun → pnpm migration, release-script fixes, CLI dep pinning. No schema or API changes. |
 | **0.6.0 → 0.7.0** | Admin-panel gap fixes (#33–#38, see CHANGELOG): pricing upsert + `?include=pricing` identity, CSRF skipped for bearer/API-key requests, real `?include=media` hydration, `/assets` prefix fix, **draft order/capture/refund REST** (`POST /orders`, `/orders/{id}/capture`, `/orders/{id}/refund`), variants/generate 422 guard. |
-| **0.7.0 → 0.8.0 (the field-study wave)** | #40–#46: fulfillments REST, pricing modifier CRUD, order line-item editing, cart list/recovery, runtime shipping/tax config, admin staff REST. Then #47–#58: settings module, documents (receipt/invoice + fiscal numbering), retail reports pack, one-call variants, PIN auth runtime, refund policy primitives, exchanges, offline SDK queue, `@porulle/adapter-neon`, order notes/timeline, tax classes, `@porulle/plugin-layaway`. Plus `config.routes(app, kernel, auth)` and public `requirePerm`. |
+| **0.7.0 → 0.8.0 (the field-study wave)** | #40–#46: fulfillments REST, pricing modifier CRUD, order line-item editing, cart list/recovery, runtime shipping/tax config, admin staff REST. Then #47–#58: settings module, documents (receipt/invoice + fiscal numbering), retail reports pack, one-call variants, PIN auth runtime, refund policy primitives, exchanges, offline SDK queue, Workers Postgres adapter (later unified in `@porulle/adapter-postgres`), order notes/timeline, tax classes, `@porulle/plugin-layaway`. Plus `config.routes(app, kernel, auth)` and public `requirePerm`. |
 
 ---
 
@@ -137,7 +137,7 @@ ordereka field study; "Since" names the release that shipped the replacement.
 | Line-refund tracking, refund cap, refund undo | refund policy primitives (#52) | 0.8.0 | ~420 |
 | Exchange endpoint (raw order insert) | `POST /pos/exchanges` (#53) | 0.8.0 | 60 |
 | Offline sale queue + sync screen plumbing | `@porulle/sdk` `OfflineQueue` (#54) | 0.8.0 | ~250 |
-| Hyperdrive/Neon hybrid adapter | `@porulle/adapter-neon` (#55) | 0.8.0 | 100 |
+| Workers Postgres over Hyperdrive | `hyperdriveAdapter` in `@porulle/adapter-postgres` | 0.8.0+ | 100 |
 | Order notes CRUD + audit timeline | `/orders/{id}/notes` + `/timeline` (#56) | 0.8.0 | ~200 |
 | Multi-tax-class checkout calc from settings + `metadata.taxClass` | tax classes (#57): `/api/tax/classes` + `taxClass` columns | 0.8.0 | 60 |
 | Layaways + layaway payments tables + routes | `@porulle/plugin-layaway` (#58) | 0.8.0 | ~250 |
