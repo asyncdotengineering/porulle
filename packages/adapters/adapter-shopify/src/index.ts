@@ -29,7 +29,7 @@ import {
 export { SHOPIFY_API_VERSION } from "./graphql.js";
 export { CATALOG_ITEMS_QUERY, CATALOG_PAGE_QUERY, VARIANTS_PAGE_QUERY } from "./catalog.js";
 export { INVENTORY_ITEM_VARIANT_QUERY } from "./webhooks.js";
-export { REQUIRED_SCOPES, mintClientCredentials, missingScopes, normalizeShopDomain, parseShopifyCredentials } from "./oauth.js";
+export { REQUIRED_SCOPES, exchangeIdToken, mintClientCredentials, missingScopes, normalizeShopDomain, parseShopifyCredentials, validShopDomain, verifyShopifyIdToken } from "./oauth.js";
 export type { ShopifyCredentials } from "./oauth.js";
 
 export interface ShopifyConnectorOptions {
