@@ -11,6 +11,9 @@ import { sellableEntities } from "@porulle/core/schema";
 import {
   CHANNEL_ORDER_CANCELLED_REASON,
   ChannelConnectorService,
+  DEFERRED_REDACTION_METADATA_KEY,
+  deferredRedactionMetadataSchema,
+  isFinalOrderStatusForRedaction,
   type ChannelConnectorPluginOptions,
   type ChannelPushTrigger,
   type ChannelStockLine,
@@ -276,8 +279,40 @@ function withdrawAfterCancelHook(options: ChannelConnectorPluginOptions): Plugin
   };
 }
 
+/**
+ * Applies a deferred `customers/redact` or `shop/redact` the moment an order reaches a final state
+ * (`fulfilled`, `delivered`, `cancelled`, `refunded`) — no cron needed. Zero extra DB reads on
+ * ordinary orders because `orders.afterStatusChange` delivers the hydrated order including `metadata`.
+ * Still runs after `shop/redact` disconnects the store and redacts `store_domain` because the marker
+ * stores `storeId`, matching `channel_order_exports.store_id` without reading `connected_stores`.
+ */
+function deferredRedactionHook(options: ChannelConnectorPluginOptions): PluginHookRegistration {
+  return {
+    key: "orders.afterStatusChange",
+    async handler(args: unknown) {
+      const transition = parseStatusTransition(args);
+      if (transition === null || !isFinalOrderStatusForRedaction(transition.newStatus)) return;
+      if (!isRecord(args)) return;
+      const result = args.result;
+      if (!hasHookContext(args)) return;
+      if (!isRecord(result) || typeof result.id !== "string" || !isRecord(result.metadata)) return;
+      const deferred = deferredRedactionMetadataSchema.safeParse(result.metadata[DEFERRED_REDACTION_METADATA_KEY]);
+      if (!deferred.success) return;
+      const { context } = args;
+      const orgId = typeof result.organizationId === "string" && result.organizationId.length > 0
+        ? result.organizationId
+        : resolveOrgIdForCommerce(context.actor, context.commerceConfig);
+      const service = new ChannelConnectorService(context.db, context.services, options);
+      await service.redactOrdersContact(orgId, [result.id], {
+        storeId: deferred.data.storeId,
+        reason: deferred.data.reason ?? "customer_redact",
+      });
+    },
+  };
+}
+
 export function buildHooks(options: ChannelConnectorPluginOptions): PluginHookRegistration[] {
-  return [cancelAtStoreHook(options), withdrawAfterCancelHook(options), {
+  return [cancelAtStoreHook(options), withdrawAfterCancelHook(options), deferredRedactionHook(options), {
     key: "checkout.beforePayment",
     async handler(args: unknown) {
       const { data, context } = args as {

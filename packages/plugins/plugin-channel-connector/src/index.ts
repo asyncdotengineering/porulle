@@ -63,7 +63,11 @@ export { mockChannelConnector } from "./mock-connector.js";
 export type { MockChannelConnectorOptions } from "./mock-connector.js";
 export {
   ChannelConnectorService,
+  CONTACT_REDACTED_AT_METADATA_KEY,
+  DEFERRED_REDACTION_METADATA_KEY,
+  FINAL_ORDER_REDACTION_STATUSES,
   HERO_IMAGE_BYTE_CAP,
+  isFinalOrderStatusForRedaction,
   selectImportImages,
   CATALOG_OUTBOUND_SUPPRESSION_WINDOW_MS,
   CATALOG_PUSH_BATCH_SIZES,
@@ -240,7 +244,14 @@ export type {
   ChannelConnectorPluginOptions,
   ConfineStores,
   ConnectClaims,
+  CustomerDataRequestInput,
+  OnCustomerDataRequest,
+  OnOrdersRedacted,
+  OnShopRedacted,
   OnStoreCatalogChanged,
+  OrderContactRedactionReason,
+  OrdersRedactedInput,
+  ShopRedactedInput,
   StoreConnectActor,
   StoreReadContext,
   ChannelStockLine,
@@ -489,7 +500,12 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           type: String(input.topic),
           data: input.data,
         });
-        if (!result.ok) throw new Error(result.error);
+        if (!result.ok) {
+          if (result.code === "MALFORMED_COMPLIANCE_PAYLOAD" || result.code === "SHOPIFY_WEBHOOK_MALFORMED") {
+            throw new TaskNonRetryableError(result.error);
+          }
+          throw new Error(result.error);
+        }
         return { output: { processed: result.value.processed } };
       },
     },
