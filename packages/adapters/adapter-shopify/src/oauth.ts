@@ -19,16 +19,17 @@ import { z } from "zod";
  */
 
 /**
- * The scopes the connector's live paths need, and nothing else.
+ * The scopes the connector's live paths need, and nothing else. Nothing about a product is ever
+ * pushed to a merchant's Shopify — only orders reach it — so there is no `write_products` here.
  *
- * - `read_products`, `write_products`: the catalogue import, and the Loom metafield write-back.
+ * - `read_products`: the catalogue import.
  * - `read_inventory`: variant stock and the inventory item behind a stock webhook.
  * - `write_orders`: a paid platform order is created in the store (`orderCreate`). A write scope
  *   includes its read scope, which `orders/fulfilled` and `orders/cancelled` need.
  * - `read_returns`, `write_returns`: a shopper's return is asked of the store (`returnRequest`) and
  *   its `returns/*` webhooks say how the store answered.
  */
-export const REQUIRED_SCOPES = ["read_products", "write_products", "read_inventory", "write_orders", "read_returns", "write_returns"] as const;
+export const REQUIRED_SCOPES = ["read_products", "read_inventory", "write_orders", "read_returns", "write_returns"] as const;
 
 /** Refresh this long before Shopify's stated expiry, so a call never starts on a token about to lapse. */
 export const ACCESS_TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000;
