@@ -9,3 +9,4 @@ Connect a store through the merchant's own Shopify app with the client credentia
 - A token-endpoint refusal now names its cause: `SHOPIFY_SHOP_NOT_PERMITTED` (the app and the store are in different organizations) and `SHOPIFY_APP_NOT_INSTALLED`; anything else stays `SHOPIFY_REAUTHORIZATION_REQUIRED`.
 - `subscribeShopifyWebhooks({ origin, accessToken, uri })` subscribes the app to every `SHOPIFY_WEBHOOK_TOPICS` topic with `webhookSubscriptionCreate`, creating only the missing ones, for an app whose configuration does not carry our subscriptions. Compliance topics cannot be subscribed this way.
 - `missingScopes` is exported.
+- `REQUIRED_SCOPES` no longer asks for `write_products`: nothing about a product is ever pushed to a merchant's Shopify, so only the read side of the catalogue is requested.

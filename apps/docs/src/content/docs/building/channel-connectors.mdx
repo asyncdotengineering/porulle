@@ -99,7 +99,7 @@ channelConnectorPlugin({
 
 The `GET /api/channels/oauth/{provider}/start` route requires `channels:connect` and a signed-in user, accepts `shop` for Shopify (`acme`, `acme.myshopify.com` or the admin URL all normalise to one shop) or `store` for WooCommerce, and redirects to the provider's approval screen. The unauthenticated callback verifies the signed state (single use is recorded in the database), calls the connector's `completeAuth(request, { storeDomain })`, and connects the store for the **user who started** the flow — the state carries them, because the callback has no session of its own. The browser always lands on `postConnectRedirect`, with `?connected=<storeId>` or `?connect_error=<code>&connect_message=<text>`.
 
-Shopify's connector uses the authorization code grant with `expiring=1`, refuses a grant missing a required scope (`read_products`, `write_products`, `read_inventory`, `write_orders`), and talks only to the GraphQL Admin API (`SHOPIFY_API_VERSION`, 2026-10). For a test stand-in, pass a `shopOrigin` that maps a shop to the stand-in's per-shop origin — the shop still rides in the request, exactly as it does in production:
+Shopify's connector uses the authorization code grant with `expiring=1`, refuses a grant missing a required scope (`read_products`, `read_inventory`, `write_orders`, `read_returns`, `write_returns`), and talks only to the GraphQL Admin API (`SHOPIFY_API_VERSION`, 2026-10). For a test stand-in, pass a `shopOrigin` that maps a shop to the stand-in's per-shop origin — the shop still rides in the request, exactly as it does in production:
 
 ```ts
 shopifyConnector({ clientId, clientSecret, shopOrigin: (shop) => `http://127.0.0.1:4030/shopify/${shop}` });
