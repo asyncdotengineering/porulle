@@ -16,6 +16,11 @@ import { z } from "zod";
  *   The token lives 24 hours and there is no refresh token; a new one is minted with the same client
  *   id and secret. Shopify refuses it with `shop_not_permitted` across organizations.
  *   https://shopify.dev/docs/apps/build/authentication-authorization/client-credentials-grant
+ * - The token exchange grant, for an app Shopify installs itself (managed installation) and loads
+ *   inside the admin: App Bridge hands the page a one-minute ID token, and the app trades it for the
+ *   same expiring offline token. Shopify keeps ONE current offline token per app and store, so a
+ *   successful exchange retires the refresh tokens an earlier grant of that app issued.
+ *   https://shopify.dev/docs/apps/build/authentication-authorization/implement-token-exchange
  */
 
 /**
@@ -149,7 +154,11 @@ function tokenRefusal(status: number, body: string): ChannelConnectorError {
   return { code: "SHOPIFY_REAUTHORIZATION_REQUIRED", message: `Shopify refused the grant (${status}); the store must be reconnected.`, retriable: false };
 }
 
-async function postTokenEndpoint(fetchImpl: typeof fetch, origin: string, form: Record<string, string>): Promise<Result<z.infer<typeof tokenResponseSchema>, ChannelConnectorError>> {
+/**
+ * `badRequest` is what a 400 means to this grant when it is not the generic refusal: for the token
+ * exchange it is a stale or invalid ID token, which a fresh one fixes.
+ */
+async function postTokenEndpoint(fetchImpl: typeof fetch, origin: string, form: Record<string, string>, badRequest?: ChannelConnectorError): Promise<Result<z.infer<typeof tokenResponseSchema>, ChannelConnectorError>> {
   let response: Response;
   try {
     response = await fetchImpl(`${origin}/admin/oauth/access_token`, {
@@ -161,6 +170,7 @@ async function postTokenEndpoint(fetchImpl: typeof fetch, origin: string, form: 
   } catch (error) {
     return oauthError("SHOPIFY_TOKEN_REQUEST_FAILED", error instanceof Error ? error.message : "Shopify token request failed.", true);
   }
+  if (response.status === 400 && badRequest !== undefined) return Err(badRequest);
   if (response.status === 400 || response.status === 401) {
     return Err(tokenRefusal(response.status, await response.text().catch(() => "")));
   }
@@ -198,6 +208,103 @@ export async function exchangeCallback(params: {
   const credentials = credentialsFrom(token.value, params.now);
   // Merchants can untick scopes on the grant screen; a token missing one fails later in a way that
   // looks like a product problem, so it is refused here, where the cause is still nameable.
+  const missing = missingScopes(credentials.grantedScopes, params.requiredScopes);
+  if (missing.length > 0) return oauthError("SHOPIFY_SCOPES_NOT_GRANTED", `The store did not grant: ${missing.join(", ")}.`);
+  return Ok(credentials);
+}
+
+/** Shopify's ID tokens are signed with this; anything else (`none`, RS256) is refused before it is read. */
+const ID_TOKEN_ALGORITHM = "HS256";
+/** How far a token's `nbf` may sit in the future before it is refused: clocks differ by seconds. */
+const ID_TOKEN_SKEW_MS = 10_000;
+
+const idTokenHeaderSchema = z.object({ alg: z.string() });
+const idTokenPayloadSchema = z.object({
+  iss: z.string(),
+  dest: z.string(),
+  aud: z.string(),
+  sub: z.string(),
+  exp: z.number(),
+  nbf: z.number(),
+});
+
+const ID_TOKEN_INVALID: ChannelConnectorError = { code: "SHOPIFY_ID_TOKEN_INVALID", message: "The Shopify ID token is invalid or expired.", retriable: false };
+
+function jwtPart(encoded: string): unknown {
+  try {
+    return JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+function hostOf(url: string): string | undefined {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Check an ID token the way Shopify documents: HS256 over `header.payload` under the client secret
+ * (compared in constant time), `exp` in the future, `nbf` in the past, `aud` equal to the client id,
+ * and the hostnames of `iss` and `dest` equal and a `*.myshopify.com` shop. Returns the shop the
+ * token was issued for and the staff member (`sub`). Every failure is `SHOPIFY_ID_TOKEN_INVALID`:
+ * the caller's answer is the same (a fresh token fixes it), and the cause is not the caller's to learn.
+ * https://shopify.dev/docs/apps/build/authentication-authorization/id-tokens
+ */
+export function verifyShopifyIdToken(params: { token: string; clientId: string; clientSecret: string; now: number }): Result<{ shop: string; userId: string }, ChannelConnectorError> {
+  const parts = params.token.split(".");
+  const [encodedHeader, encodedPayload, encodedSignature] = parts;
+  if (parts.length !== 3 || !encodedHeader || !encodedPayload || !encodedSignature) return Err(ID_TOKEN_INVALID);
+  const header = idTokenHeaderSchema.safeParse(jwtPart(encodedHeader));
+  if (!header.success || header.data.alg !== ID_TOKEN_ALGORITHM) return Err(ID_TOKEN_INVALID);
+  const expected = createHmac("sha256", params.clientSecret).update(`${encodedHeader}.${encodedPayload}`).digest();
+  const actual = Buffer.from(encodedSignature, "base64url");
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return Err(ID_TOKEN_INVALID);
+  const payload = idTokenPayloadSchema.safeParse(jwtPart(encodedPayload));
+  if (!payload.success) return Err(ID_TOKEN_INVALID);
+  const claims = payload.data;
+  const issuerHost = hostOf(claims.iss);
+  const destHost = hostOf(claims.dest);
+  if (
+    claims.exp * 1000 <= params.now
+    || claims.nbf * 1000 > params.now + ID_TOKEN_SKEW_MS
+    || claims.aud !== params.clientId
+    || issuerHost === undefined
+    || issuerHost !== destHost
+    || !validShopDomain(destHost)
+  ) return Err(ID_TOKEN_INVALID);
+  return Ok({ shop: destHost, userId: claims.sub });
+}
+
+/**
+ * Trade a verified ID token for an expiring offline token (the token exchange grant). Shopify answers
+ * a stale or invalid ID token with 400, a routine condition a fresh token fixes: it is
+ * `SHOPIFY_ID_TOKEN_INVALID` here, not a refusal of the app. Scopes the store did not grant are refused
+ * exactly as the code grant refuses them.
+ */
+export async function exchangeIdToken(params: {
+  fetchImpl: typeof fetch;
+  origin: string;
+  clientId: string;
+  clientSecret: string;
+  idToken: string;
+  requiredScopes: readonly string[];
+  now: number;
+}): Promise<Result<ShopifyCredentials, ChannelConnectorError>> {
+  const token = await postTokenEndpoint(params.fetchImpl, params.origin, {
+    client_id: params.clientId,
+    client_secret: params.clientSecret,
+    grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+    subject_token: params.idToken,
+    subject_token_type: "urn:ietf:params:oauth:token-type:id_token",
+    requested_token_type: "urn:shopify:params:oauth:token-type:offline-access-token",
+    expiring: "1",
+  }, ID_TOKEN_INVALID);
+  if (!token.ok) return token;
+  const credentials = credentialsFrom(token.value, params.now);
   const missing = missingScopes(credentials.grantedScopes, params.requiredScopes);
   if (missing.length > 0) return oauthError("SHOPIFY_SCOPES_NOT_GRANTED", `The store did not grant: ${missing.join(", ")}.`);
   return Ok(credentials);
