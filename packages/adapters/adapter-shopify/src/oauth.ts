@@ -4,10 +4,18 @@ import type { ChannelConnectorError, Result } from "@porulle/core";
 import { z } from "zod";
 
 /**
- * Shopify's OAuth for a standalone (non-embedded) app: the authorization code grant, asking for an
- * EXPIRING offline token. Shopify requires expiring offline tokens of every new public app calling the
- * GraphQL Admin API: a one-hour access token and a 90-day refresh token that rotates on every refresh.
- * https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens
+ * Shopify's two grants an app connects a store with.
+ *
+ * - The authorization code grant, for an app the merchant installs from us (public or custom
+ *   distribution), asking for an EXPIRING offline token: Shopify requires them of every new public
+ *   app calling the GraphQL Admin API — a one-hour access token and a 90-day refresh token that
+ *   rotates on every refresh.
+ *   https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens
+ * - The client credentials grant, for an app that belongs to the SAME Shopify organization as the
+ *   store: a merchant's own Dev Dashboard app, whose client id and secret the merchant hands over.
+ *   The token lives 24 hours and there is no refresh token; a new one is minted with the same client
+ *   id and secret. Shopify refuses it with `shop_not_permitted` across organizations.
+ *   https://shopify.dev/docs/apps/build/authentication-authorization/client-credentials-grant
  */
 
 /**
@@ -27,6 +35,11 @@ export const ACCESS_TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000;
 
 /** What the store row holds. Read back with {@link parseShopifyCredentials}; never cast. */
 export interface ShopifyCredentials {
+  /**
+   * How the token was granted. `client_credentials` has no refresh token: it is renewed by minting
+   * again with the app's client id and secret. Absent: the authorization code grant.
+   */
+  grant?: "client_credentials";
   accessToken: string;
   /** Absent for a non-expiring token (an admin-created custom app); such a token is never refreshed. */
   refreshToken?: string;
@@ -36,6 +49,7 @@ export interface ShopifyCredentials {
 }
 
 const credentialsSchema = z.object({
+  grant: z.literal("client_credentials").optional(),
   accessToken: z.string().min(1),
   refreshToken: z.string().min(1).optional(),
   accessTokenExpiresAt: z.string().optional(),
@@ -46,9 +60,10 @@ const credentialsSchema = z.object({
 export function parseShopifyCredentials(value: Record<string, unknown>): ShopifyCredentials | undefined {
   const parsed = credentialsSchema.safeParse(value);
   if (!parsed.success) return undefined;
-  const { refreshToken, accessTokenExpiresAt, refreshTokenExpiresAt, ...rest } = parsed.data;
+  const { grant, refreshToken, accessTokenExpiresAt, refreshTokenExpiresAt, ...rest } = parsed.data;
   return {
     ...rest,
+    ...(grant !== undefined ? { grant } : {}),
     ...(refreshToken !== undefined ? { refreshToken } : {}),
     ...(accessTokenExpiresAt !== undefined ? { accessTokenExpiresAt } : {}),
     ...(refreshTokenExpiresAt !== undefined ? { refreshTokenExpiresAt } : {}),
@@ -118,6 +133,21 @@ function credentialsFrom(body: z.infer<typeof tokenResponseSchema>, now: number)
   };
 }
 
+/**
+ * Why the token endpoint refused a grant, from the body Shopify answered with. Shopify documents two
+ * client-credentials refusals by name, in a body that reads "Oauth error shop_not_permitted: …"; the
+ * name is matched wherever it appears rather than parsed from one assumed shape.
+ */
+function tokenRefusal(status: number, body: string): ChannelConnectorError {
+  if (body.includes("shop_not_permitted")) {
+    return { code: "SHOPIFY_SHOP_NOT_PERMITTED", message: "Shopify refused the client credentials grant for this store: the app and the store are in different Shopify organizations.", retriable: false };
+  }
+  if (body.includes("app_not_installed")) {
+    return { code: "SHOPIFY_APP_NOT_INSTALLED", message: "Shopify says the app is not installed on this store.", retriable: false };
+  }
+  return { code: "SHOPIFY_REAUTHORIZATION_REQUIRED", message: `Shopify refused the grant (${status}); the store must be reconnected.`, retriable: false };
+}
+
 async function postTokenEndpoint(fetchImpl: typeof fetch, origin: string, form: Record<string, string>): Promise<Result<z.infer<typeof tokenResponseSchema>, ChannelConnectorError>> {
   let response: Response;
   try {
@@ -131,7 +161,7 @@ async function postTokenEndpoint(fetchImpl: typeof fetch, origin: string, form: 
     return oauthError("SHOPIFY_TOKEN_REQUEST_FAILED", error instanceof Error ? error.message : "Shopify token request failed.", true);
   }
   if (response.status === 400 || response.status === 401) {
-    return oauthError("SHOPIFY_REAUTHORIZATION_REQUIRED", `Shopify refused the grant (${response.status}); the store must be reconnected.`);
+    return Err(tokenRefusal(response.status, await response.text().catch(() => "")));
   }
   if (!response.ok) return oauthError("SHOPIFY_TOKEN_REQUEST_FAILED", `Shopify token request failed (${response.status}).`, response.status >= 500);
   const parsed = tokenResponseSchema.safeParse(await response.json().catch(() => undefined));
@@ -173,8 +203,33 @@ export async function exchangeCallback(params: {
 }
 
 /**
+ * A token from the client credentials grant: the app's own client id and secret, no code and no
+ * scope (Shopify ignores one). The token carries the scopes the store granted the app's installation.
+ * A refusal names its cause: `SHOPIFY_SHOP_NOT_PERMITTED` (another organization's app),
+ * `SHOPIFY_APP_NOT_INSTALLED`, or `SHOPIFY_REAUTHORIZATION_REQUIRED` for a client id or secret
+ * Shopify does not accept.
+ */
+export async function mintClientCredentials(params: {
+  fetchImpl: typeof fetch;
+  origin: string;
+  clientId: string;
+  clientSecret: string;
+  now: number;
+}): Promise<Result<ShopifyCredentials, ChannelConnectorError>> {
+  const token = await postTokenEndpoint(params.fetchImpl, params.origin, {
+    grant_type: "client_credentials",
+    client_id: params.clientId,
+    client_secret: params.clientSecret,
+  });
+  if (!token.ok) return token;
+  return Ok({ grant: "client_credentials", ...credentialsFrom(token.value, params.now) });
+}
+
+/**
  * New credentials when the access token is within the refresh margin of expiry, `null` when the
- * current ones are good. A refresh token Shopify refuses means the merchant must reconnect.
+ * current ones are good. A client-credentials token is minted again; an authorization-code token is
+ * refreshed with its refresh token, and a refresh token Shopify refuses means the merchant must
+ * reconnect.
  */
 export async function refreshIfExpiring(params: {
   fetchImpl: typeof fetch;
@@ -192,6 +247,7 @@ export async function refreshIfExpiring(params: {
     const expiresAt = Date.parse(credentials.accessTokenExpiresAt);
     if (Number.isFinite(expiresAt) && expiresAt - params.now > ACCESS_TOKEN_REFRESH_MARGIN_MS) return Ok(null);
   }
+  if (credentials.grant === "client_credentials") return mintClientCredentials(params);
   if (credentials.refreshToken === undefined) return oauthError("SHOPIFY_REAUTHORIZATION_REQUIRED", "The store's access token expired and no refresh token is held; the store must be reconnected.");
   const token = await postTokenEndpoint(params.fetchImpl, params.origin, {
     client_id: params.clientId,
