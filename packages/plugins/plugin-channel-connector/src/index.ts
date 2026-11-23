@@ -244,6 +244,7 @@ export type {
   StoreConnectActor,
   StoreReadContext,
   ChannelStockLine,
+  LineStockRefresh,
   ExportState,
   PublicConnectedStore,
   ReconcileReport,
