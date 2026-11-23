@@ -380,6 +380,12 @@ export interface ChannelStockLine {
   quantity: number;
 }
 
+/** What {@link ChannelConnectorService.refreshLineStock} did: levels it wrote, and stores it could not confirm. */
+export interface LineStockRefresh {
+  refreshed: number;
+  unconfirmed: Array<{ storeId: string; reason: string }>;
+}
+
 interface BackfillCounts {
   entitiesTouched: number;
   attributesCreated: number;
@@ -3446,11 +3452,11 @@ export class ChannelConnectorService {
     return Ok((rows as ConnectedStore[]).map(redactStore));
   }
 
-  async validateLineStock(
-    orgId: string,
-    lines: ChannelStockLine[],
-    timeoutMs = 3_000,
-  ): Promise<void> {
+  /**
+   * The stores a bag's lines were imported from, each with the lines it supplies. A line whose
+   * entity has no source store (a hand-made product) belongs to no connector and is left out.
+   */
+  private async linesByStore(orgId: string, lines: ChannelStockLine[]): Promise<Map<string, ChannelStockLine[]>> {
     const entities = await this.db
       .select({ id: sellableEntities.id, sourceStoreId: sellableEntities.sourceStoreId })
       .from(sellableEntities)
@@ -3459,14 +3465,47 @@ export class ChannelConnectorService {
         inArray(sellableEntities.id, lines.map((line) => line.entityId)),
       ));
     const sourceByEntity = new Map(entities.map((entity) => [entity.id, entity.sourceStoreId]));
-    const channelLines = lines.filter((line) => sourceByEntity.get(line.entityId) != null);
     const byStore = new Map<string, ChannelStockLine[]>();
-    for (const line of channelLines) {
-      const storeId = sourceByEntity.get(line.entityId)!;
-      const storeLines = byStore.get(storeId) ?? [];
-      storeLines.push(line);
-      byStore.set(storeId, storeLines);
+    for (const line of lines) {
+      const storeId = sourceByEntity.get(line.entityId);
+      if (storeId == null) continue;
+      byStore.set(storeId, [...(byStore.get(storeId) ?? []), line]);
     }
+    return byStore;
+  }
+
+  /**
+   * The external mapping each line's stock is read by, in line order: the variant's, else the
+   * product's. Reads only these lines' rows, never the store's whole map: a store holds thousands,
+   * and every database read is paid egress.
+   */
+  private async mappingsForLines(orgId: string, storeId: string, lines: ChannelStockLine[]): Promise<Array<typeof channelEntityMap.$inferSelect | undefined>> {
+    const variantIds = lines.flatMap((line) => line.variantId ?? []);
+    const mappings = await this.db
+      .select()
+      .from(channelEntityMap)
+      .where(and(
+        eq(channelEntityMap.organizationId, orgId),
+        eq(channelEntityMap.storeId, storeId),
+        or(
+          inArray(channelEntityMap.entityId, lines.map((line) => line.entityId)),
+          variantIds.length > 0 ? inArray(channelEntityMap.variantId, variantIds) : undefined,
+        ),
+      ));
+    return lines.map((line) => {
+      const mapping = line.variantId
+        ? mappings.find((item) => item.kind === "variant" && item.variantId === line.variantId)
+        : undefined;
+      return mapping ?? mappings.find((item) => item.kind === "entity" && item.entityId === line.entityId);
+    });
+  }
+
+  async validateLineStock(
+    orgId: string,
+    lines: ChannelStockLine[],
+    timeoutMs = 3_000,
+  ): Promise<void> {
+    const byStore = await this.linesByStore(orgId, lines);
 
     await Promise.all([...byStore].map(async ([storeId, storeLines]) => {
       const store = await this.getStoreRecord(orgId, storeId);
@@ -3478,19 +3517,7 @@ export class ChannelConnectorService {
         throw new CommerceValidationError(stockFailure(storeLines[0]!, `no connector is registered for provider "${store.provider}"`));
       }
 
-      const mappings = await this.db
-        .select()
-        .from(channelEntityMap)
-        .where(and(
-          eq(channelEntityMap.organizationId, orgId),
-          eq(channelEntityMap.storeId, storeId),
-        ));
-      const inventoryIds = storeLines.map((line) => {
-        const mapping = line.variantId
-          ? mappings.find((item) => item.kind === "variant" && item.variantId === line.variantId)
-          : undefined;
-        return mapping ?? mappings.find((item) => item.kind === "entity" && item.entityId === line.entityId);
-      });
+      const inventoryIds = await this.mappingsForLines(orgId, storeId, storeLines);
       const missing = storeLines.find((line, index) => !inventoryIds[index]);
       if (missing) {
         throw new CommerceValidationError(stockFailure(missing, "external inventory mapping is missing"));
@@ -3515,6 +3542,74 @@ export class ChannelConnectorService {
         }
       }
     }));
+  }
+
+  /**
+   * Brings the stock of a bag's lines up to what their stores say NOW, so the checkout that follows
+   * prices against current numbers. It repairs a mirror that a missed `inventory_levels/update`
+   * left behind (nothing re-reads a store on a schedule) and never refuses a sale itself: the
+   * caller's own stock check does that, on the numbers this wrote.
+   *
+   * One `fetchInventory` per store, all stores at once, each under `timeoutMs`. A level that
+   * differs from ours is written through the inventory service exactly as a webhook writes it, so
+   * the same after-hooks and search outbox fire. A store that is not connected, has no connector,
+   * errors, times out, or leaves a variant out of its answer writes nothing for what it did not
+   * confirm and is reported in `unconfirmed`; the mirror stays the answer there. A variant Shopify
+   * omits is NOT written as 0: the adapter documents an omitted variant as unconfirmed, and it can
+   * as well be a lookup that lost it as a product that was deleted (the catalog reconcile archives
+   * those, with the deletion guards this path lacks).
+   */
+  async refreshLineStock(
+    orgId: string,
+    lines: ChannelStockLine[],
+    options: { timeoutMs: number },
+  ): Promise<LineStockRefresh> {
+    const byStore = await this.linesByStore(orgId, lines);
+    const actor = createSystemActor(orgId);
+    const outcomes = await Promise.all([...byStore].map(async ([storeId, storeLines]) => {
+      try {
+        return await this.refreshStoreLines(orgId, storeId, storeLines, options.timeoutMs, actor);
+      } catch (error) {
+        return { refreshed: 0, unconfirmed: [{ storeId, reason: error instanceof Error ? error.message : String(error) }] };
+      }
+    }));
+    return {
+      refreshed: outcomes.reduce((sum, outcome) => sum + outcome.refreshed, 0),
+      unconfirmed: outcomes.flatMap((outcome) => outcome.unconfirmed),
+    };
+  }
+
+  private async refreshStoreLines(orgId: string, storeId: string, lines: ChannelStockLine[], timeoutMs: number, actor: Actor): Promise<LineStockRefresh> {
+    const store = await this.getStoreRecord(orgId, storeId);
+    if (!store || store.status !== "connected") return { refreshed: 0, unconfirmed: [{ storeId, reason: "store is not connected" }] };
+    const connector = this.connectors.get(store.provider);
+    if (!connector) return { refreshed: 0, unconfirmed: [{ storeId, reason: `no connector is registered for provider "${store.provider}"` }] };
+
+    const mappings = (await this.mappingsForLines(orgId, storeId, lines)).filter((mapping) => mapping !== undefined);
+    if (mappings.length === 0) return { refreshed: 0, unconfirmed: [{ storeId, reason: "no line has an external inventory mapping" }] };
+    const inventory = await withTimeout(connector.fetchInventory(store as ChannelStore, [...new Set(mappings.map((mapping) => mapping.externalId))]), timeoutMs);
+    if (!inventory.ok) return { refreshed: 0, unconfirmed: [{ storeId, reason: inventory.error.message }] };
+
+    const stored = await this.db.select().from(inventoryLevels).where(and(
+      eq(inventoryLevels.organizationId, orgId),
+      inArray(inventoryLevels.entityId, mappings.map((mapping) => mapping.entityId)),
+    ));
+    let refreshed = 0;
+    const unconfirmed: LineStockRefresh["unconfirmed"] = [];
+    for (const mapping of new Map(mappings.map((entry) => [entry.id, entry])).values()) {
+      const level = inventory.value.find((entry) => entry.externalId === mapping.externalId);
+      if (!level) {
+        unconfirmed.push({ storeId, reason: `the store did not answer for ${mapping.externalId}` });
+        continue;
+      }
+      const quantity = Math.max(0, Math.floor(level.available));
+      const current = stored.find((entry) => entry.entityId === mapping.entityId && entry.variantId === (mapping.variantId ?? null));
+      if (current?.quantityOnHand === quantity) continue;
+      const written = await this.setInventoryLevel(mapping.entityId, mapping.variantId, quantity, actor, "Inventory re-checked at checkout");
+      if (written.ok) refreshed += 1;
+      else unconfirmed.push({ storeId, reason: written.error?.message ?? "inventory write failed" });
+    }
+    return { refreshed, unconfirmed };
   }
 
   /**
@@ -5352,9 +5447,9 @@ export class ChannelConnectorService {
     await this.setInventoryLevel(mapping.entityId, mapping.variantId, quantity, actor);
   }
 
-  private async setInventoryLevel(entityId: string, variantId: string | null, quantity: number, actor: Actor): Promise<void> {
-    const inventory = this.services.inventory as { setAbsolute(input: { entityId: string; variantId?: string; quantity: number; reason?: string }, actor: Actor): Promise<{ ok: boolean }> };
-    await inventory.setAbsolute({ entityId, ...(variantId ? { variantId } : {}), quantity: Math.max(0, Math.floor(quantity)), reason: "Inventory webhook sync" }, actor);
+  private async setInventoryLevel(entityId: string, variantId: string | null, quantity: number, actor: Actor, reason = "Inventory webhook sync"): Promise<{ ok: boolean; error?: { message: string } }> {
+    const inventory = this.services.inventory as { setAbsolute(input: { entityId: string; variantId?: string; quantity: number; reason?: string }, actor: Actor): Promise<{ ok: boolean; error?: { message: string } }> };
+    return inventory.setAbsolute({ entityId, ...(variantId ? { variantId } : {}), quantity: Math.max(0, Math.floor(quantity)), reason }, actor);
   }
 
   private async createRefundRequest(orgId: string, store: ConnectedStore, event: Extract<ChannelEvent, { kind: "refund.created" }>, actor: Actor): Promise<PluginResult<ChannelRefundRequest | null>> {
