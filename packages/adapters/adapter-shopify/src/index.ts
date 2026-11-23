@@ -29,7 +29,7 @@ import {
 export { SHOPIFY_API_VERSION } from "./graphql.js";
 export { CATALOG_ITEMS_QUERY, CATALOG_PAGE_QUERY, VARIANTS_PAGE_QUERY } from "./catalog.js";
 export { INVENTORY_ITEM_VARIANT_QUERY } from "./webhooks.js";
-export { REQUIRED_SCOPES, normalizeShopDomain, parseShopifyCredentials } from "./oauth.js";
+export { REQUIRED_SCOPES, mintClientCredentials, missingScopes, normalizeShopDomain, parseShopifyCredentials } from "./oauth.js";
 export type { ShopifyCredentials } from "./oauth.js";
 
 export interface ShopifyConnectorOptions {
@@ -97,6 +97,74 @@ export const RETURN_REQUEST_MUTATION = `mutation PorulleReturnRequest($input: Re
 export const ORDER_BY_SOURCE_QUERY = `query PorulleOrderBySource($query: String!) {
   orders(first: 1, query: $query) { nodes { legacyResourceId } }
 }`;
+
+/**
+ * Every topic this connector acts on (see `decodeShopifyWebhook`), in Shopify's header spelling, less
+ * the compliance topics: those are app configuration only, and Shopify's `WebhookSubscriptionTopic`
+ * has no value for them. An app whose configuration declares its subscriptions (`shopify.app.toml`)
+ * lists exactly these; an app that cannot carry ours is subscribed with {@link subscribeShopifyWebhooks}.
+ */
+export const SHOPIFY_WEBHOOK_TOPICS = [
+  "products/create",
+  "products/update",
+  "products/delete",
+  "inventory_levels/update",
+  "orders/fulfilled",
+  "orders/partially_fulfilled",
+  "orders/cancelled",
+  "refunds/create",
+  "returns/approve",
+  "returns/decline",
+  "returns/close",
+  "returns/cancel",
+  "app/uninstalled",
+] as const;
+
+export const WEBHOOK_SUBSCRIPTIONS_QUERY = `query PorulleWebhookSubscriptions($uri: String!) {
+  webhookSubscriptions(first: 100, uri: $uri) { nodes { topic } }
+}`;
+
+export const WEBHOOK_SUBSCRIPTION_CREATE_MUTATION = `mutation PorulleWebhookSubscriptionCreate($topic: WebhookSubscriptionTopic!, $webhookSubscription: WebhookSubscriptionInput!) {
+  webhookSubscriptionCreate(topic: $topic, webhookSubscription: $webhookSubscription) { webhookSubscription { id } userErrors { field message } }
+}`;
+
+const webhookSubscriptionsSchema = z.object({ webhookSubscriptions: z.object({ nodes: z.array(z.object({ topic: z.string() })) }) });
+const webhookSubscriptionCreateSchema = z.object({
+  webhookSubscriptionCreate: z.object({
+    webhookSubscription: z.object({ id: z.string() }).nullable(),
+    userErrors: z.array(z.object({ field: z.array(z.string()).nullable(), message: z.string() })),
+  }),
+});
+
+/** `inventory_levels/update` → `INVENTORY_LEVELS_UPDATE`: the header spelling and the enum name of one topic. */
+function webhookTopicEnum(topic: string): string {
+  return topic.replaceAll("/", "_").toUpperCase();
+}
+
+/**
+ * Subscribes the app that holds `accessToken` to every {@link SHOPIFY_WEBHOOK_TOPICS} topic on this
+ * store, delivered to `uri`, creating only the subscriptions missing — so connecting again does not
+ * double the deliveries. For an app whose configuration does not carry our subscriptions: a merchant's
+ * own Dev Dashboard app, connected with the client credentials grant. Deliveries are signed with that
+ * app's client secret.
+ */
+export async function subscribeShopifyWebhooks(params: { origin: string; accessToken: string; uri: string; fetchImpl?: typeof fetch }): Promise<Result<{ created: number }, ChannelConnectorError>> {
+  const target: ShopifyGraphqlTarget = { fetchImpl: params.fetchImpl ?? fetch, origin: params.origin, accessToken: params.accessToken };
+  const existing = await shopifyGraphql(target, WEBHOOK_SUBSCRIPTIONS_QUERY, { uri: params.uri }, webhookSubscriptionsSchema);
+  if (!existing.ok) return existing;
+  const held = new Set(existing.value.webhookSubscriptions.nodes.map((node) => node.topic));
+  let created = 0;
+  for (const topic of SHOPIFY_WEBHOOK_TOPICS.map(webhookTopicEnum).filter((name) => !held.has(name))) {
+    const answer = await shopifyGraphql(target, WEBHOOK_SUBSCRIPTION_CREATE_MUTATION, { topic, webhookSubscription: { uri: params.uri } }, webhookSubscriptionCreateSchema);
+    if (!answer.ok) return answer;
+    const { webhookSubscription, userErrors } = answer.value.webhookSubscriptionCreate;
+    if (userErrors.length > 0 || !webhookSubscription) {
+      return Err({ code: "SHOPIFY_WEBHOOK_SUBSCRIPTION_REFUSED", message: `Shopify refused the ${topic} subscription: ${userErrors.map((error) => error.message).join("; ") || "no subscription returned"}.`, retriable: false });
+    }
+    created += 1;
+  }
+  return Ok({ created });
+}
 
 export const ORDER_STATUS_QUERY = `query PorulleOrderStatus($id: ID!) {
   order(id: $id) { cancelledAt displayFinancialStatus displayFulfillmentStatus }
