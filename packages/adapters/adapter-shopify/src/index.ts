@@ -13,7 +13,7 @@ import type {
 } from "@porulle/core";
 import { z } from "zod";
 import { readCatalogItems, readCatalogPage } from "./catalog.js";
-import { decodeReadsTheStore, decodeShopifyWebhook, isComplianceTopic } from "./webhooks.js";
+import { decodeReadsTheStore, decodeShopifyWebhook, isComplianceTopic, minimizeShopifyWebhookPayload } from "./webhooks.js";
 import { shopifyGid, shopifyGraphql } from "./graphql.js";
 import type { ShopifyGraphqlTarget } from "./graphql.js";
 import {
@@ -498,6 +498,7 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
       return decodeShopifyWebhook(target(store), event);
     },
     decodeWebhookNeedsCredentials: (event) => decodeReadsTheStore(event.type),
+    minimizeWebhookPayload: minimizeShopifyWebhookPayload,
     async refundExecute() {
       return Err({ code: "NOT_IMPLEMENTED", message: "Refunds are issued by the platform, not executed in the Shopify store." });
     },

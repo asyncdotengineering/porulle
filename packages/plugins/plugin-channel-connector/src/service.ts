@@ -48,7 +48,7 @@ import type { FieldOwner, FieldPath } from "@porulle/core";
 import type { JobsAdapter } from "@porulle/core";
 import { CHANNEL_CONVERGENCE_CTX } from "./catalog-push-trigger.js";
 import { resolveLiveCredentials, withLiveCredentials } from "./live-credentials.js";
-import { and, desc, eq, inArray, isNotNull, isNull, lte, ne, or, sql, type SQL } from "@porulle/core/drizzle";
+import { and, desc, eq, inArray, isNotNull, isNull, lte, ne, notInArray, or, sql, type SQL } from "@porulle/core/drizzle";
 import {
   brands,
   categories,
@@ -391,16 +391,51 @@ export function isFinalOrderStatusForRedaction(status: string): boolean {
   return FINAL_ORDER_REDACTION_STATUS_SET.has(status);
 }
 
-/** `orders.metadata` key holding a deferred `customers/redact` or `shop/redact` marker (storeId + timestamp + reason, no PII). */
+/** `orders.metadata` key holding deferred `customers/redact` or `shop/redact` markers (per storeId: timestamp + reason, no PII). */
 export const DEFERRED_REDACTION_METADATA_KEY = "redactAfterDelivery";
+/** `orders.metadata` key holding the list of store IDs whose slices on this order have been redacted (no PII). */
+export const REDACTED_STORES_METADATA_KEY = "redactedStoreIds";
 /** `orders.metadata` key stamped when contact was erased (ISO timestamp, no PII). */
 export const CONTACT_REDACTED_AT_METADATA_KEY = "contactRedactedAt";
+
+export interface DeferredRedactionEntry {
+  storeId: string;
+  requestedAt: string;
+  reason: "customer_redact" | "shop_redact";
+}
+
+const deferredRedactionValueSchema = z.object({
+  requestedAt: z.string().min(1),
+  reason: z.enum(["customer_redact", "shop_redact"]).optional(),
+});
 
 export const deferredRedactionMetadataSchema = z.object({
   storeId: z.string().min(1),
   requestedAt: z.string().min(1),
   reason: z.enum(["customer_redact", "shop_redact"]).optional(),
 });
+
+/**
+ * Parses `orders.metadata.redactAfterDelivery` into per-store deferred entries. Supports both the
+ * per-store map `{ [storeId]: { requestedAt, reason } }` and legacy single-store `{ storeId, requestedAt, reason }`.
+ */
+export function parseDeferredRedactions(raw: unknown): DeferredRedactionEntry[] {
+  const legacy = deferredRedactionMetadataSchema.safeParse(raw);
+  if (legacy.success) {
+    return [{
+      storeId: legacy.data.storeId,
+      requestedAt: legacy.data.requestedAt,
+      reason: legacy.data.reason ?? "customer_redact",
+    }];
+  }
+  const map = z.record(z.string().min(1), deferredRedactionValueSchema).safeParse(raw);
+  if (!map.success) return [];
+  return Object.entries(map.data).map(([storeId, value]) => ({
+    storeId,
+    requestedAt: value.requestedAt,
+    reason: value.reason ?? "customer_redact",
+  }));
+}
 
 /** Shopify requires completing compliance webhook actions within 30 days. */
 const COMPLIANCE_ANSWER_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
@@ -518,10 +553,19 @@ export interface ChannelStockLine {
   quantity: number;
 }
 
-/** What {@link ChannelConnectorService.refreshLineStock} did: levels it wrote, and stores it could not confirm. */
+/** A source store whose status prevents it from taking orders (disconnected, error, connecting, or missing). */
+export interface UnavailableStockStore {
+  storeId: string;
+  provider: string | null;
+  status: ConnectedStore["status"] | "missing";
+  lines: ChannelStockLine[];
+}
+
+/** What {@link ChannelConnectorService.refreshLineStock} did: levels it wrote, stores/lines it could not confirm, and unavailable stores. */
 export interface LineStockRefresh {
   refreshed: number;
   unconfirmed: Array<{ storeId: string; reason: string }>;
+  unavailableStores: UnavailableStockStore[];
 }
 
 interface BackfillCounts {
@@ -3746,32 +3790,83 @@ export class ChannelConnectorService {
       try {
         return await this.refreshStoreLines(orgId, storeId, storeLines, options.timeoutMs, actor);
       } catch (error) {
-        return { refreshed: 0, unconfirmed: [{ storeId, reason: error instanceof Error ? error.message : String(error) }] };
+        return {
+          refreshed: 0,
+          unconfirmed: [{ storeId, reason: error instanceof Error ? error.message : String(error) }],
+          unavailableStores: [],
+        };
       }
     }));
     return {
       refreshed: outcomes.reduce((sum, outcome) => sum + outcome.refreshed, 0),
       unconfirmed: outcomes.flatMap((outcome) => outcome.unconfirmed),
+      unavailableStores: outcomes.flatMap((outcome) => outcome.unavailableStores),
     };
   }
 
   private async refreshStoreLines(orgId: string, storeId: string, lines: ChannelStockLine[], timeoutMs: number, actor: Actor): Promise<LineStockRefresh> {
     const store = await this.getStoreRecord(orgId, storeId);
-    if (!store || store.status !== "connected") return { refreshed: 0, unconfirmed: [{ storeId, reason: "store is not connected" }] };
+    if (!store || store.status !== "connected") {
+      return {
+        refreshed: 0,
+        unconfirmed: [{ storeId, reason: "store is not connected" }],
+        unavailableStores: [{ storeId, provider: store?.provider ?? null, status: store?.status ?? "missing", lines }],
+      };
+    }
     const connector = this.connectors.get(store.provider);
-    if (!connector) return { refreshed: 0, unconfirmed: [{ storeId, reason: `no connector is registered for provider "${store.provider}"` }] };
+    if (!connector) {
+      return {
+        refreshed: 0,
+        unconfirmed: [{ storeId, reason: `no connector is registered for provider "${store.provider}"` }],
+        unavailableStores: [],
+      };
+    }
 
-    const mappings = (await this.mappingsForLines(orgId, storeId, lines)).filter((mapping) => mapping !== undefined);
-    if (mappings.length === 0) return { refreshed: 0, unconfirmed: [{ storeId, reason: "no line has an external inventory mapping" }] };
-    const inventory = await withTimeout(connector.fetchInventory(store as ChannelStore, [...new Set(mappings.map((mapping) => mapping.externalId))]), timeoutMs);
-    if (!inventory.ok) return { refreshed: 0, unconfirmed: [{ storeId, reason: inventory.error.message }] };
+    const resolved = await this.mappingsForLines(orgId, storeId, lines);
+    const unconfirmed: LineStockRefresh["unconfirmed"] = [];
+    const mappings: Array<typeof channelEntityMap.$inferSelect> = [];
+    for (const [index, line] of lines.entries()) {
+      const mapping = resolved[index];
+      if (mapping === undefined) {
+        unconfirmed.push({ storeId, reason: `no external inventory mapping for ${line.variantId ?? line.entityId}` });
+        continue;
+      }
+      mappings.push(mapping);
+    }
+    if (mappings.length === 0) return { refreshed: 0, unconfirmed, unavailableStores: [] };
+
+    // Fence timed-out answers: if the timer fires before the provider answers, mark timedOut so any
+    // late settlement is dropped and never writes stock afterwards.
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const fetchPromise = connector.fetchInventory(store as ChannelStore, [...new Set(mappings.map((mapping) => mapping.externalId))]);
+    fetchPromise.catch(() => {
+      // Suppress unhandled rejections when the late answer settles after timeout.
+    });
+    let inventory: Awaited<ReturnType<ChannelConnector["fetchInventory"]>>;
+    try {
+      inventory = await Promise.race([
+        fetchPromise,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            timedOut = true;
+            reject(new Error("Inventory lookup timed out."));
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+    if (timedOut) return { refreshed: 0, unconfirmed: [...unconfirmed, { storeId, reason: "Inventory lookup timed out." }], unavailableStores: [] };
+    if (!inventory.ok) return { refreshed: 0, unconfirmed: [...unconfirmed, { storeId, reason: inventory.error.message }], unavailableStores: [] };
 
     const stored = await this.db.select().from(inventoryLevels).where(and(
       eq(inventoryLevels.organizationId, orgId),
       inArray(inventoryLevels.entityId, mappings.map((mapping) => mapping.entityId)),
     ));
-    let refreshed = 0;
-    const unconfirmed: LineStockRefresh["unconfirmed"] = [];
+    if (timedOut) return { refreshed: 0, unconfirmed: [...unconfirmed, { storeId, reason: "Inventory lookup timed out." }], unavailableStores: [] };
+
+    const toWrite: Array<{ entityId: string; variantId?: string; quantity: number }> = [];
     for (const mapping of new Map(mappings.map((entry) => [entry.id, entry])).values()) {
       const level = inventory.value.find((entry) => entry.externalId === mapping.externalId);
       if (!level) {
@@ -3781,11 +3876,33 @@ export class ChannelConnectorService {
       const quantity = Math.max(0, Math.floor(level.available));
       const current = stored.find((entry) => entry.entityId === mapping.entityId && entry.variantId === (mapping.variantId ?? null));
       if (current?.quantityOnHand === quantity) continue;
-      const written = await this.setInventoryLevel(mapping.entityId, mapping.variantId, quantity, actor, "Inventory re-checked at checkout");
-      if (written.ok) refreshed += 1;
-      else unconfirmed.push({ storeId, reason: written.error?.message ?? "inventory write failed" });
+      toWrite.push({
+        entityId: mapping.entityId,
+        ...(mapping.variantId ? { variantId: mapping.variantId } : {}),
+        quantity,
+      });
     }
-    return { refreshed, unconfirmed };
+
+    let refreshed = 0;
+    if (toWrite.length === 1) {
+      const single = toWrite[0]!;
+      const written = await this.setInventoryLevel(single.entityId, single.variantId ?? null, single.quantity, actor, "Inventory re-checked at checkout");
+      if (written.ok) refreshed = 1;
+      else unconfirmed.push({ storeId, reason: written.error?.message ?? "inventory write failed" });
+    } else if (toWrite.length > 1) {
+      const inventoryService = this.services.inventory as {
+        setAbsoluteMany(
+          rows: ReadonlyArray<{ entityId: string; variantId?: string; quantity: number }>,
+          actor: Actor,
+          ctx?: undefined,
+          options?: { reason?: string },
+        ): Promise<{ ok: true; value: { entities: Array<{ levels: unknown[] }> } } | { ok: false; error: { message: string } }>;
+      };
+      const written = await inventoryService.setAbsoluteMany(toWrite, actor, undefined, { reason: "Inventory re-checked at checkout" });
+      if (written.ok) refreshed = written.value.entities.reduce((total, entity) => total + entity.levels.length, 0);
+      else unconfirmed.push({ storeId, reason: written.error.message });
+    }
+    return { refreshed, unconfirmed, unavailableStores: [] };
   }
 
   /**
@@ -5359,7 +5476,7 @@ export class ChannelConnectorService {
    * acts on the meaning and never on a topic or payload field. A delivery the connector does not act
    * on is logged as unmapped and answered `processed: false`, never reported as applied.
    */
-  async handleWebhook(orgId: string, storeId: string, delivery: ChannelWebhookEvent): Promise<PluginResult<{ processed: boolean; data?: ChannelComplianceData; redacted?: number }>> {
+  async handleWebhook(orgId: string, storeId: string, delivery: ChannelWebhookEvent): Promise<PluginResult<{ processed: boolean; data?: ChannelComplianceData; redacted?: number; mismatchedRemoteOrderIds?: string[] }>> {
     const store = await this.getStoreRecord(orgId, storeId);
     if (!store) return PluginErr("Connected store not found.", "NOT_FOUND");
     const connector = this.connectors.get(store.provider);
@@ -5371,13 +5488,16 @@ export class ChannelConnectorService {
       return Ok({ processed: false });
     }
     const actor = createSystemActor(orgId);
-    const outcome: { processed: boolean; data?: ChannelComplianceData; redacted?: number } = { processed: true };
+    const outcome: { processed: boolean; data?: ChannelComplianceData; redacted?: number; mismatchedRemoteOrderIds?: string[] } = { processed: true };
     const report: ChannelEventReport = { skipped: [], conflicts: [], warnings: [] };
     for (const event of decoded.value) {
       const applied = await this.applyChannelEvent(orgId, store, connector, event, actor, report, delivery.id);
       if (!applied.ok) return applied;
       if (applied.value.data) outcome.data = applied.value.data;
       if (applied.value.redacted !== undefined) outcome.redacted = applied.value.redacted;
+      if (applied.value.mismatchedRemoteOrderIds && applied.value.mismatchedRemoteOrderIds.length > 0) {
+        outcome.mismatchedRemoteOrderIds = [...new Set([...(outcome.mismatchedRemoteOrderIds ?? []), ...applied.value.mismatchedRemoteOrderIds])];
+      }
     }
     if (report.skipped.length > 0 || report.conflicts.length > 0 || report.warnings.length > 0) {
       const merged = {
@@ -5402,7 +5522,7 @@ export class ChannelConnectorService {
     actor: Actor,
     report: ChannelEventReport,
     deliveryId: string,
-  ): Promise<PluginResult<{ data?: ChannelComplianceData; redacted?: number }>> {
+  ): Promise<PluginResult<{ data?: ChannelComplianceData; redacted?: number; mismatchedRemoteOrderIds?: string[] }>> {
     const storeId = store.id;
     switch (event.kind) {
       case "product.changed": {
@@ -5489,11 +5609,27 @@ export class ChannelConnectorService {
       case "compliance.request": {
         if (event.request === "customer_data") {
           const dataRequest = await this.channelCustomerDataRequest(orgId, store, deliveryId, event.data);
-          return dataRequest.ok ? Ok({ data: dataRequest.value }) : dataRequest;
+          return dataRequest.ok
+            ? Ok({
+              data: dataRequest.value.data,
+              ...(dataRequest.value.mismatchedRemoteOrderIds.length > 0
+                ? { mismatchedRemoteOrderIds: dataRequest.value.mismatchedRemoteOrderIds }
+                : {}),
+            })
+            : dataRequest;
         }
-        const redacted = event.request === "customer_redact"
-          ? await this.redactCustomerData(orgId, storeId, event.data)
-          : await this.redactShopData(orgId, store, event.data);
+        if (event.request === "customer_redact") {
+          const redacted = await this.redactCustomerData(orgId, storeId, event.data);
+          return redacted.ok
+            ? Ok({
+              redacted: redacted.value.exportsRedacted,
+              ...(redacted.value.mismatchedRemoteOrderIds.length > 0
+                ? { mismatchedRemoteOrderIds: redacted.value.mismatchedRemoteOrderIds }
+                : {}),
+            })
+            : redacted;
+        }
+        const redacted = await this.redactShopData(orgId, store, event.data);
         return redacted.ok ? Ok({ redacted: redacted.value }) : redacted;
       }
     }
@@ -5506,8 +5642,10 @@ export class ChannelConnectorService {
    * Clears `channel_order_exports.customer_data`, `channel_returns.note`, and the contact keys
    * `buildOrderSlice` reads from `orders.metadata` (`customer`, `shippingAddress`, `guestCustomer`,
    * `guestShippingAddress`) while keeping the order, its lines, money, status, and non-contact
-   * metadata intact. Invokes `options.onOrdersRedacted` on the same `db`/transaction handle so
-   * the host clears platform-owned copies (order groups, notifications) atomically.
+   * metadata intact. When scoped to one store, records that store id in `orders.metadata.redactedStoreIds`
+   * and clears shared `orders.metadata` contact once every store slice (exports and non-manual
+   * source lines) of the order has been redacted. Invokes `options.onOrdersRedacted` on the same
+   * `db`/transaction handle so the host clears platform-owned copies atomically.
    */
   async redactOrdersContact(
     orgId: string,
@@ -5539,23 +5677,97 @@ export class ChannelConnectorService {
         ...(storeId !== undefined ? [eq(channelReturns.storeId, storeId)] : []),
       ));
 
-    // Clear the contact fields `buildOrderSlice` reads from `orders.metadata` (plus any deferred
-    // redaction marker) and stamp `contactRedactedAt` (no PII). When scoped to one store, leave
-    // `orders.metadata` untouched only if another store also holds an export slice on the same order.
     const redactedStamp = JSON.stringify({ [CONTACT_REDACTED_AT_METADATA_KEY]: now.toISOString() });
-    const updatedOrders = await this.db
-      .update(orders)
-      .set({
-        metadata: sql`(coalesce(${orders.metadata}, '{}'::jsonb) - 'customer' - 'shippingAddress' - 'guestCustomer' - 'guestShippingAddress' - ${DEFERRED_REDACTION_METADATA_KEY}::text) || ${redactedStamp}::jsonb`,
-      })
-      .where(and(
-        eq(orders.organizationId, orgId),
-        inArray(orders.id, uniqueOrderIds),
-        ...(storeId !== undefined
-          ? [sql`not exists (select 1 from ${channelOrderExports} where ${channelOrderExports.organizationId} = ${orgId} and ${channelOrderExports.orderId} = ${orders.id} and ${channelOrderExports.storeId} <> ${storeId})`]
-          : []),
-      ))
-      .returning({ id: orders.id });
+    let updatedOrders: Array<{ id: string }>;
+
+    if (storeId !== undefined) {
+      // Record this store as redacted on each order and clear its deferred entry (removing the
+      // deferred key entirely when empty) before testing whether every store slice is now gone.
+      await this.db
+        .update(orders)
+        .set({
+          metadata: sql`
+            (
+              case
+                when jsonb_typeof(${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}) = 'object'
+                  and (
+                    (${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}->>'storeId') = ${storeId}
+                    or ((${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}) - ${storeId}::text) = '{}'::jsonb
+                  )
+                then coalesce(${orders.metadata}, '{}'::jsonb) - ${DEFERRED_REDACTION_METADATA_KEY}::text
+                when jsonb_typeof(${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}) = 'object'
+                  and (${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}->>'storeId') is null
+                then jsonb_set(
+                  coalesce(${orders.metadata}, '{}'::jsonb),
+                  ARRAY[${DEFERRED_REDACTION_METADATA_KEY}],
+                  (${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}) - ${storeId}::text,
+                  true
+                )
+                else coalesce(${orders.metadata}, '{}'::jsonb)
+              end
+            ) || jsonb_build_object(
+              ${REDACTED_STORES_METADATA_KEY}::text,
+              (
+                select coalesce(jsonb_agg(distinct v), '[]'::jsonb)
+                from (
+                  select jsonb_array_elements_text(
+                    case when jsonb_typeof(${orders.metadata}->${REDACTED_STORES_METADATA_KEY}) = 'array'
+                      then ${orders.metadata}->${REDACTED_STORES_METADATA_KEY}
+                      else '[]'::jsonb
+                    end
+                  ) as v
+                  union
+                  select ${storeId}::text as v
+                ) s
+              )
+            )
+          `,
+        })
+        .where(and(
+          eq(orders.organizationId, orgId),
+          inArray(orders.id, uniqueOrderIds),
+        ));
+
+      // Clear shared order contact once no unredacted store slice remains on this order
+      // (checking both existing exports and non-manual source-line stores).
+      updatedOrders = await this.db
+        .update(orders)
+        .set({
+          metadata: sql`(coalesce(${orders.metadata}, '{}'::jsonb) - 'customer' - 'shippingAddress' - 'guestCustomer' - 'guestShippingAddress' - ${DEFERRED_REDACTION_METADATA_KEY}::text) || ${redactedStamp}::jsonb`,
+        })
+        .where(and(
+          eq(orders.organizationId, orgId),
+          inArray(orders.id, uniqueOrderIds),
+          sql`not exists (
+            select 1 from ${channelOrderExports} coe
+            where coe.organization_id = ${orgId}
+              and coe.order_id = ${orders.id}
+              and not (coalesce(${orders.metadata}->${REDACTED_STORES_METADATA_KEY}, '[]'::jsonb) @> jsonb_build_array(coe.store_id::text))
+          )`,
+          sql`not exists (
+            select 1 from ${orderLineItems} oli
+            inner join ${sellableEntities} se
+              on se.id = oli.entity_id and se.organization_id = ${orgId}
+            inner join ${connectedStores} cs
+              on cs.id::text = se.source_store_id and cs.organization_id = ${orgId}
+            where oli.order_id = ${orders.id}
+              and cs.provider <> 'manual'
+              and not (coalesce(${orders.metadata}->${REDACTED_STORES_METADATA_KEY}, '[]'::jsonb) @> jsonb_build_array(cs.id::text))
+          )`,
+        ))
+        .returning({ id: orders.id });
+    } else {
+      updatedOrders = await this.db
+        .update(orders)
+        .set({
+          metadata: sql`(coalesce(${orders.metadata}, '{}'::jsonb) - 'customer' - 'shippingAddress' - 'guestCustomer' - 'guestShippingAddress' - ${DEFERRED_REDACTION_METADATA_KEY}::text - ${REDACTED_STORES_METADATA_KEY}::text) || ${redactedStamp}::jsonb`,
+        })
+        .where(and(
+          eq(orders.organizationId, orgId),
+          inArray(orders.id, uniqueOrderIds),
+        ))
+        .returning({ id: orders.id });
+    }
 
     const redactedOrderIds = updatedOrders.map((row) => row.id);
     if (redactedOrderIds.length > 0) {
@@ -5576,9 +5788,10 @@ export class ChannelConnectorService {
    * final orders (`fulfilled`, `delivered`, `cancelled`, `refunded`) — and orphaned exports with
    * no order row — are redacted immediately; open or partial orders (`pending`, `pending_payment`,
    * `confirmed`, `processing`, `partially_fulfilled`) retain their contact so the merchant of
-   * record can still deliver or refund them, and are stamped with `redactAfterDelivery` (carrying
-   * `storeId`, which survives store disconnect/`[REDACTED]`) so `orders.afterStatusChange` erases
-   * them automatically once they reach a final state (no cron).
+   * record can still deliver or refund them, and merge this store's entry into `redactAfterDelivery`
+   * (without overwriting other stores' entries). The deferred-marker UPDATE carries the not-final
+   * status predicate and RETURNING so an order that reaches a final state in the race window is
+   * redacted immediately instead of left with an orphaned marker.
    */
   private async redactOrDeferStoreOrders(
     orgId: string,
@@ -5603,59 +5816,174 @@ export class ChannelConnectorService {
       storeId,
       reason,
     });
+    let totalExportsRedacted = readyResult.exportsRedacted;
 
     const readySet = new Set(readyOrderIds);
     const uniqueDeferred = [...new Set(deferredOrderIds)].filter((id) => !readySet.has(id));
     if (uniqueDeferred.length > 0) {
-      const deferredStamp = JSON.stringify({
-        [DEFERRED_REDACTION_METADATA_KEY]: { storeId, requestedAt: new Date().toISOString(), reason },
+      const entryJson = JSON.stringify({
+        [storeId]: { requestedAt: new Date().toISOString(), reason },
       });
-      await this.db
+      const marked = await this.db
         .update(orders)
         .set({
-          metadata: sql`coalesce(${orders.metadata}, '{}'::jsonb) || ${deferredStamp}::jsonb`,
+          metadata: sql`jsonb_set(
+            coalesce(${orders.metadata}, '{}'::jsonb),
+            ARRAY[${DEFERRED_REDACTION_METADATA_KEY}],
+            (
+              case
+                when jsonb_typeof(${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}) = 'object'
+                  and (${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}->>'storeId') is not null
+                  and (${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}->>'requestedAt') is not null
+                then jsonb_build_object(
+                  ${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}->>'storeId',
+                  jsonb_build_object(
+                    'requestedAt', ${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}->'requestedAt',
+                    'reason', coalesce(${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}->'reason', '"customer_redact"'::jsonb)
+                  )
+                )
+                when jsonb_typeof(${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}) = 'object'
+                then ${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}
+                else '{}'::jsonb
+              end
+            ) || ${entryJson}::jsonb,
+            true
+          )`,
         })
         .where(and(
           eq(orders.organizationId, orgId),
           inArray(orders.id, uniqueDeferred),
-        ));
+          notInArray(orders.status, [...FINAL_ORDER_REDACTION_STATUSES]),
+        ))
+        .returning({ id: orders.id });
+
+      const markedSet = new Set(marked.map((row) => row.id));
+      const missed = uniqueDeferred.filter((id) => !markedSet.has(id));
+      if (missed.length > 0) {
+        // Order moved to a final status (or vanished) between our SELECT and the conditional UPDATE:
+        // redact now instead of leaving contact behind without a hook trigger.
+        const lateResult = await this.redactOrdersContact(orgId, missed, {
+          storeId,
+          reason,
+        });
+        totalExportsRedacted += lateResult.exportsRedacted;
+      }
     }
 
-    return readyResult.exportsRedacted;
+    return totalExportsRedacted;
   }
 
   /**
-   * Finds exports in ONE store matching a compliance payload's Shopify order ids (`remote_order_id`)
-   * or customer email — in SQL, without reading the store's other exports into memory.
+   * Exact compliance matching for one store:
+   * - When Shopify names order IDs (`remoteOrderIds.length > 0`): ONLY those orders of this store;
+   *   when an email is also supplied, only those whose export or order metadata carries that email
+   *   OR carries none. Named orders carrying a different email are left untouched and returned in
+   *   `mismatchedRemoteOrderIds` (ids only, never contact).
+   * - When Shopify names NO order IDs: match by email across BOTH exports and source-line orders
+   *   (including paid orders not yet exported). Never the union of named IDs and email.
    */
-  private async findMatchingComplianceExports(
+  private async findMatchingComplianceOrders(
     orgId: string,
     storeId: string,
     criteria: { email: string | undefined; remoteOrderIds: readonly string[] },
-  ): Promise<Array<{
-    id: string;
-    orderId: string;
-    remoteOrderId: string | null;
-    state: ChannelOrderExport["state"];
-    customerData: ChannelOrderExport["customerData"];
-    orderStatus: string | null;
-  }>> {
-    const predicates: SQL[] = [];
-    if (criteria.remoteOrderIds.length > 0) {
-      predicates.push(inArray(channelOrderExports.remoteOrderId, [...criteria.remoteOrderIds]));
-    }
-    if (criteria.email !== undefined) {
-      predicates.push(sql`lower(${channelOrderExports.customerData}->>'email') = ${criteria.email}`);
-      predicates.push(sql`lower(${orders.metadata}->'customer'->>'email') = ${criteria.email}`);
-    }
-    if (predicates.length === 0) return [];
+  ): Promise<{
+    matches: Array<{
+      id: string | null;
+      orderId: string;
+      remoteOrderId: string | null;
+      customerData: ChannelOrderExport["customerData"];
+      orderStatus: string | null;
+    }>;
+    mismatchedRemoteOrderIds: string[];
+  }> {
+    const readEmail = (value: unknown): string | null => {
+      if (typeof value !== "string") return null;
+      const normalized = value.trim().toLowerCase();
+      return normalized.length > 0 ? normalized : null;
+    };
+    const readOrderMetadataEmail = (metadata: unknown): string | null => {
+      if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) return null;
+      const meta = metadata as Record<string, unknown>;
+      for (const key of ["customer", "guestCustomer"]) {
+        const sub = meta[key];
+        if (typeof sub === "object" && sub !== null && !Array.isArray(sub)) {
+          const email = readEmail((sub as Record<string, unknown>).email);
+          if (email !== null) return email;
+        }
+      }
+      return null;
+    };
 
-    return await this.db
+    if (criteria.remoteOrderIds.length > 0) {
+      const candidates = await this.db
+        .select({
+          id: channelOrderExports.id,
+          orderId: channelOrderExports.orderId,
+          remoteOrderId: channelOrderExports.remoteOrderId,
+          customerData: channelOrderExports.customerData,
+          orderStatus: orders.status,
+          orderMetadata: orders.metadata,
+        })
+        .from(channelOrderExports)
+        .leftJoin(orders, and(
+          eq(orders.id, channelOrderExports.orderId),
+          eq(orders.organizationId, channelOrderExports.organizationId),
+        ))
+        .where(and(
+          eq(channelOrderExports.organizationId, orgId),
+          eq(channelOrderExports.storeId, storeId),
+          inArray(channelOrderExports.remoteOrderId, [...criteria.remoteOrderIds]),
+        ));
+
+      if (criteria.email === undefined) {
+        return {
+          matches: candidates.map(({ orderMetadata: _meta, ...row }) => row),
+          mismatchedRemoteOrderIds: [],
+        };
+      }
+
+      const matches: Array<{
+        id: string | null;
+        orderId: string;
+        remoteOrderId: string | null;
+        customerData: ChannelOrderExport["customerData"];
+        orderStatus: string | null;
+      }> = [];
+      const mismatched = new Set<string>();
+      for (const row of candidates) {
+        const exportEmail = readEmail(row.customerData?.email);
+        const orderEmail = readOrderMetadataEmail(row.orderMetadata);
+        const carriesRequestedEmail = exportEmail === criteria.email || orderEmail === criteria.email;
+        const carriesNoEmail = exportEmail === null && orderEmail === null;
+        if (carriesRequestedEmail || carriesNoEmail) {
+          matches.push({
+            id: row.id,
+            orderId: row.orderId,
+            remoteOrderId: row.remoteOrderId,
+            customerData: row.customerData,
+            orderStatus: row.orderStatus,
+          });
+        } else if (row.remoteOrderId !== null) {
+          mismatched.add(row.remoteOrderId);
+        }
+      }
+      return { matches, mismatchedRemoteOrderIds: [...mismatched] };
+    }
+
+    if (criteria.email === undefined) {
+      return { matches: [], mismatchedRemoteOrderIds: [] };
+    }
+
+    const emailPredicate = or(
+      sql`lower(${channelOrderExports.customerData}->>'email') = ${criteria.email}`,
+      sql`lower(${orders.metadata}->'customer'->>'email') = ${criteria.email}`,
+      sql`lower(${orders.metadata}->'guestCustomer'->>'email') = ${criteria.email}`,
+    );
+    const exportMatches = await this.db
       .select({
         id: channelOrderExports.id,
         orderId: channelOrderExports.orderId,
         remoteOrderId: channelOrderExports.remoteOrderId,
-        state: channelOrderExports.state,
         customerData: channelOrderExports.customerData,
         orderStatus: orders.status,
       })
@@ -5667,22 +5995,67 @@ export class ChannelConnectorService {
       .where(and(
         eq(channelOrderExports.organizationId, orgId),
         eq(channelOrderExports.storeId, storeId),
-        or(...predicates),
+        emailPredicate,
       ));
+
+    // Also include orders sourced from this store's entities that have no export row yet (paid before export).
+    const seenOrders = new Set(exportMatches.map((row) => row.orderId));
+    const lineMatches = await this.db
+      .selectDistinct({
+        orderId: orders.id,
+        orderStatus: orders.status,
+      })
+      .from(orderLineItems)
+      .innerJoin(sellableEntities, and(
+        eq(sellableEntities.id, orderLineItems.entityId),
+        eq(sellableEntities.organizationId, orgId),
+      ))
+      .innerJoin(orders, and(
+        eq(orders.id, orderLineItems.orderId),
+        eq(orders.organizationId, orgId),
+      ))
+      .where(and(
+        eq(sellableEntities.sourceStoreId, storeId),
+        or(
+          sql`lower(${orders.metadata}->'customer'->>'email') = ${criteria.email}`,
+          sql`lower(${orders.metadata}->'guestCustomer'->>'email') = ${criteria.email}`,
+        ),
+      ));
+
+    const combined: Array<{
+      id: string | null;
+      orderId: string;
+      remoteOrderId: string | null;
+      customerData: ChannelOrderExport["customerData"];
+      orderStatus: string | null;
+    }> = [...exportMatches];
+    for (const row of lineMatches) {
+      if (!seenOrders.has(row.orderId)) {
+        seenOrders.add(row.orderId);
+        combined.push({
+          id: null,
+          orderId: row.orderId,
+          remoteOrderId: null,
+          customerData: null,
+          orderStatus: row.orderStatus,
+        });
+      }
+    }
+    return { matches: combined, mismatchedRemoteOrderIds: [] };
   }
 
   /**
    * Handles Shopify `customers/data_request`
    * (https://shopify.dev/docs/apps/build/compliance/privacy-law-compliance):
-   * matches the store's exports in SQL by `orders_requested` and email, and hands reference-only
-   * metadata (no copied contact) plus the 30-day due date to `options.onCustomerDataRequest`.
+   * matches the store's orders with exact membership and hands reference-only metadata (no copied
+   * contact) plus the 30-day due date to `options.onCustomerDataRequest`.
    */
   private async channelCustomerDataRequest(
     orgId: string,
     store: ConnectedStore,
     deliveryId: string,
     data: Record<string, unknown>,
-  ): Promise<PluginResult<ChannelComplianceData>> {
+  ): Promise<PluginResult<{ data: ChannelComplianceData; mismatchedRemoteOrderIds: string[] }>> {
     const parsed = complianceCustomerPayloadSchema.safeParse(data);
     if (!parsed.success) {
       return PluginErr(`Malformed customers/data_request payload: ${formatComplianceParseError(parsed.error)}`, "MALFORMED_COMPLIANCE_PAYLOAD");
@@ -5692,7 +6065,7 @@ export class ChannelConnectorService {
     const remoteCustomerId = payload.customer?.id ?? payload.customer_id ?? null;
     const ordersRequested = [...new Set(payload.orders_requested ?? [])];
 
-    const matches = await this.findMatchingComplianceExports(orgId, store.id, {
+    const { matches, mismatchedRemoteOrderIds } = await this.findMatchingComplianceOrders(orgId, store.id, {
       email,
       remoteOrderIds: ordersRequested,
     });
@@ -5701,10 +6074,7 @@ export class ChannelConnectorService {
     const dueAt = new Date(requestedAt.getTime() + COMPLIANCE_ANSWER_WINDOW_MS);
     const orderIds = [...new Set(matches.map((row) => row.orderId))];
     const remoteOrderIds = [
-      ...new Set([
-        ...ordersRequested,
-        ...matches.flatMap((row) => (row.remoteOrderId !== null ? [row.remoteOrderId] : [])),
-      ]),
+      ...new Set(matches.flatMap((row) => (row.remoteOrderId !== null ? [row.remoteOrderId] : []))),
     ];
 
     await this.options.onCustomerDataRequest?.({
@@ -5723,33 +6093,30 @@ export class ChannelConnectorService {
     });
 
     return Ok({
-      customer: {
-        ...(remoteCustomerId !== null ? { id: remoteCustomerId } : {}),
-        ...(email !== undefined ? { email } : {}),
+      data: {
+        customer: {
+          ...(remoteCustomerId !== null ? { id: remoteCustomerId } : {}),
+          ...(email !== undefined ? { email } : {}),
+        },
+        exports: matches.flatMap((row) => (
+          row.id !== null && row.customerData !== null && row.customerData !== undefined
+            ? [{ exportId: row.id, orderId: row.orderId, customerData: row.customerData }]
+            : []
+        )),
       },
-      exports: matches.flatMap((row) => (
-        row.customerData !== null && row.customerData !== undefined
-          ? [{ exportId: row.id, orderId: row.orderId, customerData: row.customerData }]
-          : []
-      )),
+      mismatchedRemoteOrderIds,
     });
   }
 
   /**
    * Handles Shopify `customers/redact`
-   * (https://shopify.dev/docs/apps/build/compliance/privacy-law-compliance):
-   * "Complete the action within 30 days of receiving the request. However, if you're unable to
-   * comply with a redaction request because you're legally required to retain data, then you
-   * shouldn't complete the action."
-   *
-   * Shopify sends this 5 days after the merchant requests deletion (withholding only for scheduled
-   * gift cards), which does not guarantee every physical order is already delivered. Matched orders
-   * in a final state (`fulfilled`, `delivered`, `cancelled`, `refunded`) are redacted immediately;
-   * open and partial orders (`partially_fulfilled` included) are marked in
-   * `orders.metadata.redactAfterDelivery` so `orders.afterStatusChange` erases them as soon as
-   * they reach a final state, with no cron.
+   * (https://shopify.dev/docs/apps/build/compliance/privacy-law-compliance).
    */
-  private async redactCustomerData(orgId: string, storeId: string, data: Record<string, unknown>): Promise<PluginResult<number>> {
+  private async redactCustomerData(
+    orgId: string,
+    storeId: string,
+    data: Record<string, unknown>,
+  ): Promise<PluginResult<{ exportsRedacted: number; mismatchedRemoteOrderIds: string[] }>> {
     const parsed = complianceCustomerPayloadSchema.safeParse(data);
     if (!parsed.success) {
       return PluginErr(`Malformed customers/redact payload: ${formatComplianceParseError(parsed.error)}`, "MALFORMED_COMPLIANCE_PAYLOAD");
@@ -5758,31 +6125,21 @@ export class ChannelConnectorService {
     const email = payload.customer?.email ?? payload.email ?? undefined;
     const ordersToRedact = [...new Set(payload.orders_to_redact ?? [])];
 
-    const matches = await this.findMatchingComplianceExports(orgId, storeId, {
+    const { matches, mismatchedRemoteOrderIds } = await this.findMatchingComplianceOrders(orgId, storeId, {
       email,
       remoteOrderIds: ordersToRedact,
     });
-    if (matches.length === 0) return Ok(0);
+    if (matches.length === 0) return Ok({ exportsRedacted: 0, mismatchedRemoteOrderIds });
 
     const exportsRedacted = await this.redactOrDeferStoreOrders(orgId, storeId, matches, "customer_redact");
-    return Ok(exportsRedacted);
+    return Ok({ exportsRedacted, mismatchedRemoteOrderIds });
   }
 
   /**
    * Handles Shopify `shop/redact`
-   * (https://shopify.dev/docs/apps/build/compliance/privacy-law-compliance):
-   * Sent 48 hours after app uninstall. Shopify's doc states: "Complete the action within 30 days
-   * of receiving the request. However, if you're unable to comply with a redaction request because
-   * you're legally required to retain data, then you shouldn't complete the action." It does not
-   * separately name unfulfilled orders under `shop/redact`, only legal retention in general; as
-   * merchant of record, the marketplace still owes shoppers delivery or a refund on paid unshipped
-   * orders and needs their contact to do either.
-   *
-   * Therefore `shop/redact` applies the same delivery rule as `customers/redact`: final orders are
-   * redacted immediately, while open/partial orders keep their contact and are stamped with
-   * `orders.metadata.redactAfterDelivery` (carrying `storeId`) so they erase automatically when
-   * delivered, cancelled, or refunded — even after the store row is disconnected and its domain
-   * redacted. The store's credentials, domain (`[REDACTED]`), and host app secrets are removed at once.
+   * (https://shopify.dev/docs/apps/build/compliance/privacy-law-compliance).
+   * Finds affected orders from BOTH `channel_order_exports` AND `order_line_items` (entity source
+   * store) so paid orders not yet exported are included.
    */
   private async redactShopData(orgId: string, store: ConnectedStore, data: Record<string, unknown>): Promise<PluginResult<number>> {
     const parsed = complianceShopPayloadSchema.safeParse(data);
@@ -5791,7 +6148,7 @@ export class ChannelConnectorService {
     }
 
     const originalStoreDomain = store.storeDomain;
-    const orderRows = await this.db
+    const exportOrderRows = await this.db
       .selectDistinct({
         orderId: channelOrderExports.orderId,
         orderStatus: orders.status,
@@ -5806,7 +6163,29 @@ export class ChannelConnectorService {
         eq(channelOrderExports.storeId, store.id),
       ));
 
-    const exportsRedacted = await this.redactOrDeferStoreOrders(orgId, store.id, orderRows, "shop_redact");
+    const sourceLineOrderRows = await this.db
+      .selectDistinct({
+        orderId: orders.id,
+        orderStatus: orders.status,
+      })
+      .from(orderLineItems)
+      .innerJoin(sellableEntities, and(
+        eq(sellableEntities.id, orderLineItems.entityId),
+        eq(sellableEntities.organizationId, orgId),
+      ))
+      .innerJoin(orders, and(
+        eq(orders.id, orderLineItems.orderId),
+        eq(orders.organizationId, orgId),
+      ))
+      .where(eq(sellableEntities.sourceStoreId, store.id));
+
+    const byOrderId = new Map<string, { orderId: string; orderStatus: string | null }>();
+    for (const row of exportOrderRows) byOrderId.set(row.orderId, row);
+    for (const row of sourceLineOrderRows) {
+      if (!byOrderId.has(row.orderId)) byOrderId.set(row.orderId, row);
+    }
+
+    const exportsRedacted = await this.redactOrDeferStoreOrders(orgId, store.id, [...byOrderId.values()], "shop_redact");
 
     const disconnected = await this.disconnectStoreSystem(orgId, store.id, true);
     if (!disconnected.ok) return PluginErr(disconnected.error, disconnected.code);

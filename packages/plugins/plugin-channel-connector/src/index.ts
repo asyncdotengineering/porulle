@@ -11,7 +11,7 @@ import {
   requireUserId,
   TaskNonRetryableError,
 } from "@porulle/core";
-import type { ChannelStore, FieldPath, JobsAdapter, PluginResult, PluginRouteRegistration, TaskDefinition } from "@porulle/core";
+import type { ChannelConnector, ChannelStore, FieldPath, JobsAdapter, PluginResult, PluginRouteRegistration, TaskDefinition } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
 import { and, eq } from "@porulle/core/drizzle";
 import { processedWebhookEvents } from "@porulle/core/schema";
@@ -69,6 +69,8 @@ export {
   FINAL_ORDER_REDACTION_STATUSES,
   HERO_IMAGE_BYTE_CAP,
   isFinalOrderStatusForRedaction,
+  parseDeferredRedactions,
+  REDACTED_STORES_METADATA_KEY,
   selectImportImages,
   CATALOG_OUTBOUND_SUPPRESSION_WINDOW_MS,
   CATALOG_PUSH_BATCH_SIZES,
@@ -79,6 +81,10 @@ export {
   catalogPushRetryDelayMs,
   CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION,
   isCatalogPushBreakerOpen,
+} from "./service.js";
+export type {
+  DeferredRedactionEntry,
+  UnavailableStockStore,
 } from "./service.js";
 export {
   isValidCatalogMappingFieldPath,
@@ -278,6 +284,34 @@ export type {
   ConnectedStore,
   StoreHealth,
 } from "./schema.js";
+
+const applyWebhookInput = z.object({
+  orgId: z.string().min(1),
+  storeId: z.string().uuid(),
+  id: z.string().min(1),
+  topic: z.string().min(1),
+  data: z.unknown(),
+});
+
+/**
+ * The one place verified webhook deliveries enter `channel/apply-webhook`. Runs the connector's
+ * payload minimizer when provided so contact fields the decoder never reads (names, addresses,
+ * phones) are never persisted in `commerce_jobs.input`.
+ */
+async function enqueueWebhookDelivery(
+  jobs: JobsAdapter,
+  connector: ChannelConnector,
+  delivery: { orgId: string; storeId: string; id: string; topic: string; data: unknown },
+): Promise<void> {
+  const data = connector.minimizeWebhookPayload
+    ? connector.minimizeWebhookPayload(delivery.topic, delivery.data)
+    : delivery.data;
+  await jobs.enqueue(
+    "channel/apply-webhook",
+    { orgId: delivery.orgId, storeId: delivery.storeId, id: delivery.id, topic: delivery.topic, data },
+    { organizationId: delivery.orgId, concurrencyKey: `webhook:${delivery.storeId}`, supersedes: false },
+  );
+}
 
 function unwrap<T>(result: PluginResult<T>): T {
   if (result.ok) return result.value;
@@ -494,13 +528,25 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
       // and a product re-read plus convergence is not bounded by that. Serialized per store, so two
       // deliveries for one store apply in the order they were accepted.
       slug: "channel/apply-webhook",
-      concurrency: { key: (input: Record<string, unknown>) => `webhook:${String(input.storeId)}` },
+      concurrency: {
+        key: (input: Record<string, unknown>) => {
+          const parsed = applyWebhookInput.safeParse(input);
+          return parsed.success ? `webhook:${parsed.data.storeId}` : "webhook:invalid";
+        },
+      },
       handler: async ({ input, ctx }: { input: Record<string, unknown>; ctx: import("@porulle/core").TaskContext }) => {
+        const parsed = applyWebhookInput.safeParse(input);
+        if (!parsed.success) {
+          const detail = parsed.error.issues
+            .map((issue) => `${issue.path.length > 0 ? issue.path.join(".") : "input"}: ${issue.message}`)
+            .join("; ");
+          throw new TaskNonRetryableError(`Invalid channel/apply-webhook input: ${detail}`);
+        }
         const service = new ChannelConnectorService(ctx.db, ctx.services, options);
-        const result = await service.handleWebhook(String(input.orgId), String(input.storeId), {
-          id: String(input.id),
-          type: String(input.topic),
-          data: input.data,
+        const result = await service.handleWebhook(parsed.data.orgId, parsed.data.storeId, {
+          id: parsed.data.id,
+          type: parsed.data.topic,
+          data: parsed.data.data,
         });
         if (!result.ok) {
           if (result.code === "MALFORMED_COMPLIANCE_PAYLOAD" || result.code === "SHOPIFY_WEBHOOK_MALFORMED") {
@@ -508,7 +554,14 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           }
           throw new Error(result.error);
         }
-        return { output: { processed: result.value.processed } };
+        return {
+          output: {
+            processed: result.value.processed,
+            ...(result.value.mismatchedRemoteOrderIds && result.value.mismatchedRemoteOrderIds.length > 0
+              ? { mismatchedRemoteOrderIds: result.value.mismatchedRemoteOrderIds }
+              : {}),
+          },
+        };
       },
     },
     {
@@ -724,10 +777,12 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           const [marked] = await db.insert(processedWebhookEvents).values({ eventId: `${store.id}:${delivery.id}`, provider: store.provider, eventType: delivery.type }).onConflictDoNothing().returning({ id: processedWebhookEvents.id });
           if (!marked) return context.json({ data: { received: true, duplicate: true } });
           try {
-            await (ctx.services.jobs as JobsAdapter).enqueue("channel/apply-webhook", { orgId: store.organizationId, storeId: store.id, id: delivery.id, topic: delivery.type, data: delivery.data }, {
-              organizationId: store.organizationId,
-              concurrencyKey: `webhook:${store.id}`,
-              supersedes: false,
+            await enqueueWebhookDelivery(ctx.services.jobs as JobsAdapter, connector, {
+              orgId: store.organizationId,
+              storeId: store.id,
+              id: delivery.id,
+              topic: delivery.type,
+              data: delivery.data,
             });
           } catch (error) {
             await db.delete(processedWebhookEvents).where(eq(processedWebhookEvents.id, marked.id));
@@ -766,10 +821,12 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           try {
             if (stores.length === 0) await options.onAppWebhookUnclaimed?.({ db, provider, event });
             for (const store of stores) {
-              await jobs.enqueue("channel/apply-webhook", { orgId: store.organizationId, storeId: store.id, id: event.id, topic: event.topic, data: event.data }, {
-                organizationId: store.organizationId,
-                concurrencyKey: `webhook:${store.id}`,
-                supersedes: false,
+              await enqueueWebhookDelivery(jobs, connector, {
+                orgId: store.organizationId,
+                storeId: store.id,
+                id: event.id,
+                topic: event.topic,
+                data: event.data,
               });
             }
           } catch (error) {
