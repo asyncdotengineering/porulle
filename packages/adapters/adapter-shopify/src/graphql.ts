@@ -116,7 +116,9 @@ export async function shopifyGraphql<T>(
     if (errors.length > 0) {
       const message = errors.map((error) => error.message ?? "unknown error").join("; ");
       const denied = errors.some((error) => error.extensions?.code === "ACCESS_DENIED");
-      return Err({ code: denied ? "SHOPIFY_ACCESS_DENIED" : "SHOPIFY_GRAPHQL_ERROR", message: `Shopify GraphQL error: ${message}`, retriable: false });
+      const customerDataBlocked = denied && (/not approved to access the Order object/i.test(message) || /protected[- ]customer[- ]data/i.test(message));
+      const code = customerDataBlocked ? "SHOPIFY_CUSTOMER_DATA_NOT_ALLOWED" : denied ? "SHOPIFY_ACCESS_DENIED" : "SHOPIFY_GRAPHQL_ERROR";
+      return Err({ code, message: `Shopify GraphQL error: ${message}`, retriable: false });
     }
     const data = schema.safeParse(envelope?.data);
     if (!data.success) {

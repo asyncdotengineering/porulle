@@ -149,9 +149,10 @@ function credentialsFrom(body: z.infer<typeof tokenResponseSchema>, now: number,
 }
 
 /**
- * Why the token endpoint refused a grant, from the body Shopify answered with. Shopify documents two
- * client-credentials refusals by name, in a body that reads "Oauth error shop_not_permitted: …"; the
- * name is matched wherever it appears rather than parsed from one assumed shape.
+ * Why the token endpoint refused a grant, from the body Shopify answered with. Live Shopify
+ * (measured 2026-11-24) answers 400 JSON (`invalid_request`, `application_cannot_be_found`,
+ * `app_not_installed`) and `shop_not_permitted` for cross-org client credentials; the refusal name is
+ * matched wherever it appears rather than parsed from one assumed shape.
  */
 function tokenRefusal(status: number, body: string): ChannelConnectorError {
   if (body.includes("shop_not_permitted")) {
@@ -182,6 +183,9 @@ async function postTokenEndpoint(fetchImpl: typeof fetch, origin: string, form: 
   if (response.status === 400 && badRequest !== undefined) return Err(badRequest);
   if (response.status === 400 || response.status === 401) {
     return Err(tokenRefusal(response.status, await response.text().catch(() => "")));
+  }
+  if (response.status === 404) {
+    return oauthError("SHOPIFY_SHOP_NOT_FOUND", "Shopify has no store at that address.");
   }
   if (!response.ok) return oauthError("SHOPIFY_TOKEN_REQUEST_FAILED", `Shopify token request failed (${response.status}).`, response.status >= 500);
   const parsed = tokenResponseSchema.safeParse(await response.json().catch(() => undefined));

@@ -159,7 +159,11 @@ export async function subscribeShopifyWebhooks(params: { origin: string; accessT
     if (!answer.ok) return answer;
     const { webhookSubscription, userErrors } = answer.value.webhookSubscriptionCreate;
     if (userErrors.length > 0 || !webhookSubscription) {
-      return Err({ code: "SHOPIFY_WEBHOOK_SUBSCRIPTION_REFUSED", message: `Shopify refused the ${topic} subscription: ${userErrors.map((error) => error.message).join("; ") || "no subscription returned"}.`, retriable: false });
+      const detail = userErrors.map((error) => error.message).join("; ") || "no subscription returned";
+      const code = userErrors.some((error) => /protected[- ]customer[- ]data/i.test(error.message))
+        ? "SHOPIFY_CUSTOMER_DATA_NOT_ALLOWED"
+        : "SHOPIFY_WEBHOOK_SUBSCRIPTION_REFUSED";
+      return Err({ code, message: `Shopify refused the ${topic} subscription: ${detail}.`, retriable: false });
     }
     created += 1;
   }
@@ -351,7 +355,6 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
       if (!existing.ok) return existing;
       const already = existing.value.orders.nodes[0];
       if (already) return Ok({ remoteOrderId: already.legacyResourceId });
-      const [firstName, ...rest] = slice.customer.name.trim().split(/\s+/);
       const address = slice.customer.shippingAddress;
       // Shopify takes a province as its CODE. A region the shopper typed as a name is kept for the
       // courier on the second address line rather than sent where Shopify would reject it.
@@ -369,6 +372,11 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
         countryCode: address.countryCode,
         ...(address.phone ? { phone: address.phone } : {}),
       };
+      // No `customer.toUpsert`: measured on live Shopify (2026-11-24), `orderCreate` with
+      // `customer.toUpsert` for an email that already exists as a customer fails with ACCESS_DENIED
+      // ("Required access: `write_customers` access scope to update an existing customer with
+      // `customer.toUpsert`"). Passing `email` and `shippingAddress` alone creates orders for new,
+      // existing and repeat emails, and the brand's admin shows name, email, phone and address.
       const created = await shopifyGraphql(shop, ORDER_CREATE_MUTATION, {
         order: {
           sourceName: SOURCE_NAME,
@@ -376,7 +384,6 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
           currency: slice.currency,
           email: slice.customer.email,
           financialStatus: "PAID",
-          customer: { toUpsert: { email: slice.customer.email, firstName: firstName ?? "", lastName: rest.join(" ") } },
           shippingAddress,
           lineItems: slice.lines.map((line) => ({
             variantId: shopifyGid("ProductVariant", line.externalVariantId),
