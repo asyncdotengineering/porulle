@@ -129,10 +129,11 @@ describe("shopifyConnector on workerd with the runtime's own fetch", () => {
     bodies.length = 0;
     const response = await mf.dispatchFetch("https://worker.test/order");
     expect(await response.json()).toEqual({ ok: true, value: { remoteOrderId: "1001" } });
-    const create = bodies.find((body): body is { variables: { order: { lineItems: { requiresShipping?: unknown }[] } } } =>
+    const create = bodies.find((body): body is { variables: { order: { customer?: unknown; lineItems: { requiresShipping?: unknown }[] } } } =>
       typeof body === "object" && body !== null && "query" in body && String(body.query).includes("PorulleOrderCreate"));
     expect(create?.variables.order.lineItems).toHaveLength(1);
     expect(create?.variables.order.lineItems.map((line) => line.requiresShipping)).toEqual([true]);
+    expect(create?.variables.order.customer).toBeUndefined();
   });
 
   // A real shopper paid Rs 24,900 + Rs 350 delivery; Shopify recorded Rs 24,900 and no shipping
