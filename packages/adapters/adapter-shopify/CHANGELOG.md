@@ -1,5 +1,16 @@
 # @porulle/adapter-shopify
 
+## 0.89.0
+
+### Minor Changes
+
+- [#214](https://github.com/asyncdotengineering/porulle/pull/214) [`bbc5d85`](https://github.com/asyncdotengineering/porulle/commit/bbc5d8527e2ffb6507361da228d7626f9f0fa6c1) Thanks [@octalpixel](https://github.com/octalpixel)! - Add an optional `paymentGateway` option to `shopifyConnector` so hosts can set the payment gateway name recorded on `orderCreate` transactions (defaulting to `"porulle"`), without changing `sourceName` or `sourceIdentifier`.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.89.0
+
 ## 0.88.0
 
 ### Minor Changes

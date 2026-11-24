@@ -1,5 +1,12 @@
 # @porulle/adapter-taxjar
 
+## 0.89.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @porulle/core@0.89.0
+
 ## 0.88.0
 
 ### Patch Changes
