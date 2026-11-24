@@ -293,7 +293,12 @@ const applyWebhookInput = z.object({
   topic: z.string().min(1),
   data: z.unknown(),
   /** Present for a delivery to the provider-wide address: who signed it and which connection it was accepted for. */
-  origin: z.object({ signer: z.string().min(1).optional(), grantId: z.string().min(1).optional() }).optional(),
+  origin: z.object({
+    signer: z.string().min(1).optional(),
+    grantId: z.string().min(1).optional(),
+    /** ISO time the delivery was received: absent on a job queued before it was carried. */
+    receivedAt: z.string().datetime().transform((value) => new Date(value)).optional(),
+  }).optional(),
 });
 
 /**
@@ -311,7 +316,7 @@ async function enqueueWebhookDelivery(
     : delivery.data;
   await jobs.enqueue(
     "channel/apply-webhook",
-    { orgId: delivery.orgId, storeId: delivery.storeId, id: delivery.id, topic: delivery.topic, data, ...(delivery.origin === undefined ? {} : { origin: delivery.origin }) },
+    { orgId: delivery.orgId, storeId: delivery.storeId, id: delivery.id, topic: delivery.topic, data, ...(delivery.origin === undefined ? {} : { origin: { ...delivery.origin, ...(delivery.origin.receivedAt === undefined ? {} : { receivedAt: delivery.origin.receivedAt.toISOString() }) } }) },
     { organizationId: delivery.orgId, concurrencyKey: `webhook:${delivery.storeId}`, supersedes: false },
   );
 }
@@ -819,7 +824,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
             ? context.json({ error: { code: verified.error.code, message: verified.error.message } }, 503)
             : context.json({ error: { code: "UNAUTHORIZED", message: verified.error.message } }, 401);
           const event = verified.value;
-          const [marked] = await db.insert(processedWebhookEvents).values({ eventId: event.id, provider, eventType: event.topic }).onConflictDoNothing().returning({ id: processedWebhookEvents.id });
+          const [marked] = await db.insert(processedWebhookEvents).values({ eventId: event.id, provider, eventType: event.topic }).onConflictDoNothing().returning({ id: processedWebhookEvents.id, receivedAt: processedWebhookEvents.processedAt });
           if (!marked) return context.json({ data: { received: true, duplicate: true } });
           const jobs = ctx.services.jobs as JobsAdapter;
           let stores = 0;
@@ -831,7 +836,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
               if (store.provider === provider && (connector.acceptsAppWebhook === undefined || await connector.acceptsAppWebhook(store as ChannelStore, event))) accepting.push(store);
             }
             stores = accepting.length;
-            if (accepting.length === 0) await options.onShopEnded?.({ db, provider, shopDomain: event.shopDomain, topic: event.topic, signer: event.signer });
+            if (accepting.length === 0) await options.onShopEnded?.({ db, provider, shopDomain: event.shopDomain, topic: event.topic, signer: event.signer, receivedAt: marked.receivedAt });
             for (const store of accepting) {
               const grantId = grantIdOf(store.credentials);
               await enqueueWebhookDelivery(jobs, connector, {
@@ -841,7 +846,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
                 topic: event.topic,
                 data: event.data,
                 // What it was accepted for: the job runs later, and the store may not be the same connection then.
-                origin: { ...(event.signer === undefined ? {} : { signer: event.signer }), ...(grantId === undefined ? {} : { grantId }) },
+                origin: { ...(event.signer === undefined ? {} : { signer: event.signer }), ...(grantId === undefined ? {} : { grantId }), receivedAt: marked.receivedAt },
               });
             }
           } catch (error) {
