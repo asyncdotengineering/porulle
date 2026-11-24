@@ -40,9 +40,12 @@ export default {
       webhookSecret: null,
     };
     const path = new URL(request.url).pathname;
-    if (path === "/order" || path === "/order-with-shipping") {
+    if (path === "/order" || path === "/order-with-shipping" || path === "/order-custom-gateway") {
+      const orderConnector = path === "/order-custom-gateway"
+        ? shopifyConnector({ clientId: "workerd", clientSecret: "workerd", shopOrigin: () => "https://runvae-dev.myshopify.com", paymentGateway: "Runvae" })
+        : connector;
       const shipping = path === "/order-with-shipping" ? { shipping: { title: "Shipping", amount: 35000 } } : {};
-      return Response.json(await connector.pushOrder(store, {
+      return Response.json(await orderConnector.pushOrder(store, {
         orderId: "order-workerd-1",
         currency: "LKR",
         grandTotal: path === "/order-with-shipping" ? 1015000 : 980000,
@@ -129,11 +132,26 @@ describe("shopifyConnector on workerd with the runtime's own fetch", () => {
     bodies.length = 0;
     const response = await mf.dispatchFetch("https://worker.test/order");
     expect(await response.json()).toEqual({ ok: true, value: { remoteOrderId: "1001" } });
-    const create = bodies.find((body): body is { variables: { order: { customer?: unknown; lineItems: { requiresShipping?: unknown }[] } } } =>
+    const create = bodies.find((body): body is { variables: { order: { customer?: unknown; sourceName?: unknown; lineItems: { requiresShipping?: unknown }[]; transactions: { gateway?: unknown }[] } } } =>
       typeof body === "object" && body !== null && "query" in body && String(body.query).includes("PorulleOrderCreate"));
     expect(create?.variables.order.lineItems).toHaveLength(1);
     expect(create?.variables.order.lineItems.map((line) => line.requiresShipping)).toEqual([true]);
     expect(create?.variables.order.customer).toBeUndefined();
+    expect(create?.variables.order.sourceName).toBe("porulle");
+    expect(create?.variables.order.transactions[0]?.gateway).toBe("porulle");
+  });
+
+  // Hosts brand the payment transaction shown in Shopify's timeline without altering sourceName or
+  // sourceIdentifier, which the duplicate guard queries on retries.
+  it("uses paymentGateway on the transaction while keeping sourceName and sourceIdentifier unchanged", async () => {
+    bodies.length = 0;
+    const response = await mf.dispatchFetch("https://worker.test/order-custom-gateway");
+    expect(await response.json()).toEqual({ ok: true, value: { remoteOrderId: "1001" } });
+    const create = bodies.find((body): body is { variables: { order: { sourceName?: unknown; sourceIdentifier?: unknown; transactions: { gateway?: unknown }[] } } } =>
+      typeof body === "object" && body !== null && "query" in body && String(body.query).includes("PorulleOrderCreate"));
+    expect(create?.variables.order.transactions[0]?.gateway).toBe("Runvae");
+    expect(create?.variables.order.sourceName).toBe("porulle");
+    expect(create?.variables.order.sourceIdentifier).toBe("order-workerd-1");
   });
 
   // A real shopper paid Rs 24,900 + Rs 350 delivery; Shopify recorded Rs 24,900 and no shipping
