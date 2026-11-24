@@ -1,5 +1,12 @@
 # @porulle/jobs-trigger
 
+## 0.88.0
+
+### Patch Changes
+
+- Updated dependencies [[`c3474ab`](https://github.com/asyncdotengineering/porulle/commit/c3474abd434a64c2281def0ee893d7ffb17240be), [`9ebe3dd`](https://github.com/asyncdotengineering/porulle/commit/9ebe3dd9037627209cfd6b5fa2c6584e962885c1)]:
+  - @porulle/core@0.88.0
+
 ## 0.87.0
 
 ### Patch Changes

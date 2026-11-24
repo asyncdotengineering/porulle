@@ -1,5 +1,61 @@
 # @porulle/adapter-shopify
 
+## 0.88.0
+
+### Minor Changes
+
+- [#212](https://github.com/asyncdotengineering/porulle/pull/212) [`547a1e0`](https://github.com/asyncdotengineering/porulle/commit/547a1e00dd796646317890d8930c311f587df944) Thanks [@octalpixel](https://github.com/octalpixel)! - One identity per connection, so work queued for one connection never acts on the next.
+
+  - Every connect or reconnect writes a fresh random `grantId` into the stored credentials (any provider); a credential renewal keeps it. A delivery to the provider-wide address carries its `signer` and the store's `grantId` into the `channel/apply-webhook` job as `origin`. When the job runs, the connector's `acceptsAppWebhook` is asked again with that signer, and `app/uninstalled` and the disconnecting half of `shop/redact` apply only while the store's current `grantId` equals the carried one; otherwise the job succeeds with `{ processed: false, reason: "superseded" }`. Contact redaction in `shop/redact` and `customers/redact` still runs. `disconnectStoreSystem(orgId, id, options)` now takes `{ redactDomain?, ifGrant? }` and answers `SUPERSEDED` when the connection it was asked to end is no longer the store's.
+  - The `onShopRedacted` and `onAppWebhookUnclaimed` options are replaced by one `onShopEnded({ db, provider, shopDomain, topic, signer })`, called for a current `app/uninstalled` or `shop/redact` whether or not a store accepted it, so a host removes what the signing app issued and nothing else.
+  - Receipt of an app-level delivery: everything between recording the delivery id and queueing the job is one unit; any failure forgets the id and answers a stable 503 without the error's text.
+  - `connectStore` and `completeConnect` take the store profile the caller already read and hand it to `afterStoreConnected`. A failure after the credentials are committed is reported as `AFTER_CONNECT_FAILED` with a plain sentence (a refusal the host threw on purpose keeps its own words) and leaves the store in `error` saying to connect again; no query text, parameters or provider text is returned or logged.
+  - A successful renewal that lands for the same grant clears an `error` that a refusal of that grant had set (never any other `error`), and a renewal that lost to a disconnect answers `STORE_DISCONNECTED` and is not used.
+  - A repeated `customers/redact` or `shop/redact` keeps the earliest deferred `requestedAt` for a store. An order whose contact was erased for a store is never rebuilt for it (`CONTACT_ERASED`), and a manual store's slice keeps shared contact only until the order is final, in both erasure predicates.
+  - `refreshLineStock` re-reads the store's status once after a failed read, so a store that stopped taking orders during the read is reported as unavailable.
+  - Shopify: an `app/uninstalled` body that names a shop other than the signed header's is refused.
+
+- [#209](https://github.com/asyncdotengineering/porulle/pull/209) [`c3474ab`](https://github.com/asyncdotengineering/porulle/commit/c3474abd434a64c2281def0ee893d7ffb17240be) Thanks [@octalpixel](https://github.com/octalpixel)! - A grant records the app that issued it, and refusals are compared with the grant that was refused.
+
+  - `ShopifyCredentials.clientId` is written by every grant and kept on renewal.
+  - `ChannelConnector.acceptsAppWebhook` lets a connector say whether a verified delivery's signer is the store's own app; `decodeWebhookNeedsCredentials` lets a delivery decode after the credentials are gone (an uninstall, the redaction that follows it).
+  - A compliance delivery whose signed shop differs from its header is refused.
+  - A refused renewal marks a store `error` only while it still holds the refused credentials.
+  - `onAppWebhookUnclaimed`, `storeApp`; unexpected errors return a stable sentence without query parameters.
+
+- [#210](https://github.com/asyncdotengineering/porulle/pull/210) [`9ebe3dd`](https://github.com/asyncdotengineering/porulle/commit/9ebe3dd9037627209cfd6b5fa2c6584e962885c1) Thanks [@octalpixel](https://github.com/octalpixel)! - Webhook deliveries are minimized before they are queued, erasure matches exactly, and a bag's unavailable stores are named.
+
+  - `ChannelConnector.minimizeWebhookPayload` keeps only what decoding reads; Shopify implements it.
+  - Compliance requests match the orders Shopify names (and their email), else the email; never the union. Deferred redactions are kept per store.
+  - `refreshLineStock` answers `unavailableStores`, reports unmapped lines, drops a late answer and writes several levels with `setAbsoluteMany`.
+  - `channel/apply-webhook` parses its input.
+
+- [#204](https://github.com/asyncdotengineering/porulle/pull/204) [`6f99b50`](https://github.com/asyncdotengineering/porulle/commit/6f99b50340e06d5bf0f47f1103f02cbd68b69135) Thanks [@octalpixel](https://github.com/octalpixel)! - Connect a store through the merchant's own Shopify app with the client credentials grant.
+
+  - `mintClientCredentials({ fetchImpl, origin, clientId, clientSecret, now })` mints a token for an app in the same Shopify organization as the store. Credentials it returns carry `grant: "client_credentials"`.
+  - `liveCredentials` (through `refreshIfExpiring`) renews such a token by minting again before its 24-hour expiry, since the grant has no refresh token.
+  - A token-endpoint refusal now names its cause: `SHOPIFY_SHOP_NOT_PERMITTED` (the app and the store are in different organizations) and `SHOPIFY_APP_NOT_INSTALLED`; anything else stays `SHOPIFY_REAUTHORIZATION_REQUIRED`.
+  - `subscribeShopifyWebhooks({ origin, accessToken, uri })` subscribes the app to every `SHOPIFY_WEBHOOK_TOPICS` topic with `webhookSubscriptionCreate`, creating only the missing ones, for an app whose configuration does not carry our subscriptions. Compliance topics cannot be subscribed this way.
+  - `missingScopes` is exported.
+  - `REQUIRED_SCOPES` no longer asks for `write_products`: nothing about a product is ever pushed to a merchant's Shopify, so only the read side of the catalogue is requested.
+
+- [#211](https://github.com/asyncdotengineering/porulle/pull/211) [`10f0ad6`](https://github.com/asyncdotengineering/porulle/commit/10f0ad661e31c7df6452ecab21456dcb004d3b5d) Thanks [@octalpixel](https://github.com/octalpixel)! - Match live Shopify behaviour for `orderCreate`, protected customer data refusals, and unknown shops.
+
+  - `pushOrder` no longer sends `customer.toUpsert` (which Shopify refuses with `ACCESS_DENIED` requiring `write_customers` whenever the email already exists as a customer); `email` and `shippingAddress` alone create orders for new, existing, and repeat shoppers.
+  - Protected customer data refusals — both `webhookSubscriptionCreate` userErrors on order topics and `Order`-object `ACCESS_DENIED` GraphQL errors — map to one non-retriable code `SHOPIFY_CUSTOMER_DATA_NOT_ALLOWED`.
+  - HTTP 404 from the token endpoint maps to non-retriable `SHOPIFY_SHOP_NOT_FOUND`.
+
+- [#207](https://github.com/asyncdotengineering/porulle/pull/207) [`ed0bbe6`](https://github.com/asyncdotengineering/porulle/commit/ed0bbe60552523684fbce46fa888074b504b8baa) Thanks [@octalpixel](https://github.com/octalpixel)! - Token exchange for an app Shopify installs and loads in the admin.
+
+  - `verifyShopifyIdToken({ token, clientId, clientSecret, now })` checks an ID token as Shopify documents: HS256 over `header.payload` under the client secret in constant time, `exp` in the future, `nbf` in the past (10 s of clock skew allowed), `aud` equal to the client id, and `iss` and `dest` on the same `*.myshopify.com` host. It returns the shop and the staff member, or `SHOPIFY_ID_TOKEN_INVALID`.
+  - `exchangeIdToken({ fetchImpl, origin, clientId, clientSecret, idToken, requiredScopes, now })` trades the ID token for an expiring offline token. Shopify's 400 for a stale or invalid ID token is `SHOPIFY_ID_TOKEN_INVALID` (a fresh token fixes it), not a refusal of the app. Scopes the store did not grant are refused with `SHOPIFY_SCOPES_NOT_GRANTED`, as the code grant does.
+  - `validShopDomain` is exported, for a host that checks a `shop` parameter before trusting it.
+
+### Patch Changes
+
+- Updated dependencies [[`c3474ab`](https://github.com/asyncdotengineering/porulle/commit/c3474abd434a64c2281def0ee893d7ffb17240be), [`9ebe3dd`](https://github.com/asyncdotengineering/porulle/commit/9ebe3dd9037627209cfd6b5fa2c6584e962885c1)]:
+  - @porulle/core@0.88.0
+
 ## 0.87.0
 
 ### Patch Changes

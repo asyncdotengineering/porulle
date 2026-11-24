@@ -1,5 +1,24 @@
 # @porulle/core
 
+## 0.88.0
+
+### Minor Changes
+
+- [#209](https://github.com/asyncdotengineering/porulle/pull/209) [`c3474ab`](https://github.com/asyncdotengineering/porulle/commit/c3474abd434a64c2281def0ee893d7ffb17240be) Thanks [@octalpixel](https://github.com/octalpixel)! - A grant records the app that issued it, and refusals are compared with the grant that was refused.
+
+  - `ShopifyCredentials.clientId` is written by every grant and kept on renewal.
+  - `ChannelConnector.acceptsAppWebhook` lets a connector say whether a verified delivery's signer is the store's own app; `decodeWebhookNeedsCredentials` lets a delivery decode after the credentials are gone (an uninstall, the redaction that follows it).
+  - A compliance delivery whose signed shop differs from its header is refused.
+  - A refused renewal marks a store `error` only while it still holds the refused credentials.
+  - `onAppWebhookUnclaimed`, `storeApp`; unexpected errors return a stable sentence without query parameters.
+
+- [#210](https://github.com/asyncdotengineering/porulle/pull/210) [`9ebe3dd`](https://github.com/asyncdotengineering/porulle/commit/9ebe3dd9037627209cfd6b5fa2c6584e962885c1) Thanks [@octalpixel](https://github.com/octalpixel)! - Webhook deliveries are minimized before they are queued, erasure matches exactly, and a bag's unavailable stores are named.
+
+  - `ChannelConnector.minimizeWebhookPayload` keeps only what decoding reads; Shopify implements it.
+  - Compliance requests match the orders Shopify names (and their email), else the email; never the union. Deferred redactions are kept per store.
+  - `refreshLineStock` answers `unavailableStores`, reports unmapped lines, drops a late answer and writes several levels with `setAbsoluteMany`.
+  - `channel/apply-webhook` parses its input.
+
 ## 0.87.0
 
 ### Minor Changes

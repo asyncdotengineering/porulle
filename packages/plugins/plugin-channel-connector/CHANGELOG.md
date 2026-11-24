@@ -1,5 +1,62 @@
 # @porulle/plugin-channel-connector
 
+## 0.88.0
+
+### Minor Changes
+
+- [#212](https://github.com/asyncdotengineering/porulle/pull/212) [`547a1e0`](https://github.com/asyncdotengineering/porulle/commit/547a1e00dd796646317890d8930c311f587df944) Thanks [@octalpixel](https://github.com/octalpixel)! - One identity per connection, so work queued for one connection never acts on the next.
+
+  - Every connect or reconnect writes a fresh random `grantId` into the stored credentials (any provider); a credential renewal keeps it. A delivery to the provider-wide address carries its `signer` and the store's `grantId` into the `channel/apply-webhook` job as `origin`. When the job runs, the connector's `acceptsAppWebhook` is asked again with that signer, and `app/uninstalled` and the disconnecting half of `shop/redact` apply only while the store's current `grantId` equals the carried one; otherwise the job succeeds with `{ processed: false, reason: "superseded" }`. Contact redaction in `shop/redact` and `customers/redact` still runs. `disconnectStoreSystem(orgId, id, options)` now takes `{ redactDomain?, ifGrant? }` and answers `SUPERSEDED` when the connection it was asked to end is no longer the store's.
+  - The `onShopRedacted` and `onAppWebhookUnclaimed` options are replaced by one `onShopEnded({ db, provider, shopDomain, topic, signer })`, called for a current `app/uninstalled` or `shop/redact` whether or not a store accepted it, so a host removes what the signing app issued and nothing else.
+  - Receipt of an app-level delivery: everything between recording the delivery id and queueing the job is one unit; any failure forgets the id and answers a stable 503 without the error's text.
+  - `connectStore` and `completeConnect` take the store profile the caller already read and hand it to `afterStoreConnected`. A failure after the credentials are committed is reported as `AFTER_CONNECT_FAILED` with a plain sentence (a refusal the host threw on purpose keeps its own words) and leaves the store in `error` saying to connect again; no query text, parameters or provider text is returned or logged.
+  - A successful renewal that lands for the same grant clears an `error` that a refusal of that grant had set (never any other `error`), and a renewal that lost to a disconnect answers `STORE_DISCONNECTED` and is not used.
+  - A repeated `customers/redact` or `shop/redact` keeps the earliest deferred `requestedAt` for a store. An order whose contact was erased for a store is never rebuilt for it (`CONTACT_ERASED`), and a manual store's slice keeps shared contact only until the order is final, in both erasure predicates.
+  - `refreshLineStock` re-reads the store's status once after a failed read, so a store that stopped taking orders during the read is reported as unavailable.
+  - Shopify: an `app/uninstalled` body that names a shop other than the signed header's is refused.
+
+- [#209](https://github.com/asyncdotengineering/porulle/pull/209) [`c3474ab`](https://github.com/asyncdotengineering/porulle/commit/c3474abd434a64c2281def0ee893d7ffb17240be) Thanks [@octalpixel](https://github.com/octalpixel)! - A grant records the app that issued it, and refusals are compared with the grant that was refused.
+
+  - `ShopifyCredentials.clientId` is written by every grant and kept on renewal.
+  - `ChannelConnector.acceptsAppWebhook` lets a connector say whether a verified delivery's signer is the store's own app; `decodeWebhookNeedsCredentials` lets a delivery decode after the credentials are gone (an uninstall, the redaction that follows it).
+  - A compliance delivery whose signed shop differs from its header is refused.
+  - A refused renewal marks a store `error` only while it still holds the refused credentials.
+  - `onAppWebhookUnclaimed`, `storeApp`; unexpected errors return a stable sentence without query parameters.
+
+- [#213](https://github.com/asyncdotengineering/porulle/pull/213) [`1bb4eea`](https://github.com/asyncdotengineering/porulle/commit/1bb4eeac823315249d8703de816fee5561f0749c) Thanks [@octalpixel](https://github.com/octalpixel)! - A privacy request still erases past orders after the shop moves to another app, a shop's disconnect and its host cleanup commit together, and an uninstall applied late no longer removes what is newer than it.
+
+  - `handleWebhook` applies the compliance requests (`customers/redact`, `shop/redact`, `customers/data_request`) of a delivery the connector no longer accepts, when the connector decodes it from its own body (`decodeWebhookNeedsCredentials` is `false`), so deciding it makes no call to the shop. Disconnecting the store, redacting its domain and `onShopEnded` stay with the connection the delivery was accepted for. Every other delivery is still answered `not_accepted`.
+  - `disconnectStoreSystem` takes `alongside`, which runs in the disconnect's own transaction. `connection.revoked` and `shop/redact` run `onShopEnded` there, so a failed cleanup undoes the disconnect and the retry does both. The provider's `unregisterWebhooks` call stays outside the transaction.
+  - `AppDeliveryOrigin` carries `receivedAt`, the delivery's arrival time on the database's clock, through the queued job (an ISO string; optional for jobs queued before). `OnShopEnded` receives it, so a host can remove only what was written at or before it.
+  - `redactOrdersContact` runs in one transaction that locks the order rows and writes the store's erased marker before it clears exports and returns, and `exportOrder` writes contact under the same order lock, so an export cannot put contact back during an erasure. The lock is not held across the store call.
+
+- [#208](https://github.com/asyncdotengineering/porulle/pull/208) [`09bb06e`](https://github.com/asyncdotengineering/porulle/commit/09bb06e87bdb8e69c821d380c946a964739e2ceb) Thanks [@octalpixel](https://github.com/octalpixel)! - Erase every copy of a shopper's contact on redacted orders, match compliance payloads in SQL, defer open-order redaction until delivery completes, and surface `customers/data_request` through a host hook.
+
+  - `ChannelConnectorService.redactOrdersContact(orgId, orderIds, { storeId, reason })` is the single entry point used by `customers/redact`, `shop/redact`, and host-initiated account erasure. It clears `channel_order_exports.customer_data`, `channel_returns.note`, and the contact fields `orders.metadata` carries (`customer`, `shippingAddress`, `guestCustomer`, `guestShippingAddress`), stamps `contactRedactedAt` (no PII), keeps the order, lines, money, status and non-contact metadata intact, and invokes `options.onOrdersRedacted` on the same `db`/transaction handle so the host clears platform-owned copies.
+  - `customers/redact` and `customers/data_request` match the store's exports in SQL on both Shopify order ids (`orders_to_redact` / `orders_requested` = `channel_order_exports.remote_order_id`) and customer email without reading the store's other exports into memory.
+  - On `customers/redact`, orders already in a final state (`fulfilled`, `delivered`, `cancelled`, `refunded`) are redacted immediately; open orders still needed for delivery are stamped with `orders.metadata.redactAfterDelivery` and erased by an `orders.afterStatusChange` hook when they reach a final state (no cron).
+  - `shop/redact` redacts all of the store's orders immediately, disconnects the store with domain and credentials cleared, and invokes `options.onShopRedacted` with the original `storeDomain` so the host can remove store-scoped credentials.
+  - `customers/data_request` invokes `options.onCustomerDataRequest` with reference-only metadata (`storeId`, `shopDomain`, `requestId`, `remoteCustomerId`, `orderIds`, `remoteOrderIds`, `requestedAt`, and 30-day `dueAt`) without copying shopper contact or writing PII into job output or logs.
+
+- [#206](https://github.com/asyncdotengineering/porulle/pull/206) [`766ba88`](https://github.com/asyncdotengineering/porulle/commit/766ba8853140dfb941b37fe90b9f7e62b5f09665) Thanks [@octalpixel](https://github.com/octalpixel)! - `ChannelConnectorService.refreshLineStock(orgId, lines, { timeoutMs })` brings a bag's stock up to what its stores say now, for a host that prices a checkout against its own mirror.
+
+  - Lines are grouped by the store their product was imported from; lines of a hand-made product are ignored. Only those lines' mappings are read, never the store's whole map.
+  - One `fetchInventory` per store, all stores at once, each under `timeoutMs`. A level that differs from the stored quantity is written through the inventory service the way an `inventory_levels/update` webhook writes it (system actor, negative clamped to 0), so the same after-hooks and search outbox run.
+  - A store that is not connected, has no connector, errors, times out, or leaves a variant out of its answer writes nothing for what it did not confirm and is returned in `unconfirmed`. The method never throws for a store's failure and never refuses a sale: the caller's own stock check does that, on the numbers written.
+  - `validateLineStock` shares the line grouping and mapping lookup, and now reads only the bag's mappings instead of the whole store's.
+
+- [#210](https://github.com/asyncdotengineering/porulle/pull/210) [`9ebe3dd`](https://github.com/asyncdotengineering/porulle/commit/9ebe3dd9037627209cfd6b5fa2c6584e962885c1) Thanks [@octalpixel](https://github.com/octalpixel)! - Webhook deliveries are minimized before they are queued, erasure matches exactly, and a bag's unavailable stores are named.
+
+  - `ChannelConnector.minimizeWebhookPayload` keeps only what decoding reads; Shopify implements it.
+  - Compliance requests match the orders Shopify names (and their email), else the email; never the union. Deferred redactions are kept per store.
+  - `refreshLineStock` answers `unavailableStores`, reports unmapped lines, drops a late answer and writes several levels with `setAbsoluteMany`.
+  - `channel/apply-webhook` parses its input.
+
+### Patch Changes
+
+- Updated dependencies [[`c3474ab`](https://github.com/asyncdotengineering/porulle/commit/c3474abd434a64c2281def0ee893d7ffb17240be), [`9ebe3dd`](https://github.com/asyncdotengineering/porulle/commit/9ebe3dd9037627209cfd6b5fa2c6584e962885c1)]:
+  - @porulle/core@0.88.0
+
 ## 0.87.0
 
 ### Minor Changes
