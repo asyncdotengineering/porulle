@@ -33,6 +33,7 @@ import type {
   ChannelPushCatalogItemOutcome,
   ChannelPushCatalogResult,
   ChannelStore,
+  ChannelStoreProfile,
   PluginDb,
   PluginResult,
   PluginTxFn,
@@ -47,7 +48,7 @@ import { isValidFieldPath, requireUserId } from "@porulle/core";
 import type { FieldOwner, FieldPath } from "@porulle/core";
 import type { JobsAdapter } from "@porulle/core";
 import { CHANNEL_CONVERGENCE_CTX } from "./catalog-push-trigger.js";
-import { resolveLiveCredentials, withLiveCredentials } from "./live-credentials.js";
+import { grantIdOf, resolveLiveCredentials, withLiveCredentials } from "./live-credentials.js";
 import { and, desc, eq, inArray, isNotNull, isNull, lte, ne, notInArray, or, sql, type SQL } from "@porulle/core/drizzle";
 import {
   brands,
@@ -310,8 +311,12 @@ export type ConnectClaims = (context: StoreReadContext & { storeDomain: string }
  */
 export type BindConnectedStore = (input: { db: PluginDb; store: ConnectedStore; actor: StoreConnectActor }) => Promise<void>;
 
-/** Work that follows a committed connection: the first import, provider-attested facts, keys. */
-export type AfterStoreConnected = (input: { store: ConnectedStore; actor: StoreConnectActor; connector: ChannelConnector; services: Record<string, unknown> }) => Promise<void>;
+/**
+ * Work that follows a committed connection: the first import, provider-attested facts, keys. `profile` is
+ * the store's profile when the caller already read it (and checked it) before saving, so it is not read
+ * a second time here, where a failure would come after the credentials were already committed.
+ */
+export type AfterStoreConnected = (input: { store: ConnectedStore; actor: StoreConnectActor; connector: ChannelConnector; services: Record<string, unknown>; profile?: ChannelStoreProfile }) => Promise<void>;
 
 /** Entities a provider webhook just created or changed, converged; the host projects them. */
 export type OnStoreCatalogChanged = (input: { orgId: string; storeId: string; entityIds: string[]; convergence: CatalogPageConvergence }) => Promise<void>;
@@ -335,26 +340,13 @@ export interface OrdersRedactedInput {
 export type OnOrdersRedacted = (input: OrdersRedactedInput) => Promise<void>;
 
 /**
- * Called by `shop/redact` after the store's exports and orders are redacted and the store is
- * disconnected, passing the store's original domain (before `[REDACTED]`) so the host can remove
- * store-scoped credentials it owns (e.g. per-brand Shopify app rows).
+ * A verified app-level `app/uninstalled` or `shop/redact` that is CURRENT: for a store, its connection is
+ * still the one the delivery was accepted for; for a shop no store accepted (installed and never linked,
+ * or its row is gone), nothing to compare. The host removes whatever it holds for the shop that this app
+ * issued (a pending install, a brand's app credentials) and nothing another app issued, because
+ * `signer` names the app. A delivery for a connection that was replaced since is never passed here.
  */
-export interface ShopRedactedInput {
-  db: PluginDb;
-  orgId: string;
-  storeId: string;
-  storeDomain: string;
-  provider: string;
-}
-export type OnShopRedacted = (input: ShopRedactedInput) => Promise<void>;
-
-/**
- * A verified app-level delivery that no connected store accepted: the shop installed the app and was
- * never linked, or its store is gone. The host removes whatever it holds for the shop (a pending
- * install, a brand's app credentials), because the compliance topics are sent to the app whether
- * or not a store row exists.
- */
-export type OnAppWebhookUnclaimed = (input: { db: PluginDb; provider: string; event: ChannelAppWebhookEvent }) => Promise<void>;
+export type OnShopEnded = (input: { db: PluginDb; provider: string; shopDomain: string; topic: string; signer: string | undefined }) => Promise<void>;
 
 /**
  * Persisted by the host when a `customers/data_request` compliance webhook arrives.
@@ -395,6 +387,9 @@ export function isFinalOrderStatusForRedaction(status: string): boolean {
 export const DEFERRED_REDACTION_METADATA_KEY = "redactAfterDelivery";
 /** `orders.metadata` key holding the list of store IDs whose slices on this order have been redacted (no PII). */
 export const REDACTED_STORES_METADATA_KEY = "redactedStoreIds";
+
+/** Why an order cannot be sent to a store whose request erased the shopper's contact. */
+const CONTACT_ERASED_REASON = "The shopper's contact was erased at this store's request, so the order cannot be sent to it.";
 /** `orders.metadata` key stamped when contact was erased (ISO timestamp, no PII). */
 export const CONTACT_REDACTED_AT_METADATA_KEY = "contactRedactedAt";
 
@@ -499,16 +494,14 @@ export interface ChannelConnectorPluginOptions {
   onStoreCatalogChanged?: OnStoreCatalogChanged;
   /** See {@link OnOrdersRedacted}. Absent, only plugin tables and `orders.metadata` contact fields are cleared. */
   onOrdersRedacted?: OnOrdersRedacted;
-  /** See {@link OnShopRedacted}. Absent, only plugin tables and `orders.metadata` contact fields are cleared. */
-  onShopRedacted?: OnShopRedacted;
+  /** See {@link OnShopEnded}. Absent, only plugin tables and `orders.metadata` contact fields are cleared. */
+  onShopEnded?: OnShopEnded;
   /**
    * Which of the provider's apps a store connects through, in the host's words (Shopify: ours, a dev
    * app, the brand's own). The store list carries it as `app`, so a screen can send a lapsed store to
    * the right reconnect. A name, never an id or a secret. Absent, the list says nothing.
    */
   storeApp?: (store: ConnectedStore) => Promise<string | undefined>;
-  /** See {@link OnAppWebhookUnclaimed}. Absent, a delivery no store accepts is answered and dropped. */
-  onAppWebhookUnclaimed?: OnAppWebhookUnclaimed;
   /** See {@link OnCustomerDataRequest}. Absent, the request is only returned from `handleWebhook`. */
   onCustomerDataRequest?: OnCustomerDataRequest;
   /**
@@ -1014,6 +1007,9 @@ function isUniqueViolation(error: unknown): boolean {
   return false;
 }
 
+/** What a merchant reads when a store connected but its follow-on work (provider facts, first import) failed. */
+const AFTER_CONNECT_FAILED_REASON = "The store connected, but we could not finish setting it up. Connect it again to start its import.";
+
 /** A query error from the database driver, at any depth of its `cause` chain: drizzle's carries `params`. */
 function carriesQueryParams(error: unknown): boolean {
   let cursor: unknown = error;
@@ -1028,7 +1024,7 @@ function carriesQueryParams(error: unknown): boolean {
  * What a log line may say about an unexpected error: each error's name and code down its `cause`
  * chain, never a message. A query error's message carries the statement's parameters.
  */
-function describeFailure(error: unknown): Array<{ name: string; code?: string }> {
+export function describeFailure(error: unknown): Array<{ name: string; code?: string }> {
   const chain: Array<{ name: string; code?: string }> = [];
   let cursor: unknown = error;
   for (let depth = 0; depth < 4 && typeof cursor === "object" && cursor !== null; depth += 1) {
@@ -1541,6 +1537,33 @@ function toImportProduct(item: ChannelCatalogItem): ImportProduct {
 type PlannedLinks = { [K in keyof EntityLinkRows]-?: Array<NonNullable<EntityLinkRows[K]>[number]> };
 
 /** What applying one delivery's events left for the store's reconcile report. */
+/**
+ * What a delivery to the provider-wide address was accepted for: the app that signed it and the
+ * connection the store had then (`grantIdOf`; absent on a row written before ids). Carried through the
+ * queue so that, when the job runs, a delivery for an earlier connection is told from one for this.
+ */
+export interface AppDeliveryOrigin {
+  signer?: string | undefined;
+  grantId?: string | undefined;
+}
+
+/** What {@link ChannelConnectorService.handleWebhook} did. `reason` names why nothing, or not everything, was applied. */
+export interface WebhookOutcome {
+  processed: boolean;
+  data?: ChannelComplianceData;
+  redacted?: number;
+  mismatchedRemoteOrderIds?: string[];
+  reason?: "superseded" | "not_accepted";
+}
+
+/** The connection a delivery is being applied against: `current` says whether it is the one the delivery was accepted for. */
+interface DeliveryConnection {
+  topic: string;
+  signer: string | undefined;
+  grantId: string | undefined;
+  current: boolean;
+}
+
 interface ChannelEventReport {
   skipped: CatalogFieldSkip[];
   conflicts: CatalogFieldConflict[];
@@ -3438,10 +3461,11 @@ export class ChannelConnectorService {
     orgId: string,
     input: { provider: string; credentials: Record<string, unknown>; storeDomain: string; webhookSecret?: string },
     actor: StoreConnectActor,
+    profile?: ChannelStoreProfile,
   ): Promise<PluginResult<PublicConnectedStore>> {
     const saved = await this.saveConnectingStore(orgId, input, actor);
     if (!saved.ok) return saved;
-    return this.completeConnect(orgId, saved.value.id, actor);
+    return this.completeConnect(orgId, saved.value.id, actor, profile);
   }
 
   /**
@@ -3454,6 +3478,8 @@ export class ChannelConnectorService {
     input: { provider: string; credentials: Record<string, unknown>; storeDomain: string; webhookSecret?: string },
     actor: StoreConnectActor,
   ): Promise<PluginResult<PublicConnectedStore>> {
+    // Every connection is its own: work queued for the previous one must not act on this one (see `grantIdOf`).
+    const credentials = { ...input.credentials, grantId: crypto.randomUUID() };
     const connector = this.connectors.get(input.provider);
     if (!connector) return PluginErr(`No connector registered for provider "${input.provider}".`, "NOT_FOUND");
     const storeDomain = connector.normalizeStoreDomain ? connector.normalizeStoreDomain(input.storeDomain) : input.storeDomain;
@@ -3470,7 +3496,7 @@ export class ChannelConnectorService {
         ));
         const rows = existing
           ? await tx.update(connectedStores).set({
-            credentials: input.credentials,
+            credentials,
             status: "connecting",
             statusReason: null,
             ...(existing.status !== "connected" ? { catalogWriteEnabled: false } : {}),
@@ -3480,7 +3506,7 @@ export class ChannelConnectorService {
           : await tx.insert(connectedStores).values({
             organizationId: orgId,
             provider: input.provider,
-            credentials: input.credentials,
+            credentials,
             storeDomain,
             status: "connecting",
             webhookSecret: input.webhookSecret ?? crypto.randomUUID(),
@@ -3510,7 +3536,7 @@ export class ChannelConnectorService {
    * A failure leaves the store in `error` with the reason the merchant will read, unless the host
    * already moved it (it disconnects a store it refuses).
    */
-  async completeConnect(orgId: string, storeId: string, actor: StoreConnectActor): Promise<PluginResult<PublicConnectedStore>> {
+  async completeConnect(orgId: string, storeId: string, actor: StoreConnectActor, profile?: ChannelStoreProfile): Promise<PluginResult<PublicConnectedStore>> {
     const store = await this.getStoreRecord(orgId, storeId);
     if (!store) return PluginErr("Connected store not found.", "NOT_FOUND");
     const connector = this.connectors.get(store.provider);
@@ -3533,9 +3559,14 @@ export class ChannelConnectorService {
     const current = (connected ?? store) as ConnectedStore;
     if (this.options.afterStoreConnected) {
       try {
-        await this.options.afterStoreConnected({ store: current, actor, connector, services: this.services });
+        await this.options.afterStoreConnected({ store: current, actor, connector, services: this.services, ...(profile === undefined ? {} : { profile }) });
       } catch (error) {
-        return fail(error instanceof Error ? error.message : "The store connected but its follow-on work failed.", "AFTER_CONNECT_FAILED");
+        // A refusal the host threw on purpose (a currency we do not sell in) is the merchant's to read. Anything
+        // else may carry a query's parameters or a provider's text, and is neither shown nor logged: the store
+        // reads "connect again", which saves its credentials afresh and starts the import.
+        if (error instanceof CommerceValidationError) return fail(error.message, "AFTER_CONNECT_FAILED");
+        console.error(JSON.stringify({ event: "channel_after_connect_failed", provider: store.provider, storeId, error: describeFailure(error) }));
+        return fail(AFTER_CONNECT_FAILED_REASON, "AFTER_CONNECT_FAILED");
       }
     }
     return Ok(redactStore(current));
@@ -3586,7 +3617,13 @@ export class ChannelConnectorService {
     return this.disconnectStoreSystem(orgId, id);
   }
 
-  async disconnectStoreSystem(orgId: string, id: string, redactDomain = false): Promise<PluginResult<PublicConnectedStore>> {
+  /**
+   * `ifGrant` disconnects only the connection whose grant id this is (`undefined`: a row written before
+   * ids existed), and answers `SUPERSEDED` when the store has moved on to another. A delivery verified for
+   * one connection uses it, so it cannot disconnect the next.
+   */
+  async disconnectStoreSystem(orgId: string, id: string, options: { redactDomain?: boolean; ifGrant?: { grantId: string | undefined } } = {}): Promise<PluginResult<PublicConnectedStore>> {
+    const { redactDomain = false, ifGrant } = options;
     const before = await this.getStoreRecord(orgId, id);
     const connector = before ? this.connectors.get(before.provider) : undefined;
     if (before && connector?.unregisterWebhooks && this.options.publicUrl && before.status !== "disconnected") {
@@ -3603,10 +3640,14 @@ export class ChannelConnectorService {
         ...(redactDomain ? { storeDomain: "[REDACTED]" } : {}),
         updatedAt: new Date(),
       })
-      .where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.id, id)))
+      .where(and(
+        eq(connectedStores.organizationId, orgId),
+        eq(connectedStores.id, id),
+        ...(ifGrant === undefined ? [] : [ifGrant.grantId === undefined ? sql`${connectedStores.credentials}->>'grantId' is null` : sql`${connectedStores.credentials}->>'grantId' = ${ifGrant.grantId}`]),
+      ))
       .returning();
     const store = rows[0] as ConnectedStore | undefined;
-    if (!store) return PluginErr("Connected store not found.", "NOT_FOUND");
+    if (!store) return ifGrant !== undefined && before ? PluginErr("This store was reconnected since.", "SUPERSEDED") : PluginErr("Connected store not found.", "NOT_FOUND");
     return Ok(redactStore(store));
   }
 
@@ -3858,7 +3899,14 @@ export class ChannelConnectorService {
       if (timer !== undefined) clearTimeout(timer);
     }
     if (timedOut) return { refreshed: 0, unconfirmed: [...unconfirmed, { storeId, reason: "Inventory lookup timed out." }], unavailableStores: [] };
-    if (!inventory.ok) return { refreshed: 0, unconfirmed: [...unconfirmed, { storeId, reason: inventory.error.message }], unavailableStores: [] };
+    if (!inventory.ok) {
+      // A key the store refuses marks it `error` (and a merchant may disconnect it) while the read is in flight, so
+      // the status read before the call is stale: ask once more, and a store that is no longer connected is
+      // unavailable, not merely unconfirmed.
+      const after = await this.getStoreRecord(orgId, storeId);
+      const unavailable: UnavailableStockStore[] = after?.status === "connected" ? [] : [{ storeId, provider: store.provider, status: after?.status ?? "missing", lines }];
+      return { refreshed: 0, unconfirmed: [...unconfirmed, { storeId, reason: inventory.error.message }], unavailableStores: unavailable };
+    }
 
     const stored = await this.db.select().from(inventoryLevels).where(and(
       eq(inventoryLevels.organizationId, orgId),
@@ -5476,10 +5524,31 @@ export class ChannelConnectorService {
    * acts on the meaning and never on a topic or payload field. A delivery the connector does not act
    * on is logged as unmapped and answered `processed: false`, never reported as applied.
    */
-  async handleWebhook(orgId: string, storeId: string, delivery: ChannelWebhookEvent): Promise<PluginResult<{ processed: boolean; data?: ChannelComplianceData; redacted?: number; mismatchedRemoteOrderIds?: string[] }>> {
+  async handleWebhook(orgId: string, storeId: string, delivery: ChannelWebhookEvent, origin?: AppDeliveryOrigin): Promise<PluginResult<WebhookOutcome>> {
     const store = await this.getStoreRecord(orgId, storeId);
     if (!store) return PluginErr("Connected store not found.", "NOT_FOUND");
     const connector = this.connectors.get(store.provider);
+    // A delivery to the provider-wide address was accepted for this store when it arrived, and the store may
+    // have changed since: the connector is asked again with the signer, and a delivery for an earlier
+    // connection never takes anything away from the current one. Both are answers, not failures: a retry
+    // would only get them again.
+    if (origin !== undefined && connector?.acceptsAppWebhook) {
+      const accepted = await connector.acceptsAppWebhook(store as ChannelStore, {
+        id: delivery.id,
+        topic: delivery.type,
+        shopDomain: store.storeDomain,
+        data: delivery.data,
+        ...(origin.signer === undefined ? {} : { signer: origin.signer }),
+      });
+      if (!accepted) return Ok({ processed: false, reason: "not_accepted" });
+    }
+    const currentGrant = grantIdOf(store.credentials);
+    const connection: DeliveryConnection = {
+      topic: delivery.type,
+      signer: origin?.signer,
+      grantId: origin === undefined ? currentGrant : origin.grantId,
+      current: origin === undefined || origin.grantId === currentGrant,
+    };
     const decoded = connector?.decodeWebhook ? await connector.decodeWebhook(store as ChannelStore, delivery) : Ok<ChannelEvent[]>([]);
     if (!decoded.ok) return PluginErr(decoded.error.message, decoded.error.code);
     await this.db.update(connectedStores).set({ lastEventAt: new Date() }).where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.id, storeId)));
@@ -5488,11 +5557,16 @@ export class ChannelConnectorService {
       return Ok({ processed: false });
     }
     const actor = createSystemActor(orgId);
-    const outcome: { processed: boolean; data?: ChannelComplianceData; redacted?: number; mismatchedRemoteOrderIds?: string[] } = { processed: true };
+    const outcome: WebhookOutcome = { processed: true };
     const report: ChannelEventReport = { skipped: [], conflicts: [], warnings: [] };
+    let superseded = 0;
     for (const event of decoded.value) {
-      const applied = await this.applyChannelEvent(orgId, store, connector, event, actor, report, delivery.id);
+      const applied = await this.applyChannelEvent(orgId, store, connector, event, actor, report, delivery.id, connection);
       if (!applied.ok) return applied;
+      if (applied.value.superseded) {
+        superseded += 1;
+        outcome.reason = "superseded";
+      }
       if (applied.value.data) outcome.data = applied.value.data;
       if (applied.value.redacted !== undefined) outcome.redacted = applied.value.redacted;
       if (applied.value.mismatchedRemoteOrderIds && applied.value.mismatchedRemoteOrderIds.length > 0) {
@@ -5511,6 +5585,8 @@ export class ChannelConnectorService {
         eq(connectedStores.id, storeId),
       ));
     }
+    // Nothing but what the delivery would have taken away: nothing was applied.
+    if (superseded === decoded.value.length && outcome.data === undefined && outcome.redacted === undefined) outcome.processed = false;
     return Ok(outcome);
   }
 
@@ -5522,7 +5598,8 @@ export class ChannelConnectorService {
     actor: Actor,
     report: ChannelEventReport,
     deliveryId: string,
-  ): Promise<PluginResult<{ data?: ChannelComplianceData; redacted?: number; mismatchedRemoteOrderIds?: string[] }>> {
+    connection: DeliveryConnection,
+  ): Promise<PluginResult<{ data?: ChannelComplianceData; redacted?: number; mismatchedRemoteOrderIds?: string[]; superseded?: boolean }>> {
     const storeId = store.id;
     switch (event.kind) {
       case "product.changed": {
@@ -5603,8 +5680,11 @@ export class ChannelConnectorService {
         return Ok({});
       }
       case "connection.revoked": {
-        const disconnected = await this.disconnectStoreSystem(orgId, storeId);
-        return disconnected.ok ? Ok({}) : disconnected;
+        if (!connection.current) return Ok({ superseded: true });
+        const disconnected = await this.disconnectStoreSystem(orgId, storeId, { ifGrant: { grantId: connection.grantId } });
+        if (!disconnected.ok) return disconnected.code === "SUPERSEDED" ? Ok({ superseded: true }) : disconnected;
+        await this.options.onShopEnded?.({ db: this.db, provider: store.provider, shopDomain: store.storeDomain, topic: connection.topic, signer: connection.signer });
+        return Ok({});
       }
       case "compliance.request": {
         if (event.request === "customer_data") {
@@ -5629,8 +5709,8 @@ export class ChannelConnectorService {
             })
             : redacted;
         }
-        const redacted = await this.redactShopData(orgId, store, event.data);
-        return redacted.ok ? Ok({ redacted: redacted.value }) : redacted;
+        const redacted = await this.redactShopData(orgId, store, event.data, connection);
+        return redacted.ok ? Ok({ redacted: redacted.value.exportsRedacted, ...(redacted.value.superseded ? { superseded: true } : {}) }) : redacted;
       }
     }
   }
@@ -5643,8 +5723,8 @@ export class ChannelConnectorService {
    * `buildOrderSlice` reads from `orders.metadata` (`customer`, `shippingAddress`, `guestCustomer`,
    * `guestShippingAddress`) while keeping the order, its lines, money, status, and non-contact
    * metadata intact. When scoped to one store, records that store id in `orders.metadata.redactedStoreIds`
-   * and clears shared `orders.metadata` contact once every store slice (exports and non-manual
-   * source lines) of the order has been redacted. Invokes `options.onOrdersRedacted` on the same
+   * and clears shared `orders.metadata` contact once every store slice (exports and source lines; a
+   * manual store's only until the order is final) of the order has been redacted. Invokes `options.onOrdersRedacted` on the same
    * `db`/transaction handle so the host clears platform-owned copies atomically.
    */
   async redactOrdersContact(
@@ -5728,8 +5808,11 @@ export class ChannelConnectorService {
           inArray(orders.id, uniqueOrderIds),
         ));
 
-      // Clear shared order contact once no unredacted store slice remains on this order
-      // (checking both existing exports and non-manual source-line stores).
+      // Clear shared order contact once no unredacted store slice remains on this order, counting both
+      // existing exports and source lines. A manual store's slice is the merchant's own to fulfil, so it
+      // keeps the contact until the order is final, like any other store's open order; it is never
+      // "redacted" by a request, because nothing sends one for it.
+      const manualAndFinal = (provider: SQL): SQL => sql`(coalesce(${provider}, '') = 'manual' and ${orders.status} in (${sql.join(FINAL_ORDER_REDACTION_STATUSES.map((status) => sql`${status}`), sql`, `)}))`;
       updatedOrders = await this.db
         .update(orders)
         .set({
@@ -5740,9 +5823,11 @@ export class ChannelConnectorService {
           inArray(orders.id, uniqueOrderIds),
           sql`not exists (
             select 1 from ${channelOrderExports} coe
+            left join ${connectedStores} ecs on ecs.id = coe.store_id
             where coe.organization_id = ${orgId}
               and coe.order_id = ${orders.id}
               and not (coalesce(${orders.metadata}->${REDACTED_STORES_METADATA_KEY}, '[]'::jsonb) @> jsonb_build_array(coe.store_id::text))
+              and not ${manualAndFinal(sql`ecs.provider`)}
           )`,
           sql`not exists (
             select 1 from ${orderLineItems} oli
@@ -5751,7 +5836,7 @@ export class ChannelConnectorService {
             inner join ${connectedStores} cs
               on cs.id::text = se.source_store_id and cs.organization_id = ${orgId}
             where oli.order_id = ${orders.id}
-              and cs.provider <> 'manual'
+              and not ${manualAndFinal(sql`cs.provider`)}
               and not (coalesce(${orders.metadata}->${REDACTED_STORES_METADATA_KEY}, '[]'::jsonb) @> jsonb_build_array(cs.id::text))
           )`,
         ))
@@ -5791,7 +5876,8 @@ export class ChannelConnectorService {
    * record can still deliver or refund them, and merge this store's entry into `redactAfterDelivery`
    * (without overwriting other stores' entries). The deferred-marker UPDATE carries the not-final
    * status predicate and RETURNING so an order that reaches a final state in the race window is
-   * redacted immediately instead of left with an orphaned marker.
+   * redacted immediately instead of left with an orphaned marker. A store's entry already on the order
+   * is kept, so a repeated request never moves its deadline later: the 30 days run from the first.
    */
   private async redactOrDeferStoreOrders(
     orgId: string,
@@ -5830,7 +5916,7 @@ export class ChannelConnectorService {
           metadata: sql`jsonb_set(
             coalesce(${orders.metadata}, '{}'::jsonb),
             ARRAY[${DEFERRED_REDACTION_METADATA_KEY}],
-            (
+            ${entryJson}::jsonb || (
               case
                 when jsonb_typeof(${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}) = 'object'
                   and (${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}->>'storeId') is not null
@@ -5846,7 +5932,7 @@ export class ChannelConnectorService {
                 then ${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}
                 else '{}'::jsonb
               end
-            ) || ${entryJson}::jsonb,
+            ),
             true
           )`,
         })
@@ -6141,7 +6227,7 @@ export class ChannelConnectorService {
    * Finds affected orders from BOTH `channel_order_exports` AND `order_line_items` (entity source
    * store) so paid orders not yet exported are included.
    */
-  private async redactShopData(orgId: string, store: ConnectedStore, data: Record<string, unknown>): Promise<PluginResult<number>> {
+  private async redactShopData(orgId: string, store: ConnectedStore, data: Record<string, unknown>, connection: DeliveryConnection): Promise<PluginResult<{ exportsRedacted: number; superseded: boolean }>> {
     const parsed = complianceShopPayloadSchema.safeParse(data);
     if (!parsed.success) {
       return PluginErr(`Malformed shop/redact payload: ${formatComplianceParseError(parsed.error)}`, "MALFORMED_COMPLIANCE_PAYLOAD");
@@ -6187,18 +6273,15 @@ export class ChannelConnectorService {
 
     const exportsRedacted = await this.redactOrDeferStoreOrders(orgId, store.id, [...byOrderId.values()], "shop_redact");
 
-    const disconnected = await this.disconnectStoreSystem(orgId, store.id, true);
-    if (!disconnected.ok) return PluginErr(disconnected.error, disconnected.code);
+    // The shop's past orders are erased whichever connection the request was accepted for. Taking the
+    // connection away is only for the one it was accepted for: a shop that reinstalled since keeps its own.
+    if (!connection.current) return Ok({ exportsRedacted, superseded: true });
+    const disconnected = await this.disconnectStoreSystem(orgId, store.id, { redactDomain: true, ifGrant: { grantId: connection.grantId } });
+    if (!disconnected.ok) return disconnected.code === "SUPERSEDED" ? Ok({ exportsRedacted, superseded: true }) : PluginErr(disconnected.error, disconnected.code);
 
-    await this.options.onShopRedacted?.({
-      db: this.db,
-      orgId,
-      storeId: store.id,
-      storeDomain: originalStoreDomain,
-      provider: store.provider,
-    });
+    await this.options.onShopEnded?.({ db: this.db, provider: store.provider, shopDomain: originalStoreDomain, topic: connection.topic, signer: connection.signer });
 
-    return Ok(exportsRedacted);
+    return Ok({ exportsRedacted, superseded: false });
   }
 
   /**
@@ -6240,8 +6323,9 @@ export class ChannelConnectorService {
     if (!events.ok) return PluginErr(events.error.message, events.error.code);
     const report: ChannelEventReport = { skipped: [], conflicts: [], warnings: [] };
     const actor = createSystemActor(orgId);
+    const connection: DeliveryConnection = { topic: "refresh", signer: undefined, grantId: grantIdOf(store.credentials), current: true };
     for (const event of events.value) {
-      const applied = await this.applyChannelEvent(orgId, store, connector, event, actor, report, `refresh:${remoteOrderId}`);
+      const applied = await this.applyChannelEvent(orgId, store, connector, event, actor, report, `refresh:${remoteOrderId}`, connection);
       if (!applied.ok) return applied;
     }
     return Ok({ events: events.value.length });
@@ -6859,13 +6943,18 @@ export class ChannelConnectorService {
       }
     }
 
-    await this.db
+    // Contact is written only while the order's contact has not been erased for this store: a slice read
+    // before an erasure must not put it back.
+    const written = await this.db
       .update(channelOrderExports)
       .set({ customerData: slice.customer, updatedAt: new Date() })
       .where(and(
         eq(channelOrderExports.organizationId, orgId),
         eq(channelOrderExports.id, created.value.id),
-      ));
+        sql`not exists (select 1 from ${orders} where ${orders.id} = ${channelOrderExports.orderId} and coalesce(${orders.metadata}->${REDACTED_STORES_METADATA_KEY}, '[]'::jsonb) @> jsonb_build_array(${storeId}::text))`,
+      ))
+      .returning({ id: channelOrderExports.id });
+    if (written.length === 0) return this.transitionExport(orgId, created.value.id, "failed", requireUserId(actor), CONTACT_ERASED_REASON, "definitive");
 
     const pushed = await connector.pushOrder(store as ChannelStore, slice);
     if (!pushed.ok) {
@@ -6953,6 +7042,9 @@ export class ChannelConnectorService {
   ): Promise<PluginResult<ChannelOrderSlice>> {
     const [order] = await this.db.select().from(orders).where(and(eq(orders.organizationId, orgId), eq(orders.id, orderId)));
     if (!order) return PluginErr("Order not found.", "NOT_FOUND");
+    // Never rebuilt: the shopper's contact was erased for this store, and the job that asks ends here.
+    const erasedFor = (order.metadata ?? {})[REDACTED_STORES_METADATA_KEY];
+    if (Array.isArray(erasedFor) && erasedFor.includes(storeId)) return PluginErr(CONTACT_ERASED_REASON, "CONTACT_ERASED");
     const lineItems = await this.db.select().from(orderLineItems).where(eq(orderLineItems.orderId, orderId));
     const entities = await this.db.select({ id: sellableEntities.id, sourceStoreId: sellableEntities.sourceStoreId }).from(sellableEntities).where(and(eq(sellableEntities.organizationId, orgId), inArray(sellableEntities.id, lineItems.map((line) => line.entityId))));
     const entityStores = new Map(entities.map((entity) => [entity.id, entity.sourceStoreId]));
