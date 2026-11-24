@@ -12,8 +12,8 @@ import {
   CHANNEL_ORDER_CANCELLED_REASON,
   ChannelConnectorService,
   DEFERRED_REDACTION_METADATA_KEY,
-  deferredRedactionMetadataSchema,
   isFinalOrderStatusForRedaction,
+  parseDeferredRedactions,
   type ChannelConnectorPluginOptions,
   type ChannelPushTrigger,
   type ChannelStockLine,
@@ -296,17 +296,19 @@ function deferredRedactionHook(options: ChannelConnectorPluginOptions): PluginHo
       const result = args.result;
       if (!hasHookContext(args)) return;
       if (!isRecord(result) || typeof result.id !== "string" || !isRecord(result.metadata)) return;
-      const deferred = deferredRedactionMetadataSchema.safeParse(result.metadata[DEFERRED_REDACTION_METADATA_KEY]);
-      if (!deferred.success) return;
+      const entries = parseDeferredRedactions(result.metadata[DEFERRED_REDACTION_METADATA_KEY]);
+      if (entries.length === 0) return;
       const { context } = args;
       const orgId = typeof result.organizationId === "string" && result.organizationId.length > 0
         ? result.organizationId
         : resolveOrgIdForCommerce(context.actor, context.commerceConfig);
       const service = new ChannelConnectorService(context.db, context.services, options);
-      await service.redactOrdersContact(orgId, [result.id], {
-        storeId: deferred.data.storeId,
-        reason: deferred.data.reason ?? "customer_redact",
-      });
+      for (const entry of entries) {
+        await service.redactOrdersContact(orgId, [result.id], {
+          storeId: entry.storeId,
+          reason: entry.reason,
+        });
+      }
     },
   };
 }

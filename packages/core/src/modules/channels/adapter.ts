@@ -464,12 +464,17 @@ export interface ChannelConnector {
    */
   decodeWebhook?(store: ChannelStore, event: ChannelWebhookEvent): Promise<Result<ChannelEvent[], ChannelConnectorError>>;
   /**
-   * Whether decoding `event` calls the store. Absent, every decode does, and each starts on live
+   * Whether decoding `event` calls the merchant's shop. Absent, every decode does, and each starts on live
    * credentials. `false` is for a delivery that decodes from its own body, which must still decode
    * once the credentials are gone: an uninstall empties them, and the redaction Shopify sends two
    * days later arrives to a store that holds none.
    */
   decodeWebhookNeedsCredentials?(event: ChannelWebhookEvent): boolean;
+  /**
+   * Strips fields `decodeWebhook` does not read (such as shopper names, addresses and phone numbers)
+   * before the delivery is persisted in the job queue. Absent, the delivery's payload is queued as-is.
+   */
+  minimizeWebhookPayload?(topic: string, data: unknown): unknown;
   /** The topics `registerWebhooks` subscribes a store to, in the provider's own spelling. */
   readonly webhookTopics?: readonly string[];
   /**
@@ -488,7 +493,7 @@ export interface ChannelConnector {
   /** A delivery to the provider-wide address, for providers that sign per app (Shopify). */
   verifyAppWebhook?(request: Request): Promise<Result<ChannelAppWebhookEvent, ChannelConnectorError>>;
   /**
-   * Whether a verified app-level delivery concerns this store. A signature proves which app sent it
+   * Whether a verified app-level delivery concerns this merchant shop. A signature proves which app sent it
    * and the shop header is not signed, so a provider whose stores can belong to more than one app
    * says here that this signer is the store's own. Absent, every store of the named shop accepts.
    */
