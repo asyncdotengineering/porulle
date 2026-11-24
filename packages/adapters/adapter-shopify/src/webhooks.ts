@@ -76,6 +76,18 @@ const COMPLIANCE: Record<string, Extract<ChannelEvent, { kind: "compliance.reque
   "shop/redact": "shop_redact",
 };
 
+/** The topics whose payload names the shop that sent it, signed: `shop_domain`. */
+export function isComplianceTopic(topic: string): boolean {
+  return topic in COMPLIANCE;
+}
+
+/** The topics `decodeShopifyWebhook` answers with a read of the shop's Admin API; every other decodes from its body. */
+const READS_THE_STORE: ReadonlySet<string> = new Set(["inventory_levels/update"]);
+
+export function decodeReadsTheStore(topic: string): boolean {
+  return READS_THE_STORE.has(topic);
+}
+
 function malformed(topic: string, error: z.ZodError): Result<never, ChannelConnectorError> {
   return Err({ code: "SHOPIFY_WEBHOOK_MALFORMED", message: `A Shopify ${topic} delivery did not parse: ${error.message}`, retriable: false });
 }

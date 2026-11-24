@@ -357,6 +357,11 @@ export interface ChannelAppWebhookEvent {
   topic: string;
   shopDomain: string;
   data: unknown;
+  /**
+   * Which app's secret signed the delivery, for a provider whose stores can belong to more than one
+   * app (Shopify: ours, or a brand's own). Set by whoever verified it; read by `acceptsAppWebhook`.
+   */
+  signer?: string;
 }
 
 /** What the provider says about the store itself, read with the credentials the merchant granted. */
@@ -458,6 +463,13 @@ export interface ChannelConnector {
    * empty list is a delivery this connector does not act on; the plugin logs it as unmapped.
    */
   decodeWebhook?(store: ChannelStore, event: ChannelWebhookEvent): Promise<Result<ChannelEvent[], ChannelConnectorError>>;
+  /**
+   * Whether decoding `event` calls the store. Absent, every decode does, and each starts on live
+   * credentials. `false` is for a delivery that decodes from its own body, which must still decode
+   * once the credentials are gone: an uninstall empties them, and the redaction Shopify sends two
+   * days later arrives to a store that holds none.
+   */
+  decodeWebhookNeedsCredentials?(event: ChannelWebhookEvent): boolean;
   /** The topics `registerWebhooks` subscribes a store to, in the provider's own spelling. */
   readonly webhookTopics?: readonly string[];
   /**
@@ -475,6 +487,12 @@ export interface ChannelConnector {
   webhookHealth?(store: ChannelStore, callbackUrl: string): Promise<Result<ChannelWebhookHealth, ChannelConnectorError>>;
   /** A delivery to the provider-wide address, for providers that sign per app (Shopify). */
   verifyAppWebhook?(request: Request): Promise<Result<ChannelAppWebhookEvent, ChannelConnectorError>>;
+  /**
+   * Whether a verified app-level delivery concerns this store. A signature proves which app sent it
+   * and the shop header is not signed, so a provider whose stores can belong to more than one app
+   * says here that this signer is the store's own. Absent, every store of the named shop accepts.
+   */
+  acceptsAppWebhook?(store: ChannelStore, event: ChannelAppWebhookEvent): Promise<boolean>;
   /** Called on connect with an ABSOLUTE callback URL, for providers that subscribe each store separately. */
   registerWebhooks?(
     store: ChannelStore,

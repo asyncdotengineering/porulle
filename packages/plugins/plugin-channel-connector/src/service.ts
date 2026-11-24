@@ -16,6 +16,7 @@ import {
 } from "@porulle/core";
 import type {
   Actor,
+  ChannelAppWebhookEvent,
   ChannelCancelOrderInput,
   EntityLinkRows,
   ChannelCatalogItem,
@@ -244,6 +245,8 @@ export interface CatalogPushFieldSkip {
 export type PublicConnectedStore = Omit<ConnectedStore, "credentials" | "webhookSecret"> & {
   credentials: "[REDACTED]";
   webhookSecret: "[REDACTED]";
+  /** The host's name for the app the store connects through, in the store list only. See `storeApp`. */
+  app?: string;
 };
 
 export interface CatalogWriteSettings {
@@ -344,6 +347,14 @@ export interface ShopRedactedInput {
   provider: string;
 }
 export type OnShopRedacted = (input: ShopRedactedInput) => Promise<void>;
+
+/**
+ * A verified app-level delivery that no connected store accepted: the shop installed the app and was
+ * never linked, or its store is gone. The host removes whatever it holds for the shop (a pending
+ * install, a brand's app credentials), because the compliance topics are sent to the app whether
+ * or not a store row exists.
+ */
+export type OnAppWebhookUnclaimed = (input: { db: PluginDb; provider: string; event: ChannelAppWebhookEvent }) => Promise<void>;
 
 /**
  * Persisted by the host when a `customers/data_request` compliance webhook arrives.
@@ -455,6 +466,14 @@ export interface ChannelConnectorPluginOptions {
   onOrdersRedacted?: OnOrdersRedacted;
   /** See {@link OnShopRedacted}. Absent, only plugin tables and `orders.metadata` contact fields are cleared. */
   onShopRedacted?: OnShopRedacted;
+  /**
+   * Which of the provider's apps a store connects through, in the host's words (Shopify: ours, a dev
+   * app, the brand's own). The store list carries it as `app`, so a screen can send a lapsed store to
+   * the right reconnect. A name, never an id or a secret. Absent, the list says nothing.
+   */
+  storeApp?: (store: ConnectedStore) => Promise<string | undefined>;
+  /** See {@link OnAppWebhookUnclaimed}. Absent, a delivery no store accepts is answered and dropped. */
+  onAppWebhookUnclaimed?: OnAppWebhookUnclaimed;
   /** See {@link OnCustomerDataRequest}. Absent, the request is only returned from `handleWebhook`. */
   onCustomerDataRequest?: OnCustomerDataRequest;
   /**
@@ -949,6 +968,31 @@ function isUniqueViolation(error: unknown): boolean {
     cursor = "cause" in cursor ? cursor.cause : undefined;
   }
   return false;
+}
+
+/** A query error from the database driver, at any depth of its `cause` chain: drizzle's carries `params`. */
+function carriesQueryParams(error: unknown): boolean {
+  let cursor: unknown = error;
+  for (let depth = 0; depth < 4 && typeof cursor === "object" && cursor !== null; depth += 1) {
+    if ("params" in cursor) return true;
+    cursor = "cause" in cursor ? cursor.cause : undefined;
+  }
+  return false;
+}
+
+/**
+ * What a log line may say about an unexpected error: each error's name and code down its `cause`
+ * chain, never a message. A query error's message carries the statement's parameters.
+ */
+function describeFailure(error: unknown): Array<{ name: string; code?: string }> {
+  const chain: Array<{ name: string; code?: string }> = [];
+  let cursor: unknown = error;
+  for (let depth = 0; depth < 4 && typeof cursor === "object" && cursor !== null; depth += 1) {
+    const code = "code" in cursor && (typeof cursor.code === "string" || typeof cursor.code === "number") ? String(cursor.code) : undefined;
+    chain.push({ name: cursor instanceof Error ? cursor.name : "object", ...(code === undefined ? {} : { code }) });
+    cursor = "cause" in cursor ? cursor.cause : undefined;
+  }
+  return chain;
 }
 
 /** An upstream variant SKU the store could not take because another of its variants holds it. */
@@ -3404,6 +3448,14 @@ export class ChannelConnectorService {
       });
       return Ok(redactStore(store));
     } catch (error) {
+      // A refusal the host threw on purpose ("Throw to refuse the connection") is the merchant's to
+      // read. A failed query is not: its message carries the statement's parameters, which here
+      // include the store's tokens, so only the error's shape is logged and the merchant gets a
+      // plain sentence.
+      if (carriesQueryParams(error)) {
+        console.error(JSON.stringify({ event: "channel_connect_failed", provider: input.provider, error: describeFailure(error) }));
+        return PluginErr("The store could not be connected. Try again, and tell us if it keeps happening.", "STORE_CONNECTION_FAILED");
+      }
       return PluginErr(error instanceof Error ? error.message : "The store could not be connected.", error instanceof CommerceNotFoundError ? "NOT_FOUND" : "STORE_CONNECTION_REFUSED");
     }
   }
@@ -3568,7 +3620,12 @@ export class ChannelConnectorService {
       ? eq(connectedStores.organizationId, orgId)
       : and(eq(connectedStores.organizationId, orgId), inArray(connectedStores.id, [...allowed]));
     const rows = await this.db.select().from(connectedStores).where(predicate);
-    return Ok((rows as ConnectedStore[]).map(redactStore));
+    const listed: PublicConnectedStore[] = [];
+    for (const row of rows as ConnectedStore[]) {
+      const app = await this.options.storeApp?.(row);
+      listed.push(app === undefined ? redactStore(row) : { ...redactStore(row), app });
+    }
+    return Ok(listed);
   }
 
   /**
