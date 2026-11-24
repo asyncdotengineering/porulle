@@ -43,6 +43,12 @@ export interface ShopifyConnectorOptions {
    * code exercised by a test is the code that runs. There is no mock flag inside this adapter.
    */
   shopOrigin?: (shopDomain: string) => string;
+  /**
+   * Payment gateway name written on the `SALE` transaction in `orderCreate` (shown in Shopify's
+   * order timeline as "payment was processed on <name>" and on refunds). Defaults to `"porulle"`.
+   * Does not change `sourceName` or `sourceIdentifier`, which the duplicate guard looks orders up by.
+   */
+  paymentGateway?: string;
 }
 
 export const INVENTORY_QUERY = `query PorulleInventoryPage($after: String) {
@@ -255,6 +261,7 @@ const credentialsRequired: ChannelConnectorError = { code: "SHOPIFY_CREDENTIALS_
 
 export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConnector {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const paymentGateway = options.paymentGateway?.trim() || SOURCE_NAME;
   const origin = (shopDomain: string): string => options.shopOrigin?.(shopDomain) ?? `https://${shopDomain}`;
   const target = (store: ChannelStore): ShopifyGraphqlTarget | undefined => {
     const credentials = parseShopifyCredentials(store.credentials);
@@ -397,7 +404,7 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
           ...(slice.shipping ? { shippingLines: [{ title: slice.shipping.title, priceSet: money(slice.shipping.amount, slice.currency) }] } : {}),
           // The shopper's discount as a fixed amount off the items, so the store's total is what was paid.
           ...(slice.discount ? { discountCode: { itemFixedDiscountCode: { code: slice.discount.code, amountSet: money(slice.discount.amount, slice.currency) } } } : {}),
-          transactions: [{ kind: "SALE", status: "SUCCESS", gateway: SOURCE_NAME, amountSet: money(slice.grandTotal, slice.currency) }],
+          transactions: [{ kind: "SALE", status: "SUCCESS", gateway: paymentGateway, amountSet: money(slice.grandTotal, slice.currency) }],
         },
         options: { inventoryBehaviour: "DECREMENT_OBEYING_POLICY", sendReceipt: false, sendFulfillmentReceipt: false },
       }, orderCreateSchema);
