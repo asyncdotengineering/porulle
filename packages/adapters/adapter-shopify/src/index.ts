@@ -499,6 +499,11 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
         const named = typeof data === "object" && data !== null && "shop_domain" in data && typeof data.shop_domain === "string" ? data.shop_domain.toLowerCase() : undefined;
         if (named !== shopDomain) return Err({ code: "INVALID_APP_WEBHOOK", message: "The shop in the webhook body does not match the shop in its headers.", retriable: false });
       }
+      // An uninstall names its shop in the body too (`myshopify_domain`), where it carries it. The same pairing
+      // argument holds: it takes a store's grant away, so a body for one shop must not ride a header for another.
+      if (topic === "app/uninstalled" && typeof data === "object" && data !== null && "myshopify_domain" in data && typeof data.myshopify_domain === "string" && data.myshopify_domain.toLowerCase() !== shopDomain) {
+        return Err({ code: "INVALID_APP_WEBHOOK", message: "The shop in the webhook body does not match the shop in its headers.", retriable: false });
+      }
       return Ok({ id, topic, shopDomain, data });
     },
     async decodeWebhook(store, event) {

@@ -24,6 +24,27 @@ import { connectedStores } from "./schema.js";
  */
 /** Why a store whose key the provider refused is in `error`. */
 export const CREDENTIALS_REJECTED_REASON = "The store no longer accepts the key it gave us (it was revoked, or the user who approved it was removed). Reconnect the store.";
+/** Why a store whose grant could not be renewed (lapsed, withdrawn, or no longer ours to renew) is in `error`. */
+export const GRANT_LAPSED_REASON = "The store's access has lapsed or was withdrawn. Reconnect the store.";
+
+/**
+ * The reasons a refusal of a grant writes. A closed set on purpose: a renewal that lands for the SAME
+ * grant clears an `error` only when it carries one of these, so an error from anything else (a connect
+ * that failed after its credentials were saved) is never cleared by an unrelated renewal.
+ */
+const REFUSED_GRANT_REASONS = [CREDENTIALS_REJECTED_REASON, GRANT_LAPSED_REASON] as const;
+
+/**
+ * The connection a store's credentials belong to: a random id `saveConnectingStore` writes with them,
+ * fresh for every connect or reconnect and kept across renewals. Work queued for one connection (a
+ * delivery, an uninstall) must not act on the next, whichever app made either; the id is how a job
+ * tells. Absent on a row written before it existed, and on a disconnected store (its credentials are
+ * empty). Read from the credentials as stored, never from a provider's parser, which would drop it.
+ */
+export function grantIdOf(credentials: Record<string, unknown>): string | undefined {
+  const { grantId } = credentials;
+  return typeof grantId === "string" && grantId.length > 0 ? grantId : undefined;
+}
 
 /**
  * Marks `store` `error` only while it still holds the credentials that were refused. Answers the
@@ -50,7 +71,7 @@ async function renew(connector: ChannelConnector, db: PluginDb, store: ChannelSt
   const answer = await connector.liveCredentials(store, options);
   if (!answer.ok) {
     if (answer.error.retriable !== true) {
-      const statusReason = answer.error.code === CHANNEL_CREDENTIALS_REJECTED ? CREDENTIALS_REJECTED_REASON : answer.error.message;
+      const statusReason = answer.error.code === CHANNEL_CREDENTIALS_REJECTED ? CREDENTIALS_REJECTED_REASON : GRANT_LAPSED_REASON;
       const newer = await markRefusedGrant(db, store, statusReason);
       // The newer credentials are another caller's fresh grant: used as they are, not forced to refresh again.
       if (newer !== null && !retried) return renew(connector, db, newer, {}, true);
@@ -58,13 +79,26 @@ async function renew(connector: ChannelConnector, db: PluginDb, store: ChannelSt
     return answer;
   }
   if (answer.value === null) return Ok(store);
+  // The new credentials keep the connection's id (a provider's answer knows nothing of it). Landing the
+  // swap also clears an `error` that a refusal of THIS grant wrote while this renewal was in flight:
+  // the refusal and the renewal saw the same grant, and the renewal is the one Shopify honoured.
+  const grantId = grantIdOf(store.credentials);
+  const renewed = { ...answer.value, ...(grantId === undefined ? {} : { grantId }) };
+  const refused = sql`${connectedStores.status} = 'error' and ${connectedStores.statusReason} in (${sql.join(REFUSED_GRANT_REASONS.map((reason) => sql`${reason}`), sql`, `)})`;
   const swapped = await db.update(connectedStores)
-    .set({ credentials: answer.value, updatedAt: new Date() })
+    .set({
+      credentials: renewed,
+      status: sql`case when ${refused} then 'connected' else ${connectedStores.status} end`,
+      statusReason: sql`case when ${refused} then null else ${connectedStores.statusReason} end`,
+      updatedAt: new Date(),
+    })
     .where(and(eq(connectedStores.id, store.id), sql`${connectedStores.credentials} = ${JSON.stringify(store.credentials)}::jsonb`))
     .returning({ id: connectedStores.id });
-  if (swapped.length > 0) return Ok({ ...store, credentials: answer.value });
-  const [current] = await db.select({ credentials: connectedStores.credentials }).from(connectedStores).where(eq(connectedStores.id, store.id));
+  if (swapped.length > 0) return Ok({ ...store, credentials: renewed });
+  const [current] = await db.select({ credentials: connectedStores.credentials, status: connectedStores.status }).from(connectedStores).where(eq(connectedStores.id, store.id));
   if (!current) return Err({ code: "STORE_NOT_FOUND", message: `Connected store ${store.id} no longer exists.`, retriable: false });
+  // Lost to a disconnect: its credentials are empty, and what this renewal minted must not be used.
+  if (current.status === "disconnected") return Err({ code: "STORE_DISCONNECTED", message: "This store was disconnected.", retriable: false });
   return Ok({ ...store, credentials: current.credentials });
 }
 

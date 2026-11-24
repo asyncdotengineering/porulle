@@ -34,11 +34,14 @@ import {
   ChannelConnectorService,
   catalogPushConcurrencyKey,
   CHANNEL_INVENTORY_MAX_ITEMS_PER_INVOCATION,
+  describeFailure,
+  type AppDeliveryOrigin,
   type CatalogConflictState,
   type ChannelComplianceData,
   type ChannelConnectorPluginOptions,
 } from "./service.js";
 import { buildHooks } from "./hooks.js";
+import { grantIdOf } from "./live-credentials.js";
 import { oauthStateEventId, signState, verifyState } from "./oauth-state.js";
 
 type ChannelRouteContext = {
@@ -254,12 +257,10 @@ export type {
   CustomerDataRequestInput,
   OnCustomerDataRequest,
   OnOrdersRedacted,
-  OnAppWebhookUnclaimed,
-  OnShopRedacted,
+  OnShopEnded,
   OnStoreCatalogChanged,
   OrderContactRedactionReason,
   OrdersRedactedInput,
-  ShopRedactedInput,
   StoreConnectActor,
   StoreReadContext,
   ChannelStockLine,
@@ -291,6 +292,8 @@ const applyWebhookInput = z.object({
   id: z.string().min(1),
   topic: z.string().min(1),
   data: z.unknown(),
+  /** Present for a delivery to the provider-wide address: who signed it and which connection it was accepted for. */
+  origin: z.object({ signer: z.string().min(1).optional(), grantId: z.string().min(1).optional() }).optional(),
 });
 
 /**
@@ -301,16 +304,22 @@ const applyWebhookInput = z.object({
 async function enqueueWebhookDelivery(
   jobs: JobsAdapter,
   connector: ChannelConnector,
-  delivery: { orgId: string; storeId: string; id: string; topic: string; data: unknown },
+  delivery: { orgId: string; storeId: string; id: string; topic: string; data: unknown; origin?: AppDeliveryOrigin },
 ): Promise<void> {
   const data = connector.minimizeWebhookPayload
     ? connector.minimizeWebhookPayload(delivery.topic, delivery.data)
     : delivery.data;
   await jobs.enqueue(
     "channel/apply-webhook",
-    { orgId: delivery.orgId, storeId: delivery.storeId, id: delivery.id, topic: delivery.topic, data },
+    { orgId: delivery.orgId, storeId: delivery.storeId, id: delivery.id, topic: delivery.topic, data, ...(delivery.origin === undefined ? {} : { origin: delivery.origin }) },
     { organizationId: delivery.orgId, concurrencyKey: `webhook:${delivery.storeId}`, supersedes: false },
   );
+}
+
+/** 503 so the provider retries; the error is described, never quoted, because a query's message carries its parameters. */
+function notAccepted(context: { json(data: unknown, status?: number): Response }, error: unknown): Response {
+  console.error(JSON.stringify({ event: "channel_webhook_not_accepted", error: describeFailure(error) }));
+  return context.json({ error: { code: "WEBHOOK_NOT_ACCEPTED", message: "The delivery could not be queued. Try it again." } }, 503);
 }
 
 function unwrap<T>(result: PluginResult<T>): T {
@@ -547,7 +556,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           id: parsed.data.id,
           type: parsed.data.topic,
           data: parsed.data.data,
-        });
+        }, parsed.data.origin);
         if (!result.ok) {
           if (result.code === "MALFORMED_COMPLIANCE_PAYLOAD" || result.code === "SHOPIFY_WEBHOOK_MALFORMED") {
             throw new TaskNonRetryableError(result.error);
@@ -557,6 +566,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
         return {
           output: {
             processed: result.value.processed,
+            ...(result.value.reason === undefined ? {} : { reason: result.value.reason }),
             ...(result.value.mismatchedRemoteOrderIds && result.value.mismatchedRemoteOrderIds.length > 0
               ? { mismatchedRemoteOrderIds: result.value.mismatchedRemoteOrderIds }
               : {}),
@@ -786,7 +796,7 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
             });
           } catch (error) {
             await db.delete(processedWebhookEvents).where(eq(processedWebhookEvents.id, marked.id));
-            return context.json({ error: { code: "WEBHOOK_NOT_ACCEPTED", message: error instanceof Error ? error.message : "The delivery could not be queued." } }, 503);
+            return notAccepted(context, error);
           }
           return context.json({ data: { received: true } });
         });
@@ -811,30 +821,35 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           const event = verified.value;
           const [marked] = await db.insert(processedWebhookEvents).values({ eventId: event.id, provider, eventType: event.topic }).onConflictDoNothing().returning({ id: processedWebhookEvents.id });
           if (!marked) return context.json({ data: { received: true, duplicate: true } });
-          // The shop header is not signed: the signature says which app sent this, and each store says
-          // whether that app is its own.
-          const stores: ConnectedStore[] = [];
-          for (const store of await service.getStoresByDomain(event.shopDomain)) {
-            if (store.provider === provider && (connector.acceptsAppWebhook === undefined || await connector.acceptsAppWebhook(store as ChannelStore, event))) stores.push(store);
-          }
           const jobs = ctx.services.jobs as JobsAdapter;
+          let stores = 0;
           try {
-            if (stores.length === 0) await options.onAppWebhookUnclaimed?.({ db, provider, event });
-            for (const store of stores) {
+            // The shop header is not signed: the signature says which app sent this, and each store says
+            // whether that app is its own.
+            const accepting: ConnectedStore[] = [];
+            for (const store of await service.getStoresByDomain(event.shopDomain)) {
+              if (store.provider === provider && (connector.acceptsAppWebhook === undefined || await connector.acceptsAppWebhook(store as ChannelStore, event))) accepting.push(store);
+            }
+            stores = accepting.length;
+            if (accepting.length === 0) await options.onShopEnded?.({ db, provider, shopDomain: event.shopDomain, topic: event.topic, signer: event.signer });
+            for (const store of accepting) {
+              const grantId = grantIdOf(store.credentials);
               await enqueueWebhookDelivery(jobs, connector, {
                 orgId: store.organizationId,
                 storeId: store.id,
                 id: event.id,
                 topic: event.topic,
                 data: event.data,
+                // What it was accepted for: the job runs later, and the store may not be the same connection then.
+                origin: { ...(event.signer === undefined ? {} : { signer: event.signer }), ...(grantId === undefined ? {} : { grantId }) },
               });
             }
           } catch (error) {
-            // Not accepted: forget the delivery so the provider's retry is applied, not dropped as a duplicate.
+            // Not accepted, at any step after the delivery was recorded: forget it so the provider's retry is applied, not dropped as a duplicate.
             await db.delete(processedWebhookEvents).where(eq(processedWebhookEvents.id, marked.id));
-            return context.json({ error: { code: "WEBHOOK_NOT_ACCEPTED", message: error instanceof Error ? error.message : "The delivery could not be queued." } }, 503);
+            return notAccepted(context, error);
           }
-          return context.json({ data: { received: true, stores: stores.length } });
+          return context.json({ data: { received: true, stores } });
         });
 
       channels.post("/stores")
