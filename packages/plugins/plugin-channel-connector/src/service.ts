@@ -49,7 +49,7 @@ import type { FieldOwner, FieldPath } from "@porulle/core";
 import type { JobsAdapter } from "@porulle/core";
 import { CHANNEL_CONVERGENCE_CTX } from "./catalog-push-trigger.js";
 import { grantIdOf, resolveLiveCredentials, withLiveCredentials } from "./live-credentials.js";
-import { and, desc, eq, inArray, isNotNull, isNull, lte, ne, notInArray, or, sql, type SQL } from "@porulle/core/drizzle";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, ne, notInArray, or, sql, type SQL } from "@porulle/core/drizzle";
 import {
   brands,
   categories,
@@ -345,8 +345,12 @@ export type OnOrdersRedacted = (input: OrdersRedactedInput) => Promise<void>;
  * or its row is gone), nothing to compare. The host removes whatever it holds for the shop that this app
  * issued (a pending install, a brand's app credentials) and nothing another app issued, because
  * `signer` names the app. A delivery for a connection that was replaced since is never passed here.
+ *
+ * `receivedAt` is when the delivery arrived, on the database's clock. The host removes only what was last
+ * written at or before it: an old uninstall, applied late, must not take a link or an app the merchant
+ * made after it. Absent (a job queued before deliveries carried it), nothing proves what is older.
  */
-export type OnShopEnded = (input: { db: PluginDb; provider: string; shopDomain: string; topic: string; signer: string | undefined }) => Promise<void>;
+export type OnShopEnded = (input: { db: PluginDb; provider: string; shopDomain: string; topic: string; signer: string | undefined; receivedAt: Date | undefined }) => Promise<void>;
 
 /**
  * Persisted by the host when a `customers/data_request` compliance webhook arrives.
@@ -1545,6 +1549,8 @@ type PlannedLinks = { [K in keyof EntityLinkRows]-?: Array<NonNullable<EntityLin
 export interface AppDeliveryOrigin {
   signer?: string | undefined;
   grantId?: string | undefined;
+  /** When the delivery was received, on the database's clock: what an uninstall's cleanup may remove is bounded by it. */
+  receivedAt?: Date | undefined;
 }
 
 /** What {@link ChannelConnectorService.handleWebhook} did. `reason` names why nothing, or not everything, was applied. */
@@ -1561,6 +1567,7 @@ interface DeliveryConnection {
   topic: string;
   signer: string | undefined;
   grantId: string | undefined;
+  receivedAt: Date | undefined;
   current: boolean;
 }
 
@@ -3621,9 +3628,12 @@ export class ChannelConnectorService {
    * `ifGrant` disconnects only the connection whose grant id this is (`undefined`: a row written before
    * ids existed), and answers `SUPERSEDED` when the store has moved on to another. A delivery verified for
    * one connection uses it, so it cannot disconnect the next.
+   *
+   * `alongside` runs in the disconnect's own transaction once the store is disconnected, and a throw there
+   * undoes the disconnect. The provider's unregister call is made before it opens, outside the transaction.
    */
-  async disconnectStoreSystem(orgId: string, id: string, options: { redactDomain?: boolean; ifGrant?: { grantId: string | undefined } } = {}): Promise<PluginResult<PublicConnectedStore>> {
-    const { redactDomain = false, ifGrant } = options;
+  async disconnectStoreSystem(orgId: string, id: string, options: { redactDomain?: boolean; ifGrant?: { grantId: string | undefined }; alongside?: (tx: PluginDb) => Promise<void> } = {}): Promise<PluginResult<PublicConnectedStore>> {
+    const { redactDomain = false, ifGrant, alongside } = options;
     const before = await this.getStoreRecord(orgId, id);
     const connector = before ? this.connectors.get(before.provider) : undefined;
     if (before && connector?.unregisterWebhooks && this.options.publicUrl && before.status !== "disconnected") {
@@ -3631,24 +3641,33 @@ export class ChannelConnectorService {
       const removed = await connector.unregisterWebhooks(before as ChannelStore, this.webhookCallbackUrl(id));
       if (!removed.ok) console.warn(JSON.stringify({ event: "channel_unregister_webhooks_failed", provider: before.provider, storeId: id, code: removed.error.code, message: removed.error.message }));
     }
-    const rows = await this.db
-      .update(connectedStores)
-      .set({
-        status: "disconnected",
-        credentials: {},
-        webhookSecret: null,
-        ...(redactDomain ? { storeDomain: "[REDACTED]" } : {}),
-        updatedAt: new Date(),
-      })
-      .where(and(
-        eq(connectedStores.organizationId, orgId),
-        eq(connectedStores.id, id),
-        ...(ifGrant === undefined ? [] : [ifGrant.grantId === undefined ? sql`${connectedStores.credentials}->>'grantId' is null` : sql`${connectedStores.credentials}->>'grantId' = ${ifGrant.grantId}`]),
-      ))
-      .returning();
-    const store = rows[0] as ConnectedStore | undefined;
+    const store = await this.transact(async (tx) => {
+      const rows = await tx
+        .update(connectedStores)
+        .set({
+          status: "disconnected",
+          credentials: {},
+          webhookSecret: null,
+          ...(redactDomain ? { storeDomain: "[REDACTED]" } : {}),
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(connectedStores.organizationId, orgId),
+          eq(connectedStores.id, id),
+          ...(ifGrant === undefined ? [] : [ifGrant.grantId === undefined ? sql`${connectedStores.credentials}->>'grantId' is null` : sql`${connectedStores.credentials}->>'grantId' = ${ifGrant.grantId}`]),
+        ))
+        .returning();
+      const disconnected = rows[0] as ConnectedStore | undefined;
+      if (disconnected) await alongside?.(tx);
+      return disconnected;
+    });
     if (!store) return ifGrant !== undefined && before ? PluginErr("This store was reconnected since.", "SUPERSEDED") : PluginErr("Connected store not found.", "NOT_FOUND");
     return Ok(redactStore(store));
+  }
+
+  /** The host's cleanup for a shop whose connection this delivery ended; see {@link OnShopEnded}. */
+  private async endShop(db: PluginDb, provider: string, shopDomain: string, connection: DeliveryConnection): Promise<void> {
+    await this.options.onShopEnded?.({ db, provider, shopDomain, topic: connection.topic, signer: connection.signer, receivedAt: connection.receivedAt });
   }
 
   /**
@@ -5530,29 +5549,32 @@ export class ChannelConnectorService {
     const connector = this.connectors.get(store.provider);
     // A delivery to the provider-wide address was accepted for this store when it arrived, and the store may
     // have changed since: the connector is asked again with the signer, and a delivery for an earlier
-    // connection never takes anything away from the current one. Both are answers, not failures: a retry
-    // would only get them again.
-    if (origin !== undefined && connector?.acceptsAppWebhook) {
-      const accepted = await connector.acceptsAppWebhook(store as ChannelStore, {
-        id: delivery.id,
-        topic: delivery.type,
-        shopDomain: store.storeDomain,
-        data: delivery.data,
-        ...(origin.signer === undefined ? {} : { signer: origin.signer }),
-      });
-      if (!accepted) return Ok({ processed: false, reason: "not_accepted" });
-    }
+    // connection never takes anything away from the current one. A delivery it no longer accepts still
+    // applies its compliance requests: they were verified when they arrived and are about past orders,
+    // which the app switch did not change. Both are answers, not failures: a retry would only get them again.
+    const accepted = origin === undefined || !connector?.acceptsAppWebhook || await connector.acceptsAppWebhook(store as ChannelStore, {
+      id: delivery.id,
+      topic: delivery.type,
+      shopDomain: store.storeDomain,
+      data: delivery.data,
+      ...(origin.signer === undefined ? {} : { signer: origin.signer }),
+    });
+    // Deciding this must not call the shop, so only a delivery the connector decodes from its own body is read.
+    if (!accepted && connector?.decodeWebhookNeedsCredentials?.(delivery) !== false) return Ok({ processed: false, reason: "not_accepted" });
     const currentGrant = grantIdOf(store.credentials);
     const connection: DeliveryConnection = {
       topic: delivery.type,
       signer: origin?.signer,
       grantId: origin === undefined ? currentGrant : origin.grantId,
-      current: origin === undefined || origin.grantId === currentGrant,
+      receivedAt: origin?.receivedAt,
+      current: accepted && (origin === undefined || origin.grantId === currentGrant),
     };
     const decoded = connector?.decodeWebhook ? await connector.decodeWebhook(store as ChannelStore, delivery) : Ok<ChannelEvent[]>([]);
     if (!decoded.ok) return PluginErr(decoded.error.message, decoded.error.code);
-    await this.db.update(connectedStores).set({ lastEventAt: new Date() }).where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.id, storeId)));
-    if (decoded.value.length === 0) {
+    const events = accepted ? decoded.value : decoded.value.filter((event) => event.kind === "compliance.request");
+    if (!accepted && events.length === 0) return Ok({ processed: false, reason: "not_accepted" });
+    if (accepted) await this.db.update(connectedStores).set({ lastEventAt: new Date() }).where(and(eq(connectedStores.organizationId, orgId), eq(connectedStores.id, storeId)));
+    if (events.length === 0) {
       console.warn(JSON.stringify({ event: "channel_webhook_unmapped", provider: store.provider, storeId, topic: delivery.type, deliveryId: delivery.id }));
       return Ok({ processed: false });
     }
@@ -5560,7 +5582,7 @@ export class ChannelConnectorService {
     const outcome: WebhookOutcome = { processed: true };
     const report: ChannelEventReport = { skipped: [], conflicts: [], warnings: [] };
     let superseded = 0;
-    for (const event of decoded.value) {
+    for (const event of events) {
       const applied = await this.applyChannelEvent(orgId, store, connector, event, actor, report, delivery.id, connection);
       if (!applied.ok) return applied;
       if (applied.value.superseded) {
@@ -5586,7 +5608,7 @@ export class ChannelConnectorService {
       ));
     }
     // Nothing but what the delivery would have taken away: nothing was applied.
-    if (superseded === decoded.value.length && outcome.data === undefined && outcome.redacted === undefined) outcome.processed = false;
+    if (superseded === events.length && outcome.data === undefined && outcome.redacted === undefined) outcome.processed = false;
     return Ok(outcome);
   }
 
@@ -5681,9 +5703,13 @@ export class ChannelConnectorService {
       }
       case "connection.revoked": {
         if (!connection.current) return Ok({ superseded: true });
-        const disconnected = await this.disconnectStoreSystem(orgId, storeId, { ifGrant: { grantId: connection.grantId } });
+        // The disconnect and the host's cleanup commit together: a cleanup that fails takes the disconnect with
+        // it, so the retry does both rather than finding a store whose grant no longer matches.
+        const disconnected = await this.disconnectStoreSystem(orgId, storeId, {
+          ifGrant: { grantId: connection.grantId },
+          alongside: (tx) => this.endShop(tx, store.provider, store.storeDomain, connection),
+        });
         if (!disconnected.ok) return disconnected.code === "SUPERSEDED" ? Ok({ superseded: true }) : disconnected;
-        await this.options.onShopEnded?.({ db: this.db, provider: store.provider, shopDomain: store.storeDomain, topic: connection.topic, signer: connection.signer });
         return Ok({});
       }
       case "compliance.request": {
@@ -5738,134 +5764,143 @@ export class ChannelConnectorService {
     const storeId = redactOptions?.storeId;
     const reason: OrderContactRedactionReason = redactOptions?.reason ?? "customer_redact";
 
-    const updatedExports = await this.db
-      .update(channelOrderExports)
-      .set({ customerData: null, updatedAt: now })
-      .where(and(
-        eq(channelOrderExports.organizationId, orgId),
-        inArray(channelOrderExports.orderId, uniqueOrderIds),
-        ...(storeId !== undefined ? [eq(channelOrderExports.storeId, storeId)] : []),
-      ))
-      .returning({ id: channelOrderExports.id });
+    // One transaction, orders first: the order rows are locked and the store's erased marker written BEFORE
+    // the exports are cleared, and `exportOrder` writes contact under the same lock, order first. Whichever
+    // reaches the order row second sees the other: an export that writes after this commits finds the marker,
+    // and one that wrote before is cleared below. Clearing first left a gap in which a slice read earlier put
+    // contact back and the marker followed it.
+    return this.transact(async (tx) => {
+      await tx.select({ id: orders.id }).from(orders).where(and(eq(orders.organizationId, orgId), inArray(orders.id, uniqueOrderIds))).orderBy(asc(orders.id)).for("update");
 
-    await this.db
-      .update(channelReturns)
-      .set({ note: null, updatedAt: now })
-      .where(and(
-        eq(channelReturns.organizationId, orgId),
-        inArray(channelReturns.orderId, uniqueOrderIds),
-        ...(storeId !== undefined ? [eq(channelReturns.storeId, storeId)] : []),
-      ));
+      const redactedStamp = JSON.stringify({ [CONTACT_REDACTED_AT_METADATA_KEY]: now.toISOString() });
+      let updatedOrders: Array<{ id: string }>;
 
-    const redactedStamp = JSON.stringify({ [CONTACT_REDACTED_AT_METADATA_KEY]: now.toISOString() });
-    let updatedOrders: Array<{ id: string }>;
-
-    if (storeId !== undefined) {
-      // Record this store as redacted on each order and clear its deferred entry (removing the
-      // deferred key entirely when empty) before testing whether every store slice is now gone.
-      await this.db
-        .update(orders)
-        .set({
-          metadata: sql`
-            (
-              case
-                when jsonb_typeof(${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}) = 'object'
-                  and (
-                    (${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}->>'storeId') = ${storeId}
-                    or ((${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}) - ${storeId}::text) = '{}'::jsonb
-                  )
-                then coalesce(${orders.metadata}, '{}'::jsonb) - ${DEFERRED_REDACTION_METADATA_KEY}::text
-                when jsonb_typeof(${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}) = 'object'
-                  and (${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}->>'storeId') is null
-                then jsonb_set(
-                  coalesce(${orders.metadata}, '{}'::jsonb),
-                  ARRAY[${DEFERRED_REDACTION_METADATA_KEY}],
-                  (${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}) - ${storeId}::text,
-                  true
-                )
-                else coalesce(${orders.metadata}, '{}'::jsonb)
-              end
-            ) || jsonb_build_object(
-              ${REDACTED_STORES_METADATA_KEY}::text,
+      if (storeId !== undefined) {
+        // Record this store as redacted on each order and clear its deferred entry (removing the
+        // deferred key entirely when empty) before testing whether every store slice is now gone.
+        await tx
+          .update(orders)
+          .set({
+            metadata: sql`
               (
-                select coalesce(jsonb_agg(distinct v), '[]'::jsonb)
-                from (
-                  select jsonb_array_elements_text(
-                    case when jsonb_typeof(${orders.metadata}->${REDACTED_STORES_METADATA_KEY}) = 'array'
-                      then ${orders.metadata}->${REDACTED_STORES_METADATA_KEY}
-                      else '[]'::jsonb
-                    end
-                  ) as v
-                  union
-                  select ${storeId}::text as v
-                ) s
+                case
+                  when jsonb_typeof(${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}) = 'object'
+                    and (
+                      (${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}->>'storeId') = ${storeId}
+                      or ((${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}) - ${storeId}::text) = '{}'::jsonb
+                    )
+                  then coalesce(${orders.metadata}, '{}'::jsonb) - ${DEFERRED_REDACTION_METADATA_KEY}::text
+                  when jsonb_typeof(${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}) = 'object'
+                    and (${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}->>'storeId') is null
+                  then jsonb_set(
+                    coalesce(${orders.metadata}, '{}'::jsonb),
+                    ARRAY[${DEFERRED_REDACTION_METADATA_KEY}],
+                    (${orders.metadata}->${DEFERRED_REDACTION_METADATA_KEY}) - ${storeId}::text,
+                    true
+                  )
+                  else coalesce(${orders.metadata}, '{}'::jsonb)
+                end
+              ) || jsonb_build_object(
+                ${REDACTED_STORES_METADATA_KEY}::text,
+                (
+                  select coalesce(jsonb_agg(distinct v), '[]'::jsonb)
+                  from (
+                    select jsonb_array_elements_text(
+                      case when jsonb_typeof(${orders.metadata}->${REDACTED_STORES_METADATA_KEY}) = 'array'
+                        then ${orders.metadata}->${REDACTED_STORES_METADATA_KEY}
+                        else '[]'::jsonb
+                      end
+                    ) as v
+                    union
+                    select ${storeId}::text as v
+                  ) s
+                )
               )
-            )
-          `,
-        })
+            `,
+          })
+          .where(and(
+            eq(orders.organizationId, orgId),
+            inArray(orders.id, uniqueOrderIds),
+          ));
+
+        // Clear shared order contact once no unredacted store slice remains on this order, counting both
+        // existing exports and source lines. A manual store's slice is the merchant's own to fulfil, so it
+        // keeps the contact until the order is final, like any other store's open order; it is never
+        // "redacted" by a request, because nothing sends one for it.
+        const manualAndFinal = (provider: SQL): SQL => sql`(coalesce(${provider}, '') = 'manual' and ${orders.status} in (${sql.join(FINAL_ORDER_REDACTION_STATUSES.map((status) => sql`${status}`), sql`, `)}))`;
+        updatedOrders = await tx
+          .update(orders)
+          .set({
+            metadata: sql`(coalesce(${orders.metadata}, '{}'::jsonb) - 'customer' - 'shippingAddress' - 'guestCustomer' - 'guestShippingAddress' - ${DEFERRED_REDACTION_METADATA_KEY}::text) || ${redactedStamp}::jsonb`,
+          })
+          .where(and(
+            eq(orders.organizationId, orgId),
+            inArray(orders.id, uniqueOrderIds),
+            sql`not exists (
+              select 1 from ${channelOrderExports} coe
+              left join ${connectedStores} ecs on ecs.id = coe.store_id
+              where coe.organization_id = ${orgId}
+                and coe.order_id = ${orders.id}
+                and not (coalesce(${orders.metadata}->${REDACTED_STORES_METADATA_KEY}, '[]'::jsonb) @> jsonb_build_array(coe.store_id::text))
+                and not ${manualAndFinal(sql`ecs.provider`)}
+            )`,
+            sql`not exists (
+              select 1 from ${orderLineItems} oli
+              inner join ${sellableEntities} se
+                on se.id = oli.entity_id and se.organization_id = ${orgId}
+              inner join ${connectedStores} cs
+                on cs.id::text = se.source_store_id and cs.organization_id = ${orgId}
+              where oli.order_id = ${orders.id}
+                and not ${manualAndFinal(sql`cs.provider`)}
+                and not (coalesce(${orders.metadata}->${REDACTED_STORES_METADATA_KEY}, '[]'::jsonb) @> jsonb_build_array(cs.id::text))
+            )`,
+          ))
+          .returning({ id: orders.id });
+      } else {
+        updatedOrders = await tx
+          .update(orders)
+          .set({
+            metadata: sql`(coalesce(${orders.metadata}, '{}'::jsonb) - 'customer' - 'shippingAddress' - 'guestCustomer' - 'guestShippingAddress' - ${DEFERRED_REDACTION_METADATA_KEY}::text - ${REDACTED_STORES_METADATA_KEY}::text) || ${redactedStamp}::jsonb`,
+          })
+          .where(and(
+            eq(orders.organizationId, orgId),
+            inArray(orders.id, uniqueOrderIds),
+          ))
+          .returning({ id: orders.id });
+      }
+
+      const updatedExports = await tx
+        .update(channelOrderExports)
+        .set({ customerData: null, updatedAt: now })
         .where(and(
-          eq(orders.organizationId, orgId),
-          inArray(orders.id, uniqueOrderIds),
+          eq(channelOrderExports.organizationId, orgId),
+          inArray(channelOrderExports.orderId, uniqueOrderIds),
+          ...(storeId !== undefined ? [eq(channelOrderExports.storeId, storeId)] : []),
+        ))
+        .returning({ id: channelOrderExports.id });
+
+      await tx
+        .update(channelReturns)
+        .set({ note: null, updatedAt: now })
+        .where(and(
+          eq(channelReturns.organizationId, orgId),
+          inArray(channelReturns.orderId, uniqueOrderIds),
+          ...(storeId !== undefined ? [eq(channelReturns.storeId, storeId)] : []),
         ));
 
-      // Clear shared order contact once no unredacted store slice remains on this order, counting both
-      // existing exports and source lines. A manual store's slice is the merchant's own to fulfil, so it
-      // keeps the contact until the order is final, like any other store's open order; it is never
-      // "redacted" by a request, because nothing sends one for it.
-      const manualAndFinal = (provider: SQL): SQL => sql`(coalesce(${provider}, '') = 'manual' and ${orders.status} in (${sql.join(FINAL_ORDER_REDACTION_STATUSES.map((status) => sql`${status}`), sql`, `)}))`;
-      updatedOrders = await this.db
-        .update(orders)
-        .set({
-          metadata: sql`(coalesce(${orders.metadata}, '{}'::jsonb) - 'customer' - 'shippingAddress' - 'guestCustomer' - 'guestShippingAddress' - ${DEFERRED_REDACTION_METADATA_KEY}::text) || ${redactedStamp}::jsonb`,
-        })
-        .where(and(
-          eq(orders.organizationId, orgId),
-          inArray(orders.id, uniqueOrderIds),
-          sql`not exists (
-            select 1 from ${channelOrderExports} coe
-            left join ${connectedStores} ecs on ecs.id = coe.store_id
-            where coe.organization_id = ${orgId}
-              and coe.order_id = ${orders.id}
-              and not (coalesce(${orders.metadata}->${REDACTED_STORES_METADATA_KEY}, '[]'::jsonb) @> jsonb_build_array(coe.store_id::text))
-              and not ${manualAndFinal(sql`ecs.provider`)}
-          )`,
-          sql`not exists (
-            select 1 from ${orderLineItems} oli
-            inner join ${sellableEntities} se
-              on se.id = oli.entity_id and se.organization_id = ${orgId}
-            inner join ${connectedStores} cs
-              on cs.id::text = se.source_store_id and cs.organization_id = ${orgId}
-            where oli.order_id = ${orders.id}
-              and not ${manualAndFinal(sql`cs.provider`)}
-              and not (coalesce(${orders.metadata}->${REDACTED_STORES_METADATA_KEY}, '[]'::jsonb) @> jsonb_build_array(cs.id::text))
-          )`,
-        ))
-        .returning({ id: orders.id });
-    } else {
-      updatedOrders = await this.db
-        .update(orders)
-        .set({
-          metadata: sql`(coalesce(${orders.metadata}, '{}'::jsonb) - 'customer' - 'shippingAddress' - 'guestCustomer' - 'guestShippingAddress' - ${DEFERRED_REDACTION_METADATA_KEY}::text - ${REDACTED_STORES_METADATA_KEY}::text) || ${redactedStamp}::jsonb`,
-        })
-        .where(and(
-          eq(orders.organizationId, orgId),
-          inArray(orders.id, uniqueOrderIds),
-        ))
-        .returning({ id: orders.id });
-    }
+      const redactedOrderIds = updatedOrders.map((row) => row.id);
+      if (redactedOrderIds.length > 0) {
+        await this.options.onOrdersRedacted?.({
+          db: tx,
+          orgId,
+          orderIds: redactedOrderIds,
+          ...(storeId !== undefined ? { storeId } : {}),
+          reason,
+        });
+      }
 
-    const redactedOrderIds = updatedOrders.map((row) => row.id);
-    if (redactedOrderIds.length > 0) {
-      await this.options.onOrdersRedacted?.({
-        db: this.db,
-        orgId,
-        orderIds: redactedOrderIds,
-        ...(storeId !== undefined ? { storeId } : {}),
-        reason,
-      });
-    }
-
-    return { exportsRedacted: updatedExports.length, ordersRedacted: updatedOrders.length };
+      return { exportsRedacted: updatedExports.length, ordersRedacted: updatedOrders.length };
+    });
   }
 
   /**
@@ -6276,10 +6311,12 @@ export class ChannelConnectorService {
     // The shop's past orders are erased whichever connection the request was accepted for. Taking the
     // connection away is only for the one it was accepted for: a shop that reinstalled since keeps its own.
     if (!connection.current) return Ok({ exportsRedacted, superseded: true });
-    const disconnected = await this.disconnectStoreSystem(orgId, store.id, { redactDomain: true, ifGrant: { grantId: connection.grantId } });
+    const disconnected = await this.disconnectStoreSystem(orgId, store.id, {
+      redactDomain: true,
+      ifGrant: { grantId: connection.grantId },
+      alongside: (tx) => this.endShop(tx, store.provider, originalStoreDomain, connection),
+    });
     if (!disconnected.ok) return disconnected.code === "SUPERSEDED" ? Ok({ exportsRedacted, superseded: true }) : PluginErr(disconnected.error, disconnected.code);
-
-    await this.options.onShopEnded?.({ db: this.db, provider: store.provider, shopDomain: originalStoreDomain, topic: connection.topic, signer: connection.signer });
 
     return Ok({ exportsRedacted, superseded: false });
   }
@@ -6323,7 +6360,7 @@ export class ChannelConnectorService {
     if (!events.ok) return PluginErr(events.error.message, events.error.code);
     const report: ChannelEventReport = { skipped: [], conflicts: [], warnings: [] };
     const actor = createSystemActor(orgId);
-    const connection: DeliveryConnection = { topic: "refresh", signer: undefined, grantId: grantIdOf(store.credentials), current: true };
+    const connection: DeliveryConnection = { topic: "refresh", signer: undefined, grantId: grantIdOf(store.credentials), receivedAt: undefined, current: true };
     for (const event of events.value) {
       const applied = await this.applyChannelEvent(orgId, store, connector, event, actor, report, `refresh:${remoteOrderId}`, connection);
       if (!applied.ok) return applied;
@@ -6945,15 +6982,23 @@ export class ChannelConnectorService {
 
     // Contact is written only while the order's contact has not been erased for this store: a slice read
     // before an erasure must not put it back.
-    const written = await this.db
-      .update(channelOrderExports)
-      .set({ customerData: slice.customer, updatedAt: new Date() })
-      .where(and(
-        eq(channelOrderExports.organizationId, orgId),
-        eq(channelOrderExports.id, created.value.id),
-        sql`not exists (select 1 from ${orders} where ${orders.id} = ${channelOrderExports.orderId} and coalesce(${orders.metadata}->${REDACTED_STORES_METADATA_KEY}, '[]'::jsonb) @> jsonb_build_array(${storeId}::text))`,
-      ))
-      .returning({ id: channelOrderExports.id });
+    // The write runs under the order row's lock, order first and export second, the order `redactOrdersContact`
+    // takes them in: it sees the erased marker, or it runs before the erasure, which then clears it. The
+    // lock is released before the store is called.
+    const written = await this.transact(async (tx) => {
+      await tx.select({ id: orders.id }).from(orders).where(and(eq(orders.organizationId, orgId), eq(orders.id, created.value.orderId))).for("update");
+      return tx
+        .update(channelOrderExports)
+        // A shopper who deleted the account (no store's request, so no store marker) is not kept here either; the
+        // paid order in flight still goes to the store, which needs the contact to deliver it.
+        .set({ customerData: sql`case when exists (select 1 from ${orders} where ${orders.id} = ${channelOrderExports.orderId} and ${orders.metadata}->>${CONTACT_REDACTED_AT_METADATA_KEY} is not null) then null else ${JSON.stringify(slice.customer)}::jsonb end`, updatedAt: new Date() })
+        .where(and(
+          eq(channelOrderExports.organizationId, orgId),
+          eq(channelOrderExports.id, created.value.id),
+          sql`not exists (select 1 from ${orders} where ${orders.id} = ${channelOrderExports.orderId} and coalesce(${orders.metadata}->${REDACTED_STORES_METADATA_KEY}, '[]'::jsonb) @> jsonb_build_array(${storeId}::text))`,
+        ))
+        .returning({ id: channelOrderExports.id });
+    });
     if (written.length === 0) return this.transitionExport(orgId, created.value.id, "failed", requireUserId(actor), CONTACT_ERASED_REASON, "definitive");
 
     const pushed = await connector.pushOrder(store as ChannelStore, slice);
