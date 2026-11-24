@@ -11,7 +11,7 @@ import {
   requireUserId,
   TaskNonRetryableError,
 } from "@porulle/core";
-import type { FieldPath, JobsAdapter, PluginResult, PluginRouteRegistration, TaskDefinition } from "@porulle/core";
+import type { ChannelStore, FieldPath, JobsAdapter, PluginResult, PluginRouteRegistration, TaskDefinition } from "@porulle/core";
 import { z } from "@hono/zod-openapi";
 import { and, eq } from "@porulle/core/drizzle";
 import { processedWebhookEvents } from "@porulle/core/schema";
@@ -28,6 +28,7 @@ import {
   channelRefundRequests,
   channelReturns,
   connectedStores,
+  type ConnectedStore,
 } from "./schema.js";
 import {
   ChannelConnectorService,
@@ -247,6 +248,7 @@ export type {
   CustomerDataRequestInput,
   OnCustomerDataRequest,
   OnOrdersRedacted,
+  OnAppWebhookUnclaimed,
   OnShopRedacted,
   OnStoreCatalogChanged,
   OrderContactRedactionReason,
@@ -747,13 +749,22 @@ export function channelConnectorPlugin(options: ChannelConnectorPluginOptions = 
           const connector = service.getConnector(provider);
           if (!connector?.verifyAppWebhook) return context.json({ error: { code: "NOT_FOUND", message: `No app-level webhooks for provider "${provider}".` } }, 404);
           const verified = await connector.verifyAppWebhook(context.req.raw);
-          if (!verified.ok) return context.json({ error: { code: "UNAUTHORIZED", message: verified.error.message } }, 401);
+          // A refusal the sender cannot fix (our own key is unreadable) is 503 so the provider retries; a bad signature is 401.
+          if (!verified.ok) return verified.error.retriable === true
+            ? context.json({ error: { code: verified.error.code, message: verified.error.message } }, 503)
+            : context.json({ error: { code: "UNAUTHORIZED", message: verified.error.message } }, 401);
           const event = verified.value;
           const [marked] = await db.insert(processedWebhookEvents).values({ eventId: event.id, provider, eventType: event.topic }).onConflictDoNothing().returning({ id: processedWebhookEvents.id });
           if (!marked) return context.json({ data: { received: true, duplicate: true } });
-          const stores = (await service.getStoresByDomain(event.shopDomain)).filter((store) => store.provider === provider);
+          // The shop header is not signed: the signature says which app sent this, and each store says
+          // whether that app is its own.
+          const stores: ConnectedStore[] = [];
+          for (const store of await service.getStoresByDomain(event.shopDomain)) {
+            if (store.provider === provider && (connector.acceptsAppWebhook === undefined || await connector.acceptsAppWebhook(store as ChannelStore, event))) stores.push(store);
+          }
           const jobs = ctx.services.jobs as JobsAdapter;
           try {
+            if (stores.length === 0) await options.onAppWebhookUnclaimed?.({ db, provider, event });
             for (const store of stores) {
               await jobs.enqueue("channel/apply-webhook", { orgId: store.organizationId, storeId: store.id, id: event.id, topic: event.topic, data: event.data }, {
                 organizationId: store.organizationId,

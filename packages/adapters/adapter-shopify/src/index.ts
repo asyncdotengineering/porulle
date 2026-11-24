@@ -13,7 +13,7 @@ import type {
 } from "@porulle/core";
 import { z } from "zod";
 import { readCatalogItems, readCatalogPage } from "./catalog.js";
-import { decodeShopifyWebhook } from "./webhooks.js";
+import { decodeReadsTheStore, decodeShopifyWebhook, isComplianceTopic } from "./webhooks.js";
 import { shopifyGid, shopifyGraphql } from "./graphql.js";
 import type { ShopifyGraphqlTarget } from "./graphql.js";
 import {
@@ -485,11 +485,19 @@ export function shopifyConnector(options: ShopifyConnectorOptions): ChannelConne
       } catch {
         return Err({ code: "INVALID_APP_WEBHOOK", message: "Shopify webhook body must be valid JSON.", retriable: false });
       }
+      // The HMAC proves which app sent this, not which shop: the shop is a header. The compliance topics
+      // also name their shop inside the signed body, and a sender holding the app's secret could pair
+      // any body with any header, so the two must agree before anything is erased on either's say.
+      if (isComplianceTopic(topic)) {
+        const named = typeof data === "object" && data !== null && "shop_domain" in data && typeof data.shop_domain === "string" ? data.shop_domain.toLowerCase() : undefined;
+        if (named !== shopDomain) return Err({ code: "INVALID_APP_WEBHOOK", message: "The shop in the webhook body does not match the shop in its headers.", retriable: false });
+      }
       return Ok({ id, topic, shopDomain, data });
     },
     async decodeWebhook(store, event) {
       return decodeShopifyWebhook(target(store), event);
     },
+    decodeWebhookNeedsCredentials: (event) => decodeReadsTheStore(event.type),
     async refundExecute() {
       return Err({ code: "NOT_IMPLEMENTED", message: "Refunds are issued by the platform, not executed in the Shopify store." });
     },

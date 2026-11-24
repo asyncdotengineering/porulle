@@ -42,6 +42,12 @@ export const ACCESS_TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000;
 /** What the store row holds. Read back with {@link parseShopifyCredentials}; never cast. */
 export interface ShopifyCredentials {
   /**
+   * The client id of the app that issued this grant. A token renews only with the app that issued
+   * it, and which app that is cannot be inferred from the shop: it is stored with the grant. Absent on
+   * a grant stored before this field existed, which the next renewal fills in.
+   */
+  clientId?: string;
+  /**
    * How the token was granted. `client_credentials` has no refresh token: it is renewed by minting
    * again with the app's client id and secret. Absent: the authorization code grant.
    */
@@ -55,6 +61,7 @@ export interface ShopifyCredentials {
 }
 
 const credentialsSchema = z.object({
+  clientId: z.string().min(1).optional(),
   grant: z.literal("client_credentials").optional(),
   accessToken: z.string().min(1),
   refreshToken: z.string().min(1).optional(),
@@ -66,9 +73,10 @@ const credentialsSchema = z.object({
 export function parseShopifyCredentials(value: Record<string, unknown>): ShopifyCredentials | undefined {
   const parsed = credentialsSchema.safeParse(value);
   if (!parsed.success) return undefined;
-  const { grant, refreshToken, accessTokenExpiresAt, refreshTokenExpiresAt, ...rest } = parsed.data;
+  const { clientId, grant, refreshToken, accessTokenExpiresAt, refreshTokenExpiresAt, ...rest } = parsed.data;
   return {
     ...rest,
+    ...(clientId !== undefined ? { clientId } : {}),
     ...(grant !== undefined ? { grant } : {}),
     ...(refreshToken !== undefined ? { refreshToken } : {}),
     ...(accessTokenExpiresAt !== undefined ? { accessTokenExpiresAt } : {}),
@@ -129,8 +137,9 @@ export function missingScopes(granted: readonly string[], required: readonly str
   return required.filter((scope) => !have.has(scope) && !(scope.startsWith("read_") && have.has(`write_${scope.slice(5)}`)));
 }
 
-function credentialsFrom(body: z.infer<typeof tokenResponseSchema>, now: number): ShopifyCredentials {
+function credentialsFrom(body: z.infer<typeof tokenResponseSchema>, now: number, clientId: string): ShopifyCredentials {
   return {
+    clientId,
     accessToken: body.access_token,
     grantedScopes: body.scope.split(",").map((scope) => scope.trim()).filter(Boolean),
     ...(body.refresh_token !== undefined ? { refreshToken: body.refresh_token } : {}),
@@ -205,7 +214,7 @@ export async function exchangeCallback(params: {
   if (!code) return oauthError("SHOPIFY_OAUTH_CODE_REQUIRED", "Shopify OAuth callback code is required.");
   const token = await postTokenEndpoint(params.fetchImpl, params.origin, { client_id: params.clientId, client_secret: params.clientSecret, code, expiring: "1" });
   if (!token.ok) return token;
-  const credentials = credentialsFrom(token.value, params.now);
+  const credentials = credentialsFrom(token.value, params.now, params.clientId);
   // Merchants can untick scopes on the grant screen; a token missing one fails later in a way that
   // looks like a product problem, so it is refused here, where the cause is still nameable.
   const missing = missingScopes(credentials.grantedScopes, params.requiredScopes);
@@ -304,7 +313,7 @@ export async function exchangeIdToken(params: {
     expiring: "1",
   }, ID_TOKEN_INVALID);
   if (!token.ok) return token;
-  const credentials = credentialsFrom(token.value, params.now);
+  const credentials = credentialsFrom(token.value, params.now, params.clientId);
   const missing = missingScopes(credentials.grantedScopes, params.requiredScopes);
   if (missing.length > 0) return oauthError("SHOPIFY_SCOPES_NOT_GRANTED", `The store did not grant: ${missing.join(", ")}.`);
   return Ok(credentials);
@@ -330,7 +339,7 @@ export async function mintClientCredentials(params: {
     client_secret: params.clientSecret,
   });
   if (!token.ok) return token;
-  return Ok({ grant: "client_credentials", ...credentialsFrom(token.value, params.now) });
+  return Ok({ grant: "client_credentials", ...credentialsFrom(token.value, params.now, params.clientId) });
 }
 
 /**
@@ -364,7 +373,7 @@ export async function refreshIfExpiring(params: {
     refresh_token: credentials.refreshToken,
   });
   if (!token.ok) return token;
-  const refreshed = credentialsFrom(token.value, params.now);
+  const refreshed = credentialsFrom(token.value, params.now, params.clientId);
   // A refresh answer may omit the scope list; the grant did not change, so keep the one we hold.
   return Ok(refreshed.grantedScopes.length > 0 ? refreshed : { ...refreshed, grantedScopes: credentials.grantedScopes });
 }
